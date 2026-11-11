@@ -3183,33 +3183,73 @@ describe('Cyclotron V2', () => {
             }
         })
 
-        it('stops within its drain limit while a poison-pill write hangs, and records no further poison pill', async () => {
-            for (let i = 0; i < 3; i++) {
+        it('finishes the poison pill in flight when it stops, and starts no further work', async () => {
+            const staleHeartbeat = new Date(Date.now() - 60_000)
+            const poisonIds = [uuidv7(), uuidv7(), uuidv7()]
+            for (const id of poisonIds) {
                 await insertRawJob({
-                    id: uuidv7(),
+                    id,
                     function_id: uuidv7(),
                     status: 'running',
                     lock_id: uuidv7(),
-                    last_heartbeat: new Date(Date.now() - 60_000),
+                    last_heartbeat: staleHeartbeat,
                     janitor_touch_count: 3,
                 })
             }
-            let finishWrite = (): void => {}
-            const recordTerminalFailureDurably = jest.fn(
-                () => new Promise<boolean>((resolve) => (finishWrite = () => resolve(true)))
-            )
-            const janitor = createJanitor(
-                { stallTimeoutMs: 1_000, maxTouchCount: 2, cleanupIntervalMs: 60_000, stopDrainMs: 100 },
-                { recordTerminalFailureDurably } as unknown as HogInvocationResultsService
-            )
+            const stalledId = uuidv7()
+            await insertRawJob({ id: stalledId, status: 'running', lock_id: uuidv7(), last_heartbeat: staleHeartbeat })
+            let ackProduce = (): void => {}
+            const acked = new Promise<void>((resolve) => (ackProduce = resolve))
+            const produce = jest.fn(() => acked)
+            const results = new HogInvocationResultsService({ produce } as any, {
+                HOG_INVOCATION_RESULTS_ENABLED: true,
+            })
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 60_000 }, results)
             const started = janitor.start()
-            await waitForExpect(() => expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1), 2000, 10)
+            await waitForExpect(() => expect(produce).toHaveBeenCalledTimes(1), 2000, 10)
 
-            await janitor.stop()
-            finishWrite()
+            const stopped = janitor.stop()
+            ackProduce()
+            await stopped
             await started
 
-            expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
+            expect(produce).toHaveBeenCalledTimes(1)
+            const recordedId = parseProducedResult(produce).invocation_id
+            expect(poisonIds).toContain(recordedId)
+            const left = await assertPool.query<{ id: string; status: string }>(
+                'SELECT id, status FROM cyclotron_jobs ORDER BY id'
+            )
+            expect(left.rows).toEqual(
+                [...poisonIds.filter((id) => id !== recordedId), stalledId]
+                    .sort()
+                    .map((id) => ({ id, status: 'running' }))
+            )
+        })
+
+        it('stops within its drain limit while a janitor query waits on a lock in Postgres', async () => {
+            const { release } = await holdJanitorRunsOnATerminalRow()
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 60_000, stopDrainMs: 200 })
+            const started = janitor.start()
+            try {
+                await waitForExpect(
+                    async () =>
+                        expect(
+                            (
+                                await assertPool.query(
+                                    `SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%DELETE FROM cyclotron_jobs%'`
+                                )
+                            ).rowCount
+                        ).toBe(1),
+                    2000,
+                    10
+                )
+
+                await janitor.stop()
+            } finally {
+                await release()
+                await started
+                await dropJanitorRunHold()
+            }
         })
 
         // Backoff on the reset job's next scheduled time, keyed on

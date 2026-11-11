@@ -216,6 +216,9 @@ export class CyclotronV2Janitor {
     }
 
     private async stage<T>(name: string, failed: T, run: () => Promise<T>): Promise<T> {
+        if (this.stopping) {
+            return failed
+        }
         try {
             return await run()
         } catch (err) {
@@ -620,11 +623,9 @@ export class CyclotronV2Janitor {
             this.intervalHandle = null
         }
         let drainTimer: ReturnType<typeof setTimeout> | undefined
-        await Promise.race([
-            this.runInFlight,
-            new Promise<void>((resolve) => (drainTimer = setTimeout(resolve, this.stopDrainMs))),
-        ])
+        const drainLimit = new Promise<void>((resolve) => (drainTimer = setTimeout(resolve, this.stopDrainMs)))
+        await Promise.race([this.runInFlight, drainLimit])
+        await Promise.race([this.pool.end(), drainLimit])
         clearTimeout(drainTimer)
-        await this.pool.end()
     }
 }
