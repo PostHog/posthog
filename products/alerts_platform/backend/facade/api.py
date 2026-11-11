@@ -238,13 +238,23 @@ def native_configuration_matches(
     return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
 
 
-def native_configuration_ids(
-    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+def owned_configuration_ids_without_source_rows(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    source_config_key: str,
+    values: Collection[Any],
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
 ) -> tuple[UUID, ...]:
-    """Ids of the team's alerts of a kind with no source row whose `source_config[key]` is one of
-    `values`, such as the alerts on a set of insights."""
-    return platform_reads.native_configuration_ids(
-        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
+    """Ids of the team's alerts of a kind the platform owns whose `source_config[key]` is one of
+    `values` and that have no source row, such as the alerts left on a set of deleted insights.
+    `existing_source_ids` returns which of the given source row ids still exist."""
+    return platform_reads.owned_configuration_ids_without_source_rows(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        source_config_key=source_config_key,
+        values=values,
+        existing_source_ids=existing_source_ids,
     )
 
 
@@ -492,10 +502,20 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     )
 
 
-def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> bool:
     """Deletes the copy of a source alert with the source row, in its transaction or after it
-    commits. With `owner`, only a copy that stack owns."""
-    platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id, owner=owner)
+    commits. With `owner`, only a copy that stack owns.
+
+    True when the copy was the platform's: its HogFunction destinations went with it, and the source
+    must not remove them again.
+    """
+    return platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id, owner=owner)
+
+
+def delete_owned_configuration(*, team_id: int, configuration_id: UUID) -> None:
+    """Deletes a configuration the platform owns whose source row is gone or never existed, after
+    sending the resolves of its open firings. Call it outside any transaction."""
+    platform_writes.delete_owned_configuration(team_id=team_id, configuration_id=configuration_id)
 
 
 def delete_orphaned_shadow_copies(

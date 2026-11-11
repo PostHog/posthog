@@ -3079,14 +3079,16 @@ class TestLogsAlertAPI(APIBaseTest):
         assert LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
 
     @parameterized.expand([("logs",), ("platform",)])
-    def test_deleting_an_alert_the_platform_owns_deletes_both_rows(self, route: str) -> None:
+    def test_deleting_an_alert_the_platform_owns_deletes_both_rows_and_its_destinations(self, route: str) -> None:
         created = self._owned_by_the_platform()
+        self._add_pagerduty_destination(created["id"])
         copy_id = self._copy(created["id"]).id
 
         response = self._delete_through(route, created["id"])
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+        assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
         assert ActivityLog.objects.filter(
             scope="PlatformAlertConfiguration", item_id=str(copy_id), activity="deleted", user=self.user
         ).exists()
