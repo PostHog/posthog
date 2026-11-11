@@ -916,7 +916,7 @@ class Database(BaseModel):
     _first_sync_lookup_team_id: int | None = None
     # Name -> whether the first sync failed. None until loaded.
     _tables_awaiting_first_sync: dict[str, bool] | None = None
-    _warehouse_table_models: Optional[list[Any]] = None
+    _warehouse_table_models: Optional[list[DataWarehouseTable]] = None
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None

@@ -606,15 +606,34 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             url_pattern="https://bucket.s3/data/*",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="acme",
+            connection_id="acme",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.HUBSPOT,
+            prefix="acme",
+        )
+        sourced_table = DataWarehouseTable.objects.create(
+            name="acme_contacts",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            url_pattern="https://bucket.s3/contacts/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        sourced_key = get_data_warehouse_table_name(source, sourced_table.name)
 
         database = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(team_id=self.team.pk, database=database)
         full = database.serialize(context, include_hidden_posthog_tables=True)
         subset = database.serialize(
-            context, include_only={"events", "warehouse_table"}, include_hidden_posthog_tables=True
+            context, include_only={"events", "warehouse_table", sourced_key}, include_hidden_posthog_tables=True
         )
 
-        assert set(subset.keys()) == {"events", "warehouse_table"}
+        assert sourced_key != sourced_table.name
+        assert set(subset.keys()) == {"events", "warehouse_table", sourced_key}
         for table_name, subset_table in subset.items():
             assert subset_table == full[table_name], table_name
 
