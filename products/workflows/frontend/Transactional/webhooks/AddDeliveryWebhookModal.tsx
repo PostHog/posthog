@@ -10,7 +10,8 @@ import { DELIVERY_WEBHOOK_EVENTS } from './deliveryWebhookPayload'
 import { deliveryWebhooksLogic } from './deliveryWebhooksLogic'
 
 export function AddDeliveryWebhookModal(): JSX.Element {
-    const { isAddModalOpen, createdSecret, isWebhookFormSubmitting } = useValues(deliveryWebhooksLogic)
+    const { isAddModalOpen, createdSecret, isWebhookFormSubmitting, webhookFormChanged } =
+        useValues(deliveryWebhooksLogic)
     const { closeAddModal, submitWebhookForm } = useActions(deliveryWebhooksLogic)
 
     if (createdSecret) {
@@ -18,7 +19,6 @@ export function AddDeliveryWebhookModal(): JSX.Element {
             <LemonModal
                 isOpen={isAddModalOpen}
                 onClose={closeAddModal}
-                // The secret is shown only once, so only "Done" closes this view.
                 closable={false}
                 title="Webhook added"
                 width={560}
@@ -52,6 +52,7 @@ export function AddDeliveryWebhookModal(): JSX.Element {
             onClose={closeAddModal}
             // Closing mid-request would hide the secret of a webhook the request still creates.
             closable={!isWebhookFormSubmitting}
+            hasUnsavedInput={webhookFormChanged}
             title="Add webhook"
             description="Send a request to your endpoint when a transactional email is sent, delivered, opened, clicked, bounced, marked as spam, or fails."
             width={560}
@@ -81,7 +82,11 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                 </LemonField>
                 <LemonField name="events" label="Events">
                     {({ value, onChange }) => (
-                        <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
+                        <div
+                            role="group"
+                            aria-label="Events"
+                            className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2"
+                        >
                             {DELIVERY_WEBHOOK_EVENTS.map(({ event, label }) => (
                                 <LemonCheckbox
                                     key={event}

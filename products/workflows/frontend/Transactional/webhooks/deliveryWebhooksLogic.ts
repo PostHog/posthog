@@ -172,10 +172,15 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
                 // The route takes the team id, so the destination lands in the active environment, not its project's primary one.
                 const projectId = String(values.currentTeamId)
                 const signingSecret = generateSigningSecret()
-                await hogFunctionsCreate(
-                    projectId,
-                    buildDeliveryWebhookPayload({ url: url.trim(), events, signingSecret })
-                )
+                try {
+                    await hogFunctionsCreate(
+                        projectId,
+                        buildDeliveryWebhookPayload({ url: url.trim(), events, signingSecret })
+                    )
+                } catch (error: any) {
+                    lemonToast.error(`Couldn't create the webhook: ${error?.message ?? 'unknown error'}. Try again.`)
+                    throw error
+                }
                 actions.setCreatedSecret(signingSecret)
             },
         },
@@ -192,12 +197,6 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             // pinned: analytics event name
             posthog.capture('transactional_webhook_created', { event_count: values.webhookForm.events.length })
             hogFunctionsListLogic.findMounted(DELIVERY_WEBHOOK_LIST_PROPS)?.actions.loadHogFunctions()
-        },
-        submitWebhookFormFailure: ({ error }) => {
-            if (values.webhookFormHasErrors) {
-                return
-            }
-            lemonToast.error(`Couldn't create the webhook: ${error?.message ?? 'unknown error'}. Try again.`)
         },
         enableEngagementEvents: () => {
             // pinned: analytics event name

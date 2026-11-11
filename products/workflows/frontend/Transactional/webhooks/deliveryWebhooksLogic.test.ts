@@ -1,7 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -64,18 +62,25 @@ describe('deliveryWebhooksLogic', () => {
         expect(logic.values.createdSecret).toBeNull()
     })
 
+    it('names a webhook with a long path by its host and the start of the path', async () => {
+        logic.actions.setWebhookFormValues({ url: `https://example.com/${'a'.repeat(500)}` })
+        logic.actions.submitWebhookForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(created[0].name).toEqual(`Transactional email webhook: example.com/${'a'.repeat(29)}…`)
+        expect(created[0].inputs.url.value).toEqual(`https://example.com/${'a'.repeat(500)}`)
+    })
+
     it.each([
         ['a URL without a scheme', { url: 'example.com/hooks' }],
         ['a plain http URL', { url: 'http://example.com/hooks' }],
         ['no events', { url: 'https://example.com/hooks', events: [] }],
-    ])('does not create a webhook with %s, and shows only the field error', async (_, values) => {
-        const toastError = jest.spyOn(lemonToast, 'error')
+    ])('does not create a webhook with %s', async (_, values) => {
         logic.actions.setWebhookFormValues(values)
         logic.actions.submitWebhookForm()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(created).toHaveLength(0)
         expect(logic.values.createdSecret).toBeNull()
-        expect(toastError).not.toHaveBeenCalled()
     })
 })

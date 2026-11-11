@@ -56,6 +56,15 @@ export function generateSigningSecret(): string {
     return `whsec_${btoa(String.fromCharCode(...bytes))}`
 }
 
+const NAME_PATH_LENGTH = 30
+
+function shortPath(pathname: string): string {
+    if (pathname === '/') {
+        return ''
+    }
+    return pathname.length > NAME_PATH_LENGTH ? `${pathname.slice(0, NAME_PATH_LENGTH)}…` : pathname
+}
+
 export function buildDeliveryWebhookPayload({
     url,
     events,
@@ -66,11 +75,10 @@ export function buildDeliveryWebhookPayload({
     signingSecret: string
 }): DeliveryWebhookCreateBody {
     const { host, pathname } = new URL(url)
-    // The API fills the template's code, inputs schema and icon from `template_id`.
     const payload = {
         template_id: DELIVERY_WEBHOOK_TEMPLATE_ID,
         type: 'destination',
-        name: `Transactional email webhook: ${host}${pathname === '/' ? '' : pathname}`,
+        name: `Transactional email webhook: ${host}${shortPath(pathname)}`,
         description: 'Sends delivery updates for transactional emails to your endpoint.',
         inputs: {
             url: { value: url },

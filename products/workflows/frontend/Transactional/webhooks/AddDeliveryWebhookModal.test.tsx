@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { ToastContainer } from 'react-toastify'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -36,15 +37,30 @@ describe('AddDeliveryWebhookModal', () => {
         deliveryWebhooksLogic.unmount()
     })
 
-    async function startCreate(): Promise<void> {
-        render(<AddDeliveryWebhookModal />)
+    function openModal(): void {
+        render(
+            <>
+                <ToastContainer />
+                <AddDeliveryWebhookModal />
+            </>
+        )
         act(() => deliveryWebhooksLogic.actions.openAddModal())
+    }
+
+    function submitUrl(url: string): void {
         fireEvent.change(screen.getByPlaceholderText('https://example.com/webhooks/email'), {
-            target: { value: 'https://example.com/hooks' },
+            target: { value: url },
         })
         fireEvent.click(document.querySelector('[data-attr="transactional-webhook-create"]')!)
+    }
+
+    async function startCreate(): Promise<void> {
+        openModal()
+        submitUrl('https://example.com/hooks')
         await waitFor(() => expect(releaseCreate).not.toBeNull())
     }
+
+    const isDialogOpen = (): boolean => screen.queryByText('Add webhook', { selector: 'h3' }) !== null
 
     function tryEveryDismissal(): void {
         fireEvent.click(screen.getByText('Cancel'))
@@ -56,13 +72,13 @@ describe('AddDeliveryWebhookModal', () => {
         await startCreate()
 
         tryEveryDismissal()
-        expect(screen.getByText('Add webhook', { selector: 'h3' })).toBeInTheDocument()
+        expect(isDialogOpen()).toBe(true)
 
         act(() => releaseCreate!([201, { id: 'new-webhook' }]))
 
         expect(await screen.findByText('Webhook added')).toBeInTheDocument()
-        const secret = deliveryWebhooksLogic.values.createdSecret
-        expect(secret).toMatch(/^whsec_/)
+        const secret = screen.getByText(/^whsec_/).textContent
+        expect(secret).toEqual(createdBody!.inputs.signing_secret.value)
 
         fireEvent.keyDown(document.querySelector('.ReactModal__Content')!, { key: 'Escape', keyCode: 27 })
         fireEvent.click(document.querySelector('.LemonModal__overlay')!)
@@ -71,15 +87,10 @@ describe('AddDeliveryWebhookModal', () => {
     })
 
     it('creates the webhook for the events the user leaves ticked', async () => {
-        render(<AddDeliveryWebhookModal />)
-        act(() => deliveryWebhooksLogic.actions.openAddModal())
-
-        fireEvent.change(screen.getByPlaceholderText('https://example.com/webhooks/email'), {
-            target: { value: 'https://example.com/hooks' },
-        })
+        openModal()
         fireEvent.click(screen.getByLabelText('Opened'))
         fireEvent.click(screen.getByLabelText('Link clicked'))
-        fireEvent.click(document.querySelector('[data-attr="transactional-webhook-create"]')!)
+        submitUrl('https://example.com/hooks')
 
         await waitFor(() => expect(createdBody).not.toBeNull())
         expect(createdBody!.inputs.url.value).toEqual('https://example.com/hooks')
@@ -96,9 +107,18 @@ describe('AddDeliveryWebhookModal', () => {
         await startCreate()
 
         act(() => releaseCreate!([500, { detail: 'Server error' }]))
-        await waitFor(() => expect(deliveryWebhooksLogic.values.isWebhookFormSubmitting).toBe(false))
+        expect(await screen.findByText(/Couldn't create the webhook/)).toBeInTheDocument()
 
         fireEvent.click(screen.getByText('Cancel'))
-        expect(deliveryWebhooksLogic.values.isAddModalOpen).toBe(false)
+        await waitFor(() => expect(isDialogOpen()).toBe(false))
+    })
+
+    it('shows a bad URL as a field error, without a failure toast', async () => {
+        openModal()
+        submitUrl('http://example.com/hooks')
+
+        expect(await screen.findByText('Enter a URL that starts with https://')).toBeInTheDocument()
+        expect(screen.queryByText(/Couldn't create the webhook/)).not.toBeInTheDocument()
+        expect(createdBody).toBeNull()
     })
 })
