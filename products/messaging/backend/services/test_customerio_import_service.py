@@ -125,10 +125,6 @@ user3@example.com,cio_3,""
 invalid@example.com,cio_4,"invalid json"
 ,cio_5,"{""topics"": {""topic_1"": false}}"
 user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
-user1@example.com,cio_1,"{""topics"": {""topic_1"": false}}"
-user2@example.com,cio_2,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
-user4@example.com,cio_6,"{""topics"": {""topic_2"": false}}"
-user3@example.com,cio_3,""
 """
 
         # Process CSV
@@ -136,12 +132,12 @@ user3@example.com,cio_3,""
 
         # Check results
         assert result["status"] == "completed"
-        assert result["total_rows"] == 10
-        assert result["rows_processed"] == 10
-        assert result["users_with_optouts"] == 3  # user1, user2, and user4
-        assert result["users_skipped"] == 1  # user3 (empty)
+        assert result["total_rows"] == 6
+        assert result["rows_processed"] == 6
+        assert result["users_with_optouts"] == 2  # user1 and user2
+        assert result["users_skipped"] == 2  # user3 (empty) and user4 (all subscribed)
         assert result["parse_errors"] == 2  # invalid@example.com and missing email
-        assert result["preferences_updated"] == 4  # user1: 1 opt-out, user2: 2 opt-outs, user4: 1 opt-out
+        assert result["preferences_updated"] == 3  # user1: 1 opt-out, user2: 2 opt-outs
         assert len(result["failed_imports"]) == 2
 
         # Check failed imports
@@ -157,9 +153,6 @@ user3@example.com,cio_3,""
         pref2 = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="user2@example.com")
         assert pref2.preferences[str(cat1.id)] == PreferenceStatus.OPTED_OUT.value
         assert pref2.preferences[str(cat2.id)] == PreferenceStatus.OPTED_OUT.value
-
-        pref4 = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="user4@example.com")
-        assert pref4.preferences == {str(cat2.id): PreferenceStatus.OPTED_OUT.value}
 
     @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
     def test_import_api_data_complete_flow(self, mock_client_class):
@@ -260,13 +253,20 @@ user1@example.com,cio_1,"{""topics"": {""topic_1"": false}}"
 user2@example.com,cio_2,"{""topics"": {""topic_1"": false}}"
 user3@example.com,cio_3,"{""topics"": {""topic_1"": false}}"
 user3@example.com,cio_4,"{""topics"": {""topic_1"": false}}"
+user2@example.com,cio_2,"{""topics"": {""topic_1"": true}}"
+user4@example.com,cio_5,"{""topics"": {""topic_1"": true}}"
+user4@example.com,cio_5,"{""topics"": {""topic_1"": false}}"
+user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
+user5@example.com,cio_6,"{""topics"": {""topic_1"": true}}"
 """
 
         result = self.service.process_preferences_csv(StringIO(csv_content))
 
         assert result["status"] == "completed"
-        assert result["preferences_updated"] == 3
-        assert result["total_unique_users"] == 3
+        assert result["users_with_optouts"] == 4
+        assert result["users_skipped"] == 1
+        assert result["preferences_updated"] == 4
+        assert result["total_unique_users"] == 5
         opted_out = PreferenceStatus.OPTED_OUT.value
         assert {
             pref.identifier: pref.preferences for pref in MessageRecipientPreference.objects.filter(team=self.team)
@@ -274,6 +274,7 @@ user3@example.com,cio_4,"{""topics"": {""topic_1"": false}}"
             "user1@example.com": {"other_cat": opted_out, str(cat1.id): opted_out},
             "user2@example.com": {str(cat1.id): opted_out},
             "user3@example.com": {str(cat1.id): opted_out},
+            "user4@example.com": {str(cat1.id): opted_out},
         }
 
     @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
