@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import ParamSpec, TypeVar
 
 from temporalio import activity
 
@@ -21,6 +22,7 @@ from products.replay_vision.backend.temporal.activities.observation_state import
 )
 from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import resolve_experiment_variant
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import IneligibleSessionError
 from products.replay_vision.backend.temporal.metrics import record_side_effect_failure
 from products.replay_vision.backend.temporal.scanners.base import has_embeddable_text
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
@@ -47,6 +49,12 @@ from products.replay_vision.backend.temporal.types import (
 # Attempts for each fail-soft delivery step. As separate activities these steps had their own retry policies,
 # and a retry of the whole finalize activity would also repeat the steps that already succeeded.
 _DELIVERY_ATTEMPTS = 3
+# The per-attempt limits the separate activities had as their start_to_close timeouts.
+_DELIVERY_ATTEMPT_TIMEOUT_SECONDS = 30
+_SIGNAL_EMISSION_TIMEOUT_SECONDS = 120
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 
 
 @activity.defn
@@ -57,7 +65,7 @@ async def prepare_observation_activity(inputs: PrepareObservationInputs) -> Prep
     Every step is safe to repeat, so a retry of this activity re-runs all of them.
     """
     observation_id, team_id, session_id = inputs.observation_id, inputs.team_id, inputs.session_id
-    await database_sync_to_async(mark_observation_running)(MarkObservationRunningInputs(observation_id=observation_id))
+    await _off_thread(mark_observation_running)(MarkObservationRunningInputs(observation_id=observation_id))
     resolve: Awaitable[ResolveExperimentVariantOutput | None] = (
         resolve_experiment_variant(
             ResolveExperimentVariantInputs(observation_id=observation_id, team_id=team_id, session_id=session_id)
@@ -80,6 +88,10 @@ async def prepare_observation_activity(inputs: PrepareObservationInputs) -> Prep
     if isinstance(network, BaseException):
         # The network capture is a side input that the scan can run without.
         activity.logger.warning("replay_vision.network_fetch_failed", exc_info=network)
+    # An ineligible session is final, so it wins over an error that would only retry the activity.
+    for result in (resolution, fetched, asset):
+        if isinstance(result, IneligibleSessionError):
+            raise result
     if isinstance(fetched, BaseException):
         raise fetched
     if isinstance(asset, BaseException):
@@ -104,17 +116,25 @@ async def finalize_observation_activity(inputs: FinalizeObservationInputs) -> No
     call_output = inputs.call_output
     signal_summaries: list[EmittedSignal] = []
     if call_output.signals:
-        # Signals are advisory, and the emitter already swallows and counts its own failures.
-        signal_summaries = await database_sync_to_async(emit_observation_signal_summaries)(
-            EmitObservationSignalInputs(
-                team_id=inputs.team_id,
-                observation_id=inputs.observation_id,
-                exported_asset_id=inputs.exported_asset_id,
-                signals=call_output.signals,
+        # Signals are advisory, and the emitter already swallows and counts its own failures. The time limit
+        # keeps a stalled emission from using up the activity before the billed result is written.
+        try:
+            signal_summaries = await asyncio.wait_for(
+                _off_thread(emit_observation_signal_summaries)(
+                    EmitObservationSignalInputs(
+                        team_id=inputs.team_id,
+                        observation_id=inputs.observation_id,
+                        exported_asset_id=inputs.exported_asset_id,
+                        signals=call_output.signals,
+                    )
+                ),
+                _SIGNAL_EMISSION_TIMEOUT_SECONDS,
             )
-        )
+        except TimeoutError:
+            record_side_effect_failure("signal")
+            activity.logger.warning("replay_vision.signal_emission_timed_out")
 
-    await database_sync_to_async(mark_observation_succeeded)(
+    await _off_thread(mark_observation_succeeded)(
         MarkObservationSucceededInputs(
             observation_id=inputs.observation_id,
             scanner_type=inputs.scanner_type,
@@ -173,10 +193,16 @@ async def finalize_observation_activity(inputs: FinalizeObservationInputs) -> No
     await asyncio.gather(*deliveries)
 
 
+def _off_thread(fn: Callable[_P, _R]) -> Callable[_P, Awaitable[_R]]:
+    # Not thread-sensitive, so these ORM calls do not queue behind every other activity's on the worker's one sync thread.
+    return database_sync_to_async(fn, thread_sensitive=False)
+
+
 async def _deliver(step: str, run: Callable[[], Awaitable[None]], attempts: int = _DELIVERY_ATTEMPTS) -> None:
     for attempt in range(1, attempts + 1):
         try:
-            await run()
+            # A hung call must not run finalize into its timeout after the result is already saved.
+            await asyncio.wait_for(run(), _DELIVERY_ATTEMPT_TIMEOUT_SECONDS)
             return
         except Exception:
             if attempt == attempts:

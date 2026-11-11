@@ -15,8 +15,9 @@ ADMISSION_BUDGET_TTL = dt.timedelta(seconds=15)
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
 # Must exceed the worst-case failure chain in `workflow.py`, where every phase spends its full schedule_to_close
 # budget before the terminal mark runs: create 3m + mark running 3m + fetch 5m + rasterize 40m + upload 20m +
-# provider 25m + terminal mark 3m + cleanup 1m = 100m. The 10m headroom covers task-queue scheduling latency
-# between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
+# provider 25m + terminal mark 3m + cleanup 1m = 100m. The folded chain is create 3m + prepare 5m + rasterize 40m +
+# upload 20m + provider 25m + finalize 8m + terminal mark 3m + cleanup 1m = 105m. The headroom covers task-queue
+# scheduling latency between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
 # row is stranded in `running` until the reaper's cutoff below.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
 
@@ -179,7 +180,7 @@ CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
 # Covers signal emission (up to 2 minutes), the result write and the delivery steps after it.
 FINALIZE_OBSERVATION_TIMEOUT = dt.timedelta(minutes=5)
-FINALIZE_OBSERVATION_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=12)
+FINALIZE_OBSERVATION_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=8)
 
 # The candidate query budgets its ClickHouse time from its own start, so the gates before it get extra time.
 SWEEP_SCANNER_TICK_TIMEOUT = (

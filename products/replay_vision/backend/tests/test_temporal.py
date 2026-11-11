@@ -2962,7 +2962,7 @@ async def test_folded_apply_scanner_workflow_runs_two_activities_around_the_mode
 _APPLY_STEPS = "products.replay_vision.backend.temporal.activities.observation_steps"
 
 
-def _inline_sync_to_async(fn: Any) -> Any:
+def _inline_sync_to_async(fn: Any, **_: Any) -> Any:
     # Runs the sync step on the test's own thread, so these database-free tests never reach Django connections.
     async def run(*args: Any, **kwargs: Any) -> Any:
         return fn(*args, **kwargs)
