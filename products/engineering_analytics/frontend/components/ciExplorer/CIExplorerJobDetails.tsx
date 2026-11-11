@@ -23,7 +23,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
     )
 }
 
-/** What is known about the selected job: how it ended, where it ran, what it cost, and why it failed. */
 export function CIExplorerJobDetails({ job, run }: { job: WorkflowJobApi; run: WorkflowRun }): JSX.Element {
     const { repoOwner, repoName, focusedJobInsights, workflowRunUrl } = useValues(ciExplorerLogic)
 

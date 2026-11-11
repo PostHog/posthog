@@ -186,7 +186,7 @@ Takes `value`, `min`, `max`, and `thresholds`, not `series`, and fills its conta
 ## FlameGraph
 
 A call tree drawn as nested rectangles on canvas: profiles, aggregated span trees, LLM agent runs.
-`data` is one root or an array of roots, each `{ name, value, children?, baselineValue?, count?, baselineCount?, group?, id?, meta? }`.
+`data` is one root or an array of roots, each `{ name, value, children?, baselineValue?, count?, baselineCount?, group?, color?, id?, meta? }`.
 There is no `series` or `labels`.
 
 ```tsx
@@ -205,6 +205,8 @@ There is no `series` or `labels`.
   A node object reached twice is skipped, which also guards against cyclic input.
 - Colors follow the data: `diff` colors when any node has a `baselineValue`, else one color per `group` when any node has a `group`, else one color per name.
   Groups and names get palette colors in first-seen order, blended toward the background so labels stay readable in both themes.
+  `config.groupColors` sets the color of named groups, so a host can match its other views; groups it leaves out take palette colors.
+  A node's `color` fills that node alone, for example to flag an error, and leaves the legend as it is. Diff colors ignore both.
   A legend below the graph shows each group's share of total self value, largest first. Its rows list colors, not series, so they are not clickable.
   `diff` colors by `value / baselineValue` on a red (slower) to blue (faster) scale whose strength grows with the change, full at 2× or ½×.
   The two colors are `theme.colors[4]` and `theme.colors[0]`; a palette with fewer than five colors, or with the same color in both places, uses the default palette's.
@@ -219,7 +221,8 @@ There is no `series` or `labels`.
 - Click zooms into a node: it spans the full width, its ancestors stay above it at full width and fade, and its siblings leave the view.
   A "+N more" cell zooms to just the bundled nodes.
   The breadcrumb row above the graph shows the path with a reset button, and Escape zooms out one level while the graph has keyboard focus.
-  `defaultFocusedId` zooms into a node on mount only; to open on another node, give the chart a new `key`.
+  `defaultFocusedId` zooms into a node on mount only and scrolls its row to the top of the viewport; to open on another node, give the chart a new `key`.
+  `onFocusChange` receives the newly zoomed `FlameHit`, or null after a reset, on each click, breadcrumb, Escape or reset that changes the zoom. `defaultFocusedId` does not call it.
 - `search` is a case-insensitive substring matched against names.
   Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and the share of the graph's width they cover, counting a match nested in another match once.
   The host renders the search input.

@@ -1,37 +1,24 @@
 from django.contrib import admin
-from django.urls import path, re_path
+from django.urls import URLPattern, path, re_path
 
 from posthog.admin.console import views
-from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.moved import MovedAction, MovedToConsole
 from posthog.admin.console.records import RECORD_TYPES
+from posthog.admin.console.registry import ConsoleRegistry, console
 
-# Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
-MOVED_TEAM_ACTIONS = {
-    "set-api-token": "api-token/set/",
-    "add-ai-gateway-credit": "ai-gateway/add-credit/",
-    "set-email-sending-tier": "email-sending/set-tier/",
-    "rebuild-cache": "#panel-remote-config",
-    "enable-ai-gateway": "#panel-ai-gateway",
-    "revoke-ai-gateway": "#panel-ai-gateway",
-    "clear-ai-gateway-revoke": "#panel-ai-gateway",
-    "recompute-email-sending-tier": "#panel-email-sending",
-}
 
-MOVED_ORGANIZATION_ACTIONS = {
-    "limit-product": "#panel-billing",
-    "unlimit-product": "#panel-billing",
-    "sync-to-billing": "#panel-billing",
-}
+def moved_url_patterns(registry: ConsoleRegistry = console) -> list[URLPattern]:
+    # Panels, tools and their console.py modules declare the old Django admin URLs they replaced, so a product
+    # moves its own URLs without editing this file.
+    patterns = []
+    for moved in registry.moved():
+        if isinstance(moved, MovedAction):
+            view = MovedToConsole.record_redirect(RECORD_TYPES[moved.record].plural, moved.target, moved.resolver)
+            patterns.append(path(moved.old_path, view))
+        else:
+            patterns.append(path(moved.old_path, MovedToConsole.page_redirect(moved.title, moved.url, moved.note)))
+    return patterns
 
-MOVED_DELETION_REQUEST_ACTIONS = {
-    "submit": "workflow/submit/",
-    "approve": "workflow/approve/",
-    "retry": "workflow/retry/",
-    "revert-to-draft": "#panel-workflow",
-    "verify": "#panel-workflow",
-    "fetch-stats": "#panel-stats",
-    "preview-stats": "#panel-stats",
-}
 
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view
 # adds the staff check, the login redirect and CSRF protection. The console needs no auth of its own.
@@ -66,45 +53,21 @@ urlpatterns = [
         name="admin_console_tool_live",
     ),
     path(
+        "admin/console/tools/<slug:tool_key>/download/<slug:download_key>/",
+        admin.site.admin_view(views.tool_download),
+        name="admin_console_tool_download",
+    ),
+    path(
         "admin/console/tools/<slug:tool_key>/<slug:operation_key>/",
         admin.site.admin_view(views.run_tool_operation),
         name="admin_console_tool_operation",
     ),
-    *[
-        path(
-            f"admin/posthog/team/<int:pk>/{old}/",
-            admin.site.admin_view(MovedToConsole.record_redirect("teams", target)),
-        )
-        for old, target in MOVED_TEAM_ACTIONS.items()
-    ],
-    *[
-        path(
-            f"admin/posthog/organization/<uuid:pk>/{old}/",
-            admin.site.admin_view(MovedToConsole.record_redirect("organizations", target)),
-        )
-        for old, target in MOVED_ORGANIZATION_ACTIONS.items()
-    ],
-    *[
-        path(
-            f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/",
-            admin.site.admin_view(MovedToConsole.record_redirect("deletion-requests", target)),
-        )
-        for old, target in MOVED_DELETION_REQUEST_ACTIONS.items()
-    ],
     path(
-        "admin/posthog/datadeletionrequest/add/",
-        MovedToConsole.page_redirect(
-            "Creating a deletion request", "/admin/console/tools/new-deletion-request/create/"
-        ),
+        "admin/console/results/<slug:result_id>/",
+        admin.site.admin_view(views.operation_result),
+        name="admin_console_result",
     ),
-    path(
-        "admin/posthog/organization/bulk-deactivate/",
-        MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
-    ),
-    path(
-        "admin/posthog/organization/send-usage-report/",
-        MovedToConsole.page_redirect("Sending usage reports", "/admin/console/tools/usage-reports/"),
-    ),
+    *moved_url_patterns(),
     # APPEND_SLASH is off, so a console URL typed without its trailing slash would fall through to the
     # Django admin catch-all.
     re_path(

@@ -62,7 +62,7 @@ describe('SesWebhookHandler', () => {
                 distinctId: 'user-123',
                 teamId: '1',
                 metricName: 'email_opened',
-                properties: { $email_to: 'to@example.com' },
+                properties: { $email_to: 'to@example.com', $email_message_id: 'msg-123' },
                 timestamp: '2025-10-03T12:01:00Z',
             },
         ])
@@ -108,6 +108,7 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].distinctId).toBe('user-123')
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
+            $email_message_id: 'msg-123',
             $link_url: 'https://example.com',
         })
         expect(result.metrics?.[0].timestamp).toBe('2025-10-03T12:02:00Z')
@@ -132,6 +133,7 @@ describe('SesWebhookHandler', () => {
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
+            $email_message_id: 'msg-123',
             $link_url: 'https://example.com/pricing?a=1',
             $link_index: '2',
         })
@@ -156,6 +158,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
+            $email_message_id: 'msg-123',
             $link_url: 'https://app.posthog.com',
             $link_index: '1',
         })
@@ -286,6 +289,31 @@ describe('SesWebhookHandler', () => {
                 'https://webhooks.us.posthog.com/public/m/redirect?ph_id=abc.def',
             ],
             ['an unparseable link is passed through', 'not a url', 'not a url'],
+            [
+                'the workflow run tag is dropped',
+                'https://example.com/x?a=1&ph_workflow_run=run-1#top',
+                'https://example.com/x?a=1#top',
+            ],
+            [
+                'a leading workflow run tag is dropped',
+                'https://example.com/x?ph_workflow_run=run-1&a=1',
+                'https://example.com/x?a=1',
+            ],
+            [
+                'a lone workflow run tag is dropped',
+                'https://example.com/x?ph_workflow_run=run-1',
+                'https://example.com/x',
+            ],
+            [
+                'adjacent workflow run tags are all dropped',
+                'https://example.com/x?ph_workflow_run=old-1&ph_workflow_run=old-2&a=1',
+                'https://example.com/x?a=1',
+            ],
+            [
+                'a run tag inside the fragment is kept',
+                'https://example.com/#/page?ph_workflow_run=x&view=full',
+                'https://example.com/#/page?ph_workflow_run=x&view=full',
+            ],
         ])('%s', (_name, link, expected) => {
             expect(resolveClickDestination(link)).toBe(expected)
         })
@@ -500,7 +528,7 @@ describe('SesWebhookHandler', () => {
                 distinctId: 'user-123',
                 teamId: '1',
                 metricName: 'email_delivered',
-                properties: { $email_to: 'to@example.com' },
+                properties: { $email_to: 'to@example.com', $email_message_id: 'msg-123' },
                 timestamp: '2025-10-03T12:03:00Z',
             },
         ])
@@ -559,7 +587,12 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'soft' })
         expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'temp' },
+            {
+                teamId: '1',
+                emailAddresses: ['to@example.com'],
+                diagnostic: 'temp',
+                bounceTimestamp: '2025-10-03T12:04:00Z',
+            },
         ])
     })
 
@@ -919,7 +952,7 @@ describe('SesWebhookHandler', () => {
                 parentRunId: 'batch-run-id',
                 teamId: '1',
                 metricName: 'email_opened',
-                properties: { $email_to: 'to@example.com' },
+                properties: { $email_to: 'to@example.com', $email_message_id: 'msg-123' },
                 timestamp: '2025-10-03T12:01:00Z',
             },
         ])
@@ -1217,6 +1250,18 @@ describe('SesWebhookHandler', () => {
             const result = await handler.handleWebhook({ body, headers: {} })
 
             expect(result.emailStatusUpdates).toEqual(expected)
+        })
+
+        it.each([
+            ['a transactional email', {}, true],
+            ['an email from a workflow step', { tags: baseMail.tags }, undefined],
+        ])('marks the event of %s as transactional', async (_desc, mailOverrides, expected) => {
+            const body = [{ mail: { ...transactionalMail, ...mailOverrides }, ...delivery(['to@example.com']) }]
+
+            const result = await handler.handleWebhook({ body, headers: {} })
+
+            expect(result.metrics?.[0].properties?.$email_transactional).toEqual(expected)
+            expect(result.metrics?.[0].properties?.$email_message_id).toEqual(baseMail.messageId)
         })
     })
 

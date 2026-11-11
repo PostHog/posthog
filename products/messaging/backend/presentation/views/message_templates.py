@@ -6,7 +6,10 @@ from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import Any, cast
 
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.exceptions import (
+    RequestDataTooBig,
+    ValidationError as DjangoValidationError,
+)
 from django.core.validators import validate_email
 from django.db import transaction
 
@@ -28,6 +31,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
+from posthog.api.fields import OmittableBooleanField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -90,10 +94,16 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     CODE_SEND_EXTRA_FIELDS,
     AddressListField,
     AttachmentListField,
+    attachment_size,
     field_not_accepted_refusal,
     template_send_refusal,
     validate_pipeline_address,
     with_code_send_reason,
+)
+from products.messaging.backend.presentation.views.refusals import (
+    ExplainedRefusal,
+    RequestBodyCapMixin,
+    email_body_too_large,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -538,7 +548,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
         "`template_id`, which refuses any file here.",
     )
-    capture_engagement = serializers.BooleanField(
+    capture_engagement = OmittableBooleanField(
         required=False,
         help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
         "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
@@ -767,7 +777,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
 
 # The send path shared by the template-scoped route and the single send route. A comment, not a docstring:
 # drf-spectacular would publish a docstring as the description of every operation on both viewsets.
-class TransactionalEmailSendMixin:
+class TransactionalEmailSendMixin(RequestBodyCapMixin):
     request: Any
     team: Any
     team_id: int
@@ -775,7 +785,9 @@ class TransactionalEmailSendMixin:
     user_access_control: Any
     # The actions of the viewset that send an email. Only these record stage durations.
     transactional_email_send_actions: tuple[str, ...] = ()
+    transactional_email_route: str
     _validation_started_at: float | None = None
+    _send_reported: bool = False
 
     def _is_transactional_email_send(self) -> bool:
         return getattr(self, "action", None) in self.transactional_email_send_actions
@@ -810,6 +822,51 @@ class TransactionalEmailSendMixin:
         # @validated_request parses and validates the body after initial() returns and before the action body runs.
         self._validation_started_at = time.monotonic()
 
+    def handle_exception(self, exc: Exception) -> Response:
+        body_read = True
+        if self._is_transactional_email_send() and isinstance(exc, RequestDataTooBig):
+            exc, body_read = self.refuse_body_over_the_cap(), False
+        response = cast(Any, super()).handle_exception(exc)
+        if isinstance(exc, ExplainedRefusal):
+            exc.explain(response)
+        # A body the serializer refuses never reaches the action, so its refusal is reported here.
+        if (
+            self._is_transactional_email_send()
+            and not self._send_reported
+            and isinstance(exc, exceptions.ValidationError | ExplainedRefusal)
+        ):
+            self._report_refused_request(response, body_read=body_read)
+        return response
+
+    def body_too_large(self) -> ExplainedRefusal:
+        return email_body_too_large()
+
+    def _report_refused_request(self, response: Response, *, body_read: bool) -> None:
+        self._report_transactional_email_send(
+            self.request,
+            {
+                **({} if body_read else {"attachment_count": None, "attachment_bytes": None}),
+                "outcome": "rejected",
+                "error_code": response.data.get("code") if isinstance(response.data, dict) else None,
+            },
+        )
+
+    def _takes_code_sends(self) -> bool:
+        return self.transactional_email_route == "send_email"
+
+    def _body_properties(self, request: Any) -> dict[str, Any]:
+        # Only the single send route takes content your code rendered, so only its body names a key and carries files.
+        if not self._takes_code_sends():
+            return {"attachment_count": 0, "attachment_bytes": 0}
+        body = request.validated_data if hasattr(request, "validated_data") else request.data
+        size = attachment_size(body)
+        names_a_key = isinstance(body, Mapping) and bool(body.get("template_key"))
+        return {
+            **({"addressed_by": "template_key"} if names_a_key else {}),
+            "attachment_count": size.count,
+            "attachment_bytes": size.bytes,
+        }
+
     def _end_request_validation(self) -> None:
         if self._validation_started_at is not None and self._is_transactional_email_send():
             observe_transactional_email_stage("validation", time.monotonic() - self._validation_started_at)
@@ -818,7 +875,7 @@ class TransactionalEmailSendMixin:
     def _require_transactional_email_flag(self) -> None:
         require_transactional_email_api(self.team)
 
-    def _queue_transactional_email(self, request: Any, template: MessageTemplateRow, *, route: str) -> Response:
+    def _queue_transactional_email(self, request: Any, template: MessageTemplateRow) -> Response:
         with transactional_email_stage("workflow_access"):
             if template.transactional_hog_flow_id:
                 self._require_workflow_editor(template.transactional_hog_flow_id)
@@ -833,7 +890,6 @@ class TransactionalEmailSendMixin:
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
             ),
-            route=route,
             addressed={"template_id": str(template.id)},
         )
 
@@ -842,16 +898,11 @@ class TransactionalEmailSendMixin:
         request: Any,
         send: Callable[[str | None], QueuedEmail],
         *,
-        route: str,
         addressed: dict[str, str],
         unavailable: type[TransactionalEmailUnavailable] = TransactionalEmailUnavailable,
     ) -> Response:
         idempotency_key = request.headers.get("Idempotency-Key")
-        outcome: dict[str, Any] = {
-            "outcome": "error",
-            "has_idempotency_key": idempotency_key is not None,
-            "route": route,
-        }
+        outcome: dict[str, Any] = {"outcome": "error"}
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
@@ -868,7 +919,7 @@ class TransactionalEmailSendMixin:
             with transactional_email_stage("usage_event"):
                 self._report_transactional_email_send(request, {**addressed, **outcome})
         if not queued.replayed:
-            self._report_first_code_send_after_commit(request, route, addressed.get("addressed_by", "template_id"))
+            self._report_first_code_send_after_commit(request, addressed.get("addressed_by", "template_id"))
         return Response(
             SendTransactionalEmailResponseSerializer(queued).data,
             status=status.HTTP_202_ACCEPTED,
@@ -900,8 +951,8 @@ class TransactionalEmailSendMixin:
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
 
-    def _report_first_code_send_after_commit(self, request: Any, route: str, addressed_by: str) -> None:
-        if route != "send_email" or not isinstance(request.user, ProjectSecretAPIKeyUser):
+    def _report_first_code_send_after_commit(self, request: Any, addressed_by: str) -> None:
+        if not self._takes_code_sends() or not isinstance(request.user, ProjectSecretAPIKeyUser):
             return
         key = request.user.project_secret_api_key
         if key.created_by_id is None:
@@ -932,6 +983,7 @@ class TransactionalEmailSendMixin:
         return queued is not None
 
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
+        self._send_reported = True
         # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
         try:
             posthoganalytics.capture(
@@ -943,6 +995,9 @@ class TransactionalEmailSendMixin:
                     if is_authenticated_via_project_secret_api_key(request)
                     else "user",
                     "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_SEND_SCOPE),
+                    "route": self.transactional_email_route,
+                    "has_idempotency_key": request.headers.get("Idempotency-Key") is not None,
+                    **self._body_properties(request),
                     **properties,
                 },
                 groups=groups(self.organization, self.team),
@@ -979,6 +1034,7 @@ class MessageTemplatesViewSet(
     # A project secret API key can only send. Template CRUD stays session/personal API key/OAuth only.
     psak_allowed_actions = ["send"]
     transactional_email_send_actions = ("send",)
+    transactional_email_route = "template"
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
 
@@ -1192,7 +1248,7 @@ class MessageTemplatesViewSet(
             self._require_transactional_email_flag()
         with transactional_email_stage("template_lookup"):
             template = self.get_object()
-        return self._queue_transactional_email(request, template, route="template")
+        return self._queue_transactional_email(request, template)
 
     @validated_request(
         MakeTransactionalSerializer,
@@ -1258,6 +1314,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["email"]
     transactional_email_send_actions = ("email",)
+    transactional_email_route = "send_email"
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
 
@@ -1301,7 +1358,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             self._require_transactional_email_flag()
         with transactional_email_stage("template_lookup"):
             template = self.get_object()
-        return self._queue_transactional_email(request, template, route="send_email")
+        return self._queue_transactional_email(request, template)
 
     def _send_code_email(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):
@@ -1336,7 +1393,6 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 distinct_id=_distinct_id(data),
                 idempotency_key=idempotency_key,
             ),
-            route="send_email",
             addressed={"addressed_by": "template_key"},
             unavailable=UnconfirmedEmailSend,
         )

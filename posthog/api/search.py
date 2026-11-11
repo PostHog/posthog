@@ -5,8 +5,10 @@ from collections.abc import Mapping
 from functools import reduce
 from typing import Any, Literal, Protocol, TypedDict, cast
 
+from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, Q, QuerySet, Subquery, Value
-from django.db.models.functions import Cast, JSONObject, Lower
+from django.db.models.functions import Cast, JSONObject
+from django.db.models.lookups import Contains
 from django.http import HttpResponse
 
 from drf_spectacular.utils import extend_schema
@@ -17,11 +19,12 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
+from posthog.models.team import Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.actions.backend.facade.api import search_actions
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import search_dashboards
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint
@@ -35,6 +38,11 @@ from products.surveys.backend.models import Survey
 from products.workflows.backend.facade.api import search_workflows
 
 LIMIT = 25
+
+
+class _PostgresILikeContains(Contains):
+    def get_rhs_op(self, connection: BaseDatabaseWrapper, rhs: str) -> str:
+        return f"ILIKE {rhs}"
 
 
 class EntityConfig(TypedDict, total=False):
@@ -59,11 +67,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "klass": Insight,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description", "query"],
-    },
-    "dashboard": {
-        "klass": Dashboard,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
     },
     "data_warehouse_view": {
         "klass": DataWarehouseSavedQuery,
@@ -163,17 +166,26 @@ def _search_workflows(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
     return results, count
 
 
-# Actions and workflows are searched through their products' facades rather than unioned by model
+# Actions, dashboards and workflows are searched through their products' facades rather than unioned by model
 # class, so they are not in ENTITY_MAP. `search_entities` merges them in when one is requested.
 ACTION_ENTITY = "action"
+DASHBOARD_ENTITY = "dashboard"
 WORKFLOW_ENTITY = "hog_flow"
-FACADE_SEARCHES: dict[str, FacadeSearch] = {ACTION_ENTITY: _search_actions, WORKFLOW_ENTITY: _search_workflows}
+FACADE_SEARCHES: dict[str, FacadeSearch] = {
+    DASHBOARD_ENTITY: search_dashboards,
+    ACTION_ENTITY: _search_actions,
+    WORKFLOW_ENTITY: _search_workflows,
+}
 # Actions keep their place between notebooks and cohorts in the entity choices and the counts.
 _UNION_ENTITY_NAMES = [*ENTITY_MAP]
+_DASHBOARD_SLOT = _UNION_ENTITY_NAMES.index("insight") + 1
+_ACTION_SLOT = _UNION_ENTITY_NAMES.index("cohort")
 _COUNTED_ENTITIES = [
-    *_UNION_ENTITY_NAMES[: _UNION_ENTITY_NAMES.index("cohort")],
+    *_UNION_ENTITY_NAMES[:_DASHBOARD_SLOT],
+    DASHBOARD_ENTITY,
+    *_UNION_ENTITY_NAMES[_DASHBOARD_SLOT:_ACTION_SLOT],
     ACTION_ENTITY,
-    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("cohort") :],
+    *_UNION_ENTITY_NAMES[_ACTION_SLOT:],
 ]
 SEARCHABLE_ENTITIES = [*_COUNTED_ENTITIES, WORKFLOW_ENTITY]
 """
@@ -264,14 +276,10 @@ def search_entities(
     counts: dict[str, int | None] = (
         dict.fromkeys(counted_entities if counted_entities is not None else entity_map) if include_counts else {}
     )
-    qs = (
-        Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
-        .filter(team__project_id=project_id)
-        .none()
-    )
+    qs: QuerySet[Any] = Team.objects.none()
 
     # add entities
-    for entity_type in entities:
+    for entity_type in sorted(entities):
         entity_meta = entity_map[entity_type]
         assert entity_meta is not None
         klass_qs, entity_name = class_queryset(
@@ -454,14 +462,9 @@ def class_queryset(
     # full-text search rank
     if query:
         if klass in (EventDefinition, PropertyDefinition):
-            # ts_rank keeps a name only when at least one search word matches it, so a cheap substring
-            # check runs first and the costly rank only scores names that can match, not every definition.
-            # Postgres lower() folds case as the rank does, where UPPER() would miss names such as "İstanbul".
             words = re.findall(r"[^\W_]+", query)
             if words:
-                qs = qs.alias(_lower_name=Lower("name")).filter(
-                    reduce(operator.or_, (Q(_lower_name__contains=Lower(Value(word))) for word in words))
-                )
+                qs = qs.filter(reduce(operator.or_, (Q(_PostgresILikeContains(F("name"), word)) for word in words)))
         qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")

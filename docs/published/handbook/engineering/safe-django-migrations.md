@@ -22,6 +22,7 @@ This guide explains how to safely perform dangerous Django migration operations 
 - [Adding Constraints](#adding-constraints)
 - [Running Data Migrations](#running-data-migrations)
 - [Using SeparateDatabaseAndState](#using-separatedatabaseandstate)
+- [Changing Choices and Help Text](#changing-choices-and-help-text)
 - [General Best Practices](#general-best-practices)
 
 ## Altering Hot Tables
@@ -865,6 +866,17 @@ class Migration(migrations.Migration):
 - Without this, `makemigrations` may generate incorrect migrations trying to sync the state
 - Allows you to separate "what Django thinks exists" from "what actually exists in the database"
 
+## Changing Choices and Help Text
+
+`choices`, `help_text`, `verbose_name`, `validators`, `error_messages`, `editable`, `blank` and `limit_choices_to` never reach the database.
+PostHog's `makemigrations` leaves them out when it compares fields (`posthog/management/migration_autodetector.py`), so adding an enum member or editing help text writes no migration.
+
+Do not write that `AlterField` by hand, and do not wrap it in `SeparateDatabaseAndState`.
+The migration analyzer points out both (`NonDbAlterFieldPolicy`), because the operation runs no SQL but still takes a `max_migration.txt` slot. It does not block, so migrations generated before this change still pass CI.
+
+A real column change on the same field, such as `max_length` or `null`, still writes a migration, and that migration carries the current choices.
+`default` is still compared, because Django reads it from migration state when a column becomes `NOT NULL`.
+
 ## General Best Practices
 
 ### 1. One Risky Operation Per Migration
@@ -1008,6 +1020,7 @@ The check only covers Django tables in the main database.
 Node Jest CI fails when Node SQL reads a table of an app that `products/db_routing.yaml` sends to a product database, or a table with an app prefix that no migration creates.
 ClickHouse tables are out of scope.
 The sqlx databases (persons, cyclotron, behavioral cohorts) are checked in shadow mode: the hook logs their state but does not hold the rollout yet.
+A sqlx version does not count when every table its migration names is one that Node does not read, so a drop of a table Node no longer uses does not hold anything.
 The hook pushes its Django and sqlx results to the Prometheus Pushgateway as `node_schema_check_` metrics, so alerts can fire on a missing migration that the logs alone would hide.
 Column and table drops are the opposite case and stay code-first: remove every reader, deploy, then drop.
 The check cannot help there, because Django applies the drop while the old Node pods still read the column.

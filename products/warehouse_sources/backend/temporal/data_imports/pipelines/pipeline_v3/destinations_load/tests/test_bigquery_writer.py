@@ -346,6 +346,22 @@ class TestFullRefresh:
         with pytest.raises(NotFound):
             client.get_table(f"proj.dataset.{staging_table_name(second)}")
 
+    async def test_redelivering_a_batch_after_a_crash_before_the_ownership_label_does_not_raise(self) -> None:
+        # A crash (or a dropped connection) between the staging table's creation and its
+        # ownership label leaves the table unlabeled. Without reclaiming it, the retry reads
+        # that gap as a foreign table and refuses its own staging table forever.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, _rows([1], ["a"]), 0)
+        client.get_table(f"proj.dataset.{staging_table_name(ctx)}").labels = {}
+
+        await _deliver(writer, ctx, _rows([1], ["a"]), 0)
+        await _deliver(writer, ctx, _rows([2], ["b"]), 1, is_final=True)
+
+        assert _read(client) == [(1, "a"), (2, "b")]
+
 
 @pytest.mark.asyncio
 class TestIncremental:

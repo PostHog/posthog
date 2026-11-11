@@ -11,11 +11,13 @@ from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
 from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
+from products.alerts.backend.logic.destination_configs import destination_filter
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_cutover import CutoverSkip, RollbackSkip, cut_over_team, roll_back_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import DeliveryPath
+from products.cdp.backend.facade.models import HogFunction
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 _CUTOVER = "products.alerts.backend.platform_cutover"
@@ -127,6 +129,7 @@ class TestInsightPlatformCutover(APIBaseTest):
         triggered_metadata: dict | None = None,
     ) -> None:
         alert = self._alert(investigation_agent_enabled=True, detector_config={"type": "zscore"})
+        alert.subscribed_users.add(self.user)
         check = AlertCheck.objects.create(
             alert_configuration=alert,
             state=AlertState.FIRING,
@@ -135,6 +138,40 @@ class TestInsightPlatformCutover(APIBaseTest):
             triggered_metadata=triggered_metadata,
         )
         AlertCheck.objects.filter(id=check.id).update(created_at=NOW - age)
+
+        (result,) = cut_over_team(self.team.id, now=NOW)
+
+        assert result.skipped == reason
+
+    @parameterized.expand(
+        [
+            ("subscriber", CutoverSkip.NOTIFICATION_PENDING),
+            ("custom_destination", CutoverSkip.NOTIFICATION_PENDING),
+            ("team_wide_destination", CutoverSkip.NOTIFICATION_PENDING),
+            ("nobody", None),
+        ]
+    )
+    def test_a_firing_alert_waits_only_while_someone_can_be_notified(
+        self, target: str, reason: CutoverSkip | None
+    ) -> None:
+        alert = self._alert()
+        if target == "subscriber":
+            alert.subscribed_users.add(self.user)
+        elif target != "nobody":
+            filters = destination_filter(str(alert.id), "$insight_alert_firing")
+            if target == "team_wide_destination":
+                filters["properties"] = []
+            HogFunction.objects.create(
+                team=self.team,
+                name="Alert → webhook",
+                type="internal_destination",
+                hog="return 1",
+                enabled=True,
+                template_id="template-custom",
+                filters=filters,
+            )
+        check = AlertCheck.objects.create(alert_configuration=alert, state=AlertState.FIRING)
+        AlertCheck.objects.filter(id=check.id).update(created_at=NOW - timedelta(minutes=5))
 
         (result,) = cut_over_team(self.team.id, now=NOW)
 

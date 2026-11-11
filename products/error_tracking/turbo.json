@@ -6,6 +6,7 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
+                "backend/integration_hooks.py",
                 "backend/embedding.py",
                 "backend/indexed_embedding.py",
                 "backend/sql.py",
@@ -17,7 +18,8 @@
                 "backend/data_freshness.py",
                 "backend/models.py",
                 "backend/migrations/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

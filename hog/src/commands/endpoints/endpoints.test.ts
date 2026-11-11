@@ -52,7 +52,7 @@ function server(endpoints: unknown[], extra: (url: string, body: unknown) => unk
     return (url: string, body: unknown) => {
         const reply = extra(url, body)
         if (reply) {
-            return reply as { status: number; body: unknown }
+            return reply as { status: number; body: unknown; headers?: Record<string, string> }
         }
         if (url.replace(/\?.*/, '') === `${BASE}endpoints/`) {
             return { status: 200, body: { results: endpoints } }
@@ -333,6 +333,73 @@ describe('hog endpoints', () => {
         })
         expect(result.error().code).toBe('confirmation_required')
         expect(result.requests.filter((request) => request.method !== 'GET')).toEqual([])
+    })
+
+    test('push stops with the step-up details when PostHog refuses a write for a missing scope', async () => {
+        const result = await runHog(['endpoints', 'push', 'new.yaml', '--yes'], {
+            env: AGENT,
+            files: { '/work/new.yaml': 'name: new\nquery: SELECT 1\n' },
+            respond: server([], (url, body) =>
+                url === `${BASE}endpoints/` && body
+                    ? {
+                          status: 403,
+                          body: { detail: 'missing scope' },
+                          headers: { 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="endpoint:write"' },
+                      }
+                    : undefined
+            ),
+        })
+        expect(result.error()).toMatchObject({ code: 'step_up_required', scopes: ['endpoint:write'] })
+    })
+
+    test.each([
+        ['outside CI shows', {}, 'PostHog answered with HTTP 400: An endpoint with this name already exists.'],
+        [
+            'in CI hides',
+            { CI: 'true' },
+            "PostHog answered with HTTP 400. PostHog's reason is hidden in CI. Run the command outside CI to see it.",
+        ],
+    ])("push of an endpoint PostHog refuses %s PostHog's reason in its outcome", async (_name, env, error) => {
+        const result = await runHog(['endpoints', 'push', 'new.yaml', '--yes'], {
+            env: { ...AGENT, ...env },
+            files: { '/work/new.yaml': 'name: new\nquery: SELECT 1\n' },
+            respond: server([], (url, body) =>
+                url === `${BASE}endpoints/` && body
+                    ? {
+                          status: 400,
+                          body: { type: 'validation_error', detail: 'An endpoint with this name already exists.' },
+                      }
+                    : undefined
+            ),
+        })
+
+        expect(result.json()).toMatchObject({ outcomes: [{ name: 'new', status: 'failed', error }] })
+    })
+
+    test.each([{}, { CI: 'true' }])('push omits response values when decoding fails with env %j', async (env) => {
+        const result = await runHog(['endpoints', 'push', 'new.yaml', '--yes'], {
+            env: { ...AGENT, ...env },
+            files: { '/work/new.yaml': 'name: new\nquery: SELECT 1\n' },
+            respond: server([], (url, body) =>
+                url === `${BASE}endpoints/` && body
+                    ? {
+                          status: 201,
+                          body: endpoint(
+                              'new',
+                              { kind: 'HogQLQuery', query: 'SELECT 1' },
+                              { is_active: 'SYNTHETIC_RESPONSE_VALUE' }
+                          ),
+                      }
+                    : undefined
+            ),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.json()).toMatchObject({
+            outcomes: [{ status: 'failed', error: expect.stringContaining('is_active') }],
+        })
+        expect(result.stdout).not.toContain('SYNTHETIC_RESPONSE_VALUE')
+        expect(result.stderr).not.toContain('SYNTHETIC_RESPONSE_VALUE')
     })
 
     test('push creates the variables a file needs, then the endpoint, and skips files PostHog would reject', async () => {

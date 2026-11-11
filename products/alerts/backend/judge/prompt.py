@@ -31,7 +31,7 @@ MAX_SERIES_LABEL_CHARS = 120
 # flags cannot crowd out the series.
 MAX_EARLIER_RATIONALE_CHARS = 200
 
-PROMPT_REVISION = 4
+PROMPT_REVISION = 5
 
 # A small model works out the weekday from an ISO date badly, so dated labels at these
 # intervals name it, and the same-slot reference line is built in code.
@@ -49,10 +49,11 @@ The two things that most often masquerade as anomalies:
 normal, not an anomaly.
 - Low-count noise. When a series moves between small integers, a doubling is not meaningful.
 
-Build the baseline from comparable points. For an hourly series, compare the current point with the \
-same hour of day on earlier days of the same type: weekdays with weekdays, weekend days with weekend \
-days. For a daily series, compare it with the same weekday. When the message lists these comparable \
-values, use them. Do not compare a weekday point with a weekend level, or a night hour with a day hour.
+Build the baseline from comparable points. For an hourly series, compare the current point first \
+with the same hour on the same weekday in earlier weeks, because many metrics dip toward the end of \
+the week. Then compare it with the same hour of day on earlier days of the same type: weekdays with \
+weekdays, weekend days with weekend days. For a daily series, compare it with the same weekday. When \
+the message lists these comparable values, use them. Do not compare a weekday point with a weekend level, or a night hour with a day hour.
 
 A level that holds for most of the window, and that this alert did not flag, is the baseline. It is \
 not an anomaly. Report a level_shift only when the change is recent and the earlier part of the window \
@@ -189,7 +190,7 @@ def _values(points: list[_Point]) -> str:
 
 
 def _same_slot_reference(*, points: list[_Point], interval: str | None) -> str | None:
-    """The earlier values at the current point's slot: its hour of day, or its weekday.
+    """The earlier values at the current point's slot: its hour (on its weekday first), or its weekday.
 
     None when the interval has no such slot, or the points have no parseable dates.
     """
@@ -205,13 +206,14 @@ def _same_slot_reference(*, points: list[_Point], interval: str | None) -> str |
         ]
         if not same_hour:
             return None
+        same_weekday = [point for point, moment in same_hour if moment.weekday() == current.weekday()]
         weekdays = [point for point, moment in same_hour if moment.weekday() < 5]
         weekend = [point for point, moment in same_hour if moment.weekday() >= 5]
-        day_type = "a weekday" if current.weekday() < 5 else "a weekend day"
+        weekday = WEEKDAY_NAMES[current.weekday()]
         return (
-            f"Comparable points: the current point is {current:%H:%M} on {day_type}. Values at {current:%H:%M} "
-            f"on earlier weekdays in the window, oldest first: {_values(weekdays)}. "
-            f"On earlier weekend days: {_values(weekend)}."
+            f"Comparable points: the current point is {current:%H:%M} on a {weekday}. Values at {current:%H:%M} "
+            f"on earlier {weekday}s in the window, oldest first: {_values(same_weekday)}. "
+            f"On all earlier weekdays: {_values(weekdays)}. On earlier weekend days: {_values(weekend)}."
         )
     if interval == "day":
         same_weekday = [point for point, moment in earlier if moment.weekday() == current.weekday()]

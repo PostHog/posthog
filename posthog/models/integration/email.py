@@ -1,13 +1,13 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -19,12 +19,13 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationConflict, IntegrationPatch, IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook, sdk_runs_hooks
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
-from . import model
+from . import model, row_writes
 
 if TYPE_CHECKING:
     from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
@@ -32,6 +33,14 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 EMAIL_DOMAIN_STATUS_CACHE_SECONDS = 10
+
+
+def _duplicate_sender_error(email_address: str) -> ValidationError:
+    return ValidationError(f"A sender for {email_address} already exists. Edit that sender instead of adding it again.")
+
+
+def lock_sender_domain(cursor: Any, domain: str) -> None:
+    cursor.execute("SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext(%s))", [domain])
 
 
 @frozen
@@ -50,9 +59,10 @@ class EmailIntegration:
         self.integration = model.integration_model(integration)
 
     @classmethod
+    @transaction.atomic
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         email_address: str = config["email"].lower()
         name: str = config["name"]
         domain = email_domain(email_address)
@@ -63,6 +73,12 @@ class EmailIntegration:
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
+
+        with connection.cursor() as cursor:
+            lock_sender_domain(cursor, domain)
+
+        if row_writes.creator_accessor("email").exists(team_id, external_id=email_address):
+            raise _duplicate_sender_error(email_address)
 
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
@@ -75,9 +91,14 @@ class EmailIntegration:
 
         # Create domain in the appropriate provider
         if provider == "ses":
-            from products.workflows.backend.facade.api import (
-                create_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                create_ses_email_domain,
+                get_ses_mail_from_subdomain,
             )
+
+            domain_in_use = same_domain_integrations.exists()
+            if domain_in_use:
+                mail_from_subdomain = get_ses_mail_from_subdomain(domain) or mail_from_subdomain
 
             org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
             create_ses_email_domain(
@@ -85,18 +106,18 @@ class EmailIntegration:
                 mail_from_subdomain=mail_from_subdomain,
                 team_id=team_id,
                 org_team_ids=org_team_ids,
+                keep_existing_mail_from=domain_in_use,
             )
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="email",
-            integration_id=email_address,
-            defaults={
-                "config": {
+        try:
+            return row_writes.creator_accessor("email").create(
+                team_id,
+                external_id=email_address,
+                config={
                     "email": email_address,
                     "domain": domain,
                     "mail_from_subdomain": mail_from_subdomain,
@@ -105,15 +126,10 @@ class EmailIntegration:
                     "provider": provider,
                     "verified": True if provider == "maildev" else False,
                 },
-                "created_by": created_by,
-            },
-        )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
-
-        return integration
+                created_by_id=created_by.id if created_by else None,
+            )
+        except IntegrationConflict:
+            raise _duplicate_sender_error(email_address)
 
     def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
         provider = self.integration.config.get("provider")
@@ -145,15 +161,38 @@ class EmailIntegration:
         }
         if setup_method := config.get("setup_method"):
             changes["setup_method"] = setup_method
-        # The row is reread under a lock so a concurrent verification write is not overwritten.
-        with transaction.atomic():
-            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
-            locked.config.update(changes)
-            locked.save(update_fields=["config"])
-        self.integration.config = locked.config
+        # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
+        self.integration = model.integration_model(
+            row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
+        )
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
+
+    def _adopt_mail_from_subdomain_ses_uses(self, stored_mail_from_subdomain: str) -> None:
+        from products.workflows.backend.facade.api import (
+            get_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+        )
+
+        domain = self.integration.config["domain"]
+        try:
+            ses_mail_from_subdomain = get_ses_mail_from_subdomain(domain)
+        except Exception as error:
+            capture_exception(error, {"team_id": self.integration.team_id, "domain": domain})
+            return
+        if not ses_mail_from_subdomain or ses_mail_from_subdomain == stored_mail_from_subdomain:
+            return
+        with transaction.atomic():
+            sender = (
+                model.Integration.objects.select_for_update()
+                .filter(team_id=self.integration.team_id, id=self.integration.id)
+                .first()
+            )
+            if sender is None or sender.config.get("mail_from_subdomain", "feedback") != stored_mail_from_subdomain:
+                return
+            sender.config["mail_from_subdomain"] = ses_mail_from_subdomain
+            sender.save()
+        self.integration = model.integration_model(row_writes.reread_row(self.integration))
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
@@ -170,6 +209,7 @@ class EmailIntegration:
             verification_result = verify_ses_email_domain(
                 domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
             )
+            self._adopt_mail_from_subdomain_ses_uses(mail_from_subdomain)
         elif provider == "maildev":
             from products.workflows.backend.facade.api import (
                 get_maildev_mock_dns_records,  # noqa: PLC0415 — keeps the workflows facade off the model import path
@@ -251,23 +291,18 @@ class EmailIntegration:
         raise ValueError(f"Invalid provider: {provider}")
 
     def _mark_domain_verified(self, on_domain_verified: Callable[[], None] | None) -> None:
-        with transaction.atomic():
-            senders = list(
-                model.Integration.objects.select_for_update()
-                .filter(
-                    team_id=self.integration.team_id,
-                    kind="email",
-                    config__domain=self.integration.config.get("domain"),
-                    config__provider=self.integration.config.get("provider", "ses"),
-                )
-                .order_by("id")
-            )
-            unverified_senders = [sender for sender in senders if not sender.config.get("verified")]
-            for sender in unverified_senders:
-                sender.config["verified"] = True
-                sender.save()
-
-        self.integration.config["verified"] = True
+        original = self.integration
+        senders = row_writes.row_accessor(original).update_where(
+            original.team_id,
+            where={"domain": original.config.get("domain"), "provider": original.config.get("provider", "ses")},
+            patch=IntegrationPatch(config_patch={"verified": True}),
+        )
+        fresh = next((sender for sender in senders.records if sender.id == original.id), None)
+        if fresh is None:
+            fresh = row_writes.reread_row(original)
+        else:
+            row_writes.keep_caller_row_current(original, fresh)
+        self.integration = model.integration_model(fresh)
 
         from products.workflows.backend.facade.api import (
             set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
@@ -276,13 +311,13 @@ class EmailIntegration:
         set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
 
         # A sender added to a domain that is already verified joins it, so only the first verification counts.
-        if on_domain_verified and len(unverified_senders) == len(senders):
+        if on_domain_verified and len(senders.changed_ids) == len(senders.records):
             on_domain_verified()
-        self._reload_senders_on_workers(senders)
+        self._reload_senders_on_workers(senders.records)
 
     # Workers also refresh integrations on their own schedule, so a failed reload only delays sending.
     # Failing the request instead would hide a verification that is already saved.
-    def _reload_senders_on_workers(self, senders: list[model.Integration]) -> None:
+    def _reload_senders_on_workers(self, senders: Sequence[IntegrationRecord]) -> None:
         try:
             reload_integrations_on_workers(self.integration.team_id, [sender.id for sender in senders])
         except Exception as error:
@@ -291,14 +326,20 @@ class EmailIntegration:
 
 @receiver(models.signals.post_delete, sender=model.Integration)
 def clear_default_email_sender_on_integration_delete(sender: Any, instance: model.Integration, **kwargs: Any) -> None:
-    if instance.kind != "email":
+    # The SDK calls the hook itself. This receiver is for the deletes that do not use the SDK, such as a team delete.
+    if not sdk_runs_hooks():
+        clear_default_email_sender_of_integration(instance)
+
+
+def clear_default_email_sender_of_integration(row: IntegrationRecord) -> None:
+    if row.kind != "email":
         return
 
     from products.workflows.backend.facade.api import (
         clear_default_email_sender,  # noqa: PLC0415 — keeps the workflows facade off the model import path
     )
 
-    clear_default_email_sender(instance.team_id, instance.id)
+    clear_default_email_sender(row.team_id, row.id)
 
 
 @receiver(models.signals.post_delete, sender=model.Integration)
@@ -307,9 +348,15 @@ def cleanup_ses_identity_on_integration_delete(sender: Any, instance: model.Inte
     # also cleaned up when integrations die via cascade, e.g. project or org deletion.
     # Leaving the identity behind permanently blocks the domain for every other
     # organization via the foreign-tenant guard in SESProvider.create_email_domain.
-    if instance.kind != "email" or instance.config.get("provider") != "ses":
+    # The SDK calls the hook itself, so this receiver is only for the deletes that do not use the SDK.
+    if not sdk_runs_hooks():
+        cleanup_ses_identity_of_integration(instance)
+
+
+def cleanup_ses_identity_of_integration(row: IntegrationRecord) -> None:
+    if row.kind != "email" or row.config.get("provider") != "ses":
         return
-    domain = instance.config.get("domain")
+    domain = row.config.get("domain")
     if not domain:
         return
 
@@ -318,3 +365,7 @@ def cleanup_ses_identity_on_integration_delete(sender: Any, instance: model.Inte
     )
 
     transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))
+
+
+register_delete_hook(clear_default_email_sender_of_integration)
+register_delete_hook(cleanup_ses_identity_of_integration)

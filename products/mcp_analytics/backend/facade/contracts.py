@@ -104,6 +104,12 @@ class MCPToolCall:
     response: str
     error_type: str
     error_status: str
+    exec_verb: str
+    exec_target_tool: str
+    input_keys: list[str]
+    error_code: str
+    error_field: str
+    llm_model: str
 
 
 @dataclass(frozen=True)

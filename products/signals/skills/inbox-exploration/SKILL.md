@@ -8,7 +8,8 @@ description: >
   dismiss, or snooze a report, or wants to see which signal sources are configured. Also use before you
   investigate an error, bug, metric change, or support ticket in code, to find research the Inbox already did.
   Covers listing, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
-  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`.
+  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`,
+  which starts from the stored personal ranking (`view=for_you`, `sort=personal`).
 ---
 
 # Exploring the Inbox
@@ -45,9 +46,11 @@ Without a `view`, `inbox-reports-list` returns reports from the whole project, n
 When the user says "my inbox", "my reports", or "what needs me", pass `view: "for_you"`.
 Use project scope only when the user asks for the whole project or the team's inbox.
 
-When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports"), use the
-**`prioritizing-my-inbox`** skill. It ranks reports by the user's activity summary, the ranking model, and
-what waits on them.
+When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports", "what should I
+look at today?"), use the **`prioritizing-my-inbox`** skill. Its first call is
+`{"view": "for_you", "sort": "personal", "limit": 10}`, which returns the user's stored personal ranking in one
+read. Check that the response's `ranker` is `personal` before you call the list personal, and do not pass
+`ordering` with it, because `ordering` replaces `sort`.
 
 For deeper investigation, hand off to other skills and tools:
 
@@ -72,6 +75,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | Tool                                  | Purpose                                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
+| `inbox-reports-search`                | Reports ranked by how well they match a query, by keywords and by meaning. Behind a rollout flag              |
 | `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
 | `inbox-reports-claim`                 | Claim or release a report, and optionally attach its implementation PR                                        |
 | `inbox-reports-create`                | File a finding of your own as a report. It never starts an implementation run on its own                      |
@@ -87,7 +91,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)                                                     |
 | `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)                                           |
 
-The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retrieve`, and
+The `inbox-reports-*-list` / `-retrieve`, `inbox-reports-search`, `inbox-report-artefacts-list` / `-retrieve`, and
 `inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (resolve / dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call),
 `inbox-reports-claim` (claim / release / attach a PR), see
@@ -116,6 +120,10 @@ What each report status means (in roughly the order a triage agent should care a
 By default `inbox-reports-list` excludes `suppressed` reports and orders results by
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
 status, then most recently updated. Refer to the tool's input schema for filter mechanics.
+
+To find the reports about a topic, such as before filing one, use `inbox-reports-search` when it is present.
+It ranks reports by relevance across every status, and matches a report that describes the topic in other words.
+The `search` filter on `inbox-reports-list` matches the exact text only.
 
 ## Dismissed and held-back reports
 
@@ -188,9 +196,10 @@ Practical implications for triage:
   the code, (b) the suggested logins came from commit history and no org member has that
   GitHub account linked (a reviewer set by `user_uuid` doesn't have this problem), or (c) the
   source material wasn't tied to a specific repo / commits.
-- If the user asks "what should _I_ look at?", lead with `is_suggested_reviewer: true`
-  reports: these are the ones routed to the user as a likely owner. Mention the rest as a
-  secondary group rather than mixing them in.
+- If the user asks "what should _I_ look at?", use `prioritizing-my-inbox`. When no stored
+  personal ranking applies, lead with `is_suggested_reviewer: true` reports: these are the
+  ones routed to the user as a likely owner. Mention the rest as a secondary group rather
+  than mixing them in.
 - If the user has _no_ suggested reports but the inbox isn't empty, say so explicitly
   ("nothing in the inbox is tied to code you've authored recently") rather than pretending
   the top of the list is personalized.

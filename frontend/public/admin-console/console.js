@@ -1,13 +1,45 @@
-// The only script file the admin console loads. A POST form disables its submit buttons when it submits, so a
-// double click sends one request. The page reloads after every submit, which re-enables them.
+// The only script the admin console loads. A POST form disables its submit buttons when it submits, so a
+// double click sends one request. The page reloads after every submit, which re-enables them. A button or
+// link with `data-pending-label` shows that text until the next page loads, for pages that take a while.
+const showPending = (element) => {
+    element.setAttribute('aria-busy', 'true')
+    element.dataset.originalLabel = element.textContent
+    element.textContent = element.dataset.pendingLabel
+}
+
 document.addEventListener('submit', (event) => {
     const form = event.target
-    if (!(form instanceof HTMLFormElement) || form.method.toLowerCase() !== 'post') {
+    if (!(form instanceof HTMLFormElement)) {
         return
     }
     for (const button of form.querySelectorAll('button[type="submit"]')) {
-        button.disabled = true
-        button.setAttribute('aria-busy', 'true')
+        if (button.dataset.pendingLabel) {
+            showPending(button)
+        }
+        if (form.method.toLowerCase() === 'post' || button.dataset.pendingLabel) {
+            button.disabled = true
+            button.setAttribute('aria-busy', 'true')
+        }
+    }
+})
+
+document.addEventListener('click', (event) => {
+    const link = event.target instanceof Element ? event.target.closest('a[data-pending-label]') : null
+    if (link && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+        showPending(link)
+    }
+})
+
+// The back button can restore a page in its pending state.
+window.addEventListener('pageshow', () => {
+    for (const element of document.querySelectorAll('[aria-busy="true"]')) {
+        element.removeAttribute('aria-busy')
+        if (element.dataset.originalLabel) {
+            element.textContent = element.dataset.originalLabel
+        }
+        if (element instanceof HTMLButtonElement) {
+            element.disabled = false
+        }
     }
 })
 
@@ -23,6 +55,32 @@ document.addEventListener('keydown', (event) => {
         event.preventDefault()
         search.focus()
     }
+})
+
+// A Secret block on a result page: a click in the field selects the value, and the button copies it.
+document.addEventListener('click', (event) => {
+    const target = event.target
+    if (target instanceof HTMLInputElement && target.hasAttribute('data-console-secret')) {
+        target.select()
+        return
+    }
+    const button = target instanceof Element ? target.closest('button[data-console-copy]') : null
+    const field = button ? document.getElementById(button.dataset.consoleCopy) : null
+    if (!(field instanceof HTMLInputElement)) {
+        return
+    }
+    const selectForKeyboardCopy = () => {
+        field.select()
+        button.textContent = 'Selected. Copy with the keyboard'
+    }
+    // Browsers leave navigator.clipboard undefined on a page served over plain HTTP outside localhost.
+    if (!navigator.clipboard) {
+        selectForKeyboardCopy()
+        return
+    }
+    navigator.clipboard.writeText(field.value).then(() => {
+        button.textContent = 'Copied'
+    }, selectForKeyboardCopy)
 })
 
 document.querySelector('form[data-autofocus]')?.querySelector('input:not([type=hidden]), textarea, select')?.focus()

@@ -15,7 +15,9 @@
                 "backend/models/**",
                 "backend/providers/ses.py",
                 "backend/migrations/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/apps.py",
+                "backend/console.py"
             ],
             "outputs": [],
             "cache": true

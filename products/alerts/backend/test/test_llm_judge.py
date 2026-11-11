@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.tasks.alerts.detector import llm_detector_lookback
 
 from products.alerts.backend.judge import (
     EarlierFlag,
@@ -248,12 +249,14 @@ class TestLLMJudgePrompt:
         [
             (
                 "hourly",
-                # Fri 2026-10-30 04:00 to Fri 2026-11-06 03:00. The 03:00 points hold the day of the month.
-                [datetime(2026, 10, 30, 4) + timedelta(hours=i) for i in range(168)],
+                # Fri 2026-10-30 03:00 to Fri 2026-11-06 03:00, the hourly lookback. The 03:00 points hold
+                # the day of the month. A Friday dip compared only with pooled weekdays reads as a drop.
+                [datetime(2026, 10, 30, 3) + timedelta(hours=i) for i in range(llm_detector_lookback("hour"))],
                 "hour",
                 "\nFri 2026-11-06 03:00\t6\t0\tcurrent",
-                "Comparable points: the current point is 03:00 on a weekday. Values at 03:00 on earlier "
-                "weekdays in the window, oldest first: 2, 3, 4, 5. On earlier weekend days: 31, 1.",
+                "Comparable points: the current point is 03:00 on a Friday. Values at 03:00 on earlier "
+                "Fridays in the window, oldest first: 30. On all earlier weekdays: 30, 2, 3, 4, 5. "
+                "On earlier weekend days: 31, 1.",
             ),
             (
                 "daily",

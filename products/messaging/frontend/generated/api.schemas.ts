@@ -7,6 +7,70 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AttachmentUploadFileApi {
+    /**
+     * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
+     * @pattern ^[0-9a-f]{64}$
+     */
+    sha256: string
+    /**
+     * Size of the file in bytes.
+     * @minimum 1
+     */
+    size: number
+}
+
+export interface AttachmentUploadsRequestApi {
+    /**
+     * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
+     * @minItems 1
+     * @maxItems 10
+     */
+    files: AttachmentUploadFileApi[]
+}
+
+/**
+ * * `present` - Present
+ * * `upload` - Upload
+ */
+export type AttachmentUploadStatusEnumApi =
+    (typeof AttachmentUploadStatusEnumApi)[keyof typeof AttachmentUploadStatusEnumApi]
+
+export const AttachmentUploadStatusEnumApi = {
+    Present: 'present',
+    Upload: 'upload',
+} as const
+
+/**
+ * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
+ */
+export type AttachmentUploadSlotApiHeaders = { [key: string]: string }
+
+export interface AttachmentUploadSlotApi {
+    /** SHA-256 of the file, as sent. */
+    sha256: string
+    /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
+     *
+     * * `present` - Present
+     * * `upload` - Upload */
+    status: AttachmentUploadStatusEnumApi
+    /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
+    expires_at?: string
+    /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
+    url?: string
+    /** For an `upload` file: the HTTP method, `PUT`. */
+    method?: string
+    /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
+    headers?: AttachmentUploadSlotApiHeaders
+    /** For an `upload` file: when `url` stops accepting the upload. */
+    url_expires_at?: string
+}
+
+export interface AttachmentUploadsResponseApi {
+    /** One answer per requested file, in request order. */
+    files: AttachmentUploadSlotApi[]
+}
+
 /**
  * * `queued` - Queued
  * * `failed` - Failed
@@ -1163,6 +1227,67 @@ export interface TransactionalEmailLogDetailApi {
     action_id: string
     /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
     sensitive: boolean
+}
+
+export interface TransactionalEmailActivityEventApi {
+    /** The event's UUID. */
+    uuid: string
+    /** The event name, such as `$pageview` or a custom event. */
+    event: string
+    /** When the event happened. */
+    timestamp: string
+    /**
+     * The page the person was on. Null when not set.
+     * @nullable
+     */
+    current_url: string | null
+    /**
+     * The path of that page, such as `/pricing`.
+     * @nullable
+     */
+    pathname: string | null
+    /**
+     * The session the event belongs to. Use it to find the session recording. Null for events captured without a session, such as server-side events.
+     * @nullable
+     */
+    session_id: string | null
+    /**
+     * What an autocaptured event did, such as `click` or `submit`. Null otherwise.
+     * @nullable
+     */
+    event_type: string | null
+    /** The element an autocaptured event happened on, with its parents. Empty for other events. */
+    elements_chain: string
+}
+
+export interface TransactionalEmailActivitySessionApi {
+    /** The session ID, the same one session recordings use. */
+    session_id: string
+    /** The first event of this session in the window. */
+    first_event_at: string
+    /** The last event of this session in the window. */
+    last_event_at: string
+    /** How many of the returned events belong to this session. */
+    event_count: number
+    /** True when none of the session's events came before the send, so the person started it after the email. */
+    started_after_send: boolean
+}
+
+export interface TransactionalEmailActivityApi {
+    /** The distinct ID the send named. Empty when it named none, and then there are no events. */
+    distinct_id: string
+    /** When the email went to the provider, or when it was queued if it was never sent. */
+    sent_at: string
+    /** The person's events in the week before the send, oldest first. */
+    before: TransactionalEmailActivityEventApi[]
+    /** The person's events in the week after the send, oldest first. */
+    after: TransactionalEmailActivityEventApi[]
+    /** True when older events in the window were left out. */
+    has_more_before: boolean
+    /** True when later events in the window were left out. */
+    has_more_after: boolean
+    /** The sessions the returned events belong to, in the order they first appear. */
+    sessions: TransactionalEmailActivitySessionApi[]
 }
 
 export interface TransactionalEmailResultsApi {

@@ -172,6 +172,10 @@ class UpdateAlertAction(BaseModel):
 UpsertAlertAction = Union[CreateAlertAction, UpdateAlertAction]
 
 
+class AlertLimitReached(Exception):
+    """A create the plan limits refused once the team's alert lock was held."""
+
+
 @frozen
 class _SaveRefusal:
     """A write the alert save refused, with the error code the tool reports."""
@@ -337,6 +341,8 @@ class UpsertAlertTool(MaxTool):
                 },
             )
 
+        except AlertLimitReached as e:
+            return str(e), {"error": "plan_limit_reached"}
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create alert: {str(e)}", {
@@ -411,6 +417,10 @@ class UpsertAlertTool(MaxTool):
                     message=refusal.message,
                     error_code="plan_limit_reached" if refusal.reason == "cap" else "validation_failed",
                 )
+            # The state before this update, which decides whether the update adds an active real-time alert.
+            previous = AlertConfiguration(
+                id=alert.id, calculation_interval=alert.calculation_interval, enabled=alert.enabled
+            )
             update_fields: list[str] = []
             conditions_or_threshold_changed = False
             schedule_reset_required = False
@@ -484,6 +494,17 @@ class UpsertAlertTool(MaxTool):
                     return _SaveRefusal(message=str(error), error_code="validation_failed")
             elif enabled_changed and action.enabled:
                 _follow_on_commit(alert)
+            # Again under the lock, because the check above counted without it and another update can race.
+            # After `on_updated`, for the lock order the API's `update` keeps.
+            if limit_error := AlertConfiguration.update_limit_error(
+                team_id=alert.team_id,
+                organization=self._team.organization,
+                calculation_interval=new_interval,
+                enabled=new_enabled,
+                existing=previous,
+            ):
+                transaction.set_rollback(True)
+                return _SaveRefusal(message=limit_error, error_code="plan_limit_reached")
         return None
 
     @staticmethod
@@ -655,6 +676,11 @@ class UpsertAlertTool(MaxTool):
         enabled: bool,
         skip_weekend: bool,
     ) -> AlertConfiguration:
+        # Again under the lock, because the checks before this transaction can race another create.
+        if limit_error := AlertConfiguration.create_limit_error(
+            team_id=team.id, organization=team.organization, calculation_interval=calculation_interval, enabled=enabled
+        ):
+            raise AlertLimitReached(limit_error.message)
         threshold_to_persist.save()
 
         alert = AlertConfiguration.objects.create(

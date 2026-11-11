@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     invocation_context::context,
@@ -83,6 +83,10 @@ fn clone_maps(args: &CloneArgs) -> Result<()> {
                 .or_else(|| minified_map.get_release_id())
         }
     };
+
+    if *release_mode == ReleaseMode::SymbolSet && release_id.is_none() {
+        warn!("No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.");
+    }
 
     // The flow here differs from plain sourcemap injection a bit - here, we don't ever
     // overwrite the chunk ID, because at this point in the build process, we no longer

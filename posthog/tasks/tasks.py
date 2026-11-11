@@ -25,7 +25,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
@@ -135,6 +135,15 @@ def fail_stuck_video_exports() -> None:
     indistinguishable from a render still in progress.
     """
     from products.exports.backend.stuck_exports import fail_stuck_video_exports as run_sweep
+
+    run_sweep()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+@skip_team_scope_audit
+def delete_scheduled_event_definitions() -> None:
+    """Delete event definitions whose ingestion was stopped, once nothing can recreate them."""
+    from posthog.tasks.event_definitions import delete_scheduled_event_definitions as run_sweep
 
     run_sweep()
 
@@ -910,6 +919,30 @@ def capture_task_run_state_metrics() -> None:
         capture_exception(err)
 
 
+@shared_task(ignore_result=True, queue=CeleryQueue.STATS.value)
+@skip_team_scope_audit
+def capture_task_status_shadow_metrics() -> None:
+    from products.tasks.backend.facade import api as tasks_facade
+
+    try:
+        with pushed_metrics_registry("tasks_status_shadow") as registry:
+            mismatches_gauge = Gauge(
+                "posthog_tasks_status_shadow_mismatches",
+                "Tasks whose stored status differs from the status derived from their latest run.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.collect_task_status_mismatches():
+                mismatches_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(
+                    row.count
+                )
+    except OperationalError as err:
+        logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
+    except Exception as err:
+        logger.exception("capture_task_status_shadow_metrics", exception=err)
+        capture_exception(err)
+
+
 @shared_task(ignore_result=True)
 def update_event_partitions() -> None:
     with connection.cursor() as cursor:
@@ -939,11 +972,15 @@ class Polling:
     _SINGLETON_REDIS_KEY = "POLL_QUERY_PERFORMANCE_SINGLETON_REDIS_KEY"
     NANOSECONDS_IN_SECOND = int(1e9)
     TIME_BETWEEN_RUNS_SECONDS = 2
+    # Hobby only needs the query heartbeat, which lives QueryStatusManager.HEARTBEAT_TTL_SECONDS, not second-by-second progress.
+    # Stays below ASSUME_TASK_DEAD_SECONDS, or start_poll_query_performance would restart a healthy loop.
+    HOBBY_TIME_BETWEEN_RUNS_SECONDS = 10
     SOFT_TIME_LIMIT_SECONDS = 10
     HARD_TIME_LIMIT_SECONDS = 12
     ASSUME_TASK_DEAD_SECONDS = 14  # the time after which we start a new task
 
     TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * TIME_BETWEEN_RUNS_SECONDS
+    HOBBY_TIME_BETWEEN_RUNS_NANOSECONDS = NANOSECONDS_IN_SECOND * HOBBY_TIME_BETWEEN_RUNS_SECONDS
     ASSUME_TASK_DEAD_NANOSECONDS = NANOSECONDS_IN_SECOND * ASSUME_TASK_DEAD_SECONDS
 
     @staticmethod
@@ -970,6 +1007,9 @@ class Polling:
     time_limit=Polling.HARD_TIME_LIMIT_SECONDS,
 )
 def poll_query_performance(last_known_run_time_ns: int) -> None:
+    time_between_runs_ns = (
+        Polling.HOBBY_TIME_BETWEEN_RUNS_NANOSECONDS if is_hobby() else Polling.TIME_BETWEEN_RUNS_NANOSECONDS
+    )
     start_time_ns = time.time_ns()
 
     try:
@@ -985,14 +1025,14 @@ def poll_query_performance(last_known_run_time_ns: int) -> None:
         logger.exception("Poll query performance failed", error=e)
 
     elapsed_ns = time.time_ns() - start_time_ns
-    if elapsed_ns > Polling.TIME_BETWEEN_RUNS_NANOSECONDS:
+    if elapsed_ns > time_between_runs_ns:
         # right again right away if more than time_between_runs has elapsed
         poll_query_performance.delay(start_time_ns)
     else:
         # delay until time_between_runs has elapsed
         poll_query_performance.apply_async(
             args=[start_time_ns],
-            countdown=((Polling.TIME_BETWEEN_RUNS_NANOSECONDS - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
+            countdown=((time_between_runs_ns - elapsed_ns) / Polling.NANOSECONDS_IN_SECOND),
         )
 
 

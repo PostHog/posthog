@@ -586,6 +586,18 @@ export interface MCPToolCallApi {
     readonly error_type: string
     /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
     readonly error_status: string
+    /** Command an exec-style server ran ($mcp_exec_verb), such as call, info, search or unrecognized. Empty for direct tool calls. */
+    readonly exec_verb: string
+    /** Tool the exec command named ($mcp_exec_target_tool). Empty when the command named none. */
+    readonly exec_target_tool: string
+    /** Argument names the client sent ($mcp_input_keys), without values. Empty when not captured. */
+    readonly input_keys: readonly string[]
+    /** Specific failure code ($mcp_error_code) when the server set one, otherwise empty. */
+    readonly error_code: string
+    /** Argument the failure points at ($mcp_error_field), otherwise empty. */
+    readonly error_field: string
+    /** Model that made the call ($mcp_llm_model), otherwise empty. */
+    readonly llm_model: string
 }
 
 export interface PaginatedMCPToolCallListApi {
@@ -788,6 +800,10 @@ export type McpAnalyticsSessionsToolCallsParams = {
      * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable.
      */
     date_from?: string
+    /**
+     * Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops there instead of reading up to now. Unbounded when omitted or unparseable.
+     */
+    date_to?: string
     /**
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */
