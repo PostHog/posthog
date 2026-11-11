@@ -38,7 +38,6 @@ export interface featurePreviewsLogicValues {
     conceptPreviewFeatures: EnrichedEarlyAccessFeature[]
     conceptSurveySubmissions: Record<string, boolean>
     earlyAccessFeatures: EnrichedEarlyAccessFeature[]
-    expandedImageFlagKey: string | null
     filteredEarlyAccessFeatures: EnrichedEarlyAccessFeature[]
     rawEarlyAccessFeatures: EarlyAccessFeature[]
     rawEarlyAccessFeaturesLoading: boolean
@@ -55,9 +54,6 @@ export interface featurePreviewsLogicActions {
         flagKey: string
     }
     cancelEarlyAccessFeatureFeedback: () => {
-        value: true
-    }
-    closeFeaturePreviewImage: () => {
         value: true
     }
     conceptSurveySubmitted: (flagKey: string) => {
@@ -178,7 +174,6 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         submitEarlyAccessFeatureFeedback: (message: string) => ({ message }),
         copyExternalFeaturePreviewLink: (flagKey: string) => ({ flagKey }),
         openFeaturePreviewImage: (flagKey: string) => ({ flagKey }),
-        closeFeaturePreviewImage: true,
         // Coming Soon (concept) waitlist: submit an email to the feature's linked survey
         // instead of the one-click enrollment.
         submitConceptSurvey: (flagKey: string, email: string) => ({ flagKey, email }),
@@ -240,13 +235,6 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
-            },
-        ],
-        expandedImageFlagKey: [
-            null as string | null,
-            {
-                openFeaturePreviewImage: (_, { flagKey }) => flagKey,
-                closeFeaturePreviewImage: () => null,
             },
         ],
         activeFeedbackFlagKey: {

@@ -18,7 +18,13 @@ export function QuillFeaturePreviewFeedbackForm({ feature }: QuillFeaturePreview
 
     const textareaId = `${feature.flagKey}-feedback`
     // A failed submit keeps the panel open (activeFeedbackFlagKey is unchanged), so the text survives for a retry
-    const submit = (): void => void submitEarlyAccessFeatureFeedback(feedback)
+    const submit = (): void => {
+        // Cmd+Enter reaches here without the Submit button's disabled checks
+        if (!feedback.trim() || activeFeedbackFlagKeyLoading) {
+            return
+        }
+        void submitEarlyAccessFeatureFeedback(feedback)
+    }
 
     return (
         <form

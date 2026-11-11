@@ -20,7 +20,6 @@ import { IconLink } from 'lib/lemon-ui/icons'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 import { QuillConceptWaitlistCTA } from './QuillConceptWaitlistCTA'
 import { QuillFeaturePreviewImage } from './QuillFeaturePreviewImage'
-import { QuillFeaturePreviewImageDialog } from './QuillFeaturePreviewImageDialog'
 
 export interface QuillFeaturePreviewsComingSoonProps {
     /** Concept features that match the search. */
@@ -28,7 +27,7 @@ export interface QuillFeaturePreviewsComingSoonProps {
 }
 
 export function QuillFeaturePreviewsComingSoon({ features }: QuillFeaturePreviewsComingSoonProps): JSX.Element {
-    const { rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
+    const { rawEarlyAccessFeaturesLoading, searchTerm } = useValues(featurePreviewsLogic)
     const { copyExternalFeaturePreviewLink } = useActions(featurePreviewsLogic)
 
     return (
@@ -41,12 +40,19 @@ export function QuillFeaturePreviewsComingSoon({ features }: QuillFeaturePreview
                 </div>
             ) : features.length === 0 ? (
                 <Empty>
-                    <EmptyHeader>
-                        <EmptyTitle>Nothing coming soon right now</EmptyTitle>
-                        <EmptyDescription>
-                            Features we plan to build show here before you can try them.
-                        </EmptyDescription>
-                    </EmptyHeader>
+                    {searchTerm.trim() ? (
+                        <EmptyHeader>
+                            <EmptyTitle>No matching upcoming features</EmptyTitle>
+                            <EmptyDescription>Try a different search term.</EmptyDescription>
+                        </EmptyHeader>
+                    ) : (
+                        <EmptyHeader>
+                            <EmptyTitle>Nothing coming soon right now</EmptyTitle>
+                            <EmptyDescription>
+                                Features we plan to build show here before you can try them.
+                            </EmptyDescription>
+                        </EmptyHeader>
+                    )}
                 </Empty>
             ) : (
                 <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
@@ -82,7 +88,6 @@ export function QuillFeaturePreviewsComingSoon({ features }: QuillFeaturePreview
                     ))}
                 </div>
             )}
-            <QuillFeaturePreviewImageDialog features={features} />
         </div>
     )
 }
