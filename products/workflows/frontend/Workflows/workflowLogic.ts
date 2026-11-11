@@ -27,6 +27,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType, IntegrationType } from '~/types'
 
+import { integrationsList } from 'products/integrations/frontend/generated/api'
+import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
@@ -203,11 +205,23 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
 
+async function loadEmailSenders(): Promise<IntegrationConfigApi[]> {
+    const teamId = String(ApiConfig.getCurrentTeamId())
+    const senders: IntegrationConfigApi[] = []
+    let hasNext = true
+    while (hasNext) {
+        const page = await integrationsList(teamId, { kind: 'email', limit: 100, offset: senders.length })
+        senders.push(...page.results)
+        hasNext = !!page.next && page.results.length > 0
+    }
+    return senders
+}
+
 async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
     try {
         const team = teamLogic.findMounted()?.values.currentTeam
         const workflowsConfig = team && 'workflows_config' in team ? team.workflows_config : null
-        const integrations = (await api.integrations.list()).results
+        const integrations = await loadEmailSenders()
         const sender = resolveDefaultEmailSender(integrations, workflowsConfig?.default_email_integration_id)
         if (!sender) {
             const teamUtmDefaults = getTeamUtmDefaults(workflowsConfig)
@@ -705,8 +719,8 @@ export interface workflowLogicActions {
                                         }
                                     }
                                 }
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1648,8 +1662,8 @@ export interface workflowLogicActions {
                                         }
                                     }
                                 }
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -2606,8 +2620,8 @@ export interface workflowLogicActions {
                           }
                       }
                   }
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
               }
             | {
                   cohort_id: number | null
@@ -3040,8 +3054,8 @@ export interface workflowLogicActions {
                           }
                       }
                   }
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  message_category_id?: string | null | undefined
+                  message_category_type?: 'marketing' | 'transactional' | null | undefined
               }
             | {
                   cohort_id: number | null

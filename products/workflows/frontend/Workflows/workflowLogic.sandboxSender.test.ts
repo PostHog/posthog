@@ -61,6 +61,20 @@ function templateWithEmail(
 
 const verifiedSender = { id: 7, kind: 'email', config: { verified: true, email: 'hi@example.com' } }
 
+function integrationPages(integrations: unknown[]) {
+    return ({ request }: { request: Request }): [number, Record<string, unknown>] => {
+        const url = new URL(request.url)
+        const kind = url.searchParams.get('kind')
+        const limit = Number(url.searchParams.get('limit') ?? 100)
+        const offset = Number(url.searchParams.get('offset') ?? 0)
+        const matching = (integrations as { kind: string }[]).filter(
+            (integration) => !kind || integration.kind === kind
+        )
+        const next = offset + limit < matching.length ? `${url.pathname}?offset=${offset + limit}&limit=${limit}` : null
+        return [200, { results: matching.slice(offset, offset + limit), next }]
+    }
+}
+
 const sandboxStatus = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     integration_id: 11,
     from_address: 'sandbox@example.com',
@@ -89,7 +103,8 @@ describe('workflowLogic first-run email sender', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flow_templates/:id/': template,
-                '/api/environments/:team_id/integrations/': { results: integrations },
+                '/api/environments/:team_id/integrations/': integrationPages(integrations),
+                '/api/projects/:team_id/integrations/': integrationPages(integrations),
                 '/api/projects/:team_id/workflow_email_sandbox/status/': (req: any) => [
                     200,
                     { ...status, integration_id: sandboxSenders[req.params.team_id] ?? status.integration_id },
@@ -120,8 +135,21 @@ describe('workflowLogic first-run email sender', () => {
         return email
     }
 
-    it('prefers a verified own sender over the sandbox sender', async () => {
-        useSenderMocks([verifiedSender], sandboxStatus())
+    it.each([
+        ['on the first page of integrations', [verifiedSender]],
+        [
+            'after a full page of unverified senders',
+            [
+                ...Array.from({ length: 100 }, (_, index) => ({
+                    id: 100 + index,
+                    kind: 'email',
+                    config: { verified: false, email: `pending${index}@example.com` },
+                })),
+                verifiedSender,
+            ],
+        ],
+    ])('prefers a verified own sender %s over the sandbox sender', async (_, integrations) => {
+        useSenderMocks(integrations, sandboxStatus())
 
         const email = await openTemplate()
 
