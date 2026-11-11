@@ -1525,7 +1525,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         with patch("posthog.utils.get_template", return_value=mock_template):
             mock_request = MagicMock()
             mock_request.user = self.user
-            mock_request.GET = {}
+            mock_request.GET = {"deferred_app_context": "0"}
             render_template("index.html", request=mock_request, context={})
 
             # Get the context passed to the template
