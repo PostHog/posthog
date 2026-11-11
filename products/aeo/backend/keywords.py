@@ -368,6 +368,7 @@ def competitor_names(team_id: int) -> frozenset[str]:
 # Bounds the distinct terms held in memory while counting, which the window and chunked reads do not. Diverse
 # searches give most terms a single answer, and those rarely reach the top MAX_KEYWORD_MODIFIERS.
 MAX_TRACKED_MODIFIER_TERMS = 20_000
+MODIFIER_PAGE_SIZE = 2000
 
 
 class _ModifierCounts:
@@ -450,18 +451,29 @@ def get_keyword_modifiers(
     window = _window(timezone_name, days)
     keyword = normalize_keyword(keyword) if keyword else None
     counts = _ModifierCounts()
-    rows = (
+    checks = (
         AEOCitationCheck.objects.for_team(team_id)
         .filter(created_at__gte=window.start, created_at__lt=window.until, check_failed=False)
-        .values_list("engine", "cited", "prompt_text", "search_queries")
+        .order_by("id")
     )
-    for engine, cited, prompt_text, search_queries in rows.iterator(chunk_size=2000):
-        searches = (
-            [" ".join(str(search).split()) for search in search_queries] if isinstance(search_queries, list) else []
+    # Keyset pages, because PgBouncer turns server-side cursors off and `.iterator()` would then load the whole window.
+    last_id = None
+    while True:
+        page = list(
+            (checks.filter(id__gt=last_id) if last_id else checks).values_list(
+                "id", "engine", "cited", "prompt_text", "search_queries"
+            )[:MODIFIER_PAGE_SIZE]
         )
-        if keyword and not any(keyword in search.lower() for search in searches):
-            continue
-        counts.add(engine=engine, cited=cited, modifiers=check_modifiers(prompt_text, searches))
+        for _, engine, cited, prompt_text, search_queries in page:
+            searches = (
+                [" ".join(str(search).split()) for search in search_queries] if isinstance(search_queries, list) else []
+            )
+            if keyword and not any(keyword in search.lower() for search in searches):
+                continue
+            counts.add(engine=engine, cited=cited, modifiers=check_modifiers(prompt_text, searches))
+        if len(page) < MODIFIER_PAGE_SIZE:
+            break
+        last_id = page[-1][0]
     return KeywordModifierReport(
         days=days,
         window_from=window.window_from,
