@@ -35,8 +35,6 @@ import {
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
-// Do not add an index on `counter` to make `MAX` cheap: every call changes
-// `counter`, so the index would block HOT updates on this hot row.
 export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[]): Promise<string[]> {
     const indicesByTeam = new Map<number, number[]>()
     jobTeamIds.forEach((teamId, i) => {
@@ -51,11 +49,9 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
         return []
     }
 
-    // One shared lock order, so two concurrent batches that share teams cannot deadlock.
-    const teamIds = [...indicesByTeam.keys()].sort((a, b) => a - b)
-    const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
+    const teamIdsInLockOrder = [...indicesByTeam.keys()].sort((a, b) => a - b)
+    const increments = teamIdsInLockOrder.map((id) => indicesByTeam.get(id)!.length)
 
-    // Hatchet's `p_max_assigned`: a team's first email starts at MAX + 1, so a newcomer's burst cannot cut ahead.
     const upsertResult = await pool.query<{ team_id: number; counter: string }>(
         `WITH max_counter AS (
              SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
@@ -68,7 +64,7 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
             SET counter = cyclotron_email_team_seq.counter
                         + (EXCLUDED.counter - (SELECT m FROM max_counter))
          RETURNING team_id, counter`,
-        [teamIds, increments]
+        [teamIdsInLockOrder, increments]
     )
 
     const newCounters = new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
@@ -87,7 +83,6 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
     return dequeueSeqs
 }
 
-// The reroutes of one result batch arrive in one event-loop turn and share one allocation on the next.
 export function batchEmailDequeueSeqs(pool: Pool): (teamId: number) => Promise<string> {
     let pending: { teamId: number; resolve: (dequeueSeq: string) => void; reject: (error: unknown) => void }[] = []
     const flush = async (): Promise<void> => {
