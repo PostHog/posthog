@@ -25,6 +25,14 @@ from . import errors, github_api, run_queries
 
 logger = structlog.get_logger(__name__)
 
+PULL_REQUEST_CLOSED_MESSAGE = (
+    "Pull request #{pr_number} is closed or merged, so its changes can no longer be approved. "
+    "Approve them in an open pull request."
+)
+PR_SHA_MISMATCH_MESSAGE = (
+    "PR has newer commits. Expected {expected}, got {actual}. Please re-run visual tests on the latest commit."
+)
+
 
 def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str, str]:
     """Verify HMAC signatures on baseline hashes from the CLI.
@@ -373,6 +381,7 @@ def _commit_baseline_to_github(
 
     Raises:
         GitHubIntegrationNotFoundError: No GitHub integration for team
+        PullRequestClosedError: PR is closed or merged
         PRSHAMismatchError: PR has newer commits than this run
         BaselineFilePathNotConfiguredError: No baseline path for run type
         GitHubCommitError: GitHub API error
@@ -390,10 +399,12 @@ def _commit_baseline_to_github(
 
     pr_info = github_api._get_pr_info(github, repo.repo_full_name, run.pr_number)
 
+    if not pr_info["open"]:
+        raise errors.PullRequestClosedError(PULL_REQUEST_CLOSED_MESSAGE.format(pr_number=run.pr_number))
+
     if pr_info["head_sha"] != run.commit_sha:
         raise errors.PRSHAMismatchError(
-            f"PR has newer commits. Expected {run.commit_sha}, got {pr_info['head_sha']}. "
-            "Please re-run visual tests on the latest commit."
+            PR_SHA_MISMATCH_MESSAGE.format(expected=run.commit_sha, actual=pr_info["head_sha"])
         )
 
     current_baselines, file_sha = github_api._fetch_baseline_file(

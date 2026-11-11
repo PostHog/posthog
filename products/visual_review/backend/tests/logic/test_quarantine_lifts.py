@@ -23,7 +23,9 @@ MASTER_SHA = "master-sha"
 
 
 def _merged(base_ref: str = "master") -> github_api.PullRequestState:
-    return github_api.PullRequestState(state="closed", merged=True, merge_commit_sha=MERGE_SHA, base_ref=base_ref)
+    return github_api.PullRequestState(
+        state="closed", merged=True, merge_commit_sha=MERGE_SHA, base_ref=base_ref, head_sha="pr-head"
+    )
 
 
 def _run(repo: Repo, *, branch: str, pr_number: int | None, commit_sha: str, **overrides) -> Run:
@@ -310,7 +312,9 @@ class TestReconcileLiftRequests:
             ),
             (
                 "still_open",
-                github_api.PullRequestState(state="open", merged=False, merge_commit_sha=None, base_ref="master"),
+                github_api.PullRequestState(
+                    state="open", merged=False, merge_commit_sha=None, base_ref="master", head_sha="pr-head"
+                ),
                 True,
                 "fixed",
                 "fixed",
@@ -319,7 +323,9 @@ class TestReconcileLiftRequests:
             ),
             (
                 "closed_without_merging",
-                github_api.PullRequestState(state="closed", merged=False, merge_commit_sha=None, base_ref="master"),
+                github_api.PullRequestState(
+                    state="closed", merged=False, merge_commit_sha=None, base_ref="master", head_sha="pr-head"
+                ),
                 True,
                 "fixed",
                 "fixed",

@@ -7,7 +7,7 @@ from django.db import transaction
 
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import ReviewState, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import BaselineMode, ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.logic import (
     approvals,
     artifact_store,
@@ -20,8 +20,10 @@ from products.visual_review.backend.logic import (
     runs,
     toleration,
 )
-from products.visual_review.backend.models import QuarantinedIdentifier
+from products.visual_review.backend.logic.github_api import PullRequestState
+from products.visual_review.backend.models import BaselineApproval, QuarantinedIdentifier, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+from products.visual_review.backend.tests.logic.ledger_fakes import SEED, FakeGit, LedgerFlow, button_flow
 
 
 def _fake_github_job_api(method, repo, path, **kwargs):
@@ -295,3 +297,86 @@ class TestApproveSnapshots:
         # Run-level state should NOT change
         assert updated.approved is False
         assert updated.review_decision == "pending"
+
+
+def _changed_run(git: FakeGit, flow: LedgerFlow) -> Run:
+    git.open_pull_request(1, git.commit("p1a", SEED))
+    return flow.run("p1a", {"Button": "b1"}, branch="feat", pr_number=1)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestFinalizeByBaselineMode:
+    def test_shadow_finalize_makes_no_github_request_of_its_own(self, team, user, mocker):
+        _repo, git, flow = button_flow(team.id, BaselineMode.SHADOW, mocker, external_id=99997)
+        run = _changed_run(git, flow)
+        pull_request_state = mocker.patch.object(github_api, "pull_request_state")
+
+        approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True)
+
+        assert pull_request_state.called is False
+
+    @pytest.mark.parametrize(
+        ("pull_request", "run_fields", "error"),
+        [
+            (
+                PullRequestState(state="closed", merged=True, merge_commit_sha="m1", base_ref="master", head_sha="p1a"),
+                {},
+                errors.PullRequestClosedError,
+            ),
+            (
+                PullRequestState(state="open", merged=False, merge_commit_sha=None, base_ref="master", head_sha="p1b"),
+                {},
+                errors.PRSHAMismatchError,
+            ),
+            (None, {"metadata": {}}, errors.RunWithoutBaselineRecordError),
+            (None, {"pr_number": None}, errors.RunWithoutPullRequestError),
+        ],
+    )
+    def test_ledger_finalize_refuses_before_any_write(self, team, user, mocker, pull_request, run_fields, error):
+        repo, git, flow = button_flow(team.id, BaselineMode.LEDGER, mocker, external_id=99997)
+        run = _changed_run(git, flow)
+        if pull_request is not None:
+            git.pull_requests[1] = pull_request
+        if run_fields:
+            Run.objects.filter(id=run.id).update(**run_fields)
+
+        with pytest.raises(error):
+            approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True)
+
+        run.refresh_from_db()
+        assert run.approved is False
+        assert not run.snapshots.filter(review_state=ReviewState.APPROVED).exists()
+        assert not BaselineApproval.objects.filter(repo=repo).exists()
+
+    def test_yaml_finalize_refuses_a_closed_pull_request(self, team, user, mocker):
+        repo = repos.create_repo(team_id=team.id, repo_external_id=99997, repo_full_name="org/test-modes")
+        run = Run.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="p1a",
+            branch="feat",
+            pr_number=1,
+            status=RunStatus.COMPLETED,
+        )
+        RunSnapshot.objects.create(
+            run=run,
+            team_id=repo.team_id,
+            identifier="Button",
+            result=SnapshotResult.CHANGED,
+            current_hash="b1",
+            baseline_hash="b0",
+            approved_hash="b1",
+            review_state=ReviewState.APPROVED,
+        )
+        integration = MagicMock()
+        integration.api_request.return_value = MagicMock(
+            status_code=200, json=lambda: {"head": {"ref": "feat", "sha": "p1a"}, "state": "closed", "merged": True}
+        )
+        mocker.patch.object(github_api, "get_github_integration_for_repo", return_value=integration)
+
+        with pytest.raises(errors.PullRequestClosedError):
+            approvals.finalize_run(run_id=run.id, user_id=user.id)
+
+        run.refresh_from_db()
+        assert run.approved is False

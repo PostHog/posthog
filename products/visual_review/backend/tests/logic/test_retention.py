@@ -6,11 +6,60 @@ import pytest
 
 from django.utils import timezone
 
-from products.visual_review.backend.facade.enums import RunStatus, RunType, ToleratedReason
+from products.visual_review.backend.facade.enums import (
+    BaselineApprovalState,
+    BaselineEntrySource,
+    RunStatus,
+    RunType,
+    ToleratedReason,
+)
 from products.visual_review.backend.logic import artifact_store, repos, retention, story_index
-from products.visual_review.backend.models import Artifact, QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
+from products.visual_review.backend.models import (
+    Artifact,
+    BaselineApproval,
+    BaselineEntry,
+    QuarantinedIdentifier,
+    Run,
+    RunSnapshot,
+    ToleratedHash,
+)
 from products.visual_review.backend.tasks.tasks import sweep_visual_review_artifacts, sweep_visual_review_runs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+
+
+def _ledger_entry(repo, now, hashes: dict[str, str]) -> None:
+    BaselineEntry.objects.create(
+        repo=repo,
+        team_id=repo.team_id,
+        run_type=RunType.STORYBOOK,
+        identifier="Button",
+        position=0,
+        commit_sha="a" * 40,
+        source=BaselineEntrySource.SEED,
+        **hashes,
+    )
+
+
+def _approval(repo, now, state: BaselineApprovalState, hashes: dict[str, str]) -> None:
+    BaselineApproval.objects.create(
+        repo=repo,
+        team_id=repo.team_id,
+        run_type=RunType.STORYBOOK,
+        pr_number=7,
+        identifier="Button",
+        commit_sha="a" * 40,
+        approved_at=now,
+        state=state,
+        **hashes,
+    )
+
+
+def _open_approval(repo, now, hashes: dict[str, str]) -> None:
+    _approval(repo, now, BaselineApprovalState.OPEN, hashes)
+
+
+def _promoted_approval(repo, now, hashes: dict[str, str]) -> None:
+    _approval(repo, now, BaselineApprovalState.PROMOTED, hashes)
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -302,6 +351,28 @@ class TestRetentionSweep:
 
         assert result.artifacts_deleted == 0
         assert Artifact.objects.filter(id=artifact.id).exists()
+
+    @pytest.mark.parametrize(
+        ("name_it", "field", "kept"),
+        [
+            (_ledger_entry, "content_hash", True),
+            (_ledger_entry, "previous_hash", False),
+            (_open_approval, "content_hash", True),
+            (_open_approval, "ledger_base_hash", True),
+            (_open_approval, "effective_base_hash", True),
+            (_promoted_approval, "content_hash", False),
+        ],
+    )
+    def test_artifact_named_by_the_baseline_ledger_is_kept(self, name_it, field, kept, repo, now):
+        artifact = self._artifact(repo, now, content_hash="ledger1", age_days=30)
+        name_it(repo, now, {field: artifact.content_hash})
+        sweep = retention.RetentionSweep(repo, now=now)
+
+        # The guarded DELETE has to refuse on its own, because a referrer can appear after the
+        # candidate query read the artifact.
+        assert (artifact.id in sweep._unreferenced_artifact_ids(10)) is not kept
+        assert bool(sweep._delete_artifact_rows([artifact.id])) is not kept
+        assert Artifact.objects.filter(id=artifact.id).exists() is kept
 
     @pytest.mark.parametrize("field", ["current_hash", "baseline_hash"])
     def test_hash_reference_from_another_repo_does_not_keep_an_artifact(self, field, repo, other_repo, now):

@@ -1,9 +1,12 @@
+from datetime import UTC, datetime
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
 from products.visual_review.backend.logic import github_api
+from products.visual_review.backend.models import Repo
 
 _BIG_FILE = "version: 1\nsnapshots:\n  button--light:\n    hash: v1.k.abc.tag\n"
 
@@ -59,3 +62,64 @@ class TestFetchBaselineFile:
         second, _sha = github_api._fetch_baseline_file(github, "org/repo", "snapshots.yml", "other")
 
         assert second == {"button--light": {"hash": "v1.k.abc.tag"}}
+
+
+class TestCompareCommits:
+    @pytest.mark.parametrize(
+        "total_commits,expected_requests,expected_complete",
+        [
+            (150, 2, True),
+            (5000, github_api.MAX_COMPARE_COMMITS // 100, False),
+        ],
+    )
+    def test_reads_every_page_up_to_the_cap(
+        self, total_commits: int, expected_requests: int, expected_complete: bool
+    ) -> None:
+        def page(method, path, *, params, **kwargs):
+            first = (params["page"] - 1) * params["per_page"]
+            count = max(0, min(params["per_page"], total_commits - first))
+            response = MagicMock(status_code=200)
+            response.json.return_value = {
+                "merge_base_commit": {"sha": "base"},
+                "total_commits": total_commits,
+                "commits": [
+                    {"sha": f"c{first + i}", "parents": [{"sha": "p"}], "commit": {"message": "feat: x (#1)\n\nbody"}}
+                    for i in range(count)
+                ],
+            }
+            return response
+
+        github = MagicMock()
+        github.api_request.side_effect = page
+        repo = Repo(repo_full_name="org/repo", repo_external_id=1)
+
+        with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+            comparison = github_api.compare_commits(repo, "base", "head")
+
+        assert comparison is not None
+        assert github.api_request.call_count == expected_requests
+        assert comparison.complete is expected_complete
+        assert len(comparison.commits) == min(total_commits, github_api.MAX_COMPARE_COMMITS)
+        assert comparison.commits[0].subject == "feat: x (#1)"
+
+
+@pytest.mark.parametrize(
+    ("merged_at", "expected"),
+    [("2026-10-01T12:00:00Z", datetime(2026, 10, 1, 12, tzinfo=UTC)), (None, None)],
+)
+def test_pull_request_state_reads_the_merge_time(merged_at: str | None, expected: datetime | None) -> None:
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "state": "closed",
+        "merged": merged_at is not None,
+        "merged_at": merged_at,
+        "base": {"ref": "release"},
+        "head": {"sha": "head-7"},
+    }
+    github = MagicMock()
+    github.api_request.return_value = response
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        state = github_api.pull_request_state(Repo(repo_full_name="org/repo"), 7)
+
+    assert state is not None and state.merged_at == expected
