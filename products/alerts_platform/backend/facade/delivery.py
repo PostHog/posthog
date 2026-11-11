@@ -11,6 +11,7 @@ from products.alerts_platform.backend.delivery import (
     destinations,
     legacy_webhook,
     recipients,
+    refusal_notices,
     subscribers,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -22,6 +23,7 @@ from products.alerts_platform.backend.facade.contracts import (
     LegacyEventEmitter,
     LegacyWebhookBody,
     LiveHogFunctionLookup,
+    SourceAlertCreator,
     SourceDescriber,
     SourceImageResolver,
     SourceKind,
@@ -49,6 +51,10 @@ def register_source_recipients(source: SourceKind, lookup: SourceRecipients) -> 
 
 def register_subscriber_access(source: SourceKind, access: SubscriberAccess) -> None:
     subscribers.register(source, access)
+
+
+def register_source_alert_creator(source: SourceKind, lookup: SourceAlertCreator) -> None:
+    refusal_notices.register_creator(source, lookup)
 
 
 def register_source_describer(source: SourceKind, describer: SourceDescriber) -> None:

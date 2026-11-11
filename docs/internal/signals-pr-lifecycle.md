@@ -304,7 +304,9 @@ The report remains readable and supports discussion, assignment, resolution, and
 
 Report access checks share pending and recent results by project, installation, and repository for up to 30 seconds. Explicit retries invalidate the project cache. A pending request is canceled when its last report reader leaves or after 30 seconds, allowing stalled checks to be retried; temporary failures are not cached. The backend still checks live access before creating an implementation task.
 
-Client-side access controls apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the existing implementation action available; the backend remains responsible for checking repository access.
+Client-side repository access probes apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the existing implementation action available; the backend remains responsible for checking repository access.
+
+Outside the pilot, Implement with PostHog opens the same GitHub connection flow when the project has no GitHub installation, or only installations marked unavailable. Reports reach such projects without onboarding, for example from Replay Vision scanners, scanner scouts, and scout findings, because those sources need no `SignalSourceConfig`. Report tasks push only with the project's own GitHub integration, so without one the backend refuses the task. The check reads only the project's integration list and does not probe repositories.
 
 Disable the flag to remove pilot activation and restore legacy behavior on subsequent research passes. Running passes finish with their recorded decision. Reports and saved source/scout settings remain intact; fleet dispatch still applies its ordinary enrollment and exclusion gates.
 
