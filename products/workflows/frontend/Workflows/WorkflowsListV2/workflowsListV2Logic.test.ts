@@ -100,6 +100,18 @@ describe('workflowsListV2Logic', () => {
         expect(logic.values.templateTypeFilter).toBe('all')
     })
 
+    it.each(['in', 'path', 'folder', 'Folder'])('restores a project folder from %s: in the URL', async (key) => {
+        logic = workflowsListV2Logic()
+        logic.mount()
+        router.actions.push(urls.workflows(), { q: `${key}:Campaigns status:active` })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.value.filters).toEqual([
+            { facet: 'in', value: 'Campaigns', negated: false },
+            { facet: 'status', value: 'active', negated: false },
+        ])
+        expect(router.values.searchParams.q).toBe('in:Campaigns status:active')
+    })
+
     it('loads every page of workflows, newest first', async () => {
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()

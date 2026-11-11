@@ -6,9 +6,7 @@ import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { convertFileSystemEntryToTreeDataItem } from '~/layout/panel-layout/ProjectTree/utils'
 
-import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
 import { workflowFoldersLogic } from './workflowFoldersLogic'
-import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 
 export function WorkflowFolderTree(): JSX.Element {
     const {
@@ -58,18 +56,8 @@ export function WorkflowFolderTree(): JSX.Element {
                     </span>
                 </span>
             )}
-            itemSideAction={() => null}
-            itemSideActionButton={(item) => (
-                <span className="opacity-0 group-hover/lemon-tree-button-group:opacity-100 focus-within:opacity-100">
-                    <WorkflowNewFolderButton parent={item.record?.path ?? ''} iconOnly />
-                </span>
-            )}
             defaultNodeIcon={<IconFolder />}
             disableScroll
-            enableDragAndDrop
-            dragAndDropScope={WORKFLOW_FILES_DRAG_SCOPE}
-            isItemDraggable={() => false}
-            isItemDroppable={() => true}
         />
     )
 }

@@ -54,7 +54,7 @@ import {
     parseFacetQuery,
     serializeFacetQuery,
 } from './FacetSearchBar/facetQuery'
-import { buildWorkflowListFacets, matchesWorkflowListText } from './workflowListFacets'
+import { buildWorkflowListFacets, matchesWorkflowListText, workflowFolderFacet } from './workflowListFacets'
 import {
     LIST_TYPES,
     DEFAULT_COLUMNS,
@@ -91,7 +91,7 @@ const LEGACY_FACET_PARAMS: { param: string; facet: string; isValid: (value: stri
 const LEGACY_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 'tags', 'search', 'page']
 
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
-const QUERY_FACETS = buildWorkflowListFacets([])
+const QUERY_FACETS = [...buildWorkflowListFacets([]), workflowFolderFacet(null, false)]
 
 function nextOffsetOf(page: PaginatedHogFlowListSummaryListApi): number | null {
     const nextOffset = page.next ? new URL(page.next, window.location.origin).searchParams.get('offset') : null
