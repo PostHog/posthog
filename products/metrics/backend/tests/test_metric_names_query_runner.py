@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -347,7 +348,7 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(execute.call_count, 1)
 
 
-class TestNameMatches(APIBaseTest):
+class TestNameMatches(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty_matches_all", "logs.count", "", "substring", True),
@@ -362,7 +363,7 @@ class TestNameMatches(APIBaseTest):
         self.assertEqual(name_matches(name, search, match), expected)
 
 
-class TestFoldClassicHistograms(APIBaseTest):
+class TestFoldClassicHistograms(SimpleTestCase):
     def _row(self, name: str, last_seen: str, first_seen: str | None = None) -> dict:
         row = {"name": name, "metric_type": "sum", "unit": "", "last_seen": last_seen, "sparkline": []}
         if first_seen is not None:
