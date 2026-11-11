@@ -534,6 +534,25 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
         assert self.client.get(self._url(f"{denied_then_deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand([("person",), ("query",)])
+    def test_activity_needs_access_to_persons_and_queries(self, _flag, resource):
+        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        create_access_control(
+            team_id=self.team.id,
+            resource=resource,
+            access_level="none",
+            organization_member_id=self.organization_membership.id,
+        )
+
+        assert self.client.get(self._url(f"{message_id}/activity/")).status_code == status.HTTP_403_FORBIDDEN
+
     def test_names_a_send_from_code_by_its_template_key(self, _flag):
         workflow_id = create_workflow_for_test(team_id=self.team.id, name="order-shipped").id
         TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).create(

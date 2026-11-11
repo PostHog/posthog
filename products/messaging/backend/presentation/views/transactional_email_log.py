@@ -7,7 +7,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -359,6 +359,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         ],
         responses={
             200: TransactionalEmailActivitySerializer,
+            403: OpenApiResponse(description="The user has no access to persons or to querying events."),
             404: OpenApiResponse(description="No send of this project has this ID, or it is older than the log keeps."),
         },
         summary="Get what a transactional email's recipient did around the send",
@@ -371,6 +372,10 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             message_id = UUID(str(pk))
         except ValueError:
             raise NotFound()
+        # Session users skip API scopes, and access control checks only the hog_flow scope_object.
+        for resource in ("person", "query"):
+            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+                raise PermissionDenied(f"You need access to {resource} data to see what the recipient did.")
         with query_concurrency_slots(self.team):
             activity = get_transactional_email_activity(
                 self.team, cast(User, request.user), message_id, access=self._workflow_access()
