@@ -248,7 +248,11 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
     ):
         # A verdict that finished while the pull request was a draft found no live head to route, and the safety
         # net can have fired in that time too. When the pull request is ready again, nothing else routes the head.
-        return _finished_review_step(pr, state, head_sha=head_sha, mode=mode, review_path=review_path)
+        step = _finished_review_step(pr, state, head_sha=head_sha, mode=mode, review_path=review_path)
+        if step is None:
+            # A net that fired during the draft found no live head and scheduled nothing, so the head needs a new one.
+            review_path.schedule_safety_net(repo_config, state.pr_number)
+        return step
     if record is not None and record.get("head_sha") == head_sha:
         # Both modes route once per head, whatever started it. The `opened` task reads the live pull
         # request, so it already routes a draft marked ready before the task ran, and the

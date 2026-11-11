@@ -713,6 +713,16 @@ _LABEL = [{"name": "stamphog"}]
             "DISMISSED",
             "waits_through_ready",
         ),
+        # The net fires while the pull request is a draft and finds no live head, so the ready event needs a new net.
+        (
+            "base_retarget_then_net_during_draft",
+            ReviewVerdict.APPROVED,
+            "fallback",
+            False,
+            _LABEL,
+            "DISMISSED",
+            "net_during_draft",
+        ),
         # A later review approved the live head again, so this retraction is stale.
         ("stale_retraction", ReviewVerdict.APPROVED, "fallback", False, [], "APPROVED", "unchanged"),
     ],
@@ -770,7 +780,7 @@ def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
             "full",
             "done",
         )
-    elif expected in ("waits", "waits_through_ready"):
+    elif expected in ("waits", "waits_through_ready", "net_during_draft"):
         assert len(_writes(routing_chain, "request_reviewers")) == requests_before
         assert (record["head_sha"], record["status"]) == (HEAD_SHA, "waiting")
         if expected == "waits_through_ready":
@@ -779,6 +789,15 @@ def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
             routing_chain.recorder.prs[(REPO, PR_NUMBER)]["draft"] = False
             _route("ready_for_review")
             assert len(_writes(routing_chain, "request_reviewers")) == requests_before
+            assert _stored(team.id)["status"] == "waiting"
+        if expected == "net_during_draft":
+            routing_chain.recorder.prs[(REPO, PR_NUMBER)]["draft"] = True
+            _fire_safety_net(safety_net)
+            assert len(_writes(routing_chain, "request_reviewers")) == requests_before
+            routing_chain.recorder.prs[(REPO, PR_NUMBER)]["draft"] = False
+            nets_before = safety_net.call_count
+            _route("ready_for_review")
+            assert safety_net.call_count == nets_before + 1
             assert _stored(team.id)["status"] == "waiting"
         # No verdict comes, such as when a gate refuses the visible review.
         _fire_safety_net(safety_net)
