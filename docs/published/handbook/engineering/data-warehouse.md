@@ -38,10 +38,11 @@ This reservation does not add qualified names to existing models or require a na
 
 ## Model refresh minimums
 
-Billing sets each plan's minimum as the `limit`, in minutes, of the `data_modeling_refresh_interval` product feature, the same way it grants `high_frequency_alerts`.
+Billing sets each plan's minimum as the `limit`, in minutes, of the `data_modeling_refresh_interval` product feature, the same way it sets the `alerts` limit.
 Billing sync stores the feature in `available_product_features`.
 An organization without the feature, or with a feature that has no `limit`, has no minimum.
-The `limit` must be one of the cadences an endpoint can use, from `15` to `10080` (7 days); any other value counts as invalid, and reconciles then leave existing schedules alone.
+The `limit` must be `15`, `30`, `60`, `360`, `720`, `1440`, or `10080`, the cadences an endpoint can use.
+While the flag is on, any other value counts as invalid: saves that speed up a view are refused, and reconciles leave existing schedules alone.
 
 The proposed limits are `60` for free organizations, `30` for paid organizations without a package, and `15` for Teams, Boost, Scale, and Enterprise.
 

@@ -904,21 +904,28 @@ class TestMaybeReconcileDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_feature", [], None),
+            ("no_feature", [], True, None),
             (
                 "feature_without_a_limit",
                 [{"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "limit": None}],
+                True,
                 None,
             ),
-            ("free_plan", [{"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "limit": 60}], 60),
-            ("package_plan", [{"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "limit": 15}], 15),
+            ("free_plan", [{"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "limit": 60}], True, 60),
+            ("package_plan", [{"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "limit": 15}], True, 15),
+            (
+                "invalid_limit_ignored_while_flag_off",
+                [{"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "limit": 45}],
+                False,
+                None,
+            ),
         ]
     )
     def test_plan_floor_reads_the_billing_feature_limit_locally(
-        self, _name: str, features: list[dict], minutes: int | None
+        self, _name: str, features: list[dict], flag_enabled: bool, minutes: int | None
     ) -> None:
         self.organization.available_product_features = features
-        with mock.patch(FLAG_RESULT, side_effect=_floor_flag({"clamp_existing": True})) as flag:
+        with mock.patch(FLAG_RESULT, side_effect=_floor_flag({"clamp_existing": True}, enabled=flag_enabled)) as flag:
             reading = read_organization_plan_refresh_floor(self.organization)
         self.assertTrue(flag.call_args.kwargs["only_evaluate_locally"])
         self.assertTrue(reading.evaluated)
