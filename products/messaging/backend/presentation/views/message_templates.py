@@ -308,11 +308,6 @@ class PushTemplateSerializer(serializers.Serializer):
         help_text="Where a tap should take the person, such as myapp://orders/123 or a web URL. Sent to the app "
         'as the "link" key in the custom data. Supports Liquid templating.',
     )
-    data = serializers.DictField(
-        child=serializers.CharField(allow_blank=True, max_length=4000),
-        required=False,
-        help_text="Custom key-value data delivered to the app. Values are strings and support Liquid templating.",
-    )
     channels = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
@@ -320,6 +315,16 @@ class PushTemplateSerializer(serializers.Serializer):
         help_text="IDs of the project's Firebase and APNs integrations to send through. Each person gets the "
         "notification on every device they registered with one of these apps.",
     )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        # `data` is a Serializer property, so the field is declared here.
+        fields["data"] = serializers.DictField(
+            child=serializers.CharField(allow_blank=True, max_length=4000),
+            required=False,
+            help_text="Custom key-value data delivered to the app. Values are strings and support Liquid templating.",
+        )
+        return fields
 
     def validate_data(self, value: dict[str, str]) -> dict[str, str]:
         if len(value) > PUSH_DATA_MAX_KEYS:

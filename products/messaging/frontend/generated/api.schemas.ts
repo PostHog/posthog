@@ -954,13 +954,13 @@ export interface PushTemplateApi {
      * @maxLength 2000
      */
     link?: string
-    /** Custom key-value data delivered to the app. Values are strings and support Liquid templating. */
-    data?: PushTemplateApiData
     /**
      * IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps.
      * @maxItems 20
      */
     channels?: number[]
+    /** Custom key-value data delivered to the app. Values are strings and support Liquid templating. */
+    data?: PushTemplateApiData
 }
 
 export interface MessageTemplateContentApi {
