@@ -123,7 +123,7 @@ function CanvasesList(): JSX.Element {
                 }}
                 emptyState={
                     canvasesLoadFailed ? (
-                        <div className="flex flex-col items-center gap-2">
+                        <div className="flex flex-col items-center gap-2 py-4">
                             <span>Couldn't load your canvases. Check your connection and try again.</span>
                             <LemonButton
                                 type="secondary"
