@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -226,7 +226,6 @@ export const cohortsPartialUpdateBodyCreateStaticPersonIdsMax = 1000
 export const CohortsPartialUpdateBody = () => zod.object({
     name: zod.string().max(cohortsPartialUpdateBodyNameMax).nullish(),
     description: zod.string().max(cohortsPartialUpdateBodyDescriptionMax).optional(),
-    deleted: zod.boolean().optional(),
     filters: zod
         .union([
             zod.object({
@@ -360,6 +359,18 @@ export const CohortsPartialUpdateBody = () => zod.object({
         .max(cohortsPartialUpdateBodyCreateStaticPersonIdsMax)
         .optional()
         .describe('Person UUIDs to add to a new static cohort.'),
+})
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const CohortsDestroyParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this cohort.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 export const CohortsAddPersonsToStaticCohortPartialUpdateParams = () => zod.object({
