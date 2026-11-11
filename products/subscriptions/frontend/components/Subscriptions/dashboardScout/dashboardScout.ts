@@ -1,4 +1,7 @@
-import type { SignalScoutCreateApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    SignalScoutCreateApi,
+    SignalScoutSlackDestinationApi,
+} from 'products/signals/frontend/generated/api.schemas'
 import {
     DEFAULT_SCOUT_WEEKLY_DAY,
     MAX_SCOUT_DISPLAY_NAME_LENGTH,
@@ -12,9 +15,7 @@ export type DashboardScoutCadence = 'weekdays' | 'daily' | 'weekly'
 export type DashboardScoutPostMode = 'every_run' | 'on_change'
 
 export interface DashboardScoutSetup {
-    integrationId: number | null
-    /** A `${channelId}|#${channelName}` picker value. */
-    channel: string
+    destination: SignalScoutSlackDestinationApi | null
     cadence: DashboardScoutCadence
     time: string
     postMode: DashboardScoutPostMode
@@ -36,8 +37,7 @@ export const DASHBOARD_SCOUT_TIME_OPTIONS: { value: string; label: string }[] = 
 )
 
 export const DEFAULT_DASHBOARD_SCOUT_SETUP: DashboardScoutSetup = {
-    integrationId: null,
-    channel: '',
+    destination: null,
     cadence: 'weekdays',
     time: '09:00',
     postMode: 'every_run',
@@ -49,6 +49,11 @@ const POST_MODE_INSTRUCTIONS: Record<DashboardScoutPostMode, string> = {
         'Post an update on every run. When something moved, lead with that. On a quiet run, file one short report that says the dashboard is in its normal range and how many insights you checked, with no detail section.',
     on_change:
         'Post only when an insight moved away from its own baseline or a tile is broken. A run where every tile sits inside its baseline ends with no report, and that is a good outcome.',
+}
+
+/** A Slack destination is complete once it names a channel or at least one person. */
+export function hasSlackTarget(destination: SignalScoutSlackDestinationApi | null): boolean {
+    return !!destination && (!!destination.channel || !!destination.users?.length)
 }
 
 const NO_FOCUS_INSTRUCTIONS =
@@ -83,10 +88,18 @@ function focusInstructions(focus: string): string {
         .join('\n')
 }
 
-function renderDashboardScoutBody(dashboardId: number, dashboardName: string, setup: DashboardScoutSetup): string {
+function dashboardScoutSubjectName(dashboardId: number, dashboardName: string): string {
+    return dashboardName.trim() || `Dashboard ${dashboardId}`
+}
+
+export function renderDashboardScoutBody(
+    dashboardId: number,
+    dashboardName: string,
+    setup: Pick<DashboardScoutSetup, 'postMode' | 'focus'>
+): string {
     const values: Record<string, string> = {
         dashboard_id: String(dashboardId),
-        dashboard_name: dashboardName,
+        dashboard_name: dashboardScoutSubjectName(dashboardId, dashboardName),
         post_mode: POST_MODE_INSTRUCTIONS[setup.postMode],
         focus: focusInstructions(setup.focus),
     }
@@ -98,18 +111,16 @@ function renderDashboardScoutBody(dashboardId: number, dashboardName: string, se
 export function buildDashboardScoutPayload(
     dashboardId: number,
     dashboardName: string,
-    setup: DashboardScoutSetup & { integrationId: number }
+    setup: DashboardScoutSetup & { destination: SignalScoutSlackDestinationApi }
 ): SignalScoutCreateApi {
-    const name = dashboardName.trim() || `Dashboard ${dashboardId}`
+    const name = dashboardScoutSubjectName(dashboardId, dashboardName)
     return {
         display_name: `${name} scout`.slice(0, MAX_SCOUT_DISPLAY_NAME_LENGTH),
         description: `Watches the "${name}" dashboard and posts what changed in Slack.`,
         body: renderDashboardScoutBody(dashboardId, name, setup),
         config: {
             run_cron_schedule: dashboardScoutCron(setup.cadence, setup.time),
-            output_destinations: {
-                slack: { integration_id: setup.integrationId, channel: setup.channel },
-            },
+            output_destinations: { slack: setup.destination },
             tags: ['dashboards', dashboardScoutTag(dashboardId)],
             // A scout that only posts on a change is valuable when it stays silent, which the
             // inactivity sweep would read as dead.

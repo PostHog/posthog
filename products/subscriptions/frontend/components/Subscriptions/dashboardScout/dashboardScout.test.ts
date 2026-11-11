@@ -25,7 +25,10 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutMetadataGet: jest.fn(),
 }))
 
-const SETUP = { ...DEFAULT_DASHBOARD_SCOUT_SETUP, integrationId: 7, channel: 'C123|#team-growth' }
+const SETUP = {
+    ...DEFAULT_DASHBOARD_SCOUT_SETUP,
+    destination: { integration_id: 7, channel: 'C123|#team-growth' },
+}
 
 describe('dashboard scout', () => {
     test.each<[DashboardScoutCadence, string]>([
