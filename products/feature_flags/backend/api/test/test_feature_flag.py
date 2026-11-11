@@ -9607,6 +9607,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             query_settings = query.rsplit("SETTINGS", 1)[-1]
             assert "optimize_aggregation_in_order=1" in query_settings
             assert f"max_bytes_before_external_group_by={SPILL_GROUP_BY_AFTER_BYTES}" in query_settings
+            assert "timeout_overflow_mode='throw'" in query_settings
 
         with self.capture_select_queries() as queries:
             assert get_user_blast_radius(team, {"properties": []}).total == 3
