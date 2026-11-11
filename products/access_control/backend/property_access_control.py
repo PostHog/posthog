@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.core.signals import request_finished, request_started
+from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -212,6 +213,7 @@ def get_non_writable_property_names(
     team_id: int,
     user: User | None,
     property_type: int,
+    group_type_index: int | None = None,
 ) -> set[str]:
     """
     Returns property names where the user does not have write access (i.e., the effective
@@ -220,6 +222,8 @@ def get_non_writable_property_names(
     :param team_id: The team whose restrictions to check.
     :param user: The user making the request.
     :param property_type: PropertyDefinition.Type value (e.g., PropertyDefinition.Type.PERSON).
+    :param group_type_index: For group properties, limits the rules to this group type (definitions
+        without a group type index apply to every group type).
     :returns: Set of property name strings that the user cannot write to.
     """
     from posthog.models import OrganizationMembership
@@ -236,6 +240,11 @@ def get_non_writable_property_names(
         .exclude(property_definition__isnull=True)
         .filter(property_definition__type=property_type)
     )
+    if group_type_index is not None:
+        rules = rules.filter(
+            Q(property_definition__group_type_index=group_type_index)
+            | Q(property_definition__group_type_index__isnull=True)
+        )
 
     rules_by_property: dict[UUID, list[PropertyAccessControl]] = {}
     for rule in rules:
@@ -415,6 +424,13 @@ def _get_user_role_ids(membership: OrganizationMembership | None, organization: 
     )
 
 
+_ACCESS_LEVELS_MOST_PERMISSIVE_FIRST = (
+    PropertyAccessLevel.READ_WRITE,
+    PropertyAccessLevel.READ,
+    PropertyAccessLevel.NONE,
+)
+
+
 def _resolve_access_level(
     rules: list[PropertyAccessControl],
     *,
@@ -439,13 +455,11 @@ def _resolve_access_level(
                 return PropertyAccessLevel(rule.access_level)
 
     # 2. role-specific rules (most permissive wins)
-    role_rules = [r for r in rules if r.role_id is not None and r.role_id in user_role_ids]
-    if role_rules:
-        for rule in role_rules:
-            level = PropertyAccessLevel(rule.access_level)
-            if level.grants_access():
-                return level
-        return PropertyAccessLevel.NONE
+    role_levels = {
+        PropertyAccessLevel(r.access_level) for r in rules if r.role_id is not None and r.role_id in user_role_ids
+    }
+    if role_levels:
+        return next(level for level in _ACCESS_LEVELS_MOST_PERMISSIVE_FIRST if level in role_levels)
 
     # 3. default rule (null membership and null role)
     for rule in rules:

@@ -51,6 +51,7 @@ from products.replay_vision.backend.temporal.activities.benchmark import (
     snapshot_benchmark_labels_activity,
     write_benchmark_manifest_activity,
 )
+from products.replay_vision.backend.temporal.activities.rebuild_highlight_feeds import rebuild_highlight_feeds_activity
 from products.replay_vision.backend.temporal.activities.refresh_learned_rules import (
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
@@ -62,6 +63,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
 )
+from products.replay_vision.backend.temporal.highlight_rebuild import RebuildHighlightFeedsWorkflow
 from products.replay_vision.backend.temporal.learned_rules import RefreshLearnedRulesWorkflow
 from products.replay_vision.backend.temporal.media_workflow import ObservationMediaWorkflow
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
@@ -85,6 +87,7 @@ WORKFLOWS = [
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
     RefreshLearnedRulesWorkflow,
+    RebuildHighlightFeedsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
     SweepScannerWorkflow,
     VisionAlertCheckWorkflow,
@@ -138,6 +141,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     sweep_gemini_files_activity,
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
+    rebuild_highlight_feeds_activity,
     snapshot_benchmark_labels_activity,
     load_benchmark_cases_activity,
     prepare_benchmark_case_activity,

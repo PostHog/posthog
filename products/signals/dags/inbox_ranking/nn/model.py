@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from posthog import settings
 from posthog.dataclasses import frozen
@@ -19,29 +20,73 @@ from posthog.dataclasses import frozen
 from products.signals.backend.ranking.features import (
     DAYS_SINCE_LAST_VIEW_CAP,
     USER_HISTORY_KINDS,
+    FeatureSet,
     PairUserHistoryFeatureSet,
 )
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import DATASET_VERSION
-from products.signals.dags.inbox_ranking.dataset.project_vectors import USER_HISTORY_LIMIT, VECTOR_KINDS
+from products.signals.dags.inbox_ranking.dataset.project_vectors import USER_HISTORY_LIMIT
+from products.signals.dags.inbox_ranking.dataset.queries import LABELS_TEAM_ID
 from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ONNX_OUTPUT, NetworkConfig, NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
 from products.signals.dags.inbox_ranking.training.calibration import CalibrationBucket
-from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN, ModelFamily
+from products.signals.dags.inbox_ranking.training.families import PAIR_BROADCAST_HEAD_NAMES, PAIR_GRAIN, ModelFamily
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.recipe import model_recipe, with_recipe
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, _auc, holdout_grade
-from products.signals.dags.inbox_ranking.training.within_team import within_team_auc
+from products.signals.dags.inbox_ranking.training.within_team import group_aucs, summarize_groups, team_interval
 
 HOLDOUT_MODEL_FILE = "model.holdout.onnx"
+# The seed of the permutations that shuffle a feature group across the holdout rows.
+GROUP_SHUFFLE_SEED = 0
+GROUP_IMPORTANCE_READS = ("pooled", "within_team_non_dogfood_macro")
+# The share of training rows that must carry a late feature group before the network reads it.
+MIN_TRAINED_GROUP_SHARE = 0.05
 
 
 @frozen
 class NetworkHead:
     metrics: HeadMetrics
     calibration: tuple[CalibrationBucket, ...]
+
+
+@frozen
+class HeadFitAucs:
+    """One head's AUC on the train-only fit's own fit rows, its validation rows and its holdout,
+    each row weighted by its loss weight, so a broadcast head reads one unit per report."""
+
+    head: str
+    train_auc: float | None
+    validation_auc: float | None
+    holdout_auc: float | None
+
+
+@frozen
+class PairFitRecord:
+    """How a pair network with `PairTrainingConfig` fit: the epochs its early stopping kept, which
+    the refit on every row runs for, and the gap from train to validation to holdout per head."""
+
+    epochs_kept: int
+    fit_rows: int
+    validation_rows: int
+    heads: tuple[HeadFitAucs, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "epochs_kept": self.epochs_kept,
+            "fit_rows": self.fit_rows,
+            "validation_rows": self.validation_rows,
+            "heads": {
+                head.head: {
+                    "train_auc": head.train_auc,
+                    "validation_auc": head.validation_auc,
+                    "holdout_auc": head.holdout_auc,
+                }
+                for head in self.heads
+            },
+        }
 
 
 @frozen
@@ -60,11 +105,12 @@ class TrainedNetwork:
     vector_kinds: tuple[str, ...]
     # The user-history kinds the graphs take, empty for a network without a `user` input.
     user_vector_kinds: tuple[str, ...] = ()
+    pair_fit: PairFitRecord | None = None
 
 
 def network_vector_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
     """The project-vector kinds a network fit on `inputs` takes, empty for a report-only network."""
-    return VECTOR_KINDS if inputs.context is not None else ()
+    return inputs.context.kinds if inputs.context is not None else ()
 
 
 def network_user_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
@@ -103,6 +149,9 @@ def network_recipe(
         learner_params=dataclasses.asdict(config),
         project_vector_kinds=vector_kinds,
     )
+    if family.pair_training is not None:
+        # Only a family that sets it carries the key, so the first pair families keep their hashes.
+        recipe = {**recipe, "pair_training": dataclasses.asdict(family.pair_training)}
     if family.grain == PAIR_GRAIN:
         recipe = {
             **recipe,
@@ -160,8 +209,11 @@ def candidate_metadata(
             head.metrics.as_dict()
             | {
                 "cohort": HEADS_BY_NAME[head.metrics.head].cohort.__name__,
-                "horizon_days": (pair_settings or {}).get(
-                    "label_horizon_days", HEADS_BY_NAME[head.metrics.head].horizon_days
+                # A broadcast head keeps its report label, and so the report head's horizon.
+                "horizon_days": (
+                    HEADS_BY_NAME[head.metrics.head].horizon_days
+                    if head.metrics.head in PAIR_BROADCAST_HEAD_NAMES
+                    else (pair_settings or {}).get("label_horizon_days", HEADS_BY_NAME[head.metrics.head].horizon_days)
                 ),
                 "example_window_start": windows.get(head.metrics.head, {}).get("example_window_start"),
                 "example_cap_bound": windows.get(head.metrics.head, {}).get("example_cap_bound"),
@@ -175,6 +227,8 @@ def candidate_metadata(
     if family.grain == PAIR_GRAIN:
         metadata["grain"] = PAIR_GRAIN
         metadata["user_vector_kinds"] = list(trained.user_vector_kinds)
+    if trained.pair_fit is not None:
+        metadata["pair_fit"] = trained.pair_fit.as_dict()
     return with_recipe(
         metadata,
         network_recipe(
@@ -252,13 +306,20 @@ def vs_baseline_block(
     seeds: Sequence[int],
     experiment_scores: Sequence[np.ndarray],
     baseline_scores: Sequence[np.ndarray],
+    experiment_seeds: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """The experiment against its baseline, per head, on the same holdout rows.
 
     Each seed fits both arms on the same train rows, so the two AUCs of one seed form a pair. One
     seed's gap can be noise from the network's initialization alone, so the block keeps the range
-    of the gaps across seeds. `within_team` is the read the inbox order depends on, and `pooled` is
-    there for reference. A seed where either arm has no AUC drops out of the pairs.
+    of the gaps across seeds. `experiment_seeds` are the experiment arm's seeds when they differ from
+    the baseline's `seeds`, as in an A/A experiment.
+
+    `within_team` is the read the inbox order depends on, and `pooled` is there for reference.
+    `within_team_non_dogfood` leaves out PostHog's own project, whose inbox use is not a customer's.
+    Each `_macro` read weighs every team the same, so a few large inboxes cannot carry it. The
+    non-dogfood macro delta also gets a team bootstrap interval. A seed where either arm has no AUC
+    drops out of the pairs.
     """
     train_rows = table.network_train_rows()
     heads: dict[str, dict[str, Any]] = {}
@@ -266,17 +327,105 @@ def vs_baseline_block(
         rows = table.head_rows(index, holdout=True)
         y = table.labels[rows, index].astype(int)
         team_ids = table.team_ids(rows)
-        heads[name] = {
+        grade: dict[str, Any] = {
             "train_rows": int((~np.isnan(table.labels[train_rows, index])).sum()),
             "holdout_rows": len(rows),
             "holdout_positives": int(y.sum()),
-            "within_team": _paired(
-                [within_team_auc(y, scores[rows, index], team_ids).auc for scores in experiment_scores],
-                [within_team_auc(y, scores[rows, index], team_ids).auc for scores in baseline_scores],
-            ),
-            "pooled": _paired(
-                [_auc(y, scores[rows, index]) for scores in experiment_scores],
-                [_auc(y, scores[rows, index]) for scores in baseline_scores],
-            ),
         }
-    return {"baseline": baseline, "seeds": list(seeds), "heads": heads}
+        scopes = {"within_team": np.ones(len(rows), dtype=bool), "within_team_non_dogfood": team_ids != LABELS_TEAM_ID}
+        for scope, mask in scopes.items():
+            scoped_y, scoped_rows, scoped_teams = y[mask], rows[mask], team_ids[mask]
+            experiment = [
+                group_aucs(scoped_y, scores[scoped_rows, index], scoped_teams) for scores in experiment_scores
+            ]
+            base = [group_aucs(scoped_y, scores[scoped_rows, index], scoped_teams) for scores in baseline_scores]
+            experiment_reads = [summarize_groups(per_team) for per_team in experiment]
+            base_reads = [summarize_groups(per_team) for per_team in base]
+            grade[scope] = _paired([read.auc for read in experiment_reads], [read.auc for read in base_reads])
+            grade[f"{scope}_macro"] = _paired(
+                [read.macro for read in experiment_reads], [read.macro for read in base_reads]
+            )
+            if scope == "within_team_non_dogfood":
+                teams = pd.Series(scoped_teams, index=scoped_teams).groupby(level=0).first()
+                grade[f"{scope}_macro_team_interval"] = team_interval(experiment, base, teams)
+        grade["pooled"] = _paired(
+            [_auc(y, scores[rows, index]) for scores in experiment_scores],
+            [_auc(y, scores[rows, index]) for scores in baseline_scores],
+        )
+        heads[name] = grade
+    return {
+        "baseline": baseline,
+        "seeds": list(seeds),
+        "experiment_seeds": list(experiment_seeds if experiment_seeds is not None else seeds),
+        "heads": heads,
+    }
+
+
+def _group_columns(feature_set: FeatureSet, groups: Mapping[str, Sequence[str]]) -> dict[str, list[int]]:
+    position = {name: index for index, name in enumerate(feature_set.feature_names)}
+    return {group: [position[name] for name in names] for group, names in groups.items()}
+
+
+def feature_group_columns(feature_set: FeatureSet) -> dict[str, list[int]]:
+    """The report-input column positions of each of the set's `feature_groups`."""
+    return _group_columns(feature_set, feature_set.feature_groups)
+
+
+def zero_unfitted_groups(reports: np.ndarray, train_rows: np.ndarray, feature_set: FeatureSet) -> list[str]:
+    """Zero, on every row of `reports` in place, each of the set's `late_feature_groups` that fewer
+    than `MIN_TRAINED_GROUP_SHARE` of `train_rows` carry, and return those groups' names.
+
+    A row carries a group when any of the group's columns is not zero. The weights of a group that
+    no training row carries get no gradient and keep their initial random values, so a holdout row
+    that carries the group would add noise to its score.
+    """
+    zeroed: list[str] = []
+    for group, columns in _group_columns(feature_set, feature_set.late_feature_groups).items():
+        carried = np.any(reports[train_rows][:, columns] != 0, axis=1)
+        if len(train_rows) == 0 or carried.mean() < MIN_TRAINED_GROUP_SHARE:
+            reports[:, columns] = 0.0
+            zeroed.append(group)
+    return zeroed
+
+
+def _importance_reads(y: np.ndarray, scores: np.ndarray, team_ids: np.ndarray) -> dict[str, float | None]:
+    non_dogfood = team_ids != LABELS_TEAM_ID
+    return {
+        "pooled": _auc(y, scores),
+        "within_team_non_dogfood_macro": summarize_groups(
+            group_aucs(y[non_dogfood], scores[non_dogfood], team_ids[non_dogfood])
+        ).macro,
+    }
+
+
+def group_importance_block(
+    table: ExampleTable,
+    experiment_scores: Sequence[np.ndarray],
+    holdout_rows: np.ndarray,
+    shuffled_scores: Mapping[str, Sequence[np.ndarray]],
+) -> dict[str, Any]:
+    """Per head and feature group, the fall in the experiment arm's holdout AUC when the group's
+    columns are shuffled together across the holdout rows, as the mean over seeds.
+
+    `experiment_scores` hold each seed's scores of every row of `table`, and `shuffled_scores` each
+    group's scores of `holdout_rows` (sorted) from the same seeds' networks, in the same order. A seed
+    where either AUC is missing drops out of the mean. The reads are `GROUP_IMPORTANCE_READS`: the
+    pooled AUC, and the within-team macro AUC without the dogfood project, which decides a win.
+    """
+    heads: dict[str, dict[str, dict[str, float | None]]] = {}
+    for index, name in enumerate(NN_HEAD_NAMES):
+        rows = table.head_rows(index, holdout=True)
+        local = np.searchsorted(holdout_rows, rows)
+        y = table.labels[rows, index].astype(int)
+        team_ids = table.team_ids(rows)
+        intact = [_importance_reads(y, scores[rows, index], team_ids) for scores in experiment_scores]
+        groups: dict[str, dict[str, float | None]] = {}
+        for group, per_seed in shuffled_scores.items():
+            shuffled = [_importance_reads(y, scores[local, index], team_ids) for scores in per_seed]
+            groups[group] = {}
+            for read in GROUP_IMPORTANCE_READS:
+                pairs = [(before[read], after[read]) for before, after in zip(intact, shuffled, strict=True)]
+                drops = [kept - lost for kept, lost in pairs if kept is not None and lost is not None]
+                groups[group][read] = float(np.mean(drops)) if drops else None
+        heads[name] = groups
+    return {"shuffle_seed": GROUP_SHUFFLE_SEED, "seeds": len(experiment_scores), "heads": heads}

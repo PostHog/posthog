@@ -12,7 +12,7 @@ from posthog.schema import ProductKey
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole, Workload
-from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
 from posthog.clickhouse.query_tagging import DagsterTags, Feature, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, dagster_tags, describe_runs
@@ -336,6 +336,11 @@ class ShardBackfill:
     because a run spans days. The weekly squash can start partway through, and the TTL can
     expire a planned day before the run reaches it. Days run newest first, so the run stops at
     the first expired day.
+
+    Each day picks one replica and runs its parts wait, consumer cutoff and copy there. The
+    anti-join reads only that replica's local parts, so the cutoff must come from the same
+    parts. A cutoff read on another replica does not show a replication fetch that the copy
+    replica has not finished.
     """
 
     cluster: ClickhouseCluster
@@ -367,21 +372,22 @@ class ShardBackfill:
             uncopied_days = len(days) - copied_days
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
-            self.wait_for_parts_to_merge(day)
+            copy_host = self.cluster.any_host_in_shard_by_roles(self.shard_num, [self.node_role], self.workload)
+            self.wait_for_parts_to_merge(day, copy_host)
             blocking_run_check = self._wait_for_disk_and_blocking_runs()
-            created_before = self.consumer_cutoff()
+            created_before = self.consumer_cutoff(copy_host)
             # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
             try:
-                rows = self.copy_day(day, copy_query, settings, created_before)
+                rows = self.copy_day(day, copy_query, settings, created_before, copy_host)
             finally:
                 if not self.config.dry_run:
                     self.check_no_blocking_run_started(blocking_run_check, day=day)
             total_rows += rows
             copied_days += 1
             action = "would copy" if self.config.dry_run else "copied"
-            self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s)")
+            self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s) on {copy_host.connection_info.host}")
         return ShardBackfillTotals(days=copied_days, rows=total_rows)
 
     def _wait_for_disk_and_blocking_runs(self) -> BlockingRunCheck:
@@ -402,13 +408,13 @@ class ShardBackfill:
         )
         return True
 
-    def wait_for_parts_to_merge(self, day: date) -> None:
+    def wait_for_parts_to_merge(self, day: date, copy_host: HostInfo) -> None:
         if self.config.max_unmerged_parts <= 0:
             return
         query = GET_NUM_RAW_SESSIONS_ACTIVE_PARTS([f"{day:%Y%m}"], table=FLAG_EVALUATIONS_DATA_TABLE, use_cluster=False)
         deadline = time.monotonic() + self.config.parts_check_max_wait_seconds
         while True:
-            active_parts = self._on_copy_host(partial(self._first_row, query))[0]
+            active_parts = self._on_host(copy_host, partial(self._first_row, query))[0]
             if active_parts < self.config.max_unmerged_parts:
                 return
             if time.monotonic() > deadline:
@@ -497,14 +503,14 @@ class ShardBackfill:
             raise dagster.Failure(description=f"Stopping shard {self.shard_num}: " + "; ".join(problems))
         return hosts_moving_parts
 
-    def consumer_cutoff(self) -> datetime:
+    def consumer_cutoff(self, copy_host: HostInfo) -> datetime:
         """Stop the shard when the Kafka path to flag_evaluations is too far behind.
 
         Otherwise return a cutoff such that flag_evaluations holds every fork row whose Kafka create time is
         before it.
         """
         checked_at = datetime.now(UTC)
-        kafka_partitions, lag_seconds = self._on_copy_host(partial(self._first_row, _KAFKA_POSITION_QUERY))
+        kafka_partitions, lag_seconds = self._on_host(copy_host, partial(self._first_row, _KAFKA_POSITION_QUERY))
         if kafka_partitions == 0:
             raise dagster.Failure(
                 description=f"Stopping shard {self.shard_num}: no row reached {FLAG_EVALUATIONS_DATA_TABLE} "
@@ -521,7 +527,9 @@ class ShardBackfill:
         # limit rather than the measured lag, which leaves that much slack for a late part.
         return checked_at - timedelta(seconds=self.config.max_consumer_lag_seconds) - _KAFKA_DELIVERY_TIMEOUT
 
-    def copy_day(self, day: date, copy_query: str, settings: dict[str, Any], created_before: datetime) -> int:
+    def copy_day(
+        self, day: date, copy_query: str, settings: dict[str, Any], created_before: datetime, copy_host: HostInfo
+    ) -> int:
         day_args = {
             "event": FLAG_EVALUATIONS_SOURCE_EVENT,
             "day_start": f"{day:%Y-%m-%d} 00:00:00",
@@ -543,13 +551,13 @@ class ShardBackfill:
                 return result[0][0]
             return inserted_rows(result)
 
-        return sum(self._on_copy_host(partial(run_chunk, chunk)) for chunk in range(self.config.team_id_chunks))
+        return sum(self._on_host(copy_host, partial(run_chunk, chunk)) for chunk in range(self.config.team_id_chunks))
 
     def _first_row(self, query: str, client: Client) -> tuple:
         return sync_execute(query, workload=self.workload, sync_client=client)[0]
 
-    def _on_copy_host(self, fn: Callable[[Client], T]) -> T:
-        return on_shard_host(self.cluster, self.shard_num, fn, self.query_tags, self.workload, self.node_role)
+    def _on_host(self, host: HostInfo, fn: Callable[[Client], T]) -> T:
+        return self.cluster.on_host(host, tagged(self.query_tags, fn)).result()
 
 
 def wait_for_blocking_runs(
@@ -603,10 +611,8 @@ def on_shard_host(
     workload: Workload,
     node_role: NodeRole,
 ) -> T:
-    result = cluster.map_any_host_in_shards_by_role(
-        {shard_num: tagged(query_tags, fn)}, workload=workload, node_role=node_role
-    ).result()
-    return next(iter(result.values()))
+    host = cluster.any_host_in_shard_by_roles(shard_num, [node_role], workload)
+    return cluster.on_host(host, tagged(query_tags, fn)).result()
 
 
 def inserted_rows(result: Any) -> int:

@@ -13,7 +13,8 @@
 <!-- For each change a person can notice, say what they will now see or do differently, not only the code path that does it. Mark the rest as mechanical so a reviewer knows nothing user-visible is hiding in it. -->
 
 <!-- If there are frontend changes, please include screenshots. For a new interaction that one screenshot cannot show, a short GIF or animated WebP of the flow can replace the after screenshot. -->
-<!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
+<!-- For frontend or user-facing changes under products/mobile/, follow products/mobile/AGENTS.md for the required iOS and Android screenshot pairs and device coverage. -->
+<!-- PostHog employees: `hogli pr:upload-image <file>` attaches a screenshot to this description once the PR exists, or prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
 
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
@@ -61,10 +62,15 @@
 
 **Skills:** `/skill`
 
+<!-- Check every PR against "Requesting a security review" in .agents/security.md. Write "needed" if the PR matches the list and "not needed" if it does not. When the PR is ready for review, a check adds the `security-review` label to a PR marked "needed". -->
+
+**Security review:** [needed or not needed]
+
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
      - New events schema: Backend CI reruns the paths in `.github/new-events-schema-targets.txt` against the native-JSON events table. A new directory of tests that read event properties is added to that file. Add `test-new-events-schema` when the diff should run the whole backend suite on both tables: event ingestion or cleaning, or event reads whose tests are outside the list. Apply it while draft, or push another commit after labeling, because label events do not start Backend CI. State the result under "How did you test this code?".
+     - Test ownership: every test file this PR adds resolves to a team (`hogli owners:who <path>`). Say under "How did you test this code?" which team you named for any that had none, and why.
      - CI report: every section of the "🤖 CI report" comment is ✅, or you considered each finding: fixed it, explained in the PR body why it does not apply, or escalated it to a person. Warn-only sections, such as eager graph budgets, pass the checks while still open. See AGENTS.md, "The CI report".
      - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->

@@ -12,10 +12,15 @@ import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'
 import { highlightPicksLogic } from '../highlightPicksLogic'
 import { highlightPicksStaleLogic } from '../highlightPicksStaleLogic'
+import { weeklyVolume } from '../highlightPicksStarter'
+import { highlightPicksStarterLogic } from '../highlightPicksStarterLogic'
+import { highlightPicksVolumeLogic } from '../highlightPicksVolumeLogic'
 import { SWEEP_INTERVAL_MINUTES } from '../scannerStatus'
 import { HighlightPicksStateFrame } from './HighlightPicksStateFrame'
+import { HighlightPicksVolumeTiles } from './HighlightPicksVolumeTiles'
 
 const HedgehogNoir = pngHoggie(noirPng)
+const SWEEP_STALE_MS = 60 * 60 * 1000
 
 export function HighlightPicksQuietState({ size }: { size: 'small' | 'large' }): JSX.Element {
     const picksLogic = useMountedLogic(highlightPicksLogic)
@@ -30,9 +35,13 @@ export function HighlightPicksQuietState({ size }: { size: 'small' | 'large' }):
         lastSweptAt,
     } = useValues(logic)
     const { pickBackfillScanner, startBackfill } = useActions(logic)
+    const { candidateRecordings } = useValues(highlightPicksStarterLogic(picksLogic.props))
+    const { volumeEstimate, volumeEstimateLoading } = useValues(highlightPicksVolumeLogic)
     const large = size === 'large'
     const editDisabledReason = getReplayVisionEditDisabledReason()
 
+    const volume = weeklyVolume(volumeEstimate, candidateRecordings)
+    const sweepStale = !!lastSweptAt && Date.now() - new Date(lastSweptAt).getTime() > SWEEP_STALE_MS
     const started = backfillScannerId ? backfillTotals[backfillScannerId] : undefined
     const estimateReady = backfillEstimate?.scannerId === backfillScannerId ? backfillEstimate : null
 
@@ -42,15 +51,22 @@ export function HighlightPicksQuietState({ size }: { size: 'small' | 'large' }):
             image={HedgehogNoir}
             title="Nothing to watch yet"
             body={
-                <>
-                    {pluralize(backfillCandidates.length, 'scanner')} running
-                    {lastSweptAt && (
-                        <>
-                            , last sweep <TZLabel time={lastSweptAt} showPopover={false} noStyles />
-                        </>
-                    )}
-                    . New recordings are checked every {SWEEP_INTERVAL_MINUTES} minutes and picks appear here.
-                </>
+                sweepStale ? (
+                    <>
+                        {pluralize(backfillCandidates.length, 'scanner')} running, but the last sweep was{' '}
+                        <TZLabel time={lastSweptAt} showPopover={false} noStyles />.
+                    </>
+                ) : (
+                    <>
+                        {pluralize(backfillCandidates.length, 'scanner')} running
+                        {lastSweptAt && (
+                            <>
+                                , last sweep <TZLabel time={lastSweptAt} showPopover={false} noStyles />
+                            </>
+                        )}
+                        . New recordings are checked every {SWEEP_INTERVAL_MINUTES} minutes and picks appear here.
+                    </>
+                )
             }
             dataAttr="vision-highlight-picks-quiet"
             footer={
@@ -59,6 +75,11 @@ export function HighlightPicksQuietState({ size }: { size: 'small' | 'large' }):
                 </Link>
             }
         >
+            <HighlightPicksVolumeTiles
+                volume={volume}
+                loading={volumeEstimateLoading}
+                dataAttr="vision-highlight-picks-quiet-volume"
+            />
             {backfillCandidates.length > 0 &&
                 (started === undefined ? (
                     <>

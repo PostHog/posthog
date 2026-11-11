@@ -161,12 +161,14 @@ def build_system_one_client(
     trace_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    privacy_mode: bool = False,
 ) -> SystemOneClient:
     """A client for ``model`` on the Go ai-gateway when it is configured, else for TypeSafe in local
     development when the caller passes ``typesafe_fallback``.
 
     ``ai_product``, ``distinct_id``, ``trace_id`` and ``properties`` label the gateway's event. ``team_id``
-    is the customer team the gateway bills, and labels the event when ``distinct_id`` is unset. Raises
+    is the customer team the gateway bills, and labels the event when ``distinct_id`` is unset. With
+    ``privacy_mode``, the gateway's event keeps no state or answers. Raises
     :class:`SystemOneNotConfigured` when no server the caller allows is configured.
     """
     if not ai_product:
@@ -180,13 +182,16 @@ def build_system_one_client(
             labels["team_id"] = str(team_id)
         if not distinct_id and team_id is not None:
             distinct_id = team_distinct_id(team_id)
+        headers = (
+            ai_gateway_headers(ai_product=ai_product, trace_id=trace_id, properties=labels, distinct_id=distinct_id)
+            or {}
+        )
+        if privacy_mode:
+            headers = {**headers, "X-PostHog-Privacy-Mode": "true"}
         return GatewaySystemOneClient(
             url=_system_one_url(gateway.url),
             api_key=gateway.api_key,
-            headers=ai_gateway_headers(
-                ai_product=ai_product, trace_id=trace_id, properties=labels, distinct_id=distinct_id
-            )
-            or {},
+            headers=headers,
             model=model,
             timeout=timeout,
         )

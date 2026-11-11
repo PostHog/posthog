@@ -7,9 +7,10 @@ import { MetricChart } from '@/ui/chart/MetricChart'
 import type { ChartAccessibilityAction, ChartCanvasSlot, ChartSeries } from '@/ui/chart/types'
 import { useTheme } from '@/ui/theme'
 import type { FullScreenEntry } from './analytics'
+import { useChartPreferences } from './chartPreferencesStore'
 import { useChartSheets } from './pointSheet/ChartSheetsProvider'
 import type { ChartSheetSource } from './pointSheet/chartSheetSource'
-import { snapshotChartSeries, snapshotFormatter } from './snapshotChart'
+import { snapshotBarLayout, snapshotChartSeries, snapshotFormatter } from './snapshotChart'
 
 interface InsightChartModel {
     series: ChartSeries[]
@@ -63,6 +64,7 @@ export function InsightChart({
     onOpenFullScreen,
     testID,
 }: InsightChartProps): ReactElement | null {
+    const preferredLayout = useChartPreferences((state) => state.barLayout)
     const sheets = useChartSheets()
     const legend = useChartLegend()
     const model = useInsightChartModel(snapshot, rangeText)
@@ -84,6 +86,7 @@ export function InsightChart({
             <MetricChart
                 series={model.series}
                 kind={kind}
+                barLayout={snapshotBarLayout(snapshot, preferredLayout)}
                 interval={snapshot.interval}
                 label={snapshot.name}
                 formatValue={model.formatValue}

@@ -15,7 +15,6 @@ import {
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
-    signalsScoutRunsTokenCosts,
     signalsScoutSuggestionsDismiss,
     signalsScoutSuggestionsList,
     signalsScoutSuggestionsRefresh,
@@ -46,7 +45,6 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutRunsFindingsSummary: jest.fn(),
     signalsScoutRunsList: jest.fn(),
     signalsScoutRunsRecentPerScout: jest.fn(),
-    signalsScoutRunsTokenCosts: jest.fn(),
     signalsScoutSuggestionsDismiss: jest.fn(),
     signalsScoutSuggestionsList: jest.fn(),
     signalsScoutSuggestionsRefresh: jest.fn(),
@@ -61,7 +59,6 @@ const mockConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof 
 const mockRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
     typeof signalsScoutRunsRecentPerScout
 >
-const mockRunsTokenCosts = signalsScoutRunsTokenCosts as jest.MockedFunction<typeof signalsScoutRunsTokenCosts>
 const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
 
 const CANONICAL_ITEM: ScoutSuggestionItemApi = {
@@ -157,7 +154,6 @@ describe('scoutSuggestionsLogic', () => {
         mockConfigSync.mockReset().mockResolvedValue([CONFIG])
         mockConfigUpdate.mockReset().mockResolvedValue({ ...CONFIG, enabled: true })
         mockRunsRecentPerScout.mockReset().mockResolvedValue([])
-        mockRunsTokenCosts.mockReset().mockResolvedValue({ costs: [], available: true })
         mockSkillRetrieve.mockReset().mockResolvedValue({
             name: CANONICAL_ITEM.skill_name,
             description: 'Watches web vitals.',

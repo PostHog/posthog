@@ -26,6 +26,7 @@ from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
 from .incremental import get_incremental_config
+from .node_suspension import query_fingerprint
 from .saved_query_freshness import saved_query_materialized_at
 from .tier_run_report import MATERIALIZING_TYPES
 
@@ -108,10 +109,27 @@ def get_saved_query_sql(team_id: int, saved_query_id: UUID | str) -> str | None:
     return sql if isinstance(sql, str) else None
 
 
-def all_saved_query_names(team_id: int) -> dict[str, str]:
+def saved_query_data_revision(team_id: int, name: str) -> str | None:
+    """A token that changes when the rows the named saved query returns can change: an edit to its
+    HogQL, or a new materialization. None when no saved query in this team has this name."""
+    saved_query = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, name=name)
+        .exclude(deleted=True)
+        .only("id", "team_id", "query", "last_run_at")
+        .first()
+    )
+    if saved_query is None:
+        return None
+    materialized_at = saved_query_materialized_at(saved_query)
+    return f"{query_fingerprint(saved_query.query) or ''}:{materialized_at.isoformat() if materialized_at else ''}"
+
+
+def all_saved_query_names(team_id: int, *, ids: Collection[UUID] | None = None) -> dict[str, str]:
     """The current name of every saved query in this team that still resolves. One query."""
-    rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")
-    return {str(saved_query_id): name for saved_query_id, name in rows}
+    saved_queries = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True)
+    if ids is not None:
+        saved_queries = saved_queries.filter(id__in=ids)
+    return {str(saved_query_id): name for saved_query_id, name in saved_queries.values_list("id", "name")}
 
 
 def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None) -> list[SavedQueryDefinition]:

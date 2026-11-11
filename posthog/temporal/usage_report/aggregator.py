@@ -48,11 +48,12 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     WorkflowContext,
 )
-from posthog.usage_counters import UsageCounterReport
+from posthog.usage_counters import UsageCounter, UsageCounterReport
 
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 
 _SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
+_LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME = "teams_with_local_evaluation_not_modified_requests_count_in_period"
 _SANDBOX_COMPUTE_DESTINATION_KEYS = (
     "teams_with_sandbox_compute_credits_used_in_period",
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
@@ -60,6 +61,17 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
 )
 _LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
 _TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
+_MCP_EVENT_COUNT_QUERY_NAME = "teams_with_mcp_event_count_in_period"
+_REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME = "replay_vision_spend_projection"
+_REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS = (
+    "teams_with_replay_vision_scanner_projected_credits",
+    "teams_with_replay_vision_backfill_committed_credits",
+)
+_BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME = "business_knowledge_usage"
+_BUSINESS_KNOWLEDGE_USAGE_DESTINATION_KEYS = (
+    "teams_with_business_knowledge_chunks_in_period",
+    "teams_with_business_knowledge_queries_in_period",
+)
 
 
 def load_usage_counter_report(inputs: AggregateInputs) -> UsageCounterReport:
@@ -111,6 +123,47 @@ def add_pre_transactional_emails_patch_defaults(
 ) -> None:
     if not any(result.query_name == _TRANSACTIONAL_EMAILS_QUERY_NAME for result in query_results):
         all_data[_TRANSACTIONAL_EMAILS_QUERY_NAME] = {}
+
+
+def add_pre_mcp_event_count_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _MCP_EVENT_COUNT_QUERY_NAME for result in query_results):
+        all_data[_MCP_EVENT_COUNT_QUERY_NAME] = {}
+
+
+def add_pre_replay_vision_spend_projection_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME for result in query_results):
+        for key in _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS:
+            all_data[key] = {}
+
+
+def add_pre_signals_spend_patch_defaults(all_data: dict[str, dict[int, int]], inputs: AggregateInputs) -> None:
+    counter = UsageCounter.SIGNALS_SPEND_CREDITS
+    plan = inputs.ctx.usage_counter_plan
+    if plan is not None and counter in plan.modes:
+        return
+    if any(result.query_name == counter.value for result in inputs.query_results):
+        return
+    # Inputs saved before the counter existed remain valid after a deployment.
+    all_data.setdefault(counter.value, {})
+
+
+def add_pre_business_knowledge_usage_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME for result in query_results):
+        for key in _BUSINESS_KNOWLEDGE_USAGE_DESTINATION_KEYS:
+            all_data[key] = {}
+
+
+def add_pre_local_evaluation_not_modified_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME for result in query_results):
+        all_data[_LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME] = {}
 
 
 def iter_chunk_lines(

@@ -18,15 +18,8 @@ from products.alerts_platform.backend.facade.contracts import SourceKind
 WAREHOUSE_ALERT_KINDS: Final = (SourceKind.WAREHOUSE_SOURCE.value, SourceKind.WAREHOUSE_DESTINATION.value)
 
 
-def project_member_emails(*, team_id: int, alert_id: str) -> list[str]:
-    """The addresses a warehouse alert emails, or none when the alert does not email project members.
-
-    `alert_id` is the alert's configuration id, which is the id a warehouse alert's destinations match on.
-    """
-    try:
-        configuration_id = UUID(alert_id)
-    except ValueError:
-        return []
+def project_member_emails(*, team_id: int, configuration_id: UUID) -> list[str]:
+    """The addresses a warehouse alert emails, or none when the alert does not email project members."""
     configuration = get_configuration(
         team_id=team_id, source_kinds=WAREHOUSE_ALERT_KINDS, configuration_id=configuration_id
     )

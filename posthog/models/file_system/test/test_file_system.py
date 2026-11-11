@@ -17,7 +17,7 @@ from posthog.models.file_system.file_system import (
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -46,7 +46,7 @@ class TestFileSystemModel(TestCase):
         """
         # Create some objects
         ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
+        create_experiment(team_id=self.team.id, name="Experiment #1", created_by_id=self.user.id, feature_flag_id=ff.id)
         Dashboard.objects.create(team=self.team, name="Main Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, name="Traffic Insight", created_by=self.user, saved=True)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
@@ -95,7 +95,7 @@ class TestFileSystemModel(TestCase):
         experiments should create FileSystem rows.
         """
         ff = FeatureFlag.objects.create(team=self.team, key="Some Flag", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
+        create_experiment(team_id=self.team.id, name="Experiment #1", created_by_id=self.user.id, feature_flag_id=ff.id)
         FileSystem.objects.all().delete()
         created = save_unfiled_files(self.team, self.user)
         self.assertEqual(len(created), 2)  # 1 FeatureFlag, 1 Experiment

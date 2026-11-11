@@ -72,6 +72,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "ListGroups",
     "ListPersonTombstoneQueue",
     "ListPersonsForTeam",
+    "RaisePersonVersion",
     "RaisePersonVersionFloors",
     "ReleaseFence",
     "ReleaseFences",
@@ -288,6 +289,10 @@ impl RawProxyInner {
             // person write.
             (Target::Service, "FoldPersonDocument") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FoldPersonDocument").await;
+                (resp, "leader", call_ms)
+            }
+            (Target::Service, "RaisePersonVersion") => {
+                let (resp, call_ms) = self.raw_proxy_to_leader(req, "RaisePersonVersion").await;
                 (resp, "leader", call_ms)
             }
             (Target::Service, "GetPerson") => {

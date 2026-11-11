@@ -19,6 +19,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import {
     AssistantMessage,
     AssistantToolCallMessage,
@@ -64,7 +65,7 @@ import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { SIDE_PANEL_PANEL_ID, ThreadMessage, maxLogic } from './maxLogic'
+import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { AssistantMessageForm } from './messages/AssistantMessageForm'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'

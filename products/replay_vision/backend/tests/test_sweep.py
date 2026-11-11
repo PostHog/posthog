@@ -9,9 +9,13 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
+from posthog.hogql.errors import QueryError
+
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.models import Organization, Team, User
 from posthog.redis import get_client
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
@@ -34,6 +38,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.queries import excluded_sessions
+from products.replay_vision.backend.queries.filter_errors import FILTER_ERROR_RECHECK, filter_error_message
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     SWEEP_EVENTS_LOOKBACK,
@@ -231,15 +236,19 @@ class TestFindScannerCandidatesActivity:
             assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
             assert result.deep_swept_through == result.swept_through
 
-    def test_a_deleted_experiment_keeps_its_scanner_on_until_the_scout_is_paused(self) -> None:
+    @parameterized.expand([("deleted_experiment",), ("no_ai_consent",)])
+    def test_an_experiment_scanner_stays_on_until_its_scout_is_paused(self, cause: str) -> None:
         # A disabled scanner has no schedule left to retry the pause, and the scout would keep
         # running on the customer's bill. So the scanner stays on until a later tick pauses it.
         scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
         experiment = create_experiment(scanner.team, "deleted-flag", launched=True, variants=["control", "test"])
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
-        experiment.deleted = True
-        experiment.save()
+        if cause == "deleted_experiment":
+            experiment.deleted = True
+            experiment.save()
+        else:
+            Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
         inputs = FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
 
         with (
@@ -321,19 +330,28 @@ class TestFindScannerCandidatesActivity:
         )
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
-    def test_returns_empty_when_creator_lost_session_recording_access(self) -> None:
-        from posthog.models import User
+    @parameterized.expand([("creator_left_org",), ("creator_deactivated",), ("no_ai_consent",)])
+    def test_a_scanner_that_cannot_spend_is_turned_off_before_any_read(self, case: str) -> None:
+        scanner = _make_scanner()
+        if case != "no_ai_consent":
+            creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+            if case == "creator_deactivated":
+                scanner.team.organization.members.add(creator)
+                User.objects.filter(pk=creator.pk).update(is_active=False)
+            scanner.created_by = creator
+            scanner.save(update_fields=["created_by"])
+        else:
+            Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
 
-        creator = User.objects.create_user(email="demoted@example.com", password="x", first_name="d")
-        scanner = _make_scanner(created_by=creator)
-        with patch(
-            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.UserAccessControl.check_access_level_for_resource",
-            return_value=False,
-        ):
+        with _patched_queries() as (fast_query, deep_query):
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
+
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
+        assert not fast_query.called and not deep_query.called
+        scanner.refresh_from_db()
+        assert not scanner.enabled
 
     def test_targeted_scanner_with_no_creator_skips_instead_of_failing(self) -> None:
         # The exposure filter refuses userless principals, so a deleted creator would otherwise
@@ -909,22 +927,32 @@ class TestFindScannerCandidatesActivity:
         assert result.keyset_session_id == "blocked"
         assert result.keyset_end == fetched[0].session_end
 
-    def test_exclusion_failure_fails_the_tick_rather_than_dispatching(self) -> None:
+    @parameterized.expand(
+        [
+            ("transient", RuntimeError("clickhouse down"), RuntimeError),
+            ("broken_negative_filter", QueryError("Unable to resolve field: event"), ApplicationError),
+        ]
+    )
+    def test_exclusion_failure_fails_the_tick_rather_than_dispatching(
+        self, _name: str, error: Exception, raised: type[Exception]
+    ) -> None:
         # The in-query blocklists are off by this point, so swallowing this would dispatch unfiltered.
         scanner = _make_scanner(query=self._NEGATIVE_QUERY)
 
         with (
             patch(f"{_ACTIVITY}.ScannerCandidateQuery") as MockQuery,
-            patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
+            patch.object(excluded_sessions, "excluded_session_ids", side_effect=error),
         ):
             _wire_batch(MockQuery)
             MockQuery.return_value.run.return_value = [
                 CandidateSession(session_id="sess-a", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))
             ]
-            with pytest.raises(RuntimeError):
+            with pytest.raises(raised):
                 find_scanner_candidates_activity(
                     FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
                 )
+        scanner.refresh_from_db()
+        assert (scanner.filter_error is not None) is (raised is ApplicationError)
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
@@ -938,6 +966,53 @@ class TestFindScannerCandidatesActivity:
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
         assert exc_info.value.non_retryable is True
+
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("Unable to resolve field: event"), True),
+            ("regex", wrap_clickhouse_query_error(ServerException("bad regexp", code=427)), True),
+            ("too_many_queries", wrap_clickhouse_query_error(ServerException("busy", code=202)), False),
+            ("timeout", wrap_clickhouse_query_error(ServerException("slow", code=159)), False),
+            ("unknown_identifier", wrap_clickhouse_query_error(ServerException("missing", code=47)), False),
+        ]
+    )
+    def test_a_filter_that_cannot_run_is_recorded_and_skipped_until_the_recheck(
+        self, _name: str, error: Exception, is_filter_error: bool
+    ) -> None:
+        scanner = _make_scanner()
+        inputs = FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+        with _patched_queries() as (fast_query, _):
+            fast_query.return_value.run_batch.side_effect = error
+            with pytest.raises(ApplicationError if is_filter_error else type(error)) as exc_info:
+                find_scanner_candidates_activity(inputs)
+            scanner.refresh_from_db()
+            if not is_filter_error:
+                assert scanner.filter_error is None
+                return
+            assert isinstance(exc_info.value, ApplicationError) and exc_info.value.non_retryable is True
+            assert scanner.filter_error == filter_error_message(error)
+
+            fast_query.reset_mock()
+            find_scanner_candidates_activity(inputs)
+            assert not fast_query.return_value.run_batch.called
+
+            ReplayScanner.objects.filter(pk=scanner.pk).update(
+                filter_error_at=timezone.now() - FILTER_ERROR_RECHECK - dt.timedelta(minutes=1)
+            )
+            _wire_batch(fast_query)
+            find_scanner_candidates_activity(inputs)
+            assert fast_query.return_value.run_batch.called
+        scanner.refresh_from_db()
+        assert scanner.filter_error is None
+
+    def test_editing_the_filter_clears_its_error(self) -> None:
+        scanner = _make_scanner()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(filter_error="broken", filter_error_at=timezone.now())
+        scanner.refresh_from_db()
+        scanner.query = {"kind": "RecordingsQuery", "filter_test_accounts": True}
+        scanner.save()
+        scanner.refresh_from_db()
+        assert scanner.filter_error is None and scanner.filter_error_at is None
 
     def test_priming_pass_runs_once_for_a_never_swept_scanner(self) -> None:
         scanner = _make_scanner(primed_at=None)
@@ -1217,6 +1292,24 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
         assert scanner.last_swept_at == stale
         assert scanner.last_seen_session_id == "sess-old"
         assert scanner.deep_swept_through == stale
+
+
+@pytest.mark.parametrize("case", ["creator_left_org", "no_ai_consent"])
+@pytest.mark.django_db(transaction=True)
+def test_check_scanner_budget_activity_lets_an_unrunnable_scanner_through_to_be_turned_off(case: str) -> None:
+    scanner = _make_scanner(credit_limit=20 * _OBSERVATION_CREDITS)
+    if case == "creator_left_org":
+        creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+        scanner.created_by = creator
+        scanner.save(update_fields=["created_by"])
+    else:
+        Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+
+    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    assert output.capped is False
 
 
 @pytest.mark.django_db(transaction=True)

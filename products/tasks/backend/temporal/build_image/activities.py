@@ -11,6 +11,7 @@ from temporalio import activity
 if TYPE_CHECKING:
     import modal
 
+from posthog.integrations import IntegrationManager
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
@@ -195,15 +196,13 @@ def _sanitized_build_log(raw: str) -> str:
 
 
 def _resolve_build_github_token(team_id: int) -> str | None:
-    from posthog.models.integration import Integration  # noqa: PLC0415
-
     from products.tasks.backend.temporal.create_snapshot.utils import get_github_token  # noqa: PLC0415
 
-    integration = Integration.objects.filter(team_id=team_id, kind="github").first()
+    integration = IntegrationManager.github.oauth.find(team_id)
     if integration is None:
         return None
     try:
-        return get_github_token(integration.id)
+        return get_github_token(team_id, integration.id)
     except Exception as e:
         logger.warning("custom_image_build_github_token_failed", extra={"team_id": team_id, "error": str(e)})
         return None

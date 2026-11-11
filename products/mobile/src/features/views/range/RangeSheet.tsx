@@ -1,16 +1,6 @@
 import { type ReactElement, useEffect, useMemo, useState } from 'react'
-import {
-    AccessibilityInfo,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    useWindowDimensions,
-    View,
-} from 'react-native'
+import { AccessibilityInfo, Platform, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-
 import type { RangePresetKey } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
@@ -19,6 +9,7 @@ import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { CHIP_PRESETS, customRange, formatRangeSpanForSpeech, MORE_PRESETS, RANGE_PRESETS } from '../rangePresets'
 import type { ViewRange } from '../rangeStore'
@@ -63,7 +54,7 @@ export function RangeSheet({
     const colors = useColors()
     const styles = useStyles()
     const [page, setPage] = useState<Page>('main')
-    const { height } = useWindowDimensions()
+    const { height } = useSceneDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
     useEffect(() => {
         if (visible) {

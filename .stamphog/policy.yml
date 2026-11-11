@@ -68,6 +68,7 @@ deny:
             paths:
                 - '^agents\.md$'
                 - '^claude\.md$'
+                - '^\.agents/(agent-automation|architecture|ci|code-style|feature-usage-tracking)\.md$'
                 - '^\.github/pull_request_template\.md$'
                 - '^\.agents/skills/writing-pr-descriptions/'
                 - '^\.claude/settings\.json$'
@@ -92,9 +93,11 @@ deny_exceptions:
     auth:
         - path_prefixes:
               - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
+              - 'products/warehouse_sources/sources/'
     billing:
         - path_prefixes:
               - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
+              - 'products/warehouse_sources/sources/'
     workflows_delivery:
         - path_prefixes:
               - 'products/cdp/backend/api/test/'
@@ -102,3 +105,15 @@ deny_exceptions:
 allow:
     extend_path_patterns:
         - '.github/CODEOWNERS'
+# CI checks that may lift a deny category for the files they vouch for. A check run counts only
+# when the App named here published it.
+attestations:
+    - name: migration_risk
+      # Posted by ci-backend's check-migrations job with a tests-posthog token, after
+      # analyze_migration_risk classified every Django migration in the PR as Safe.
+      check: 'Migration risk'
+      app_id: 2492437
+      lifts: [migrations]
+      paths:
+          - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
+      sibling_files: [max_migration.txt]

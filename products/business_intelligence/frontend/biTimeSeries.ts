@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 
 import { BIConfig, BIDateBucket } from '~/queries/schema/schema-business-intelligence'
-import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import type { BIAnalysisInput } from './biAnalysis'

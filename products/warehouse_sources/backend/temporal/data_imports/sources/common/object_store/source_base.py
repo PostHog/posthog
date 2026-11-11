@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Generic, NoReturn, Optional
 
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.delta import (
     DELTA_VERSION_COLUMN,
     ObjectStorageDeltaCursor,
+    check_delta_table,
     iter_delta_tables,
     plan_delta_read,
 )
@@ -114,6 +115,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     so deletes, updates, merges and compactions reach the table.
     """
 
+    supports_incremental_history = False
+
     @abstractmethod
     def object_store_config(self, config: ConfigType) -> StoreConfig: ...
 
@@ -122,6 +125,10 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
 
     # The service whose self-managed warehouse tables this source can take over.
     self_managed_service: ClassVar[StorageService]
+
+    # Replaces the generic access-denied text, in the wizard and on a failed sync, for a provider
+    # where the user fixes the denial somewhere specific.
+    access_denied_message: ClassVar[str | None] = None
 
     @abstractmethod
     def self_managed_connection_inputs(
@@ -161,7 +168,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         return {
             INVALID_CONFIG_ERROR: None,
             BLOCKED_LOCATION_ERROR: None,
-            ACCESS_DENIED_ERROR: (
+            ACCESS_DENIED_ERROR: self.access_denied_message
+            or (
                 "The storage provider rejected these credentials. Check the access key and secret, and that "
                 "the key can list and read the bucket, then reconnect the source."
             ),
@@ -198,6 +206,11 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             logger=logger,
         )
 
+    def _validation_message(self, message: str) -> str:
+        if self.access_denied_message and message.startswith(ACCESS_DENIED_ERROR):
+            return self.access_denied_message
+        return message
+
     def validate_credentials(
         self,
         config: ConfigType,
@@ -209,12 +222,13 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             store_config = self.object_store_config(config)
             tables = self._discover(self.open_store(store_config), config)
         except ObjectStorageError as e:
-            return False, str(e)
+            return False, self._validation_message(str(e))
         except OSError as e:
             # s3fs turns an S3 answer without a known error code, such as a bare 401 or a 500, into a plain OSError.
             status = _http_status(e)
             if status in (401, 403):
-                return False, str(translate_storage_error(PermissionError(), store_config.display_location))
+                denied = translate_storage_error(PermissionError(), store_config.display_location)
+                return False, self._validation_message(str(denied))
             message = probe_status_message(self.get_source_config.label or "The storage provider", status)
             if message is None:
                 raise
@@ -242,6 +256,32 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             for table in self._discover(store, config)
             if requested is None or table.name in requested
         ]
+
+    def describe_pinned_schema(
+        self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
+    ) -> SourceSchema | None:
+        """Describe a table from its stored definition, and check that the key can read the table.
+
+        Only the table's own location is read. A key that can read the table but can't list the
+        bucket root passes, and a large bucket isn't walked. Discovery also names a table after its
+        folder, and a pinned table, such as a migrated self-managed table, can have another name.
+        """
+        table = TableDefinition.from_schema_metadata(name, schema_metadata)
+        if table is None:
+            return None
+        store = self.open_store(self.object_store_config(config))
+        location = store.path(table.path)
+        try:
+            if table.kind == "delta":
+                check_delta_table(store.delta_uri(table.path), store.delta_storage_options, table.name)
+            else:
+                resolve_table_files(store, table)
+        except OSError as e:
+            # As in `validate_credentials`: s3fs gives a bare 401 or 403 as a plain OSError.
+            if _http_status(e) in (401, 403):
+                raise translate_storage_error(PermissionError(), location) from e
+            _raise_translated(e, location)
+        return _source_schema(table)
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         store = self.open_store(self.object_store_config(config))

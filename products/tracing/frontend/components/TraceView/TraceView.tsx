@@ -3,8 +3,9 @@ import { type CSSProperties, memo, useCallback, useMemo, useRef } from 'react'
 
 import { LemonSegmentedButton, type LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import type { TraceDialogSource } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { type ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 import type { SpanTreeNode } from '~/queries/schema/schema-general'
 
@@ -14,7 +15,6 @@ import type { ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 import { TraceCompareFlame } from 'products/tracing/frontend/TraceCompareFlame'
 import type { SpanInspectorTab, TraceViewMode } from 'products/tracing/frontend/types'
 
-import type { TraceDialogSource } from '../TraceDialog/traceDialogLogic'
 import { TraceDialogSpanTree } from '../TraceDialog/TraceDialogSpanTree'
 import { TraceLoadMoreFooter } from './TraceLoadMoreFooter'
 import { type TraceOperationsScope, traceViewLogic, type TraceViewSurface } from './traceViewLogic'
@@ -140,9 +140,7 @@ export function TraceView({
         activeInspectorTab,
         operationSpans,
         highlightedOperationKey,
-        operationsTabEnabled,
         traceViewMode,
-        callTreeEnabled,
     } = useValues(traceViewLogic)
     const { setInspectorTab, highlightOperation, setTraceViewMode } = useActions(traceViewLogic)
     // A click on the tab already shown still records the person's pick. Nothing on screen changes, so it passes
@@ -157,12 +155,12 @@ export function TraceView({
             highlightOperation(operationKey, surface, scope),
         [highlightOperation, surface]
     )
-    // Without real spans the tab would only show an empty table, so the inspector leaves it out, as it does while
-    // the tab's flag is off. A resize drag re-renders this component on every mousemove, and stable values keep
-    // the memoized table from rendering again for it.
+    // Without real spans the tab would only show an empty table, so the inspector leaves it out. A resize drag
+    // re-renders this component on every mousemove, and stable values keep the memoized table from rendering again
+    // for it.
     const operations = useMemo(
         () =>
-            operationsTabEnabled && operationSpans.length > 0
+            operationSpans.length > 0
                 ? {
                       spans: operationSpans,
                       highlightedOperationKey,
@@ -170,30 +168,21 @@ export function TraceView({
                       partial: !!hasMoreSpans || !!spansPartial,
                   }
                 : undefined,
-        [
-            operationsTabEnabled,
-            operationSpans,
-            highlightedOperationKey,
-            onHighlightOperation,
-            hasMoreSpans,
-            spansPartial,
-        ]
+        [operationSpans, highlightedOperationKey, onHighlightOperation, hasMoreSpans, spansPartial]
     )
 
     return (
         <div className="@container/trace-dialog flex flex-1 min-h-0">
             <div className="flex flex-1 min-w-0 min-h-0 flex-col @min-[56rem]/trace-dialog:flex-row">
                 <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
-                    {callTreeEnabled && (
-                        <div>
-                            <LemonSegmentedButton
-                                size="xsmall"
-                                value={traceViewMode}
-                                onChange={(mode) => setTraceViewMode(mode, surface)}
-                                options={VIEW_MODE_OPTIONS}
-                            />
-                        </div>
-                    )}
+                    <div>
+                        <LemonSegmentedButton
+                            size="xsmall"
+                            value={traceViewMode}
+                            onChange={(mode) => setTraceViewMode(mode, surface)}
+                            options={VIEW_MODE_OPTIONS}
+                        />
+                    </div>
                     <div className="flex flex-col flex-1 min-h-0">
                         {traceViewMode === 'calltree' ? (
                             <TraceViewCallTree

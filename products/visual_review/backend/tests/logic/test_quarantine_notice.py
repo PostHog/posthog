@@ -7,7 +7,7 @@ from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 from posthog.slack.channels import SlackChannel
 
 from products.visual_review.backend.db import WRITER_DB
-from products.visual_review.backend.facade.enums import RunType
+from products.visual_review.backend.facade.enums import ActorType, RunType
 from products.visual_review.backend.logic import quarantine, quarantine_notice, repos, story_index
 from products.visual_review.backend.models import QuarantinedIdentifier
 from products.visual_review.backend.tasks.tasks import QUARANTINE_NOTICE_EXPIRY_SECONDS
@@ -33,7 +33,7 @@ class TestSendQuarantineNotice:
                 "products.visual_review.backend.logic.owners.resolve_path_owners",
                 return_value=PathOwnership(team_by_path={_SOURCE_PATH: "team-devex"}, registry={}, resolved=True),
             ) as owners,
-            patch(f"{channels}.Integration") as integration,
+            patch(f"{channels}.IntegrationManager") as manager,
             patch(f"{channels}.SlackIntegration") as slack,
             patch(
                 f"{channels}.fetch_channel_map",
@@ -41,34 +41,45 @@ class TestSendQuarantineNotice:
             ) as channel_map,
             patch(f"{channels}.post_with_join", return_value="1700000000.1") as post,
         ):
-            integration.objects.filter.return_value.first.return_value = MagicMock()
+            manager.slack.oauth.find.return_value = MagicMock()
             slack.return_value.client.conversations_info.return_value = {"channel": {"is_shared": False}}
             post.slack = slack
             post.owners = owners
             post.channel_map = channel_map
             yield post
 
-    def _quarantine(self, repo, user, identifier: str = _IDENTIFIER) -> QuarantinedIdentifier:
+    def _quarantine(
+        self, repo, user, identifier: str = _IDENTIFIER, source: ActorType = ActorType.HUMAN
+    ) -> QuarantinedIdentifier:
         return quarantine.quarantine_identifier(
             repo_id=repo.id,
             identifier=identifier,
             run_type=RunType.STORYBOOK,
             reason="Animation <!channel> timing",
-            user_id=user.id,
+            user_id=None if source == ActorType.AUTO else user.id,
             team_id=repo.team_id,
+            source=source,
         )
 
-    def test_posts_to_the_owning_team_naming_who_quarantined(self, repo, team, user, post):
-        entry = self._quarantine(repo, user)
+    @pytest.mark.parametrize("source", [ActorType.HUMAN, ActorType.AUTO])
+    def test_posts_to_the_owning_team_naming_who_quarantined(self, repo, team, user, post, source):
+        entry = self._quarantine(repo, user, source=source)
 
         assert quarantine_notice.send_quarantine_notice(entry.id, team.id) is True
-        second = self._quarantine(repo, user, identifier="scenes-app-button--primary--dark")
+        second = self._quarantine(repo, user, identifier="scenes-app-button--primary--dark", source=source)
         assert quarantine_notice.send_quarantine_notice(second.id, team.id) is True
 
         assert post.channel_map.call_count == 1
         _, channel_id, blocks, text = post.call_args.args
         assert channel_id == "C1"
-        assert text.startswith(f"*{user.first_name or user.email}* quarantined a story owned by you. Please check.")
+        if source == ActorType.AUTO:
+            assert text.startswith(
+                "*Visual review* quarantined a story owned by you automatically, "
+                "because the same code rendered it two ways. Please check."
+            )
+            assert "opened by visual review automatically" in blocks[1]["text"]["text"]
+        else:
+            assert text.startswith(f"*{user.first_name or user.email}* quarantined a story owned by you. Please check.")
         assert "*scenes-app-button--primary* storybook" in blocks[1]["text"]["text"]
         assert "<!channel>" not in str(blocks)
         assert blocks[2]["elements"] == [
@@ -98,6 +109,41 @@ class TestSendQuarantineNotice:
 
         assert quarantine_notice.send_quarantine_notice(entry.id, team.id) is False
         assert post.call_count == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestDailyLimitNotice:
+    @pytest.mark.parametrize("product_owner,posts", [("team-devex", 1), (UNOWNED_TEAM, 0)])
+    def test_goes_to_whoever_owns_visual_review(self, team, product_owner, posts):
+        repo = repos.create_repo(team_id=team.id, repo_external_id=66663, repo_full_name="org/test-limit")
+        channels = "products.visual_review.backend.logic.team_channels"
+        notice = "products.visual_review.backend.logic.quarantine_notice"
+        with (
+            patch(f"{notice}.fetcher_for_team"),
+            patch(
+                f"{notice}.resolve_path_owners",
+                return_value=PathOwnership(
+                    team_by_path={"products/visual_review/": product_owner}, registry={}, resolved=True
+                ),
+            ),
+            patch(f"{channels}.IntegrationManager") as manager,
+            patch(f"{channels}.SlackIntegration") as slack,
+            patch(
+                f"{channels}.fetch_channel_map",
+                return_value={"team-devex": SlackChannel(channel_id="C1", shared=False)},
+            ),
+            patch(f"{channels}.post_with_join", return_value="1700000000.1") as post,
+        ):
+            manager.slack.oauth.find.return_value = MagicMock()
+            slack.return_value.client.conversations_info.return_value = {"channel": {"is_shared": False}}
+            quarantine_notice.send_daily_limit_notice(repo.id, team.id, 10)
+
+        assert post.call_count == posts
+        if posts:
+            assert post.call_args.args[3].startswith(
+                "Visual review quarantined 10 stories automatically in org/test-limit in the last 24 hours. "
+                "The capture harness may have regressed."
+            )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

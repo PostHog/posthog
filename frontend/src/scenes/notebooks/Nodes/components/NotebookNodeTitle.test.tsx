@@ -23,7 +23,7 @@ jest.mock('../notebookNodeLogic', () => ({
     notebookNodeLogic: { __mock: 'notebookNodeLogic' },
 }))
 
-jest.mock('~/queries/utils', () => ({
+jest.mock('~/queries/schema/node-guards', () => ({
     isHogQLQuery: jest.fn((query: unknown) => (query as { kind?: string } | undefined)?.kind === 'HogQLQuery'),
 }))
 

@@ -1,4 +1,5 @@
 use crate::cohorts::cohort_models::MembershipStampPolicy;
+use crate::database::pool_names;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use common_cookieless::CookielessConfig;
 use common_types::TeamId;
@@ -240,6 +241,32 @@ impl FromStr for RateLimitingAllowList {
     }
 }
 
+/// Comma-separated names of the database pools whose PgBouncer pooler sets statement_timeout.
+/// An unknown name fails startup, because a misspelled pool would keep sending its `SET`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PoolerStatementTimeoutPools(pub HashSet<&'static str>);
+
+impl FromStr for PoolerStatementTimeoutPools {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut pools = HashSet::new();
+        for part in s.split(',').map(|p| p.trim()).filter(|p| !p.is_empty()) {
+            let pool = pool_names::ALL
+                .iter()
+                .find(|name| **name == part)
+                .ok_or_else(|| {
+                    format!(
+                        "Unknown pool '{part}' in POOLER_STATEMENT_TIMEOUT_POOLS. Known pools: {}",
+                        pool_names::ALL.join(", ")
+                    )
+                })?;
+            pools.insert(*pool);
+        }
+        Ok(PoolerStatementTimeoutPools(pools))
+    }
+}
+
 /// Per-team /flags request/response body logging config.
 /// Parses JSON from FLAGS_LOG_BODIES_TEAMS environment variable, also refreshed
 /// at runtime from posthog_instancesetting (key:
@@ -388,16 +415,16 @@ pub struct Config {
     #[envconfig(from = "SECRET_KEY", default = "")]
     pub secret_key: String,
 
-    // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
-    // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
-    // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
-    // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
-    // membership lookups on the hot path for those teams.
+    // Team-scoped gate for realtime cohort evaluation, unioned with the teams whose
+    // `cohort_realtime_team_access` row is at `serving` (`Team::realtime_cohort_level`). For
+    // every other team the realtime cohort block in prepare_flag_evaluation_state is skipped
+    // entirely, even if the behavioral cohorts DB is configured and cohorts with
+    // CohortType::Realtime exist. "none" (default), "all", specific team IDs, or ranges.
     //
     // Routing also requires `condition_type`, which was never backfilled, so every team listed
-    // here needs `python manage.py resave_cohorts --team-id <id>` first. Without it behavioral
-    // cohorts read as condition_type = NULL and fall back to dynamic evaluation, which resolves
-    // every person as a non-member rather than just evaluating slower.
+    // here or granted `serving` needs `python manage.py resave_cohorts --team-id <id>` first.
+    // Without it behavioral cohorts read as condition_type = NULL and fall back to dynamic
+    // evaluation, which resolves every person as a non-member rather than just evaluating slower.
     //
     // A team listed here must also be in Django's REALTIME_COHORT_TEAM_ALLOWLIST: the stamps
     // this predicate trusts are only invalidated on edit for allowlisted teams, so without it
@@ -606,6 +633,13 @@ pub struct Config {
     // - This timeout is enforced server-side and properly kills queries
     #[envconfig(default = "2000")]
     pub writer_statement_timeout_ms: u64,
+
+    // Pools whose PgBouncer pooler sets statement_timeout with connect_query. These pools send
+    // no session `SET`, because in transaction mode it lands on whichever server connection the
+    // pooler assigns and the next client inherits it. Each pool's timeout still counts in the
+    // REQUEST_TIMEOUT_MS check, so keep it equal to the pooler's value.
+    #[envconfig(default = "")]
+    pub pooler_statement_timeout_pools: PoolerStatementTimeoutPools,
 
     // How often to report database pool metrics (seconds)
     // - Decrease for more granular monitoring (e.g., 10-15)
@@ -950,6 +984,15 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
 
+    // In-memory memo of whether a team's flag definitions, keyed by ETag, hold a
+    // billable flag, so a /flags/definitions 304 is billed without a payload read.
+    // The TTL bounds how long a wrong answer can last, so it is tunable without a deploy.
+    #[envconfig(from = "DEFINITIONS_BILLABLE_CACHE_CAPACITY", default = "100000")]
+    pub definitions_billable_cache_capacity: u64,
+
+    #[envconfig(from = "DEFINITIONS_BILLABLE_CACHE_TTL_SECONDS", default = "3600")]
+    pub definitions_billable_cache_ttl_seconds: u64,
+
     // Write an S3 hit back into Redis so the next reader for that key is served by Redis
     // instead of paying another S3 read. Applies to the team metadata and remote config
     // hypercaches, which have no in-process cache in front of them. 0 disables.
@@ -989,6 +1032,11 @@ pub struct Config {
 
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
+
+    // Self-hosted installs turn this off: only the cloud billing task reads and
+    // deletes the request counters, so elsewhere they grow in Redis forever.
+    #[envconfig(from = "FLAGS_BILLING_COUNTERS_ENABLED", default = "true")]
+    pub billing_counters_enabled: FlexBool,
 
     // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
     // rejects zero values at boot — see the module docs on
@@ -1338,6 +1386,7 @@ impl Config {
             flag_definitions_conditional_rate_limits: FlagDefinitionsRateLimits::default(),
             remote_config_default_rate_per_minute: 600,
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
+            pooler_statement_timeout_pools: PoolerStatementTimeoutPools::default(),
             flags_log_bodies_teams: BodyLogTeams::default(),
             flags_log_bodies_request_max_bytes: 65_536,
             otel_url: None,
@@ -1372,6 +1421,8 @@ impl Config {
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 30,
+            definitions_billable_cache_capacity: 100_000,
+            definitions_billable_cache_ttl_seconds: 3_600,
             hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
             accept_team_secret_tokens: FlexBool(true),
@@ -1382,6 +1433,7 @@ impl Config {
             batch_flag_eval_max_limit: 10_000,
             batch_flag_eval_timeout_ms: 120_000,
             batch_flag_eval_scan_statement_timeout_ms: 10_000,
+            billing_counters_enabled: FlexBool(true),
             billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
@@ -1465,6 +1517,7 @@ impl Config {
                 self.billing_shutdown_flush_timeout_ms,
             ),
             jitter_override: None,
+            enabled: *self.billing_counters_enabled,
         }
     }
 
@@ -1574,6 +1627,8 @@ mod tests {
         assert!(!config.flags_session_replay_quota_check);
         assert!(!config.flags_v4_response_enabled);
         assert_eq!(config.skip_writes, FlexBool(false));
+        // Cloud billing reads these counters, so they must stay on unless a deploy turns them off.
+        assert_eq!(config.billing_counters_enabled, FlexBool(true));
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
@@ -1769,6 +1824,39 @@ mod tests {
         let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
         assert_eq!(limits.0.len(), 1);
         assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
+    }
+
+    #[rstest::rstest]
+    #[case::empty("", &[])]
+    #[case::whitespace_and_commas(
+        " persons_reader , ,behavioral_cohorts ",
+        &[pool_names::PERSONS_READER, pool_names::BEHAVIORAL_COHORTS]
+    )]
+    fn test_pooler_statement_timeout_pools_parses(#[case] input: &str, #[case] expected: &[&str]) {
+        let pools: PoolerStatementTimeoutPools = input.parse().unwrap();
+        assert_eq!(pools.0, expected.iter().copied().collect::<HashSet<_>>());
+    }
+
+    #[test]
+    fn test_pooler_statement_timeout_pools_reads_env_var() {
+        let env = HashMap::from([(
+            "POOLER_STATEMENT_TIMEOUT_POOLS".to_string(),
+            "persons_reader".to_string(),
+        )]);
+        let config = Config::init_from_hashmap(&env).unwrap();
+
+        assert!(config
+            .pooler_statement_timeout_pools
+            .0
+            .contains(pool_names::PERSONS_READER));
+    }
+
+    #[test]
+    fn test_pooler_statement_timeout_pools_rejects_unknown_pool() {
+        let error = "persons_reader,persons_readr"
+            .parse::<PoolerStatementTimeoutPools>()
+            .unwrap_err();
+        assert!(error.contains("'persons_readr'"), "{error}");
     }
 
     #[test]
@@ -2088,6 +2176,7 @@ mod service_mode_tests {
         config.billing_max_pending_entries = 99;
         config.billing_per_flush_batch_size = 7;
         config.billing_shutdown_flush_timeout_ms = 5_000;
+        config.billing_counters_enabled = FlexBool(false);
 
         let bcfg = config.get_billing_aggregator_config();
 
@@ -2096,6 +2185,7 @@ mod service_mode_tests {
         assert_eq!(bcfg.per_flush_batch_size, 7);
         assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
         assert_eq!(bcfg.jitter_override, None);
+        assert!(!bcfg.enabled);
     }
 }
 

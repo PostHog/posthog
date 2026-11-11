@@ -15,7 +15,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
@@ -31,6 +31,8 @@ import {
     getDefaultTreeNew,
     getDefaultTreePersons,
     getDefaultTreeProducts,
+    hiddenProductHrefs,
+    isHiddenProductShortcut,
     withProductShortcutHref,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -113,6 +115,10 @@ function applyOrder(shortcuts: FileSystemEntry[], orderedIds: string[]): FileSys
     const referenced = new Set(orderedIds)
     const trailing = shortcuts.filter((s) => s.id && !referenced.has(s.id))
     return [...reordered, ...trailing]
+}
+
+function hasFolderEntry(entries: FileSystemEntry[] | undefined, field: 'path' | 'ref', value: string): boolean {
+    return !!entries?.some((entry) => entry.type === 'folder' && entry[field] === value)
 }
 
 type DeleteFolderDialogContentProps = {
@@ -552,6 +558,9 @@ export interface projectTreeDataLogicActions {
             projectTreeLogicKey: string
         }
     }
+    reloadIfHomeFolderMissing: () => {
+        value: true
+    }
     removeQueuedAction: (action: ProjectTreeAction) => {
         action: ProjectTreeAction
     }
@@ -762,6 +771,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         addShortcutItem: (item: FileSystemEntry, successMessage?: string) => ({ item, successMessage }),
         deleteShortcut: (id: FileSystemEntry['id'], successMessage?: string) => ({ id, successMessage }),
         loadShortcuts: true,
+        reloadIfHomeFolderMissing: true,
         reorderShortcuts: (orderedIds: NonNullable<FileSystemEntry['id']>[]) => ({ orderedIds }),
         // Resolves a sibling drag ('before' / 'after' a target row) into a new ordered list and
         // dispatches `reorderShortcuts`. Lives here so the component stays free of business logic.
@@ -1082,12 +1092,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     // the loader settle: on timeout it rejects, firing loadShortcutsFailure (which
                     // flips shortcutDataHasLoaded), and kea-loaders' global onFailure handler in
                     // initKea captures the exception so the previously-silent hang is surfaced.
-                    const response = await withTimeout(
-                        (signal) => api.fileSystemShortcuts.list({ signal }),
-                        SHORTCUTS_LOADER_TIMEOUT_MS,
-                        'loadShortcuts timed out'
-                    )
-                    return response.results.map(withProductShortcutHref)
+                    // Each page gets its own timeout. A star past the first page would otherwise look unstarred.
+                    const listPage = (offset: number): ReturnType<typeof api.fileSystemShortcuts.list> =>
+                        withTimeout(
+                            (signal) => api.fileSystemShortcuts.list(offset ? { offset, signal } : { signal }),
+                            SHORTCUTS_LOADER_TIMEOUT_MS,
+                            'loadShortcuts timed out'
+                        )
+                    let page = await listPage(0)
+                    const shortcuts = [...page.results]
+                    while (page.next) {
+                        page = await listPage(shortcuts.length)
+                        shortcuts.push(...page.results)
+                    }
+                    return shortcuts.map(withProductShortcutHref)
                 },
                 addShortcutItem: async ({ item, successMessage }) => {
                     const shortcutItem = shortcutFromEntry(item)
@@ -1617,22 +1635,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
                 // Hide a starred product while its flag is off, but keep the star so it comes back with the flag.
-                const productIsEnabled = (product: FileSystemImport): boolean =>
-                    !product.flag || !!(featureFlags as Record<string, boolean>)[product.flag]
-                const products = getDefaultTreeProducts()
-                const enabledProductHrefs = new Set(products.filter(productIsEnabled).map((product) => product.href))
-                const hiddenProductHrefs = new Set(
-                    products
-                        .filter((product) => product.href && !enabledProductHrefs.has(product.href))
-                        .map((product) => product.href)
-                )
+                const hiddenHrefs = hiddenProductHrefs(featureFlags)
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
                     for (const shortcut of shortcutData.filter(
                         (shortcut) =>
                             // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
                             !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut)) &&
-                            !(shortcut.type !== 'folder' && !shortcut.ref && hiddenProductHrefs.has(shortcut.href))
+                            !isHiddenProductShortcut(shortcut, hiddenHrefs)
                     )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',
@@ -1717,7 +1727,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     convertFileSystemEntryToTreeDataItem({
                         root: protocol,
                         imports: imports
-                            .filter((f) => isFileSystemImportFlagEnabled(f, featureFlags))
+                            .filter((f) => isFileSystemImportShown(f, featureFlags))
                             .map((i) => ({
                                 ...i,
                                 protocol,
@@ -1785,8 +1795,38 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.loadShortcuts()
         },
         loadHomeFolderSuccess: () => {
-            actions.loadShortcuts()
-            actions.loadFolder('', true)
+            cache.homeShortcutCheckPending = true
+            cache.homeRootCheckPending = true
+            actions.reloadIfHomeFolderMissing()
+        },
+        loadShortcutsSuccess: () => actions.reloadIfHomeFolderMissing(),
+        loadShortcutsFailure: () => actions.reloadIfHomeFolderMissing(),
+        loadFolderSuccess: ({ folder }) => {
+            if (folder === '') {
+                actions.reloadIfHomeFolderMissing()
+            }
+        },
+        loadFolderFailure: ({ folder }) => {
+            if (folder === '') {
+                actions.reloadIfHomeFolderMissing()
+            }
+        },
+        // The first home folder request creates the folder and its shortcut, while the boot loads of both lists
+        // run. Each list reloads only if it does not show the folder, and a slow list does not hold back the other.
+        reloadIfHomeFolderMissing: () => {
+            const path = values.homeFolder?.path
+            if (cache.homeShortcutCheckPending && !values.shortcutDataLoading) {
+                cache.homeShortcutCheckPending = false
+                if (path && !hasFolderEntry(values.shortcutData, 'ref', path)) {
+                    actions.loadShortcuts()
+                }
+            }
+            if (cache.homeRootCheckPending && values.folderStates[''] !== 'loading') {
+                cache.homeRootCheckPending = false
+                if (path && !hasFolderEntry(values.folders[''], 'path', splitPath(path)[0])) {
+                    actions.loadFolder('', true)
+                }
+            }
         },
         reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
             const map = values.shortcutEntryIdMap

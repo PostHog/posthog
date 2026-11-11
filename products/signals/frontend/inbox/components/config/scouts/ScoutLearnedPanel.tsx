@@ -5,9 +5,9 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
-import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
 import { ScratchpadEntryCard } from '../../scratchpad/ScratchpadEntryCard'
+import { OpenScratchpadButton } from './OpenScratchpadButton'
 
 const INITIAL_VISIBLE = 3
 
@@ -19,7 +19,6 @@ const INITIAL_VISIBLE = 3
 export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Element {
     const { scoutEntries, scoutEntriesLoadFailed } = useValues(scratchpadLogic)
     const { loadScoutEntries } = useActions(scratchpadLogic)
-    const { setScratchpadOpen } = useActions(inboxSceneLogic)
     const [showAll, setShowAll] = useState(false)
 
     const entries = entriesForSkill(scoutEntries, skillName)
@@ -62,9 +61,7 @@ export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Ele
                     )}
                 </div>
             )}
-            <LemonButton size="xsmall" type="tertiary" className="self-start" onClick={() => setScratchpadOpen(true)}>
-                All scouts
-            </LemonButton>
+            <OpenScratchpadButton skillName={skillName} entryPoint="learned_tab" />
         </div>
     )
 }

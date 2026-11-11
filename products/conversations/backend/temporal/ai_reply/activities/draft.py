@@ -18,6 +18,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.business_knowledge.backend.constants import MAX_ALWAYS_ON_CONTEXT_CHARS
 from products.business_knowledge.backend.logic import get_chunks_by_ids
 from products.conversations.backend.playbook import compose_support_playbook, is_posthog_docs_source
+from products.conversations.backend.task_profiles import SUPPORT_REPLY
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
     DIAGNOSTIC_SCOPES_PRESET,
@@ -45,7 +46,6 @@ from products.conversations.backend.temporal.helpers import (
     get_or_create_support_sandbox_env,
     resolve_user_id_for_support,
 )
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import EmptyAgentTurnError, MultiTurnSession
 
 logger = structlog.get_logger(__name__)
@@ -414,9 +414,7 @@ Return your response as a JSON object with keys: reply, citations, confidence (a
                 prompt,
                 context,
                 step_name="support_reply",
-                origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-                mcp_builtin_agent_key="support",
-                internal=True,
+                profile=SUPPORT_REPLY,
                 max_poll_seconds=DRAFT_POLL_SECONDS,
             )
         except EmptyAgentTurnError:

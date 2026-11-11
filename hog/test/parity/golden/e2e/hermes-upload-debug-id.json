@@ -1,0 +1,69 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/releases/hash/e7495f569c486a19ec6e4a01b9f02703c99282233a5fe12485f654edbd03d65ac91a7ea8b5ec69ce9bafe158a9e3d459edd5b438509dad3e50447b21ec4c1427",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/releases",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"hash_id\":\"e7495f569c486a19ec6e4a01b9f02703c99282233a5fe12485f654edbd03d65ac91a7ea8b5ec69ce9bafe158a9e3d459edd5b438509dad3e50447b21ec4c1427\",\"version\":\"1.4.0+42\",\"project\":\"com.example.app\"}",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"c96bfa94-ca84-4f98-8d5e-f15adba692ca\",\"release_id\":null,\"content_hash\":\"21c78373282cd1f598495f758156b0e85565ca640e136df79e36315e5799702a115bce8b76178e01b09de2e485d2fc6b30b66a547944bebded555e330b13c511\",\"content_length\":386}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"c96bfa94-ca84-4f98-8d5e-f15adba692ca\",\"release_id\":null,\"content_hash\":\"21c78373282cd1f598495f758156b0e85565ca640e136df79e36315e5799702a115bce8b76178e01b09de2e485d2fc6b30b66a547944bebded555e330b13c511\",\"content_length\":386}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":true,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/5776b505-d2f6-53e5-b7e5-8cb825de47cf?length=386",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "21c78373282cd1f598495f758156b0e85565ca640e136df79e36315e5799702a115bce8b76178e01b09de2e485d2fc6b30b66a547944bebded555e330b13c511",
+        "length": 386
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"5776b505-d2f6-53e5-b7e5-8cb825de47cf\":\"21c78373282cd1f598495f758156b0e85565ca640e136df79e36315e5799702a115bce8b76178e01b09de2e485d2fc6b30b66a547944bebded555e330b13c511\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ],
+  "files": {
+    "ios/hbc/main.jsbundle.hbc.composed.map": "utf8:{\"chunk_id\":\"c96bfa94-ca84-4f98-8d5e-f15adba692ca\",\"mappings\":\"AAAA,SACA,cAAAC\",\"names\":[\"App\",\"<global>\"],\"sources\":[\"src/App.js\",\"node_modules/react-native/Libraries/polyfill.js\"],\"sourcesContent\":[\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\",null],\"version\":3,\"x_facebook_sources\":[[{\"mappings\":\"AAA,CCC\",\"names\":[\"<global>\",\"App\"]}],null],\"x_google_ignoreList\":[1],\"x_hermes_function_offsets\":{\"0\":[0,28],\"1\":[0]},\"x_unicode\":\"😀 </script> \\\"q\\\" \\\\ \\t\"}"
+  }
+}

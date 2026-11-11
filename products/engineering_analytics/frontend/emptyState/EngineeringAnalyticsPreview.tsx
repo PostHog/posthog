@@ -2,7 +2,7 @@ import './EngineeringAnalyticsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored weekly series of median time from open to merge, in hours, trending down.
 const LINE = 'M 0 9 L 14 12 L 28 10 L 42 16 L 56 18 L 70 23 L 84 26 L 100 30'
@@ -12,13 +12,11 @@ function areaPath(line: string): string {
 }
 
 /**
- * Example-data preview for the engineering analytics empty state. A hidden radio pair drives the
- * selection through `:checked ~` styles, with no timers or state, per the
- * `building-product-empty-states` skill. Both run lists share one grid cell and crossfade, so
- * switching the selection never moves the card.
+ * A hidden radio pair drives the selection through `:checked ~` styles, with no timers or state.
+ * Both run lists share one grid cell and crossfade, so switching the selection never moves the card.
  */
 export function EngineeringAnalyticsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('EngAnalyticsPreview', isStatic && 'EngAnalyticsPreview--static')}>

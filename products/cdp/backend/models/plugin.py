@@ -17,6 +17,8 @@ from semantic_version.base import SimpleSpec
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import FROZEN_POSTHOG_VERSION
+from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
@@ -324,7 +326,7 @@ class PluginLogEntrySource(StrEnum):
     CONSOLE = "CONSOLE"
 
 
-class PluginLogEntryType(StrEnum):
+class PluginLogEntryType(LabeledStrEnum):
     DEBUG = "DEBUG"
     LOG = "LOG"
     INFO = "INFO"
@@ -507,43 +509,63 @@ class PluginLogEntry:
     instance_id: UUID
 
 
-def fetch_plugin_log_entries(
-    *,
-    team_id: Optional[int] = None,
-    plugin_config_id: Optional[int] = None,
-    after: Optional[datetime.datetime] = None,
-    before: Optional[datetime.datetime] = None,
-    search: Optional[str] = None,
-    limit: Optional[int] = None,
-    type_filter: Optional[list[PluginLogEntryType]] = None,
-) -> list[PluginLogEntry]:
-    if type_filter is None:
-        type_filter = []
+@frozen
+class PluginLogFilters:
+    team_id: Optional[int] = None
+    plugin_config_id: Optional[int] = None
+    after: Optional[datetime.datetime] = None
+    before: Optional[datetime.datetime] = None
+    search: Optional[str] = None
+    type_filter: tuple[PluginLogEntryType, ...] = ()
+
+
+def _plugin_log_entries_conditions(filters: PluginLogFilters) -> tuple[str, dict[str, Any]]:
     clickhouse_where_parts: list[str] = []
     clickhouse_kwargs: dict[str, Any] = {}
-    if team_id is not None:
+    if filters.team_id is not None:
         clickhouse_where_parts.append("team_id = %(team_id)s")
-        clickhouse_kwargs["team_id"] = team_id
-    if plugin_config_id is not None:
+        clickhouse_kwargs["team_id"] = filters.team_id
+    if filters.plugin_config_id is not None:
         clickhouse_where_parts.append("plugin_config_id = %(plugin_config_id)s")
-        clickhouse_kwargs["plugin_config_id"] = plugin_config_id
-    if after is not None:
+        clickhouse_kwargs["plugin_config_id"] = filters.plugin_config_id
+    if filters.after is not None:
         clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
-        clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
-    if before is not None:
+        clickhouse_kwargs["after"] = filters.after.isoformat().replace("+00:00", "")
+    if filters.before is not None:
         clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
-        clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
-    if search:
+        clickhouse_kwargs["before"] = filters.before.isoformat().replace("+00:00", "")
+    if filters.search:
         clickhouse_where_parts.append("message ILIKE %(search)s")
-        clickhouse_kwargs["search"] = f"%{search}%"
-    if len(type_filter) > 0:
+        clickhouse_kwargs["search"] = f"%{filters.search}%"
+    if filters.type_filter:
         clickhouse_where_parts.append("type in %(types)s")
-        clickhouse_kwargs["types"] = type_filter
+        clickhouse_kwargs["types"] = list(filters.type_filter)
+    return " AND ".join(clickhouse_where_parts), clickhouse_kwargs
+
+
+def fetch_plugin_log_entries(
+    filters: PluginLogFilters, *, limit: Optional[int] = None, offset: int = 0
+) -> list[PluginLogEntry]:
+    where, clickhouse_kwargs = _plugin_log_entries_conditions(filters)
+    clickhouse_kwargs = {**clickhouse_kwargs, "offset": offset}
+    limit_clause = ""
+    if limit:
+        limit_clause = "LIMIT %(limit)s"
+        clickhouse_kwargs["limit"] = limit
+    # Entries can share a timestamp. The id gives them the same order in every query, so a page
+    # boundary between them cannot skip or repeat an entry.
     clickhouse_query = f"""
         SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
-        WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}" if limit else ""}
+        WHERE {where} ORDER BY timestamp DESC, id {limit_clause} OFFSET %(offset)s
     """
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
+
+
+def count_plugin_log_entries(filters: PluginLogFilters) -> int:
+    where, clickhouse_kwargs = _plugin_log_entries_conditions(filters)
+    clickhouse_query = f"SELECT count() FROM plugin_log_entries WHERE {where}"
+    rows = cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))
+    return int(rows[0][0])
 
 
 @receiver(models.signals.post_save, sender=Organization)

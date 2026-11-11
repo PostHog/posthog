@@ -134,6 +134,7 @@ class TestModelSuggestionsHighlight(BaseTest):
     def test_counts_the_open_model_suggestions_the_viewer_can_act_on(self) -> None:
         self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("orders").id)
         self._suggest(WarehouseSuggestionKind.UNMATERIALIZE, self._view("events_daily").id)
+        self._suggest(WarehouseSuggestionKind.DEPRECATE, self._view("old_rollup").id)
         self._suggest(WarehouseSuggestionKind.CERTIFY, self._view("users").id)
         ingest_one(self.team.id, self._draft(WarehouseSuggestionKind.MATERIALIZE, self._view("unsurfaced").id))
         dismissed = self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("dismissed").id)
@@ -145,7 +146,7 @@ class TestModelSuggestionsHighlight(BaseTest):
         found = today_highlights.find_model_suggestions(self._context())
 
         assert [(item.title, item.detail, item.url) for item in found.items] == [
-            ("2 model suggestions wait for review", "Review them in Models.", "/models?tab=models")
+            ("3 model suggestions wait for review", "Review them in Models.", "/models?tab=models")
         ]
 
     @parameterized.expand(

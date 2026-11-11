@@ -1,3 +1,4 @@
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
 import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
     AnyAssistantGeneratedQuery,
@@ -11,7 +12,6 @@ import {
     QuerySchema,
     QuerySchemaRoot,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 
 export function castAssistantQuery(query: AnyAssistantGeneratedQuery | QuerySchemaRoot | null): QuerySchemaRoot | null {
     if (query) {

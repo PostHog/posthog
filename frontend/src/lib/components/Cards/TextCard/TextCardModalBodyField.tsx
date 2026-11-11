@@ -10,7 +10,7 @@ export interface TextCardModalBodyFieldProps {
 }
 
 const LazyLegacyMarkdownEditor = lazyWithRetry(() =>
-    import('lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown').then((m) => ({
+    import('lib/components/LemonTextAreaMarkdown/LemonTextAreaMarkdown').then((m) => ({
         default: m.LemonTextAreaMarkdown,
     }))
 )

@@ -13,6 +13,7 @@ from posthog.clickhouse.client import sync_execute
 
 class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
+    log_items: list[dict]
 
     DATE_RANGE = {"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}
 
@@ -26,6 +27,8 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
                 log_item = json.loads(line)
                 log_item["team_id"] = cls.team.id
                 log_items.append(log_item)
+
+        cls.log_items = log_items
 
         sql = "\n".join(json.dumps(log_item) for log_item in log_items)
         sync_execute(f"""
@@ -96,6 +99,31 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             sum(base.values()),
             f"{other_filter_key} should re-scope {facet_field} counts",
         )
+
+    @parameterized.expand(
+        [
+            ("service_name", "exact"),
+            ("service_name", "is_not"),
+            ("severity_text", "exact"),
+            ("severity_text", "is_not"),
+        ]
+    )
+    def test_column_facet_honors_resource_attribute_filter(self, facet_field, operator):
+        namespace = next(iter(self._facet_attr("k8s.namespace.name")))
+        filter_group = [
+            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": operator, "value": namespace}
+        ]
+        # The fixture has logs at 10:3x, so this date_to catches buckets that start at or after it.
+        date_range = {**self.DATE_RANGE, "date_to": "2025-12-16T10:30:00Z"}
+        expected: Counter[str] = Counter()
+        for log_item in self.log_items:
+            if not ("2025-12-16 09" <= log_item["timestamp"] < "2025-12-16 10:30"):
+                continue
+            in_namespace = log_item["resource_attributes"].get("k8s.namespace.name") == namespace
+            if in_namespace == (operator == "exact"):
+                expected[log_item[facet_field]] += 1
+
+        self.assertEqual(self._facet(facet_field, filterGroup=filter_group, dateRange=date_range), dict(expected))
 
     def test_column_facet_keeps_the_bucket_that_contains_date_from(self):
         # The rollup has 5-minute buckets. A date_from inside a bucket must not drop that bucket, or

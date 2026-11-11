@@ -109,9 +109,11 @@ class Batcher:
         coalesce_tables: bool = False,
         primary_keys: Optional[list[str]] = None,
         max_buffer_cells: Optional[int] = None,
+        masked_columns: Optional[list[str]] = None,
     ) -> None:
         self._logger = logger
         self._primary_keys = primary_keys
+        self._masked_columns = masked_columns
         self._binary_reporter = BinaryColumnReporter(logger)
 
         self._chunk_size = chunk_size or DEFAULT_CHUNK_SIZE
@@ -142,7 +144,12 @@ class Batcher:
         self._ready_bytes = 0
 
     def _rows_to_table(self, rows: list[Any]) -> pa.Table:
-        return table_from_py_list(rows, primary_keys=self._primary_keys, binary_reporter=self._binary_reporter)
+        return table_from_py_list(
+            rows,
+            primary_keys=self._primary_keys,
+            binary_reporter=self._binary_reporter,
+            masked_columns=self._masked_columns,
+        )
 
     def _set_ready(self, table: pa.Table) -> None:
         """Split `table` so no yielded chunk overflows a 32-bit offset column or exceeds

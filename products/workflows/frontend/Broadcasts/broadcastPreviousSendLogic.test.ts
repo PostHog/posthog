@@ -63,6 +63,13 @@ describe('broadcastPreviousSendLogic', () => {
             sentCount: 12,
         },
         {
+            case: 'a partly failed run still reached people',
+            flows: [{ id: 'flow-1', status: 'active' }],
+            jobs: { 'flow-1': [{ id: 'job-5', status: 'partially_failed' }] },
+            expected: { broadcastId: 'flow-1', state: 'sent', job: { id: 'job-5', status: 'partially_failed' } },
+            sentCount: 12,
+        },
+        {
             case: 'a failed run is the only history',
             flows: [{ id: 'flow-1', status: 'active' }],
             jobs: { 'flow-1': [{ id: 'job-4', status: 'failed' }] },

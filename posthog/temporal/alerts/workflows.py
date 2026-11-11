@@ -13,6 +13,7 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.alerts.activities import (
     admit_alert_evaluations,
     cleanup_alert_checks,
+    emit_alert_firing_signal,
     evaluate_alert,
     notify_alert,
     prepare_alert,
@@ -24,6 +25,9 @@ from posthog.temporal.alerts.activities import (
 from posthog.temporal.alerts.retry_policy import (
     ALERT_NOTIFY_RETRY_POLICY,
     ALERT_PREPARE_RETRY_POLICY,
+    ALERT_SIGNAL_RETRY_POLICY,
+    ALERT_SIGNAL_SCHEDULE_TO_CLOSE,
+    ALERT_SIGNAL_START_TO_CLOSE,
     AlertTimeouts,
     alert_timeouts,
 )
@@ -31,6 +35,7 @@ from posthog.temporal.alerts.types import (
     AdmitEvaluationsInputs,
     AlertInfo,
     CheckAlertWorkflowInputs,
+    EmitAlertFiringSignalActivityInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
@@ -52,6 +57,8 @@ with temporalio.workflow.unsafe.imports_passed_through():
 
 # Runs started before the deploy replay the fan-out; drop the gate once no such run is left.
 _PATCH_INFLIGHT_ADMISSION = "alerts-inflight-admission-2026-09"
+# Runs started before the deploy sent the inbox signal from the evaluate activity.
+_PATCH_FIRING_SIGNAL_PHASE = "alerts-firing-signal-phase-2026-11"
 _ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # Under the one-minute schedule cadence, so the next run takes over what this one did not reach.
 _ADMISSION_RUN_BUDGET = dt.timedelta(seconds=50)
@@ -313,6 +320,24 @@ class CheckAlertWorkflow(PostHogWorkflow):
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 )
 
+            # Phase 5 — inbox signal for a new firing episode. Last, so the send never delays the
+            # notification, and a failed notification stops it. The patch comes first, so a run
+            # started before the deploy keeps its old commands.
+            if (
+                temporalio.workflow.patched(_PATCH_FIRING_SIGNAL_PHASE)
+                and evaluation.signal_candidate
+                and evaluation.previous_state is not None
+            ):
+                await self._emit_firing_signal(
+                    EmitAlertFiringSignalActivityInputs(
+                        alert_id=inputs.alert_id,
+                        alert_check_id=evaluation.alert_check_id,
+                        team_id=inputs.team_id,
+                        previous_state=evaluation.previous_state,
+                        breaches=evaluation.breaches,
+                    )
+                )
+
         except Exception as e:
             caught_error = e
 
@@ -330,6 +355,21 @@ class CheckAlertWorkflow(PostHogWorkflow):
         # Re-raise after cleanup completes. Same Temporal SDK quirk as ProcessSubscriptionWorkflow
         if caught_error:
             raise caught_error
+
+    async def _emit_firing_signal(self, signal_inputs: EmitAlertFiringSignalActivityInputs) -> None:
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_alert_firing_signal,
+                signal_inputs,
+                start_to_close_timeout=ALERT_SIGNAL_START_TO_CLOSE,
+                schedule_to_close_timeout=ALERT_SIGNAL_SCHEDULE_TO_CLOSE,
+                retry_policy=ALERT_SIGNAL_RETRY_POLICY,
+            )
+        except Exception:
+            # The signal is best effort. Its failure must not fail a check that already notified.
+            temporalio.workflow.logger.warning(
+                "alerts.firing_signal_failed", extra={"alert_id": signal_inputs.alert_id}
+            )
 
     async def _record_failed_evaluation(
         self,
@@ -402,7 +442,7 @@ class RunInvestigationSafetyNetWorkflow(PostHogWorkflow):
 
 @temporalio.workflow.defn(name="cleanup-alert-checks")
 class CleanupAlertChecksWorkflow(PostHogWorkflow):
-    """Purge old AlertCheck rows on a daily schedule."""
+    """Purge old AlertCheck and InsightAlertInvestigation rows on a daily schedule."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> None:

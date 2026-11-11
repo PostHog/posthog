@@ -6,12 +6,17 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { PageToolbarMode } from '../../messaging/pageToolbarBridge'
+import type { PageToolbarHeatmapState, PageToolbarMessage, PageToolbarMode } from '../../messaging/pageToolbarBridge'
 import { configureFakeExtensionBrowser } from './__mocks__/fakeExtensionBrowser'
-import { STORY_PAGE_URL, pageToolbarState } from './__mocks__/pageToolbarState'
+import { STORY_PAGE_URL, flagComparison, pageToolbarState } from './__mocks__/pageToolbarState'
 import { ExtensionPanel } from './ExtensionPanel'
 
-type StoryArgs = { mode: PageToolbarMode }
+type StoryArgs = {
+    mode: PageToolbarMode
+    tabUrl?: string
+    heatmap?: Partial<PageToolbarHeatmapState>
+    messages?: PageToolbarMessage[]
+}
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-Other/Toolbar extension',
@@ -26,17 +31,23 @@ const meta: Meta<StoryArgs> = {
                 '/api/users/@me/': MOCK_DEFAULT_USER,
                 '/api/user/toolbar_entitlements': { entitlements: { toolbar_heatmaps: true } },
                 '/api/organizations/:organization_id/projects/:id/': {
-                    app_urls: ['https://hedgebox.example.com'],
+                    app_urls: [
+                        'https://hedgebox.example.com',
+                        'https://docs.hedgebox.example.com',
+                        'https://*.hedgebox.dev',
+                    ],
                     data_attributes: ['data-attr'],
                 },
             },
         }),
     ],
-    render: ({ mode }) => {
+    render: ({ mode, tabUrl, heatmap, messages }) => {
         const uiHost = window.location.origin
+        const pageState = pageToolbarState(mode)
         configureFakeExtensionBrowser({
-            tabUrl: STORY_PAGE_URL,
-            pageState: pageToolbarState(mode),
+            tabUrl: tabUrl ?? STORY_PAGE_URL,
+            pageState: { ...pageState, heatmap: { ...pageState.heatmap, ...heatmap } },
+            messages,
             storage: {
                 posthogUiHost: uiHost,
                 posthogToolbarTokens: {
@@ -71,6 +82,18 @@ export const Heatmap: Story = {
     parameters: { testOptions: { waitForSelector: 'text=Compare plans' } },
 }
 
+export const HeatmapSavedVariantFilter: Story = {
+    args: {
+        mode: 'heatmap',
+        heatmap: {
+            variantFilter: { flagKey: 'pricing-page-redesign', variant: 'test' },
+            variantFlags: [],
+            variantFilterGate: false,
+        },
+    },
+    parameters: { testOptions: { waitForSelector: 'text=pricing-page-redesign: test' } },
+}
+
 export const Actions: Story = {
     args: { mode: 'actions' },
     parameters: { testOptions: { waitForSelector: 'text=Clicked contact sales' } },
@@ -79,6 +102,11 @@ export const Actions: Story = {
 export const FeatureFlags: Story = {
     args: { mode: 'flags' },
     parameters: { testOptions: { waitForSelector: 'text=checkout-button-copy' } },
+}
+
+export const FeatureFlagComparison: Story = {
+    args: { mode: 'flags', messages: [{ type: 'flag-comparison', comparison: flagComparison }] },
+    parameters: { testOptions: { waitForSelector: '[data-attr="toolbar-extension-flag-comparison-back"]' } },
 }
 
 export const Events: Story = {
@@ -99,4 +127,15 @@ export const Experiments: Story = {
 export const More: Story = {
     args: { mode: 'more' },
     parameters: { testOptions: { waitForSelector: 'text=1.300.0' } },
+}
+
+export const UnauthorizedPage: Story = {
+    args: { mode: 'none', tabUrl: 'https://www.example.com/' },
+    parameters: {
+        testOptions: {
+            waitForSelector: 'text=Authorized URLs for',
+            // Rendered to catch errors, without a snapshot: the panel's other stories cover its layout.
+            snapshotBrowsers: [],
+        },
+    },
 }

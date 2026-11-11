@@ -8,7 +8,7 @@ import requests
 
 from posthog.models import User
 
-from ..facade.contracts import ExecResult, ExecTool, McpServerError, McpServerTimeout, ToolCallResult
+from ..facade.contracts import ExecResult, McpServerError, McpServerTimeout, ToolCallResult
 from .tokens import WebMCPTokenIssuer
 
 # The stateless MCP dialect needs no handshake, so each proxied call is one HTTP request.
@@ -59,17 +59,6 @@ class McpServerClient:
         if url is None:
             raise McpServerError("WebMCP is not available on this instance")
         return cls(url=url, token=WebMCPTokenIssuer.for_instance().get_or_mint(user, team_id))
-
-    def get_exec_tool(self) -> ExecTool:
-        result = self._request("tools/list", {})
-        for tool in result.get("tools", []):
-            if isinstance(tool, dict) and tool.get("name") == EXEC_TOOL_NAME:
-                return ExecTool(
-                    name=EXEC_TOOL_NAME,
-                    description=tool.get("description") or "",
-                    input_schema=tool.get("inputSchema") or {"type": "object"},
-                )
-        raise McpServerError("The MCP server did not advertise the exec tool")
 
     def call_exec(self, command: str, *, timeout: tuple[int, int] = REQUEST_TIMEOUT_SECONDS) -> ExecResult:
         result = self._request(

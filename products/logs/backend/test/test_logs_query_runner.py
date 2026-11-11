@@ -1,14 +1,18 @@
 import os
 import json
+import base64
+import datetime as dt
 from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
+    CachedLogsQueryResponse,
     DateRange,
     FilterLogicalOperator,
     HogQLFilters,
@@ -643,6 +647,23 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._make_logs_api_request(query_params)
         self.assertEqual(len(response["results"]), 51)
         self.assertFalse(response["hasMore"])
+
+    @parameterized.expand(
+        [
+            ("query_string", "query", "abc"),
+            ("query_negative", "query", -1),
+            ("group_by_string", "group-by", "abc"),
+            ("group_by_zero", "group-by", 0),
+        ]
+    )
+    def test_logs_rejects_a_bad_limit(self, _name: str, action: str, limit: str | int) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/{action}",
+            data={"query": {"dateRange": {"date_from": "-1h"}, "limit": limit}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["attr"], "limit")
 
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_slicing(self):
@@ -1586,3 +1607,33 @@ class TestLogsSessionIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, AP
         )
         self.assertEqual(group_by_response.status_code, status.HTTP_200_OK)
         self.assertEqual(group_by_response.json()["total_logs"], 1)
+
+
+class TestLogsQueryCachedResponse(APIBaseTest):
+    def test_cursor_from_cached_string_timestamps(self):
+        rows = [
+            {"uuid": uuid, "timestamp": timestamp}
+            for uuid, timestamp in [
+                ("01", "2026-06-02T08:00:00.300000+00:00"),
+                ("02", "2026-06-02T08:00:00.200000+00:00"),
+                ("03", "2026-06-02T08:00:00.100000+00:00"),
+            ]
+        ]
+        now = dt.datetime.now(dt.UTC)
+        cached = CachedLogsQueryResponse(
+            cache_key="key",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            timezone="UTC",
+            results=rows,
+        )
+        with patch("products.logs.backend.presentation.views.api.LogsQueryRunner.run", return_value=cached):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/query",
+                {"query": {"limit": 2, "dateRange": {"date_from": "-10m"}}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        cursor = json.loads(base64.b64decode(response.json()["nextCursor"]))
+        self.assertEqual(cursor, {"timestamp": "2026-06-02T08:00:00.200000+00:00", "uuid": "02"})

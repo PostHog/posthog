@@ -25,7 +25,7 @@ import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse, isAbortError } from 'lib/api'
-import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
+import { isAccessDeniedError, isApprovalRequiredError, isRollbackReasonRequiredError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -45,6 +45,7 @@ import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { percentageDistribution } from 'scenes/experiments/utils'
 import {
     FeatureFlagsTab,
     carriedListFilterParams,
@@ -110,6 +111,7 @@ import {
     reloadIfStaleRowVersion,
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { forgetFlagLookup } from 'products/feature_flags/frontend/featureFlagSummaryLogic'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -123,6 +125,12 @@ import type {
     CopyFlagsDependencyRequirementsResponseApi,
     FeatureFlagStatusResponseApi,
 } from 'products/feature_flags/frontend/generated/api.schemas'
+import {
+    RollbackReasonAnswer,
+    RollbackReasonRequestFields,
+    rollbackReasonRequestFields,
+} from 'products/feature_flags/frontend/rollbackReason'
+import { openRollbackReasonDialog } from 'products/feature_flags/frontend/rollbackReasonDialog'
 import {
     captureMessageAudienceClicked,
     cohortAudienceProperties,
@@ -160,6 +168,7 @@ import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import { confirmFeatureFlagKeyChange } from './featureFlagKeyChangeDialog'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
+import { MAX_VARIANTS } from './featureFlagRulesV2Draft'
 import {
     ProjectSelectOption,
     aggregateCopyResponse,
@@ -659,6 +668,26 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
+/** The `?key=` from a new-flag link, or null when it isn't a valid key. Code examples render it before save-time validation. */
+export function prefilledFlagKey(value: unknown): string | null {
+    const key = scalarParam(value) ?? ''
+    return validateFeatureFlagKey(key) ? null : key
+}
+
+// The router JSON-decodes `[...]` and `{...}` params, and `String()` can throw on an object.
+function scalarParam(value: unknown): string | null {
+    return ['string', 'number', 'boolean'].includes(typeof value) ? String(value) : null
+}
+
+function variantsFromSearchParam(value: unknown): MultivariateFlagVariant[] {
+    const raw = Array.isArray(value) ? value.map(scalarParam) : (scalarParam(value)?.split(',') ?? [])
+    const keys = [...new Set(raw.map((key) => (key ?? '').trim()))]
+        .filter((key) => !validateFeatureFlagVariantKey(key))
+        .slice(0, MAX_VARIANTS)
+    const percentages = percentageDistribution(keys.length)
+    return keys.map((key, index) => ({ key, name: '', rollout_percentage: percentages[index] }))
+}
+
 const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
 
 // Only returns true when groups are present and ALL explicitly set to 0.
@@ -1153,6 +1182,24 @@ function queueInlineSave<T>(cache: Record<string, any>, send: () => Promise<T>):
     return request
 }
 
+// pinned: the `source` property value of the rollback reason events.
+export type RollbackReasonSource = 'save' | 'toggle'
+
+/**
+ * The answer from the rollback reason question rides on every save from the same source until one succeeds, so a
+ * retry after a failed save does not ask again. The success listeners clear it, and so do the listeners that discard
+ * the refused edit, so it never rides on an unrelated edit.
+ */
+function rollbackReasonFields(
+    cache: Record<string, any>,
+    source: RollbackReasonSource,
+    ask: boolean
+): RollbackReasonRequestFields {
+    const pending: { source: RollbackReasonSource; answer: RollbackReasonAnswer } | undefined =
+        cache.rollbackReasonAnswer
+    return rollbackReasonRequestFields(pending?.source === source ? pending.answer : undefined, ask)
+}
+
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     const { created_at, id, created_by, last_modified_by, ...cleanedFlag } = flag
     if (cleanedFlag.filters && !isV1FeatureFlagConfig(cleanedFlag.filters)) {
@@ -1228,6 +1275,7 @@ export interface featureFlagLogicValues {
     aggregationTargetName: string
     alsoCreateInProjectOptions: ProjectSelectOption[]
     alsoCreateInProjects: number[]
+    asksRollbackReason: boolean
     availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
     broadcastCohort: CohortApi | null
@@ -1480,6 +1528,9 @@ export interface featureFlagLogicActions {
     }
     applyUrlTemplate: (templateId: string) => {
         templateId: string
+    }
+    askRollbackReason: (source: RollbackReasonSource) => {
+        source: RollbackReasonSource
     }
     checkKeyConflict: (key: string) => string
     checkKeyConflictFailure: (
@@ -2481,8 +2532,9 @@ export interface featureFlagLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         props: (arg: any) => any
-        availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
+        availableTabs: (featureFlag: FeatureFlagType, props: any, enabledFeatures: FeatureFlagsSet) => FeatureFlagsTab[]
         configFormat: (featureFlag: FeatureFlagType) => FeatureFlagConfigFormat
+        asksRollbackReason: (enabledFeatures: FeatureFlagsSet, configFormat: FeatureFlagConfigFormat) => boolean
         editorKind: (
             props: any,
             isEditingFlag: boolean,
@@ -2701,6 +2753,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createPairedSchedule: true,
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
+        askRollbackReason: (source: RollbackReasonSource) => ({ source }),
         toggleProjectFlagActive: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
         projectFlagActiveUpdated: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
         projectFlagActiveUpdateFailed: (teamId: number, flagId: number) => ({ teamId, flagId }),
@@ -3421,6 +3474,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             const shouldDisplayConfirmation = featureFlagConfirmationEnabled || dependentFlags.length > 0
+            // Releasing an existing flag to everyone is always confirmed, whatever the team setting says.
+            const releasesToEveryone = flagWentLive(originalFlag, updatedFlag as FeatureFlagType)
 
             const confirmationShown = checkFeatureFlagConfirmation(
                 originalFlag,
@@ -3432,7 +3487,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 dependentFlags,
                 isBeingDisabled,
                 requireStatusConfirmation,
-                onDisableAndArchive
+                onDisableAndArchive,
+                releasesToEveryone
             )
 
             // If no confirmation was shown, proceed immediately
@@ -3576,17 +3632,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
+                    const prefilledKey = prefilledFlagKey(router.values.searchParams.key)
+                    if (prefilledKey) {
+                        baseFlagConfig = { ...baseFlagConfig, key: prefilledKey }
+                    }
+
                     // Apply type-specific configuration
                     if (flagType === 'multivariate') {
+                        const prefilledVariants = variantsFromSearchParam(router.values.searchParams.variants)
                         baseFlagConfig = {
                             ...baseFlagConfig,
                             filters: {
                                 ...baseFlagConfig.filters,
                                 multivariate: {
-                                    variants: [
-                                        { key: 'control', name: '', rollout_percentage: 50 },
-                                        { key: 'test', name: '', rollout_percentage: 50 },
-                                    ],
+                                    variants:
+                                        prefilledVariants.length > 0
+                                            ? prefilledVariants
+                                            : EMPTY_MULTIVARIATE_OPTIONS.variants,
                                 },
                             },
                         }
@@ -3678,6 +3740,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             {
                                 ...preparedFlag,
                                 original_flag: values.originalFeatureFlag,
+                                ...rollbackReasonFields(cache, 'save', values.asksRollbackReason),
                             }
                         )
                     }
@@ -3746,7 +3809,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
-                        { active, ...values.rowVersionToken }
+                        {
+                            active,
+                            ...values.rowVersionToken,
+                            // Turning a flag on never lowers its exposure, so only turning it off asks.
+                            ...rollbackReasonFields(cache, 'toggle', values.asksRollbackReason && !active),
+                        }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
@@ -4460,6 +4528,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
+            if (isRollbackReasonRequiredError(errorObject)) {
+                actions.askRollbackReason('toggle')
+                return
+            }
             if (reloadIfStaleRowVersion(values.rowVersionToken, errorObject, actions.refreshFeatureFlag)) {
                 return
             }
@@ -4470,6 +4542,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
+            delete cache.rollbackReasonAnswer
+            forgetFlagLookup(featureFlag.key)
             lemonToast.success(
                 'Feature flag saved',
                 liveFlagToastOptions(
@@ -4525,6 +4599,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
         saveFeatureFlagFailure: async ({ errorObject }) => {
+            if (isRollbackReasonRequiredError(errorObject)) {
+                actions.askRollbackReason('save')
+                return
+            }
             if (isApprovalRequiredError(errorObject)) {
                 const changeRequestId: string = errorObject.data.change_request_id
                 showApprovalRequiredToast(changeRequestId, undefined, errorObject.data.code)
@@ -4625,6 +4703,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
+            delete cache.rollbackReasonAnswer
             if (featureFlagActiveUpdate) {
                 lemonToast.success(
                     `Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`,
@@ -4884,11 +4963,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             })
         },
-        // The payload a non-form save retries with. Read in saveFeatureFlagFailure.
+        // The payload a non-form save retries with. Read in saveFeatureFlagFailure and askRollbackReason.
         saveFeatureFlag: (updatedFlag) => {
             cache.lastSaveAttempt = updatedFlag
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
+            // The page now shows the stored flag, so a refused edit and its answer are gone.
+            delete cache.rollbackReasonAnswer
             dismissAgentNotices(props.id, cache)
             // A ?tab=schedule deep link selects the tab before this load finishes, so the
             // schedule form's default was computed against the NEW_FLAG placeholder. Correct
@@ -4913,6 +4994,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
+            // A key prefilled from the URL never goes through the key field, so check it once here.
+            if (props.id === 'new' && featureFlag?.key) {
+                actions.checkKeyConflict(featureFlag.key)
+            }
             reportFlagWithDeletedCohortLoaded(featureFlag, cache)
             // Experiment is now loaded inline during loadFeatureFlag, not here
 
@@ -5310,6 +5395,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         editFeatureFlag: async ({ editing }) => {
             if (editing) {
                 actions.loadFeatureFlag()
+            } else {
+                // Leaving the editor discards a refused save, and its answer with it.
+                delete cache.rollbackReasonAnswer
             }
         },
         submitFeatureFlagWithValidation: async (_payload, breakpoint, action, previousState) => {
@@ -5341,6 +5429,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 previousState
             )
         },
+        askRollbackReason: ({ source }) => {
+            // pinned: analytics event names. The server captures `feature flag rollback reason given`.
+            posthog.capture('feature flag rollback reason asked', { source })
+            // Read now: a save dispatched while the question is open overwrites lastSaveAttempt.
+            const refusedSave = cache.lastSaveAttempt
+            openRollbackReasonDialog({
+                onAnswer: (answer) => {
+                    if (answer === 'skipped') {
+                        posthog.capture('feature flag rollback reason skipped', { source })
+                    }
+                    cache.rollbackReasonAnswer = { source, answer }
+                    if (source === 'toggle') {
+                        actions.updateFeatureFlagActive(false)
+                    } else {
+                        actions.saveFeatureFlag(refusedSave)
+                    }
+                },
+                onCancel: () => posthog.capture('feature flag rollback reason canceled', { source }),
+            })
+        },
         toggleFeatureFlagActive: async ({ active }, breakpoint, action, previousState) => {
             const updatedFlag = { ...values.featureFlag, active }
             await sharedListeners.checkDependentFlagsAndConfirm(
@@ -5365,8 +5473,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         props: [() => [(_, props) => props], (props) => props],
         // Which tabs the flag offers; FeatureFlag.tsx renders exactly this set
         availableTabs: [
-            (s) => [s.featureFlag, s.props],
-            (featureFlag: FeatureFlagType, props: FeatureFlagLogicProps): FeatureFlagsTab[] => {
+            (s) => [s.featureFlag, s.props, s.enabledFeatures],
+            (
+                featureFlag: FeatureFlagType,
+                props: FeatureFlagLogicProps,
+                enabledFeatures: FeatureFlagsSet
+            ): FeatureFlagsTab[] => {
                 const tabs = [FeatureFlagsTab.OVERVIEW]
                 // Projects (copy), Schedule and Testing read or rewrite the v1 document.
                 const v1 = isV1FeatureFlagConfig(featureFlag.filters)
@@ -5386,12 +5498,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (props.id && v1) {
                     tabs.push(FeatureFlagsTab.TESTING)
                 }
+                if (featureFlag.id && enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_CODE_ANALYSIS]) {
+                    tabs.push(FeatureFlagsTab.CODE)
+                }
                 return tabs
             },
         ],
         configFormat: [
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType): FeatureFlagConfigFormat => featureFlagConfigFormat(featureFlag.filters),
+        ],
+        // The server ignores the question for a flag in another config version.
+        asksRollbackReason: [
+            (s) => [s.enabledFeatures, s.configFormat],
+            (enabledFeatures: FeatureFlagsSet, configFormat: FeatureFlagConfigFormat): boolean =>
+                !!enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_ROLLBACK_REASON] && configFormat === 'v1',
         ],
         editorKind: [
             (s) => [s.props, s.isEditingFlag, s.featureFlag, s.enabledFeatures, router.selectors.searchParams],

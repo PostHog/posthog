@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import _create_event, flush_persons_and_events
@@ -36,6 +36,7 @@ from posthog.temporal.weekly_digest.activities import (
     NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
     ActivityCancelled,
     UploadDeadlineExceeded,
+    _cut_organization_id_ranges,
     _cut_team_id_ranges,
     _query_team_usage_trends,
     _redis_url,
@@ -56,16 +57,22 @@ from posthog.temporal.weekly_digest.activities import (
     generate_survey_lookup,
     generate_usage_trends_lookup,
     generate_user_notification_lookup,
+    list_organization_id_ranges,
     send_weekly_digest_batch,
 )
 from posthog.temporal.weekly_digest.keys import TeamDataKey, UserDataKey, org_digest_key, team_data_key, user_data_key
-from posthog.temporal.weekly_digest.queries import query_team_ids_for_digest, query_teams_for_digest
+from posthog.temporal.weekly_digest.queries import (
+    query_orgs_for_digest,
+    query_team_ids_for_digest,
+    query_teams_for_digest,
+)
 from posthog.temporal.weekly_digest.types import (
     DEFAULT_PRODUCT_SUGGESTION_TEXT,
     CommonInput,
     Digest,
     GenerateDigestDataBatchInput,
     GenerateOrganizationDigestInput,
+    OrganizationIdRange,
     SendWeeklyDigestBatchInput,
     TeamIdRange,
     UsageTrends,
@@ -75,13 +82,14 @@ from posthog.token_bucket import BucketDecision, BucketUnavailable
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade.testing import create_issue
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.growth.backend.models import ProductPushCampaign
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 DJANGO_REDIS_URL = "redis://django-cache.example.com:6379"
+ALL_ORGANIZATIONS = OrganizationIdRange(start=UUID(int=0), end=None)
 
 
 def run_sync(activity_fn: Callable[..., Any], *args: Any) -> Any:
@@ -170,6 +178,37 @@ def test_team_id_ranges_page_every_digest_team_exactly_once(organization, digest
     assert paged == expected
 
 
+@pytest.mark.django_db
+def test_organization_id_ranges_page_every_digest_organization_exactly_once(
+    organization, redis_servers, common_input, digest
+):
+    for i in range(4):
+        Organization.objects.create(name=f"digest org {i}")
+        if i == 1:
+            # Sits inside a batch range, so a leak here shows up as an extra paged organization.
+            Organization.objects.create(name="internal org", for_internal_metrics=True)
+
+    common = common_input.model_copy(update={"batch_size": 2})
+    expected = list(query_orgs_for_digest().values_list("id", flat=True))
+    # An odd count leaves a last range with no end, which must still reach the newest organization.
+    assert len(expected) % common.batch_size == 1
+
+    paged: list[UUID] = []
+    for organization_id_range in run_sync(list_organization_id_ranges, common):
+        redis_servers.digest.flushall()
+        run_sync(
+            generate_organization_digest_batch,
+            GenerateOrganizationDigestInput(organization_id_range=organization_id_range, digest=digest, common=common),
+        )
+        organization_ids = sorted(
+            UUID(json.loads(redis_servers.digest.get(key))["id"]) for key in redis_servers.digest.keys()
+        )
+        assert len(organization_ids) <= common.batch_size
+        paged.extend(organization_ids)
+
+    assert paged == expected
+
+
 def _make_dashboards(team: Team, other_team: Team, digest: Digest) -> list[str]:
     Dashboard.objects.create(team=team, name="New dashboard")
     Dashboard.objects.create(team=team, name="Generated Dashboard: onboarding")
@@ -186,11 +225,11 @@ def _make_event_definitions(team: Team, other_team: Team, digest: Digest) -> lis
     return ["new_event"]
 
 
-def _make_experiment(team: Team, name: str, **fields: Any) -> Experiment:
+def _make_experiment(team: Team, name: str, **fields: Any) -> int:
     flag = FeatureFlag.objects.create(
         team=team, key=f"flag-{uuid4().hex[:8]}", name=f"Feature Flag for Experiment {name}"
     )
-    return Experiment.objects.create(team=team, feature_flag=flag, name=name, **fields)
+    return create_experiment(team_id=team.id, feature_flag_id=flag.id, name=name, **fields)
 
 
 def _make_experiments_launched(team: Team, other_team: Team, digest: Digest) -> list[str]:
@@ -320,6 +359,25 @@ def test_generic_lookup_stores_only_this_teams_rows_from_the_window(
 
 
 @pytest.mark.django_db
+def test_experiment_completed_lookup_stores_both_dates(team, redis_servers, common_input, digest):
+    start_date = (digest.period_start - timedelta(days=30)).replace(microsecond=0)
+    end_date = (digest.period_end - timedelta(days=1)).replace(microsecond=0)
+    experiment_id = _make_experiment(team, "Completed", start_date=start_date, end_date=end_date)
+
+    run_sync(generate_experiment_completed_lookup, batch_input(team, digest, common_input))
+
+    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.EXPERIMENTS_COMPLETED, team.id)))
+    assert stored == [
+        {
+            "name": "Completed",
+            "id": experiment_id,
+            "start_date": start_date.isoformat().replace("+00:00", "Z"),
+            "end_date": end_date.isoformat().replace("+00:00", "Z"),
+        }
+    ]
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "error_tracking_result,expected",
     [
@@ -379,7 +437,7 @@ def _run_error_issue_lookup_without_occurrences(team_range: TeamIdRange, digest:
 def _run_organization_digest_batch(team_range: TeamIdRange, digest: Digest, common: CommonInput) -> None:
     run_sync(
         generate_organization_digest_batch,
-        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common),
+        GenerateOrganizationDigestInput(organization_id_range=ALL_ORGANIZATIONS, digest=digest, common=common),
     )
 
 
@@ -607,7 +665,7 @@ def test_generate_organization_digest_batch_defaults_missing_team_data(
     )
     run_sync(
         generate_organization_digest_batch,
-        GenerateOrganizationDigestInput(batch=(0, Organization.objects.count()), digest=digest, common=common_input),
+        GenerateOrganizationDigestInput(organization_id_range=ALL_ORGANIZATIONS, digest=digest, common=common_input),
     )
 
     # One organization's malformed value skips that organization only.
@@ -654,9 +712,9 @@ def _org_digest_json(organization: Organization, team: Team) -> str:
 def _send_input(
     organization: Organization, digest: Digest, common: CommonInput, dry_run: bool
 ) -> SendWeeklyDigestBatchInput:
-    organization_index = list(Organization.objects.order_by("id").values_list("id", flat=True)).index(organization.id)
+    organization_ids = list(query_orgs_for_digest().values_list("id", flat=True))
     return SendWeeklyDigestBatchInput(
-        batch=(organization_index, organization_index + 1),
+        organization_id_range=_cut_organization_id_ranges(organization_ids, 1)[organization_ids.index(organization.id)],
         dry_run=dry_run,
         allow_already_sent=False,
         digest=digest,
@@ -741,18 +799,23 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         assert capture["event"] == "transactional email"
         assert capture["groups"]["organization"] == str(organization.id)
         properties = capture["properties"]
+        assert properties["$update_person_last_seen_at"] is False
         assert "to" not in properties
     else:
         post = session.post.call_args
         assert post.args == (WEBHOOK_SETTINGS["WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL"],)
         assert post.kwargs["headers"] == {
             "Authorization": "Bearer test-webhook-secret",
-            "Idempotency-Key": f"{digest.key}:{subscribed.id}",
+            "Content-Type": "application/json",
+            "Idempotency-Key": f"{digest.key}:{subscribed.uuid}",
         }
-        assert post.kwargs["json"]["event"] == "weekly digest ready"
-        assert post.kwargs["json"]["distinct_id"] == (subscribed.distinct_id or subscribed.email)
-        properties = post.kwargs["json"]["properties"]
+        # The digest holds UUIDs and datetimes, so the body must be encoded before it reaches requests.
+        body = json.loads(post.kwargs["data"])
+        assert body["event"] == "weekly digest ready"
+        assert body["distinct_id"] == (subscribed.distinct_id or subscribed.email)
+        properties = body["properties"]
         assert properties["to"] == subscribed.email
+        assert properties["$update_person_last_seen_at"] is False
     (team_payload,) = properties["teams"]
     assert team_payload["team_id"] == team.id
     # The webhook refuses large bodies, so Workflows gets the first events and the exact count.
@@ -762,6 +825,51 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         "product_path": "Error tracking",
         "reason_text": DEFAULT_PRODUCT_SUGGESTION_TEXT,
     }
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "listed,workflows_only,flag_answers,expected_route",
+    [
+        (True, False, [False], "customer_io"),
+        (True, True, [True], "workflows"),
+        # A Workflows-only resend must not send a second Customer.io copy.
+        (True, True, [False], None),
+        # The flag can answer differently on a second check, so one answer must decide the route.
+        (True, True, [True, False], "workflows"),
+        (False, False, [True], None),
+    ],
+)
+def test_send_weekly_digest_batch_resend_reaches_only_listed_organizations(
+    listed, workflows_only, flag_answers, expected_route, organization, team, redis_servers, common_input, digest
+):
+    subscribed = create_user(organization, "subscribed@example.com")
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
+    record, _ = MessagingRecord.objects.get_or_create(raw_email=f"org_{organization.id}", campaign_key=digest.key)
+    record.sent_at = timezone.now()
+    record.save()
+    ph_client = MagicMock()
+    session = MagicMock()
+    session.post.return_value.status_code = 201
+    resend_input = _send_input(organization, digest, common_input, dry_run=False).model_copy(
+        update={
+            "allow_already_sent": True,
+            "organization_ids": [str(organization.id) if listed else str(uuid4())],
+            "workflows_only": workflows_only,
+        }
+    )
+
+    with (
+        override_settings(**WEBHOOK_SETTINGS),
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client),
+        patch("posthog.temporal.weekly_digest.activities.posthoganalytics.feature_enabled", side_effect=flag_answers),
+        patch("posthog.temporal.weekly_digest.activities.requests.Session", return_value=session),
+    ):
+        run_sync(send_weekly_digest_batch, resend_input)
+
+    assert ph_client.capture.call_count == (expected_route == "customer_io")
+    assert session.post.call_count == (expected_route == "workflows")
 
 
 @pytest.mark.parametrize(
@@ -824,6 +932,7 @@ def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
         ("queue_full", 1),
         ("oversized", 0),
         ("failed_webhook", 0),
+        ("unexpected_webhook_error", 0),
     ],
 )
 def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dropped(
@@ -849,6 +958,8 @@ def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dr
 
     session = MagicMock()
     session.post.return_value.status_code = 503
+    if drop == "unexpected_webhook_error":
+        session.post.side_effect = TypeError("Object of type UUID is not JSON serializable")
 
     with (
         override_settings(**WEBHOOK_SETTINGS),
@@ -857,7 +968,10 @@ def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dr
             "posthog.temporal.weekly_digest.activities.DIGEST_PAYLOAD_SIZE_LIMIT",
             100 if drop == "oversized" else DIGEST_PAYLOAD_SIZE_LIMIT,
         ),
-        patch("posthog.temporal.weekly_digest.activities._routes_to_workflows", return_value=drop == "failed_webhook"),
+        patch(
+            "posthog.temporal.weekly_digest.activities._routes_to_workflows",
+            return_value=drop in ("failed_webhook", "unexpected_webhook_error"),
+        ),
         patch("posthog.temporal.weekly_digest.activities.requests.Session", return_value=session),
         patch("posthog.temporal.weekly_digest.activities.time.sleep"),
     ):

@@ -10,7 +10,8 @@ from typing import Any, Final
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import (
     MAX_SECTION_CHARS,
     SlackButton,
@@ -27,11 +28,13 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 
 from products.alerts_platform.backend.delivery.describers import slack_renderer_for
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL, AlertMessage
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
+    SLACK_IMAGE_SLOT_BLOCK_ID,
     AlertDestinationData,
     AlertEventKind,
     MessageDetail,
+    MessageImage,
     SlackMessageContent,
 )
 
@@ -161,6 +164,11 @@ def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
     )
 
 
+# Only codes a customer's own setup causes. A code a platform bug can also cause, such as
+# `missing_scope` or `channel_not_found`, stays a failure so the platform's alert still sees it.
+_MISCONFIGURED_ERRORS: Final = frozenset({"account_inactive", "not_in_channel"})
+
+
 def _refused_image(error: SlackApiError, content: SlackMessageContent) -> bool:
     return error.response.get("error") == IMAGE_REFUSAL and _without_image_content(content) != content
 
@@ -174,6 +182,34 @@ def _with_state_line(blocks: list[dict[str, Any]], state_line: str) -> list[dict
     if not blocks:
         return [context_block(state_line)]
     return [*blocks[:-1], context_block(state_line), blocks[-1]]
+
+
+def _image_in_slot(blocks: list[dict[str, Any]], image: MessageImage) -> list[dict[str, Any]]:
+    return [
+        {**image_block(image.url, image.alt_text), "block_id": SLACK_IMAGE_SLOT_BLOCK_ID}
+        if block.get("block_id") == SLACK_IMAGE_SLOT_BLOCK_ID
+        else block
+        for block in blocks
+    ]
+
+
+def _image_slot(content: dict[str, Any]) -> dict[str, Any] | None:
+    attachment_blocks = (
+        block for attachment in content.get("attachments") or [] for block in attachment.get("blocks", [])
+    )
+    for block in [*content.get("blocks", []), *attachment_blocks]:
+        if block.get("block_id") == SLACK_IMAGE_SLOT_BLOCK_ID:
+            return block
+    return None
+
+
+def _root_with_image(root_content: dict[str, Any], image: MessageImage) -> dict[str, Any]:
+    content = {**root_content, "blocks": _image_in_slot(root_content.get("blocks", []), image)}
+    if attachments := root_content.get("attachments"):
+        content["attachments"] = [
+            {**attachment, "blocks": _image_in_slot(attachment.get("blocks", []), image)} for attachment in attachments
+        ]
+    return content
 
 
 class SlackTransport:
@@ -209,7 +245,7 @@ class SlackTransport:
                 # the thread. So a resolve and a repeat firing also go to the channel, where legacy
                 # posted each one as a new message.
                 reply_broadcast=in_reply_to is not None
-                and message.transition.kind in (AlertEventKind.RESOLVED, AlertEventKind.FIRING),
+                and message.transition.kind.delivered_as in (AlertEventKind.RESOLVED, AlertEventKind.FIRING),
                 **({"attachments": content.attachments} if content.attachments else {}),
             )
 
@@ -222,9 +258,9 @@ class SlackTransport:
                 content = _without_image_content(content)
                 response = post(content)
         except SlackApiError as error:
-            # A refusal a person can fix, such as a channel the bot has left, rather than a
-            # transport failure a retry would clear.
-            raise DeliveryError(f"Slack refused the message: {error.response.get('error')}") from error
+            code = error.response.get("error")
+            refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
+            raise refusal(f"Slack refused the message: {code}") from error
         timestamp = response.get("ts")
         if not timestamp:
             raise DeliveryError("Slack accepted the message but returned no timestamp to reply to.")
@@ -241,6 +277,50 @@ class SlackTransport:
         return MessageHandle(external_ref={"channel": channel, "ts": timestamp}, root_content=root_content)
 
     def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
+        # A chart URL expires, so an edit long after the opening message can lose it.
+        self._update_root(team_id=team_id, target=target, root=root, state_line=state_line, drop_refused_image=True)
+
+    def add_root_image(
+        self,
+        *,
+        team_id: int,
+        target: AlertDestinationData,
+        root: MessageHandle,
+        image: MessageImage,
+        state_line: str | None,
+    ) -> dict[str, Any] | None:
+        """Puts `image` into the opening message's image slot, and returns the content to keep as the root.
+
+        None when the message has no image slot, as a message from a source without images has none.
+        A slot that already holds an image is left as it is, so a retried edit changes nothing.
+        """
+        if not root.root_content:
+            raise DeliveryError("This Slack conversation has no opening message to edit.")
+        slot = _image_slot(root.root_content)
+        if slot is None:
+            return None
+        if slot.get("type") == "image":
+            return root.root_content
+        content = _root_with_image(root.root_content, image)
+        # A refused image is the edit's whole point, so the edit fails rather than going out unchanged.
+        self._update_root(
+            team_id=team_id,
+            target=target,
+            root=MessageHandle(external_ref=root.external_ref, root_content=content),
+            state_line=state_line,
+            drop_refused_image=False,
+        )
+        return content
+
+    def _update_root(
+        self,
+        *,
+        team_id: int,
+        target: AlertDestinationData,
+        root: MessageHandle,
+        state_line: str | None,
+        drop_refused_image: bool,
+    ) -> None:
         workspace_id = target.get("slack_workspace_id")
         channel = root.external_ref.get("channel")
         ts = root.external_ref.get("ts")
@@ -249,23 +329,24 @@ class SlackTransport:
         slack = SlackIntegration(self._integration(team_id=team_id, workspace_id=workspace_id), source=EGRESS_SOURCE)
         original = root.root_content
         attachments = original.get("attachments") or []
-        text = f"{original['text']} ({state_line})" if original["text"] else ""
+        text = f"{original['text']} ({state_line})" if state_line and original["text"] else original["text"]
         if attachments:
-            attachments = [
-                *attachments[:-1],
-                {
-                    **attachments[-1],
-                    # Screen readers read the fallback text rather than the blocks, so it carries the
-                    # current state too.
-                    "fallback": f"{attachments[-1].get('fallback', '')} ({state_line})",
-                    "blocks": _with_state_line(attachments[-1].get("blocks", []), state_line),
-                },
-            ]
+            if state_line:
+                attachments = [
+                    *attachments[:-1],
+                    {
+                        **attachments[-1],
+                        # Screen readers read the fallback text rather than the blocks, so it carries the
+                        # current state too.
+                        "fallback": f"{attachments[-1].get('fallback', '')} ({state_line})",
+                        "blocks": _with_state_line(attachments[-1].get("blocks", []), state_line),
+                    },
+                ]
             # The card is the attachment. `original["blocks"]` holds only the stand-in an older
             # reader would need, so the edit restores what the opening message actually posted.
             blocks: list[dict[str, Any]] = []
         else:
-            blocks = _with_state_line(original["blocks"], state_line)
+            blocks = _with_state_line(original["blocks"], state_line) if state_line else original["blocks"]
         content = SlackMessageContent(text=text, blocks=blocks, attachments=attachments)
 
         def update(content: SlackMessageContent) -> None:
@@ -282,19 +363,18 @@ class SlackTransport:
             try:
                 update(content)
             except SlackApiError as error:
-                # A chart URL expires, so an edit long after the opening message can lose it.
-                if not _refused_image(error, content):
+                if not drop_refused_image or not _refused_image(error, content):
                     raise
                 update(_without_image_content(content))
         except SlackApiError as error:
-            raise DeliveryError(f"Slack refused the edit: {error.response.get('error')}") from error
+            code = error.response.get("error")
+            refusal = DestinationMisconfigured if code in _MISCONFIGURED_ERRORS else DeliveryError
+            raise refusal(f"Slack refused the edit: {code}") from error
 
-    def _integration(self, *, team_id: int, workspace_id: int) -> Integration:
+    def _integration(self, *, team_id: int, workspace_id: int) -> IntegrationRecord:
         # Scoped by team as well as by id. The destination names an integration, and nothing
         # between the destination and here checks that it still belongs to the sending team.
-        integration = Integration.objects.filter(
-            id=workspace_id, team_id=team_id, kind__in=SLACK_INTEGRATION_KINDS
-        ).first()
-        if integration is None:
-            raise DeliveryError("The Slack workspace for this alert is not connected.")
-        return integration
+        try:
+            return IntegrationManager.slack.oauth.get(team_id, workspace_id)
+        except IntegrationNotFound as error:
+            raise DeliveryError("The Slack workspace for this alert is not connected.") from error

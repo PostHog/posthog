@@ -1,8 +1,10 @@
 import json
+import time
 import uuid
 import typing
 import asyncio
 import hashlib
+from collections.abc import Callable, Sequence
 
 from django.conf import settings
 from django.db.utils import OperationalError as DjangoOperationalError
@@ -32,23 +34,34 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp
     EmittedRowStore,
     emitted_rows_key,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer_rate import RowThrottle
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
     aretry_staged_delete,
     aretry_staged_read,
     aretry_staged_write,
+    is_transient_staged_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.view_consumers import VIEW_TRIGGER_SOURCE
 from products.workflows.backend.facade.api import has_active_workflow_for_warehouse_table
 
-# Per-file exceptions are swallowed (the file is deleted and the run continues), so a failed file
-# is silently dropped rows. The outcome label is what makes that visible to alerting.
+# File outcomes let alerts detect failures even when a later activity attempt succeeds.
 CDP_PRODUCER_FILES_TOTAL = Counter(
     "warehouse_cdp_producer_files_total",
     "Staged CDP files read from S3 and produced to Kafka, by outcome",
     labelnames=["team_id", "outcome"],
 )
+
+CDP_PRODUCER_READ_RETRIES_TOTAL = Counter(
+    "warehouse_cdp_producer_read_retries_total",
+    "Staged CDP file reads that broke on a transient object-store error and were resumed",
+    labelnames=["team_id"],
+)
+
+# A staged file is read once per attempt, so this bounds how often one object-store blip can
+# interrupt the same file before the activity fails and Temporal resumes it from the heartbeat.
+_STAGED_READ_MAX_ATTEMPTS = 3
 
 CDP_PRODUCER_ROWS_TOTAL = Counter(
     "warehouse_cdp_producer_rows_total",
@@ -77,6 +90,28 @@ class CDPTriggerTable:
 
     kind: TableKind
     id: str
+
+
+@frozen
+class ProduceCheckpoint:
+    file_path: str
+    rows_done: int
+
+    def to_heartbeat_details(self) -> tuple[str, int]:
+        return self.file_path, self.rows_done
+
+    @classmethod
+    def from_heartbeat_details(cls, details: Sequence[object]) -> "ProduceCheckpoint | None":
+        if not isinstance(details, Sequence) or len(details) != 2:
+            return None
+        file_path, rows_done = details
+        if not isinstance(file_path, str) or type(rows_done) is not int or rows_done < 0:
+            return None
+        return cls(file_path=file_path, rows_done=rows_done)
+
+
+class CDPProducerDeliveryError(Exception):
+    pass
 
 
 class CDPProducer:
@@ -127,7 +162,7 @@ class CDPProducer:
                 endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
             )
         else:
-            self._fs_cache = pa_fs.S3FileSystem()
+            self._fs_cache = pa_fs.S3FileSystem(region=settings.DATA_WAREHOUSE_S3_REGION)
 
         return self._fs_cache
 
@@ -312,9 +347,15 @@ class CDPProducer:
         high-volume path as it was.
         """
         key = emitted_rows_key(self.team_id, self.table.id) if self.table.kind == "view" else None
-        return EmittedRowStore(key, self.logger)
+        return EmittedRowStore(key, self.logger, job_id=self.job_id)
 
-    async def produce_to_kafka_from_s3(self) -> None:
+    async def produce_to_kafka_from_s3(
+        self,
+        *,
+        resume_from: ProduceCheckpoint | None = None,
+        on_checkpoint: Callable[[ProduceCheckpoint], None] | None = None,
+        throttle: RowThrottle | None = None,
+    ) -> None:
         fs = self._get_fs()
 
         await self.logger.adebug(f"Producing CDP data to Kafka from S3 path prefix {self._get_path_prefix()}")
@@ -323,7 +364,7 @@ class CDPProducer:
         # destinations and workflows against their configured table without an extra lookup.
         dot_notated_table_name = await self.get_dot_notated_table_name()
 
-        files_to_produce = await self._list_files_to_produce()
+        files_to_produce = sorted(await self._list_files_to_produce())
 
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
@@ -332,64 +373,112 @@ class CDPProducer:
         suppressed_rows = 0
 
         async with async_producer_scope(profile=KafkaClusterProfile.CYCLOTRON) as kafka_producer:
+
+            async def checkpoint(
+                file_path: str, row_offset: int, window_futures: list[asyncio.Future[object]]
+            ) -> float:
+                try:
+                    await kafka_producer.flush()
+                    await asyncio.gather(*window_futures)
+                except Exception as e:
+                    raise CDPProducerDeliveryError(f"Kafka delivery failed for staged file {file_path}") from e
+                window_futures.clear()
+                emitted_rows.record_settled()
+                await emitted_rows.persist_progress()
+                if on_checkpoint is not None:
+                    on_checkpoint(ProduceCheckpoint(file_path=file_path, rows_done=row_offset))
+                return time.monotonic()
+
             for file_path in files_to_produce:
                 await self.logger.adebug(f"Producing file {file_path} to Kafka")
 
                 row_index = 0
+                row_offset = 0
+                skip = resume_from.rows_done if resume_from is not None and resume_from.file_path == file_path else 0
+                window_futures: list[asyncio.Future[object]] = []
+                last_checkpoint = time.monotonic()
 
                 async def _open_staged_file(path: str = file_path) -> pa.NativeFile:
                     return await asyncio.to_thread(fs.open_input_file, path)
 
                 try:
-                    input_file = await aretry_staged_read(_open_staged_file, path=file_path, logger=self.logger)
-                    with input_file as f:
-                        pf = pq.ParquetFile(f)
+                    read_attempt = 0
+                    while True:
+                        read_attempt += 1
+                        row_offset = 0
+                        try:
+                            input_file = await aretry_staged_read(_open_staged_file, path=file_path, logger=self.logger)
+                            with input_file as f:
+                                pf = pq.ParquetFile(f)
 
-                        for batch in pf.iter_batches(batch_size=10_000):
-                            for row in batch.to_pylist():
-                                event_id = self._build_event_id(row)
-                                if emitted_rows.is_repeat(event_id):
-                                    suppressed_rows += 1
-                                    continue
+                                for batch in pf.iter_batches(batch_size=10_000):
+                                    if row_offset + batch.num_rows <= skip:
+                                        row_offset += batch.num_rows
+                                        continue
+                                    for row in batch.to_pylist():
+                                        if row_offset < skip:
+                                            row_offset += 1
+                                            continue
+                                        event_id = self._build_event_id(row)
+                                        if emitted_rows.is_repeat(event_id):
+                                            suppressed_rows += 1
+                                        else:
+                                            if throttle is not None:
+                                                await throttle.acquire_row()
+                                            row_as_props = {
+                                                "team_id": self.team_id,
+                                                "table_name": dot_notated_table_name,
+                                                "table_type": self.table.kind,
+                                                "event_id": event_id,
+                                                "properties": row,
+                                            }
+                                            delivery = await kafka_producer.produce(
+                                                topic=KAFKA_DWH_CDP_RAW_TABLE,
+                                                data=row_as_props,
+                                                value_serializer=self._serialize_json,
+                                            )
+                                            window_futures.append(delivery)
+                                            emitted_rows.record_on_delivery(event_id, delivery)
+                                            row_index += 1
+                                        row_offset += 1
+                                        if len(window_futures) >= 10_000 or time.monotonic() - last_checkpoint >= 30:
+                                            last_checkpoint = await checkpoint(file_path, row_offset, window_futures)
+                            break
+                        except Exception as e:
+                            if read_attempt >= _STAGED_READ_MAX_ATTEMPTS or not is_transient_staged_error(e):
+                                raise
+                            # Settle every row already sent before reading the file again, so the
+                            # new read skips exactly those rows and sends none of them twice.
+                            skip = max(skip, row_offset)
+                            last_checkpoint = await checkpoint(file_path, skip, window_futures)
+                            CDP_PRODUCER_READ_RETRIES_TOTAL.labels(team_id=str(self.team_id)).inc()
+                            await self.logger.awarning(
+                                f"Transient object-store error reading staged file {file_path} "
+                                f"(attempt {read_attempt}/{_STAGED_READ_MAX_ATTEMPTS}), resuming at row {skip}: {e}"
+                            )
+                            await asyncio.sleep(2**read_attempt)
 
-                                row_as_props = {
-                                    "team_id": self.team_id,
-                                    "table_name": dot_notated_table_name,
-                                    "table_type": self.table.kind,
-                                    "event_id": event_id,
-                                    "properties": row,
-                                }
-                                delivery = await kafka_producer.produce(
-                                    topic=KAFKA_DWH_CDP_RAW_TABLE,
-                                    data=row_as_props,
-                                    value_serializer=self._serialize_json,
-                                )
-                                emitted_rows.record_on_delivery(event_id, delivery)
-                                row_index += 1
-
-                            emitted_rows.record_settled()
-
-                    await kafka_producer.flush()
-                    CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="produced").inc()
-                    await self.logger.adebug(f"Finished producing file {file_path} to Kafka")
-                except Exception as e:
-                    CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="failed").inc()
-                    capture_exception(e)
-                    await self.logger.adebug(f"Error producing file {file_path} to Kafka: {e}")
-                finally:
-                    # A row is remembered only once Kafka confirms it, or the next run would
-                    # suppress a row that no subscriber received.
-                    emitted_rows.record_delivered()
-                    # TODO(Gilbert09): have better row tracking so we can retry from a particular row
-                    if row_index:
-                        CDP_PRODUCER_ROWS_TOTAL.labels(team_id=str(self.team_id)).inc(row_index)
-                    await self.logger.adebug(f"Produced {row_index} rows")
+                    await checkpoint(file_path, row_offset, window_futures)
                     await self.logger.adebug(f"Deleting file {file_path}")
 
                     async def _delete_staged_file(path: str = file_path) -> None:
                         await asyncio.to_thread(fs.delete_file, path)
 
                     await aretry_staged_delete(_delete_staged_file, path=file_path, logger=self.logger)
+                    CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="produced").inc()
+                    await self.logger.adebug(f"Finished producing file {file_path} to Kafka")
+                except Exception as e:
+                    CDP_PRODUCER_FILES_TOTAL.labels(team_id=str(self.team_id), outcome="failed").inc()
+                    capture_exception(e)
+                    await self.logger.adebug(f"Error producing file {file_path} to Kafka: {e}")
+                    raise
+                finally:
+                    # A row is remembered only once Kafka confirms it, or the next run would
+                    # suppress a row that no subscriber received.
+                    emitted_rows.record_delivered()
+                    if row_index:
+                        CDP_PRODUCER_ROWS_TOTAL.labels(team_id=str(self.team_id)).inc(row_index)
+                    await self.logger.adebug(f"Produced {row_index} rows")
 
             await self.logger.adebug("Finished producing all CDP data to Kafka")
 

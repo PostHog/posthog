@@ -11,6 +11,7 @@ No business logic here — that lives behind ``facade/api.py``.
 
 from dataclasses import fields
 from typing import Any, cast
+from uuid import UUID
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -27,9 +28,9 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
-from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_request
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -44,6 +45,7 @@ from products.autoresearch.backend.facade.contracts import (
     InvalidTarget,
     PipelineNotFound,
     SuggestionNotFound,
+    TrainingRunCapReached,
     TrainingRunNotFound,
 )
 from products.tasks.backend.facade import api as tasks_facade
@@ -70,6 +72,7 @@ from .serializers import (
     OnlinePerformanceQuerySerializer,
     OnlinePerformanceSerializer,
     OpenTrainingRunSerializer,
+    ProjectLimitsSerializer,
     RecordIterationSerializer,
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
@@ -77,6 +80,7 @@ from .serializers import (
     StartTrainingRequestSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
+    TrainingRunCapReachedSerializer,
     TrainingRunHistoryQuerySerializer,
     TrainingRunHistorySerializer,
     ValidatePipelineRequestSerializer,
@@ -89,39 +93,6 @@ from .serializers import (
 logger = structlog.get_logger(__name__)
 
 
-class FacadePathParamSchema(PostHogAutoSchema):
-    """Types a facade-backed viewset's UUID path parameters.
-
-    drf-spectacular reads a path parameter's type off the viewset's ``queryset`` model. These
-    viewsets reach their data through the facade and declare no queryset, so each id is spelled
-    out here instead. Declaring them through ``@extend_schema`` would not work: that appends the
-    parameter to every operation in the viewset, including the collection routes whose path has
-    no id in it. This hook only ever sees variables the path actually contains.
-    """
-
-    def _resolve_path_parameters(self, variables: Any) -> Any:
-        declared = getattr(self.view, "uuid_path_parameters", {})
-        resolved = []
-        for parameter in super()._resolve_path_parameters(variables):
-            description = declared.get(parameter["name"])
-            if parameter["name"] not in declared:
-                resolved.append(parameter)
-                continue
-            # Rebuilt rather than mutated, so the keys keep the order drf-spectacular emits.
-            rebuilt: dict[str, Any] = {}
-            for key, value in parameter.items():
-                if key == "schema":
-                    rebuilt["schema"] = {"type": "string", "format": "uuid"}
-                    if description:
-                        rebuilt["description"] = description
-                elif key == "description" and description:
-                    continue
-                else:
-                    rebuilt[key] = value
-            resolved.append(rebuilt)
-        return resolved
-
-
 class AutoresearchAccessPermission(BasePermission):
     """Gate the autoresearch product behind the `autoresearch` feature flag."""
 
@@ -132,37 +103,18 @@ class AutoresearchAccessPermission(BasePermission):
         return has_autoresearch_access(request.user, team_id=team_id)
 
 
-class _FacadePaginationMixin:
-    # Drives the standard ``LimitOffsetPagination`` envelope from a facade ``(page, count)``
-    # result. The facade does the slicing, so the paginator's state is set directly rather than
-    # handed a queryset — keeping the param names, default page size, and ``count`` / ``next`` /
-    # ``previous`` shape identical to the model-backed viewsets.
-    def _paginate_via_facade(self, request: Request, fetch: Any, serializer_class: Any) -> Response:
-        paginator = self.paginator  # type: ignore[attr-defined]
-        limit = paginator.get_limit(request)
-        offset = paginator.get_offset(request)
-        page, count = fetch(offset=offset, limit=limit)
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
-        serializer = serializer_class(instance=page, many=True)
-        return paginator.get_paginated_response(serializer.data)
-
-
 class ArtifactStorageUnavailableError(APIException):
     status_code = 503
     default_detail = "Object storage is unavailable, so the artifact could not be stored. Try again in a moment."
     default_code = "artifact_storage_unavailable"
 
 
-def _parent_pipeline_id(view: Any) -> str | None:
+def _parent_pipeline_id(view: Any) -> UUID | None:
     """The pipeline this nested route is scoped to, or None on the unscoped collection route."""
-    pipeline_id = view.kwargs.get("parent_lookup_pipeline_id")
-    return str(pipeline_id) if pipeline_id else None
+    return view.kwargs.get("parent_lookup_pipeline_id")
 
 
-def _require_parent_pipeline_id(view: Any) -> str:
+def _require_parent_pipeline_id(view: Any) -> UUID:
     """The pipeline id for a route that cannot act without one."""
     pipeline_id = _parent_pipeline_id(view)
     if pipeline_id is None:
@@ -202,7 +154,7 @@ def _validated_with_sentinels(serializer: drf_serializers.BaseSerializer) -> Any
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ModelViewSet):
+class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Manage autoresearch prediction pipelines.
 
@@ -211,8 +163,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     users daily and emits autoresearch_prediction events.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch pipeline.")
+    }
     scope_object = "autoresearch"
     # The HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
     scope_object_read_actions = [
@@ -223,6 +176,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         "resolve_template",
         "online_performance",
         "agent_models",
+        "limits",
     ]
     scope_object_write_actions = [
         "create",
@@ -239,6 +193,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -282,10 +237,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         return AutoresearchPipelineSerializer
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_pipelines(self.team_id, offset=offset, limit=limit),
-            AutoresearchPipelineSerializer,
+        return facade_page_response(
+            self,
+            lambda page: api.list_pipelines(self.team_id, page),
+            serializer_class=AutoresearchPipelineSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -385,6 +340,20 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     def agent_models(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(AgentModelOptionsSerializer(instance=api.list_agent_model_options()).data)
 
+    @extend_schema(
+        responses={200: ProjectLimitsSerializer},
+        summary="Read the project's limits",
+        description=(
+            "Return the project's autoresearch limits and how much of each it is using: sandbox training runs "
+            "against the daily limit, with when the next run can start at the limit, the "
+            "most experiments per training run, and live pipelines against the live pipeline limit. "
+            "Read-only; it runs no queries."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="limits", pagination_class=None)
+    def limits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(ProjectLimitsSerializer(instance=api.get_project_limits(self.team_id)).data)
+
     @validated_request(
         request_serializer=ResolveTemplateRequestSerializer,
         responses={
@@ -481,7 +450,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             400: OpenApiResponse(
                 description=(
                     "A training run is already in progress, the pipeline is paused, "
-                    "or the pipeline's target or creator is no longer valid."
+                    "the pipeline's target or creator is no longer valid, "
+                    "or the pipeline is a draft and the project already has its limit of live pipelines."
                 )
             ),
             403: OpenApiResponse(
@@ -491,7 +461,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 )
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
-            429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit."),
+            429: OpenApiResponse(
+                response=TrainingRunCapReachedSerializer,
+                description=(
+                    "The project used its daily limit of training runs (this body), "
+                    "or the team is over its PostHog Desktop usage limit."
+                ),
+            ),
             503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
         },
         summary="Start a training run",
@@ -531,6 +507,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
+        except TrainingRunCapReached as exc:
+            body = {"detail": str(exc), "used": exc.used, "limit": exc.limit, "next_slot_at": exc.next_slot_at}
+            return Response(TrainingRunCapReachedSerializer(instance=body).data, status=429)
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @validated_request(
@@ -708,11 +687,16 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 response=AutoresearchPipelineSerializer,
                 description="The pipeline after resuming.",
             ),
-            400: OpenApiResponse(description="The pipeline is not paused."),
+            400: OpenApiResponse(
+                description="The pipeline is not paused, or the project already has its limit of live pipelines."
+            ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Resume a pipeline",
-        description="Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.",
+        description=(
+            "Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick. "
+            "Refused when the project already has its limit of live pipelines, which the limits endpoint reports."
+        ),
     )
     @action(detail=True, methods=["post"], url_path="resume")
     def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -731,7 +715,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
+class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     List and retrieve champion/challenger models for a pipeline.
 
@@ -740,25 +724,26 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, v
     the daily inference workflow compiles to score users.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch model.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch model."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions: list[str] = []
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchModelSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def _should_skip_parents_filter(self) -> bool:
         return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_models(
-                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
-            ),
-            AutoresearchModelSerializer,
+        return facade_page_response(
+            self,
+            lambda page: api.list_models(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
+            serializer_class=AutoresearchModelSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -769,30 +754,31 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, v
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
+class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     List and retrieve inference and validation runs for a pipeline.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch run.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch run."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions: list[str] = []
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchRunSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def _should_skip_parents_filter(self) -> bool:
         return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_runs(
-                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
-            ),
-            AutoresearchRunSerializer,
+        return facade_page_response(
+            self,
+            lambda page: api.list_runs(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
+            serializer_class=AutoresearchRunSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -803,7 +789,7 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, vie
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ModelViewSet):
+class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     List and retrieve training runs for a pipeline.
 
@@ -811,8 +797,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     score, and the summary of the run once it completes.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch training run.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch training run."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve", "list_artifacts", "get_artifact", "history"]
     scope_object_write_actions = [
@@ -826,6 +814,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def get_throttles(self) -> list[BaseThrottle]:
         # The feature query and the anchor count are unsampled ClickHouse scans, so a personal API
@@ -841,12 +830,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         return True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_training_runs(
-                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
-            ),
-            AutoresearchTrainingRunSerializer,
+        return facade_page_response(
+            self,
+            lambda page: api.list_training_runs(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
+            serializer_class=AutoresearchTrainingRunSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -865,7 +852,8 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
             400: OpenApiResponse(
                 description=(
                     "The pipeline is archived or paused, a run is already in progress, "
-                    "or an action target needs the action:read scope."
+                    "an action target needs the action:read scope, or the pipeline is a draft, which this run "
+                    "would make live, and the project already has its limit of live pipelines."
                 )
             ),
         },
@@ -1178,7 +1166,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.GenericViewSet):
+class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Submit and list steering suggestions for a running pipeline.
 
@@ -1188,14 +1176,17 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
     search constraint, or dismiss it with rationale.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch suggestion.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch suggestion."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "respond"]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchSuggestionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def _should_skip_parents_filter(self) -> bool:
         return True
@@ -1209,12 +1200,10 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
         ),
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_suggestions(
-                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
-            ),
-            AutoresearchSuggestionSerializer,
+        return facade_page_response(
+            self,
+            lambda page: api.list_suggestions(self.team_id, pipeline_id=_parent_pipeline_id(self), page=page),
+            serializer_class=AutoresearchSuggestionSerializer,
         )
 
     @extend_schema(

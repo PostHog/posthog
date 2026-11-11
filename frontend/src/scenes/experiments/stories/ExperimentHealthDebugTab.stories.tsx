@@ -88,11 +88,13 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
     latest_calculation: {
         finished_at: '2025-01-27T09:30:00Z',
         failures: [],
+        hours_of_data: 500,
+        zero_metrics: [],
     },
     flag_history: {
         checked: true,
         not_checked_reason: null,
-        launched_at: '2025-01-06T10:00:00Z',
+        start_date: '2025-01-06T10:00:00Z',
         team_timezone: 'UTC',
         changes: [
             {

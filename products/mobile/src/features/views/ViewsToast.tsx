@@ -1,11 +1,11 @@
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
-import { AccessibilityInfo, Text } from 'react-native'
+import { AccessibilityInfo, Platform, Text, View } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
-
 import { OverlayPortal } from '@/ui/OverlayPortal'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { radii } from '@/ui/tokens'
+import { useOverlayPane } from '@/ui/useOverlayPane'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 const SHOW_MS = 2600
@@ -55,47 +55,57 @@ interface ViewsToastProps {
  * A dark pill that confirms a pin change and can undo it. It draws through the nearest `OverlayHost`, so a toast from
  * a view's header still sits at the bottom of the screen, above the tab bar and any open sheet.
  */
-export function ViewsToast({ toast, onHide, bottom = 114 }: ViewsToastProps): ReactElement | null {
+export function ViewsToast({
+    toast,
+    onHide,
+    bottom = Platform.OS === 'ios' ? 50 : 114,
+}: ViewsToastProps): ReactElement | null {
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const pane = useOverlayPane()
     if (!toast) {
         return null
     }
     const { undo } = toast
     return (
         <OverlayPortal>
-            <Animated.View
-                key={toast.id}
-                entering={FadeIn.duration(180)}
-                exiting={FadeOut.duration(180)}
-                style={[
-                    styles.toast,
-                    shadows.card,
-                    { bottom: bottomOffset(insets, bottom) },
-                    undo ? null : styles.solo,
-                ]}
-                accessibilityLiveRegion="polite"
-                testID="views-toast"
+            <View
+                pointerEvents="box-none"
+                style={{ position: 'absolute', left: pane.x, top: pane.y, width: pane.width, height: pane.height }}
             >
-                <Text style={styles.text} numberOfLines={1}>
-                    {toast.text}
-                </Text>
-                {undo ? (
-                    <Pressable44
-                        onPress={() => {
-                            onHide()
-                            undo()
-                        }}
-                        accessibilityLabel="Undo"
-                        pressedBackground={colors.inkHover}
-                        style={styles.undo}
-                        testID="views-toast-undo"
-                    >
-                        <Text style={styles.undoText}>Undo</Text>
-                    </Pressable44>
-                ) : null}
-            </Animated.View>
+                <Animated.View
+                    key={toast.id}
+                    entering={FadeIn.duration(180)}
+                    exiting={FadeOut.duration(180)}
+                    style={[
+                        styles.toast,
+                        shadows.card,
+                        { bottom: bottomOffset(insets, bottom) },
+                        undo ? null : styles.solo,
+                    ]}
+                    accessibilityLiveRegion="polite"
+                    testID="views-toast"
+                >
+                    <Text style={styles.text} numberOfLines={1}>
+                        {toast.text}
+                    </Text>
+                    {undo ? (
+                        <Pressable44
+                            onPress={() => {
+                                onHide()
+                                undo()
+                            }}
+                            accessibilityLabel="Undo"
+                            pressedBackground={colors.inkHover}
+                            style={styles.undo}
+                            testID="views-toast-undo"
+                        >
+                            <Text style={styles.undoText}>Undo</Text>
+                        </Pressable44>
+                    ) : null}
+                </Animated.View>
+            </View>
         </OverlayPortal>
     )
 }

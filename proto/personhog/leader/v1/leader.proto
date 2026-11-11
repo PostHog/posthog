@@ -77,10 +77,12 @@ service PersonHogLeader {
   // $set_once fills.
   // Scalars fold as created_at = min(target, sources),
   // is_identified = true, and last_seen_at = max(target, sources); the
-  // version is max(target, max sealed) + 1 — at or above every sealed
-  // source's death document, which derives from the same sealed + 1
-  // (equal when the highest sealed version dominates; the streams are
-  // per-person, so the relation is a convention, not a collision guard).
+  // version is max(target, max sealed) + 1. Each sealed source's death
+  // document derives from the same sealed + 1, so the fold sits at or
+  // above it, and equals it when the highest sealed version dominates.
+  // A source row that moved after its seal raises its death document
+  // above the fold. The streams are per-person, so the relation is a
+  // convention, not a collision guard.
   // Safe under at-least-once delivery: re-applying the same fold on
   // unchanged target state changes no content and only bumps the version.
   // (The standard re-appliable-merge residual applies — see the request's
@@ -94,4 +96,8 @@ service PersonHogLeader {
   // retry goes through once the healer clears it); a destroyed target
   // answers NOT_FOUND.
   rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
+
+  // Consistency repair only. Writes the person's current state at min_version
+  // or above; a person already there gets no write.
+  rpc RaisePersonVersion(personhog.types.v1.RaisePersonVersionRequest) returns (personhog.types.v1.RaisePersonVersionResponse);
 }

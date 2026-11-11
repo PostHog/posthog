@@ -1,6 +1,6 @@
 use crate::avro_schema::AVRO_SCHEMA;
 use crate::log_record::{min_kafka_log_row_timestamp_micros, sum_kafka_log_row_bytes, KafkaLogRow};
-use crate::metric_record::KafkaMetricRow;
+use crate::metric_record::{sum_kafka_metric_row_bytes, KafkaMetricRow};
 use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
 use crate::trace_record::KafkaTraceRow;
 use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
@@ -589,6 +589,11 @@ impl KafkaSink {
             counter!("capture_metrics_timestamps_overridden").increment(timestamps_overridden);
         }
 
+        let records_uncompressed_bytes = sum_kafka_metric_row_bytes(&rows);
+        counter!("capture_metrics_bytes_uncompressed_payload").increment(uncompressed_bytes);
+        counter!("capture_metrics_bytes_uncompressed_records")
+            .increment(records_uncompressed_bytes);
+
         self.write_avro_batch(
             &self.metrics_producer,
             &self.metrics_topic,
@@ -596,7 +601,7 @@ impl KafkaSink {
             token,
             &rows,
             uncompressed_bytes,
-            None,
+            Some(records_uncompressed_bytes),
             timestamps_overridden,
             None,
             None,

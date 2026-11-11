@@ -1,5 +1,5 @@
+import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { BIConfig, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { isBIVisualizationNode } from '~/queries/utils'
 import { DashboardTile } from '~/types'
 
 import { BIDrillSelection, getBIDrillSelection } from './biDrilldown'

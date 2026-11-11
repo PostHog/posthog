@@ -56,6 +56,8 @@ class TestGzipAllowList(SimpleTestCase):
     @parameterized.expand(
         [
             ("logs", "logs/", True),
+            ("log_entries", "log_entries/", True),
+            ("log_entries_without_slash", "log_entries", True),
             ("session_logs", "session_logs/", True),
             ("sse_stream", "stream/", False),
             ("stream_token", "stream_token/", False),

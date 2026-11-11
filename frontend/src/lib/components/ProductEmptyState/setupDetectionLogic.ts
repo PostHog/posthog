@@ -11,7 +11,14 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { ApiError, isBrowserNetworkFailure, isScopeNotFoundError } from 'lib/api-error'
+import {
+    ApiError,
+    isBrowserNetworkFailure,
+    isScopeNotFoundError,
+    isUnavailableEndpointError,
+    NetworkError,
+    readableErrorMessage,
+} from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -58,9 +65,10 @@ export interface SetupDetectionLogicOptions {
      * detection on later mounts. Only that direction is cached - data never
      * disappears once ingested, while needs-setup keeps re-checking. For products
      * without a boot-time probe, this is what spares the returning user a spinner
-     * and a query on every scene entry.
+     * and a query on every scene entry. A function decides per has-data answer, for a
+     * product whose has-data can come from data that goes away.
      */
-    cacheHasData?: boolean
+    cacheHasData?: boolean | (() => boolean)
     /** Entity products can become empty when users delete their last item. Recheck mutations even after data exists. */
     allowReturnToSetup?: boolean
     /**
@@ -231,7 +239,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 // Data never disappears once it exists, so the poll's job is done.
                 if (detectedStatus === 'has-data') {
                     cache.disposables.dispose('poll')
-                    if (cacheHasData) {
+                    if (typeof cacheHasData === 'function' ? cacheHasData() : cacheHasData) {
                         writeCachedHasData(values.currentTeamId, productKey)
                     }
                 }
@@ -297,14 +305,29 @@ async function detectOrNullOnOutageOrForbidden(
             onForbidden()
             return null
         }
-        if (
-            (error instanceof ApiError && error.status !== undefined && error.status >= 500) ||
-            isBrowserNetworkFailure(error)
-        ) {
+        if (error instanceof NetworkError || isBrowserNetworkFailure(error) || isUnanswerableProbeResponse(error)) {
             return null
         }
         throw error
     }
+}
+
+// A 404 or 405 for an endpoint is what a deploy in progress looks like, when the new frontend
+// reaches a backend pod that does not serve the probe route yet. A 4xx without a readable body
+// did not come from our API code (a proxy in front of it sent it), so it is not a probe bug either.
+// A dead-scope 404 is excluded, because `detectStatusFailure` must stop the poll for it, and a 4xx
+// that carries a detail is excluded, so a real probe bug such as a bad parameter stays visible.
+function isUnanswerableProbeResponse(error: unknown): boolean {
+    if (!(error instanceof ApiError) || error.status === undefined) {
+        return false
+    }
+    if (error.status >= 500) {
+        return true
+    }
+    if (error.status < 400 || isScopeNotFoundError(error)) {
+        return false
+    }
+    return isUnavailableEndpointError(error) || readableErrorMessage(error.data) === undefined
 }
 
 function runOnceProjectIsKnown(

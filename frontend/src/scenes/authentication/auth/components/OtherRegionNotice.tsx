@@ -2,11 +2,11 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { countryCodeToFlag } from 'lib/utils/country'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { otherRegionLoginUrl, otherRegionOf } from 'scenes/authentication/shared/otherRegion'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 /** `no_account` shows before an account is created. `login_failed` shows after a rejected password. */
 export type OtherRegionReason = 'no_account' | 'login_failed'

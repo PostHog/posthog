@@ -1,11 +1,20 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import { ApiError, NetworkError } from 'lib/api-error'
-import { ApiRequestTiming } from 'lib/apiRequestTiming'
+import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { HogQLQueryString } from 'lib/utils/hogql'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import { queryUsesDataWarehouse } from '~/queries/schema/node-accessors'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+} from '~/queries/schema/node-guards'
 import {
     DashboardFilter,
     DataNode,
@@ -20,17 +29,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import {
-    dataWarehouseSourcesFromResponse,
-    HogQLQueryString,
-    isAsyncResponse,
-    isDataTableNode,
-    isDataVisualizationNode,
-    isHogQLQuery,
-    isInsightQueryNode,
-    isPersonsNode,
-    queryUsesDataWarehouse,
-} from './utils'
+import { dataWarehouseSourcesFromResponse, isAsyncResponse } from './utils'
 
 export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
     if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -119,24 +118,6 @@ type QuerySubmitTelemetry = {
     retry_recovered: boolean
     submit_request_timings: ApiRequestTiming[]
     result_poll_timing?: ApiRequestTiming
-}
-
-const FLATTENED_REQUEST_TIMING_FIELDS = [
-    'http_request_id',
-    'time_to_headers_ms',
-    'body_read_ms',
-    'json_parse_ms',
-    'resource_timing_status',
-] as const
-
-function flattenRequestTiming(
-    timing: ApiRequestTiming | undefined,
-    prefix: '' | 'result_poll_'
-): Record<string, string | number | undefined> {
-    if (!timing) {
-        return {}
-    }
-    return Object.fromEntries(FLATTENED_REQUEST_TIMING_FIELDS.map((field) => [`${prefix}${field}`, timing[field]]))
 }
 
 function requestTimingProperties(telemetry: QuerySubmitTelemetry): Record<string, string | number | undefined> {
@@ -346,6 +327,7 @@ async function executeQuery<N extends DataNode>(
                                 if (submitTelemetry.submit_request_timings.length < MAX_RECORDED_SUBMIT_TIMINGS) {
                                     submitTelemetry.submit_request_timings.push(timing)
                                 }
+                                methodOptions?.onRequestTiming?.(timing)
                             },
                         },
                         clientQueryId,

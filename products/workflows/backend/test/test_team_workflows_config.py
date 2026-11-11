@@ -55,6 +55,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "default_email_integration_id": None,
             "marketing_frequency_cap_max_messages": None,
             "marketing_frequency_cap_window_days": None,
+            "marketing_frequency_cap_hold_hours": None,
             "email_utm_tags_enabled": False,
             "email_utm_params": {},
         }
@@ -150,6 +151,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             "default_email_integration_id": None,
             "marketing_frequency_cap_max_messages": None,
             "marketing_frequency_cap_window_days": None,
+            "marketing_frequency_cap_hold_hours": None,
             "email_utm_tags_enabled": False,
             "email_utm_params": {},
         }
@@ -159,6 +161,7 @@ class TestTeamWorkflowsConfig(APIBaseTest):
             ("unverified_sender", "email", False, False),
             ("other_projects_sender", "email", True, True),
             ("not_an_email_sender", "slack", True, False),
+            ("sandbox_sender", "email_sandbox", True, False),
         ]
     )
     def test_patch_rejects_default_email_sender(self, _name: str, kind: str, verified: bool, other_team: bool) -> None:

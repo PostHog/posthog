@@ -2,6 +2,7 @@ import { Context, Emitter, Liquid, Tag, TagToken, Template, TopLevelToken } from
 
 import { rowScopedTriggerTypeForEvent } from '../schema/hogflow'
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
+import { deadlineRemainingMs, throwIfDeadlinePassed } from './deadline'
 
 // Rendering is synchronous on shared multi-tenant workers, so an unbounded template would
 // stall or OOM the whole process. These budgets make an over-budget template fail only its own invocation.
@@ -14,7 +15,7 @@ const LIQUID_PARSE_LIMIT_CHARS = 5_000_000
 const LIQUID_MEMORY_LIMIT_UNITS = 1_000_000
 // Time and output are budgeted per invocation, not per template, because one invocation renders
 // every string leaf of every liquid input and those leaves would otherwise each get a full budget.
-const LIQUID_RENDER_LIMIT_MS = 500
+export const LIQUID_RENDER_LIMIT_MS = 500
 const LIQUID_OUTPUT_LIMIT_CHARS = 10_000_000
 
 const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }
@@ -24,12 +25,55 @@ const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }
 // with a throwing filter rather than unregistered, because an unknown filter silently acts as identity.
 const LIQUID_UNBOUNDED_FILTERS = ['where_exp', 'find_exp', 'find_index_exp', 'reject_exp', 'group_by_exp']
 
+export const EMAIL_BODY_TAG_LIMIT = 10_000
+
+const LIQUID_BLOCK_OPENER = /-?[\s\u180E]*liquid/y
+
+const countStatementLines = (body: string): number => {
+    let count = 0
+    for (const line of body.split('\n')) {
+        if (line.trim() !== '') {
+            count++
+        }
+    }
+    return count
+}
+
+export const countLiquidTags = (template: string): number => {
+    const parsed = decodeLiquidTags(template)
+    let count = 0
+    let statementsCountedUntil = 0
+    for (let at = parsed.indexOf('{'); at !== -1; at = parsed.indexOf('{', at + 1)) {
+        const next = parsed[at + 1]
+        if (next !== '{' && next !== '%') {
+            continue
+        }
+        count++
+        at++
+        LIQUID_BLOCK_OPENER.lastIndex = at + 1
+        if (next === '%' && at >= statementsCountedUntil && LIQUID_BLOCK_OPENER.test(parsed)) {
+            const end = parsed.indexOf('%}', LIQUID_BLOCK_OPENER.lastIndex)
+            statementsCountedUntil = end === -1 ? parsed.length : end
+            count += countStatementLines(parsed.slice(LIQUID_BLOCK_OPENER.lastIndex, statementsCountedUntil))
+        }
+    }
+    return count
+}
+
 export class LiquidRenderBudget {
     private usedMs = 0
     private outputChars = 0
 
+    constructor(private readonly deadline?: AbortSignal) {}
+
     remainingMs(): number {
-        return Math.max(0, LIQUID_RENDER_LIMIT_MS - this.usedMs)
+        const ownMs = Math.max(0, LIQUID_RENDER_LIMIT_MS - this.usedMs)
+        const deadlineMs = deadlineRemainingMs(this.deadline)
+        return deadlineMs === undefined ? ownMs : Math.min(ownMs, Math.ceil(deadlineMs) + 1)
+    }
+
+    throwIfDeadlinePassed(): void {
+        throwIfDeadlinePassed(this.deadline)
     }
 
     useTime(ms: number): void {
@@ -51,6 +95,38 @@ const decodeEntities = (tag: string): string => {
         .replace(/&quot;/g, '"')
         .replace(/&#x27;/g, "'")
         .replace(/&amp;/g, '&') // NOTE: This should always be last
+}
+
+// The email editor saves every space in a link URL as %20, including the spaces inside a tag, so
+// `{{ name | url_encode }}` arrives as `{{%20name%20|%20url_encode%20}}`. A quoted string keeps its %20,
+// because there it is part of the value and a link needs it encoded.
+const decodeEncodedSpaces = (tag: string): string => {
+    if (!tag.includes('%20')) {
+        return tag
+    }
+    let out = ''
+    let quote = ''
+    let escaped = false
+    for (let i = 0; i < tag.length; i++) {
+        const char = tag[i]
+        if (quote) {
+            if (escaped) {
+                escaped = false
+            } else if (char === '\\') {
+                escaped = true
+            } else if (char === quote) {
+                quote = ''
+            }
+        } else if (char === '"' || char === "'") {
+            quote = char
+        } else if (tag.startsWith('%20', i)) {
+            out += ' '
+            i += 2
+            continue
+        }
+        out += char
+    }
+    return out
 }
 
 // TRICKY: Unlayer replaces all liquid's elements like > for example with &gt;
@@ -77,7 +153,7 @@ const decodeLiquidTags = (template: string): string => {
             cursor = open + 1
             continue
         }
-        out += template.slice(cursor, open) + decodeEntities(template.slice(open, close + 2))
+        out += template.slice(cursor, open) + decodeEncodedSpaces(decodeEntities(template.slice(open, close + 2)))
         cursor = close + 2
     }
 

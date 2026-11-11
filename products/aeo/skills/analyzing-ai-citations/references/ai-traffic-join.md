@@ -8,6 +8,13 @@ from different tables and mean different things; report them separately.
 | AI referral session | `sessions` | `$channel_type = 'AI'`            | A person clicked through from an AI product to the site        |
 | AI agent request    | `events`   | `$virt_traffic_type = 'AI Agent'` | An AI assistant, AI search engine or AI crawler fetched a page |
 
+## Contents
+
+- [AI referral sessions](#ai-referral-sessions)
+- [AI agent requests](#ai-agent-requests)
+- [The loop per cited path](#the-loop-per-cited-path)
+- [Reading the loop](#reading-the-loop)
+
 ## AI referral sessions
 
 `$channel_type` on `sessions` is derived from the entry referrer and UTM parameters. The

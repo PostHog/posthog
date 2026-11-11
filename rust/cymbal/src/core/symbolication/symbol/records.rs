@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::core::write_attribution::FrameWriteOutcome;
 use crate::error::UnhandledError;
-use crate::frames::{Context, Frame};
+use crate::frames::{Context, Frame, RawFrame};
 
 const FRAME_TTL_JITTER_PERCENT: u32 = 10;
 
@@ -22,6 +22,17 @@ impl FrameResultTtlPolicy {
         Self {
             resolved_ttl,
             unresolved_ttl,
+        }
+    }
+
+    pub fn for_frame(&self, frame: &RawFrame) -> Self {
+        if frame.can_never_resolve() {
+            Self {
+                unresolved_ttl: self.resolved_ttl,
+                ..*self
+            }
+        } else {
+            *self
         }
     }
 

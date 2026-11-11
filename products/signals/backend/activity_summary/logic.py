@@ -17,12 +17,24 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.activity_summary.computed import compute_fields
-from products.signals.backend.activity_summary.inputs import activity_parents, user_activity, user_tasks, user_views
-from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, summary_text
+from products.signals.backend.activity_summary.inputs import (
+    McpRead,
+    activity_parents,
+    user_activity,
+    user_inbox,
+    user_mcp_records,
+    user_tasks,
+    user_views,
+)
+from products.signals.backend.activity_summary.prompt import MIN_PROMPT_VERSION, PROMPT_VERSION, summary_text
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
+    MIN_RENDER_VERSION,
     RENDER_VERSION,
     ActivityItem,
+    Drop,
+    InboxActivity,
+    McpItem,
     Product,
     RenderedInput,
     RenderLimits,
@@ -98,6 +110,7 @@ class ActivitySummaryUpdate:
     computed: dict[str, Any] | None = None
     input_watermark: datetime.datetime | None = None
     rebuilt: bool = False
+    outdated: bool = False
     # The pair had no generated summary before this update.
     new_summary: bool = False
 
@@ -114,15 +127,30 @@ class StoredSummaryVersion(Protocol):
 
 
 def is_stale(stored: StoredSummaryVersion | None, rebuild_before: datetime.datetime | None) -> bool:
-    """True when a stored summary came from an older prompt or render, or before `rebuild_before`.
+    """True when a stored summary came from a prompt or render below `MIN_PROMPT_VERSION` or `MIN_RENDER_VERSION`,
+    or before `rebuild_before`.
 
-    A stale summary is rebuilt from the full window, so a version change reaches every input.
+    A stale summary must be rebuilt: the queue makes it due without new activity, and a skipped rebuild stops
+    the read from serving it.
     """
     if stored is None or stored.generated_at is None:
         return False
-    if (stored.prompt_version, stored.render_version) != (PROMPT_VERSION, RENDER_VERSION):
+    if stored.prompt_version is None or stored.render_version is None:
+        return True
+    if stored.prompt_version < MIN_PROMPT_VERSION or stored.render_version < MIN_RENDER_VERSION:
         return True
     return rebuild_before is not None and stored.generated_at < rebuild_before
+
+
+def is_outdated(stored: StoredSummaryVersion | None) -> bool:
+    """True when a stored summary came from a prompt or render other than `PROMPT_VERSION` and `RENDER_VERSION`.
+
+    An outdated summary that is not stale stays served and is not due on its own. Its next normal update reads
+    the full window without the previous summary, so the new version reaches every input.
+    """
+    if stored is None or stored.generated_at is None:
+        return False
+    return (stored.prompt_version, stored.render_version) != (PROMPT_VERSION, RENDER_VERSION)
 
 
 def skip_backoff(consecutive_skips: int, max_skip_backoff: datetime.timedelta) -> datetime.timedelta:
@@ -140,13 +168,33 @@ class _WindowInputs:
     tasks: list[TaskItem]
     activity: list[ActivityItem]
     views: list[ViewItem]
+    mcp: McpRead | None = None
+    inbox: InboxActivity = InboxActivity()
+
+    @property
+    def mcp_records(self) -> tuple[McpItem, ...]:
+        return self.mcp.records if self.mcp is not None else ()
 
 
-def _read_inputs(team_id: int, user_id: int, start: datetime.datetime, end: datetime.datetime) -> _WindowInputs:
+def _read_inputs(
+    team_id: int,
+    user_id: int,
+    start: datetime.datetime,
+    end: datetime.datetime,
+    mcp_buffer_days: int | None = None,
+    *,
+    read_inbox: bool = True,
+) -> _WindowInputs:
     return _WindowInputs(
         tasks=user_tasks(team_id, user_id, start, end),
         activity=user_activity(team_id, user_id, start, end),
         views=user_views(team_id, user_id, start, end),
+        mcp=(
+            user_mcp_records(team_id, user_id, start, end, max_days=mcp_buffer_days)
+            if mcp_buffer_days is not None
+            else None
+        ),
+        inbox=user_inbox(team_id, user_id, start, end) if read_inbox else InboxActivity(),
     )
 
 
@@ -159,6 +207,8 @@ def _render(
     *,
     as_of: datetime.datetime,
     limits: RenderLimits,
+    mcp: tuple[McpItem, ...] = (),
+    inbox: InboxActivity | None = None,
 ) -> RenderedInput | None:
     return build_input(
         tasks,
@@ -168,18 +218,41 @@ def _render(
         views=views,
         limits=limits,
         parents=activity_parents(team_id, activity),
+        mcp=mcp,
+        inbox=inbox,
     )
 
 
-def _inputs_used(rendered: RenderedInput, limits: RenderLimits) -> dict[str, Any]:
-    return {
+def _inputs_used(rendered: RenderedInput, limits: RenderLimits, mcp: McpRead | None = None) -> dict[str, Any]:
+    used: dict[str, Any] = {
         "tasks": rendered.n_tasks,
         "activity_lines": rendered.n_activity_lines,
         "view_lines": rendered.n_view_lines,
+        "page_units": rendered.n_page_units,
         "input_chars": rendered.input_chars,
+        "intent_lines": rendered.intent_lines,
+        "intent_chars": rendered.intent_chars,
+        "inbox_lines": rendered.n_inbox_lines,
+        "inbox_pool": rendered.inbox_pool,
+        "inbox_chars": rendered.inbox_chars,
         "drops": rendered.drops,
         "limits": dataclasses.asdict(limits),
     }
+    if mcp is not None:
+        used.update(
+            {
+                "mcp_sessions": rendered.mcp_pool,
+                "mcp_burst_cap_drops": rendered.mcp_burst_cap_drops,
+                "mcp_sample_cap_drops": rendered.mcp_sample_cap_drops,
+                "mcp_budget_drops": rendered.mcp_budget_drops,
+                "mcp_lines": rendered.n_mcp_lines,
+                "mcp_chars": rendered.mcp_chars,
+                "mcp_records": len(mcp.records),
+                "mcp_truncated_days": mcp.truncated_days,
+                "mcp_read_error": mcp.read_error,
+            }
+        )
+    return used
 
 
 def _call_model(
@@ -212,13 +285,17 @@ def _back_off(
     stored: UserActivitySummary | None,
     now: datetime.datetime,
     max_skip_backoff: datetime.timedelta,
+    *,
+    rebuild: bool,
 ) -> None:
     skips = stored.consecutive_skips if stored is not None else 0
     next_eligible_at = now + skip_backoff(skips, max_skip_backoff)
     # `update()` leaves `updated_at` alone, so the daily caps do not count a skip as a model call.
     if stored is not None:
+        # A skipped rebuild leaves no current summary, so the read stops serving the stale one.
+        status = {"status": UserActivitySummary.Status.SKIPPED} if rebuild else {}
         UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(
-            next_eligible_at=next_eligible_at, consecutive_skips=min(skips + 1, _MAX_SKIP_DOUBLINGS)
+            next_eligible_at=next_eligible_at, consecutive_skips=min(skips + 1, _MAX_SKIP_DOUBLINGS), **status
         )
         return
     UserActivitySummary.objects.for_team(team_id).get_or_create(
@@ -334,17 +411,22 @@ def update_activity_summary(
     rebuild_before: datetime.datetime | None = None,
     max_versions: int = MAX_VERSIONS,
     max_skip_backoff: datetime.timedelta = MAX_SKIP_BACKOFF,
+    mcp_buffer_days: int | None = None,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
     Reads only the inputs newer than the stored watermark, or the last `limits.window_days` on a first
-    run or for a stale summary (see `is_stale`). A stale summary is not sent to the model. A failed
-    update records the error and keeps the stored summary and the watermark. With `dry_run`, the
-    model is still called but nothing is written. `force` ignores `next_eligible_at`.
+    run or for a stale or outdated summary (see `is_stale` and `is_outdated`). A stale or outdated summary
+    is not sent to the model. A failed update records the error and keeps the stored summary and the
+    watermark. With `dry_run`, the model is still called but nothing is written. `force` ignores
+    `next_eligible_at`.
     A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units or for an
     empty first profile sets it to `skip_backoff` from now, which doubles with each skip until a good update
     resets it. An empty first profile keeps the cost of its model call.
+    A skip of a stale summary's rebuild keeps the stored summary, but sets the status, so the read stops serving it.
+    A skip of an outdated summary's update keeps it served.
     A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
+    With `mcp_buffer_days`, the update also reads up to that many UTC days of the MCP intent buffer.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
     if team.organization.is_ai_data_processing_approved is not True:
@@ -356,29 +438,49 @@ def update_activity_summary(
         return ActivitySummaryUpdate(status=UpdateStatus.SKIPPED_NOT_ELIGIBLE_YET)
 
     rebuild = is_stale(stored, rebuild_before)
+    outdated = is_outdated(stored)
+    full_window = rebuild or outdated
     window_start = _input_start(None, now, limits.window_days)
-    start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
-    window = _read_inputs(team_id, user_id, start, now)
+    start = _input_start(stored.input_watermark if stored and not full_window else None, now, limits.window_days)
+    window = _read_inputs(team_id, user_id, start, now, mcp_buffer_days)
     tasks, activity, views = window.tasks, window.activity, window.views
-    rendered = _render(team_id, user_id, tasks, activity, views, as_of=now, limits=limits)
+    rendered = _render(
+        team_id,
+        user_id,
+        tasks,
+        activity,
+        views,
+        as_of=now,
+        limits=limits,
+        mcp=window.mcp_records,
+        inbox=window.inbox,
+    )
     if rendered is None or rendered.units < min_units:
         if not dry_run:
-            _back_off(team_id, user_id, stored, now, max_skip_backoff)
+            _back_off(team_id, user_id, stored, now, max_skip_backoff, rebuild=rebuild)
         return ActivitySummaryUpdate(
             status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,
             rendered_input=rendered.text if rendered else None,
             inputs_used={"drops": rendered.drops} if rendered else None,
         )
 
-    inputs_used = _inputs_used(rendered, limits)
-    watermark = max([task.at for task in tasks] + [item.at for item in activity] + [view.at for view in views])
+    inputs_used = _inputs_used(rendered, limits, window.mcp)
+    inbox_at = window.inbox.latest_at
+    watermark = max(
+        [task.at for task in tasks]
+        + [item.at for item in activity]
+        + [view.at for view in views]
+        + [record.at for record in window.mcp_records]
+        + ([inbox_at] if inbox_at is not None else [])
+    )
     # An incremental update reads only the rows after the watermark, so the computed fields read the full window.
     if start == window_start:
-        computed = compute_fields(tasks, activity, views).as_json()
+        fields = compute_fields(tasks, activity, views)
     else:
-        full = _read_inputs(team_id, user_id, window_start, now)
-        computed = compute_fields(full.tasks, full.activity, full.views).as_json()
-    previous = stored.summary if stored is not None and not rebuild else None
+        full = _read_inputs(team_id, user_id, window_start, now, read_inbox=False)
+        fields = compute_fields(full.tasks, full.activity, full.views)
+    computed = fields.with_line_refs(rendered).as_json()
+    previous = stored.summary if stored is not None and not full_window else None
     outcome, cost = _call_model(team_id, user_id, rendered, computed, previous=previous, as_of=now, limits=limits)
     if outcome.summary is not None:
         status = UpdateStatus.OK
@@ -399,6 +501,7 @@ def update_activity_summary(
         computed=computed if outcome.summary is not None else None,
         input_watermark=watermark if outcome.summary is not None else None,
         rebuilt=rebuild,
+        outdated=outdated,
         new_summary=stored is None or stored.generated_at is None,
     )
     if dry_run:
@@ -478,21 +581,38 @@ def render_as_of(
     *,
     limits: RenderLimits = DEFAULT_LIMITS,
     exclude_products: frozenset[Product] = frozenset(),
+    mcp_buffer_days: int | None = None,
 ) -> AsOfInput | None:
     """The rendered input and computed fields of `[as_of - limits.window_days, as_of)`, or None when nothing renders.
 
     Views come from the latest view of each object, so an object opened again after `as_of` is missing."""
-    window = _read_inputs(team_id, user_id, as_of - datetime.timedelta(days=limits.window_days), as_of)
+    window = _read_inputs(team_id, user_id, as_of - datetime.timedelta(days=limits.window_days), as_of, mcp_buffer_days)
     tasks, activity, views = window.tasks, window.activity, window.views
     excluded: Counter[str] = Counter()
     activity, views = without_products(activity, views, exclude_products, excluded)
-    rendered = _render(team_id, user_id, tasks, activity, views, as_of=as_of, limits=limits)
+    inbox = window.inbox
+    if Product.INBOX in exclude_products:
+        excluded[Drop.EXCLUDED_PRODUCT] += len(inbox.actions) + len(inbox.artefacts)
+        inbox = InboxActivity()
+    rendered = _render(
+        team_id,
+        user_id,
+        tasks,
+        activity,
+        views,
+        as_of=as_of,
+        limits=limits,
+        mcp=window.mcp_records,
+        inbox=inbox,
+    )
     if rendered is None:
         return None
-    inputs_used = _inputs_used(rendered, limits)
+    inputs_used = _inputs_used(rendered, limits, window.mcp)
     inputs_used["drops"] = {**rendered.drops, **excluded}
     return AsOfInput(
-        rendered=rendered, computed=compute_fields(tasks, activity, views).as_json(), inputs_used=inputs_used
+        rendered=rendered,
+        computed=compute_fields(tasks, activity, views).with_line_refs(rendered).as_json(),
+        inputs_used=inputs_used,
     )
 
 
@@ -505,11 +625,14 @@ def build_summary_as_of(
     min_units: int = MIN_UNITS,
     exclude_products: frozenset[Product] = frozenset(),
     trace_variant: str | None = None,
+    mcp_buffer_days: int | None = None,
 ) -> ActivitySummaryUpdate:
     """A summary of one user in one project as of `as_of`, from the inputs before it only.
 
     The model gets no previous summary, and the sample seed comes from the `as_of` date. Nothing is written."""
-    built = render_as_of(team_id, user_id, as_of, limits=limits, exclude_products=exclude_products)
+    built = render_as_of(
+        team_id, user_id, as_of, limits=limits, exclude_products=exclude_products, mcp_buffer_days=mcp_buffer_days
+    )
     if built is None or built.rendered.units < min_units:
         return ActivitySummaryUpdate(
             status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,

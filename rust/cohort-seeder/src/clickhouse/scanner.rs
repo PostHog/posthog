@@ -23,17 +23,14 @@ use super::client::ClickHouseClient;
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
-use super::sql::{
-    ambiguous_value_probe_sql, fits_client_get, plan_scan, row_filter_sql, scan_sql, ScanPlan,
-    ScanSpec,
-};
+use super::sql::{fits_client_get, plan_scan, row_filter_sql, scan_sql, ScanPlan, ScanSpec};
 use crate::domain::{
     conditions_active_on, diff_tiles, table_scans, ActiveConditions, AggregateError, CancelCause,
     ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk, ColumnExactKeys,
-    ColumnUpgrade, ConditionAnalyses, DayIdx, Halted, MaterializedColumns, PinnedCondition,
-    PinnedRun, ProjectedKeys, PropertiesSourcing, RecordOutcome, RecordStats, ScanRowFilter,
-    ScanTable, ScanVolume, ScannedChunk, SeedDomain, SeedTile, SourcedProjection, TableScan,
-    TileDiff, UtcMillis,
+    ConditionAnalyses, DayIdx, Halted, MaterializedColumns, PinnedCondition, PinnedRun,
+    ProjectedKeys, PropertiesSourcing, RecordOutcome, RecordStats, ScanRowFilter, ScanTable,
+    ScanVolume, ScannedChunk, SeedDomain, SeedTile, SourcedProjection, TableScan, TileDiff,
+    UtcMillis,
 };
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
@@ -157,17 +154,8 @@ impl ChunkScanner {
         let mut queries = Vec::with_capacity(planned.len());
         for (table, scan, scan_spec) in planned {
             queries.push(
-                self.narrow_table_query(
-                    run,
-                    analyses,
-                    table,
-                    &scan,
-                    scan_spec,
-                    comment,
-                    lease_cancel,
-                    shutdown,
-                )
-                .await?,
+                self.narrow_table_query(run, analyses, table, &scan, scan_spec)
+                    .await,
             );
         }
 
@@ -220,7 +208,6 @@ impl ChunkScanner {
 
     /// Narrow one table's scan to the conditions its rows can reach: its projection, its row
     /// filter, and the materialized columns of its table.
-    #[allow(clippy::too_many_arguments)]
     async fn narrow_table_query(
         &self,
         run: &PinnedRun,
@@ -228,29 +215,20 @@ impl ChunkScanner {
         table: ScanTable,
         scan: &TableScan,
         scan_spec: ScanSpec,
-        comment: ScanLogComment,
-        lease_cancel: &CancellationToken,
-        shutdown: &CancellationToken,
-    ) -> Result<TableQuery, ScanHalt> {
+    ) -> TableQuery {
         let projection = analyses.projection(&scan.active);
         let exact = analyses.column_exact_keys(&scan.active);
         let row_filter = analyses.row_filter(&scan.event_names, &run.filters, &scan.active);
         let columns = self
             .lookup_columns(table, &column_lookup_keys(&projection, &exact, &row_filter))
             .await;
-        let sourcing = match projection.source_properties(&exact, &columns) {
-            PropertiesSourcing::Upgradable(upgrade) => {
-                self.probe_ambiguous_values(&scan_spec, upgrade, comment, lease_cancel, shutdown)
-                    .await?
-            }
-            decided @ PropertiesSourcing::Decided(_) => decided,
-        };
+        let sourcing = projection.source_properties(&exact, &columns);
         let narrowed = narrow_scan(scan_spec, sourcing, &row_filter, &columns);
         self.record_narrowing(run.team_id, table, &narrowed);
-        Ok(TableQuery {
+        TableQuery {
             spec: narrowed.filtered.spec,
             projection: narrowed.sourced.into_projection(),
-        })
+        }
     }
 
     /// One rendering of this chunk's scan: build a cursor from [`scan_sql`] for each table, fold
@@ -414,39 +392,6 @@ impl ChunkScanner {
             "shadow compare diverged between the projected and legacy scans"
         );
         Ok(())
-    }
-
-    /// The column form reads a column value that trims to `false` as the boolean, which the VM
-    /// equates with every exact literal, while the string `"false"` equals none. Only the blob holds
-    /// the type, so a chunk with such a value keeps the rebuild.
-    async fn probe_ambiguous_values(
-        &self,
-        spec: &ScanSpec,
-        upgrade: ColumnUpgrade,
-        comment: ScanLogComment,
-        lease_cancel: &CancellationToken,
-        shutdown: &CancellationToken,
-    ) -> Result<PropertiesSourcing, ScanHalt> {
-        let sql = ambiguous_value_probe_sql(spec, upgrade.backed());
-        // The column form's scan is longer than the probe, so it would not fit either.
-        if !fits_client_get(&sql) {
-            return Ok(PropertiesSourcing::Decided(upgrade.decline_too_long()));
-        }
-        let probe = self
-            .client
-            .query(&sql)
-            .with_option(LOG_COMMENT_OPTION, comment.to_string())
-            .fetch_optional::<u8>();
-        let found = tokio::select! {
-            biased;
-            _ = shutdown.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::Shutdown)),
-            _ = lease_cancel.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::LeaseLost)),
-            found = probe => found.map_err(ScanError::Probe)?,
-        };
-        Ok(match found {
-            Some(_) => PropertiesSourcing::Decided(upgrade.decline_ambiguous_value()),
-            None => PropertiesSourcing::Upgradable(upgrade),
-        })
     }
 
     /// A failed or timed-out lookup returns no columns, so the scan reads the blob.
@@ -906,8 +851,6 @@ pub enum ScanError {
     Domain(#[from] ChunkDomainError),
     #[error("building ClickHouse scan cursor")]
     Query(#[source] clickhouse::error::Error),
-    #[error("probing ClickHouse for ambiguous column values")]
-    Probe(#[source] clickhouse::error::Error),
     #[error("streaming ClickHouse scan cursor")]
     Cursor(#[source] clickhouse::error::Error),
     #[error("aggregating ClickHouse scan row")]

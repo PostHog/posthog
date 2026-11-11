@@ -4,13 +4,12 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
-import api, { ApiMethodOptions, getJSONOrNull, isAbortError } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrNull, isAbortError, withRequestTiming } from 'lib/api'
 import { ApiError, CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
 import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
@@ -477,6 +476,13 @@ export async function getInsightWithRetry(
         }
     }
 
+    const getTimedInsight = (url: string): Promise<InsightModel | null> =>
+        withRequestTiming(methodOptions, async (timing) => {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+            const response: Response = await api.getResponse(url, methodOptions, timing)
+            return await getJSONOrNull(response, timing)
+        })
+
     while (attempt < maxAttempts) {
         try {
             const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
@@ -488,9 +494,7 @@ export async function getInsightWithRetry(
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                 ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-            const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
-            const result: InsightModel | null = await getJSONOrNull(insightResponse)
+            const result = await getTimedInsight(apiUrl)
 
             if (
                 result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
@@ -523,13 +527,7 @@ export async function getInsightWithRetry(
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                                     ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
-                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                                const refreshedInsightResponse: Response = await api.getResponse(
-                                    cacheUrl,
-                                    methodOptions
-                                )
-                                const refreshedInsight: InsightModel | null =
-                                    await getJSONOrNull(refreshedInsightResponse)
+                                const refreshedInsight = await getTimedInsight(cacheUrl)
                                 if (refreshedInsight) {
                                     return {
                                         ...refreshedInsight,
@@ -838,15 +836,4 @@ export function getEffectiveDateOverride(
     const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
     const source = tileHasDate ? tileFilters : dashboardFilters
     return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
-}
-
-const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
-    DashboardEventSource.SceneCommonButtons,
-    DashboardEventSource.CardEdgeHover,
-    DashboardEventSource.CardDragHandle,
-    DashboardEventSource.DashboardsList,
-])
-
-export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
-    return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
 }

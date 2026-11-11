@@ -17,6 +17,7 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -31,9 +32,11 @@ from posthog.tasks.email import (
     send_async_migration_errored_email,
     send_batch_export_run_failure,
     send_canary_email,
+    send_code_based_verification,
     send_discussions_mentioned,
     send_email_change_emails,
     send_email_sending_reputation_finding,
+    send_email_sending_tier_demoted,
     send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
@@ -50,6 +53,7 @@ from posthog.tasks.email import (
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
+    send_team_hog_functions_digest,
     send_team_matview_failure_digest,
     send_warehouse_destination_paused,
     send_wizard_pr_ready_email,
@@ -59,6 +63,7 @@ from posthog.tasks.email import (
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -66,7 +71,12 @@ from products.batch_exports.backend.facade.enums import BatchExportDestinationTy
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, sync_saved_query_to_dag
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Node,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -121,6 +131,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
         create_org_team_and_user("2022-01-03 00:00:00", "too_early_user@posthog.com")
 
+    def _schedule(self, saved_query: DataWarehouseSavedQuery, target: dt.timedelta) -> Node:
+        node = sync_saved_query_to_dag(saved_query)
+        assert node is not None
+        set_declared_target(node, target)
+        return node
+
     def test_send_invite(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -157,6 +173,29 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "invited you to join" not in subject
         # Routed to the delegation template
         assert MockEmailMessage.call_args.kwargs["template_name"] == "delegation_invite"
+
+    @parameterized.expand([("member_invite", False), ("delegation_invite", True)])
+    @patch("posthog.tasks.email.check_esp_suppression")
+    def test_send_invite_flags_suppressed_target_email(
+        self, _name: str, is_setup_delegation: bool, mock_check: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        mock_check.return_value = ESPSuppressionResult(
+            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
+        )
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org,
+            created_by=user,
+            target_email="bounced@example.com",
+            is_setup_delegation=is_setup_delegation,
+        )
+
+        with self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            send_invite(invite.id)
+
+        invite.refresh_from_db()
+        assert invite.email_suppressed is True
 
     def test_send_member_join(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -226,6 +265,27 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 2
         assert (mocked_email_messages[0].campaign_key == mocked_email_messages[1].campaign_key) is deduped
+
+    @parameterized.expand(
+        [
+            ("current_release_kwargs", {}),
+            ("older_release_kwargs_with_per_hour", {"per_hour": 200}),
+        ]
+    )
+    def test_send_email_sending_tier_demoted_names_only_the_daily_limit(
+        self, MockEmailMessage: MagicMock, _name: str, extra_kwargs: dict[str, int]
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        send_email_sending_tier_demoted(
+            team_id=self.team.id, per_day=1000, demoted_at="2026-01-05T07:15:00+00:00", **extra_kwargs
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert "1,000 emails per day" in mocked_email_messages[0].html_body
+        assert "per hour" not in mocked_email_messages[0].html_body
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock
@@ -470,7 +530,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     @patch("posthog.tasks.email.ph_scoped_capture")
     def test_send_wizard_pr_ready_email_uses_customer_io_context(
-        self, _mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
+        self, mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard@posthog.com")
@@ -496,6 +556,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         send_wizard_pr_ready_email(str(run.id))
 
+        capture = mock_ph_scoped_capture.return_value.__enter__.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "wizard pr ready email sent"
+        assert capture.call_args.kwargs["distinct_id"] == user.distinct_id
+        assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         call_kwargs = MockEmailMessage.call_args.kwargs
@@ -597,11 +662,25 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mock_scoped_capture.return_value.__enter__.return_value.assert_called_once_with(
             event="verification code sent",
             distinct_id=user.distinct_id,
+            properties={"$update_person_last_seen_at": False},
             groups={"organization": str(user.current_organization_id)},
         )
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    @patch("posthog.tasks.email.posthoganalytics.capture")
+    def test_send_code_based_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
+        MockEmailMessage.return_value.send.return_value = False
+
+        send_code_based_verification(self.user.id, "123456")
+
+        mock_capture.assert_called_once_with(
+            event="login verification code sent",
+            distinct_id=str(self.user.distinct_id),
+            properties={"$update_person_last_seen_at": False},
+            groups={"organization": str(self.user.current_organization_id)},
+        )
 
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -1817,6 +1896,42 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Should now be sent to all users (creator, editor, original user, test2) - 4 separate emails
         assert len(mocked_email_messages) == 4
 
+    @parameterized.expand(
+        [
+            ("below_both_minimums", 40, 5, False),
+            ("enough_runs_above_threshold", 95, 5, True),
+            ("few_runs_but_enough_failures", 20, 10, True),
+            ("every_run_failed_at_low_volume", 0, 3, True),
+        ]
+    )
+    def test_send_team_hog_functions_digest_requires_enough_runs(
+        self, MockEmailMessage: MagicMock, _name: str, succeeded: int, failed: int, expect_email: bool
+    ) -> None:
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"data_pipeline_error_threshold": 0.01}
+        self.user.save()
+
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Low Volume Function", type="transformation", enabled=True, hog="return event"
+        )
+        for metric_kind, metric_name, count in (("success", "succeeded", succeeded), ("failure", "failed", failed)):
+            if count:
+                create_app_metric2(
+                    team_id=self.team.id,
+                    app_source="hog_function",
+                    app_source_id=str(hog_function.id),
+                    timestamp=timezone.now() - dt.timedelta(hours=1),
+                    metric_kind=metric_kind,
+                    metric_name=metric_name,
+                    count=count,
+                )
+
+        send_team_hog_functions_digest(self.team.id)
+
+        assert len(mocked_email_messages) == (1 if expect_email else 0)
+
     def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2073,7 +2188,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.tasks.email.get_client")
     @patch("posthog.tasks.email.check_and_cache_login_device")
     def test_login_from_new_device_notification(
-        self, mock_check_device: MagicMock, _mock_get_client: MagicMock, MockEmailMessage: MagicMock
+        self, mock_check_device: MagicMock, mock_get_client: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         mock_check_device.return_value = True  # Simulate new device
@@ -2095,6 +2210,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert html_body
         assert "Canada" in html_body
         assert "Google OAuth" in html_body
+        capture = mock_get_client.return_value.capture
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
+        assert capture.call_args.kwargs["event"] == "login notification sent"
+        assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
     @patch("posthog.tasks.email.get_client")
     @patch("posthog.tasks.email.check_and_cache_login_device")
@@ -2465,14 +2585,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         [
             (
                 "scheduled_failed_view_is_included",
-                {"sync_frequency_interval": dt.timedelta(hours=1)},
+                {},
                 [("FAILED", dt.timedelta(hours=1), "Some error")],
                 True,
             ),
             (
                 "unscheduled_failing_view_is_included",
                 {
-                    "sync_frequency_interval": None,
                     "latest_error": "Query exceeded timeout - we limit queries to a 10-minute timeout.",
                 },
                 [("FAILED", dt.timedelta(hours=1), "Query exceeded timeout")],
@@ -2481,7 +2600,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             (
                 "unscheduled_view_with_old_failure_is_skipped",
                 {
-                    "sync_frequency_interval": None,
                     "latest_error": "Query exceeded timeout - we limit queries to a 10-minute timeout.",
                 },
                 [("FAILED", dt.timedelta(days=3), "Query exceeded timeout")],
@@ -2499,7 +2617,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             (
                 "v2_view_with_stale_error_and_completed_run_is_skipped",
                 {
-                    "sync_frequency_interval": None,
                     "latest_error": "Query exceeded timeout - we limit queries to a 10-minute timeout.",
                 },
                 [
@@ -2510,20 +2627,20 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             ),
             (
                 "v2_failing_view_null_latest_error",
-                {"sync_frequency_interval": None},
+                {},
                 [("FAILED", dt.timedelta(hours=1), "Some error")],
                 True,
             ),
             (
                 "never_deleted_view_has_null_flag",
-                {"deleted": None, "sync_frequency_interval": dt.timedelta(hours=1)},
+                {"deleted": None},
                 [("FAILED", dt.timedelta(hours=1), "Some error")],
                 True,
             ),
             (
                 # the broken parent is the one reported; mailing every descendant would bury it
                 "view_blocked_by_a_broken_parent",
-                {"sync_frequency_interval": None},
+                {},
                 [
                     ("FAILED", dt.timedelta(hours=3), "Some error"),
                     ("SKIPPED", dt.timedelta(hours=1), "Skipped because upstream view orders_daily is failing."),
@@ -2581,7 +2698,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             name="healthy_view_with_failing_shadow",
             query={"query": "SELECT 1"},
-            sync_frequency_interval=dt.timedelta(hours=1),
         )
         DataModelingJob.objects.create(
             team=self.team,
@@ -2615,7 +2731,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             name="failing_view",
             query={"query": "SELECT 1"},
-            sync_frequency_interval=dt.timedelta(hours=1),
         )
         DataModelingJob.objects.create(
             team=self.team,
@@ -2648,7 +2763,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             name="test_materialized_view",
             query={"query": "SELECT 1"},
-            sync_frequency_interval=dt.timedelta(hours=1),
         )
         DataModelingJob.objects.create(
             team=self.team,
@@ -2688,9 +2802,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 team=self.team,
                 name=name,
                 query={"query": "SELECT 1"},
-                sync_frequency_interval=dt.timedelta(hours=1),
                 is_materialized=True,
             )
+            self._schedule(sq, dt.timedelta(hours=1))
             DataModelingJob.objects.create(
                 team=self.team,
                 saved_query=sq,
@@ -2708,7 +2822,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 team=self.team,
                 name=name,
                 query={"query": "SELECT 1"},
-                sync_frequency_interval=None,
                 latest_error=error,
                 is_materialized=False,
             )
@@ -2720,26 +2833,23 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 last_run_at=timezone.now() - dt.timedelta(hours=1),
             )
 
-        # Pausing keeps `is_materialized` and the table but clears the cadence, so it can't retry.
+        # Pausing keeps `is_materialized` and the table but clears the node target, so it can't retry.
+        # The legacy column can still hold a cadence, and the digest must not read it as scheduled.
         paused = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="paused_orders_rollup",
             query={"query": "SELECT 1"},
-            sync_frequency_interval=None,
+            sync_frequency_interval=dt.timedelta(hours=1),
             is_materialized=True,
             table=DataWarehouseTable.objects.create(team=self.team, name="paused_orders_rollup", format="Delta"),
         )
-        # Tiered views keep their cadence on the node only, with the column empty.
         tiered = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="tiered_daily_active_users",
             query={"query": "SELECT 1"},
-            sync_frequency_interval=None,
             is_materialized=True,
         )
-        tiered_node = sync_saved_query_to_dag(tiered)
-        assert tiered_node is not None
-        set_declared_target(tiered_node, dt.timedelta(hours=1))
+        tiered_node = self._schedule(tiered, dt.timedelta(hours=1))
         for sq in (paused, tiered):
             DataModelingJob.objects.create(
                 team=self.team,
@@ -2754,9 +2864,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             name="nightly_revenue_rollup",
             query={"query": "SELECT 1"},
-            sync_frequency_interval=dt.timedelta(days=1),
             is_materialized=True,
         )
+        self._schedule(ongoing, dt.timedelta(days=1))
         streak_started_at = timezone.now() - dt.timedelta(days=3)
         for status, run_at in [
             ("FAILED", timezone.now() - dt.timedelta(days=9)),
@@ -2820,7 +2930,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             name="long_error_view",
             query={"query": "SELECT 1"},
-            sync_frequency_interval=dt.timedelta(hours=1),
         )
         DataModelingJob.objects.create(
             team=self.team,
@@ -2912,7 +3021,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 team=self.team,
                 name=name,
                 query={"query": "SELECT 1", "kind": "HogQLQuery"},
-                sync_frequency_interval=dt.timedelta(hours=1),
             )
             DataModelingJob.objects.create(
                 team=self.team,
@@ -2958,7 +3066,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             name="broken_view",
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
-            sync_frequency_interval=dt.timedelta(hours=1),
             is_materialized=True,
         )
 
@@ -3012,7 +3119,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             name="suspended_view",
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
-            sync_frequency_interval=dt.timedelta(hours=1),
             is_materialized=True,
         )
         DataModelingJob.objects.create(
@@ -3026,8 +3132,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             ),
             last_run_at=timezone.now() - dt.timedelta(days=4),
         )
-        node = sync_saved_query_to_dag(suspended)
-        assert node is not None
+        node = self._schedule(suspended, dt.timedelta(hours=1))
         mark_node_suspended(
             node,
             engine=marker_engine,
@@ -3043,9 +3148,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             name="retrying_view",
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
-            sync_frequency_interval=dt.timedelta(hours=1),
             is_materialized=True,
         )
+        self._schedule(retrying, dt.timedelta(hours=1))
         DataModelingJob.objects.create(
             team=self.team,
             saved_query=retrying,
@@ -3082,7 +3187,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 team=self.team,
                 name=f"failing_view_{index}",
                 query={"query": "SELECT 1"},
-                sync_frequency_interval=dt.timedelta(hours=1),
             )
             DataModelingJob.objects.create(
                 team=self.team,
@@ -3255,7 +3359,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             name="failing_view",
             query={"query": "SELECT 1"},
-            sync_frequency_interval=dt.timedelta(hours=1),
         )
         DataModelingJob.objects.create(
             team=self.team,

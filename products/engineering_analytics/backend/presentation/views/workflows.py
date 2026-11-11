@@ -17,6 +17,7 @@ from products.engineering_analytics.backend.presentation.serializers.workflows i
     CITimingContextQuerySerializer,
     CITimingContextSerializer,
     CurrentBranchHealthSerializer,
+    DepotCIRepoUsageSerializer,
     JobLogInsightsQuerySerializer,
     JobLogInsightsSerializer,
     MasterFailureGroupSerializer,
@@ -67,6 +68,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         "ci_data_freshness",
         "ci_timing_context",
         "repo_overview",
+        "depot_ci_usage",
         "current_branch_health",
         "repo_run_activity",
         "master_failures",
@@ -532,6 +534,32 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date_from, date_to, include_series, or source_id")
         return Response(RepoOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_depot_ci_usage",
+        parameters=[_DATE_FROM, _DATE_TO],
+        responses={
+            200: DepotCIRepoUsageSerializer(many=True),
+            400: OpenApiResponse(description="Invalid date_from or date_to, or a window over 366 days."),
+        },
+        description=(
+            "Depot CI run time and estimated cost over a window (default -7d), one entry per synced Depot "
+            "source. Unlike the workflow and cost reads, it counts hand-off jobs, because Depot bills them. "
+            "Empty when no Depot source is synced."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def depot_ci_usage(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_depot_ci_usage(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date_from or date_to")
+        return Response(DepotCIRepoUsageSerializer(instance=result, many=True).data)
 
     @extend_schema(
         operation_id="engineering_analytics_current_branch_health",

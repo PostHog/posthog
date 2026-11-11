@@ -26,6 +26,17 @@ class BuiltInFilterEvaluation(LabeledStrEnum):
     SERVER = "server"
 
 
+class LifecycleFilterOutcome(LabeledStrEnum):
+    """Why compiled lifecycle filters admitted or skipped one issue transition."""
+
+    MATCH = "match"
+    EXCLUDED_BY_FILTER = "excluded_by_filter"
+    # A filter key needs exception properties that the transition does not carry.
+    DATA_UNAVAILABLE = "data_unavailable"
+    # Missing bytecode, or bytecode that failed to evaluate.
+    FILTER_ERROR = "filter_error"
+
+
 class IssueTrendDirection(LabeledStrEnum):
     NEW = "new"
     INCREASING = "increasing"
@@ -106,11 +117,42 @@ class GitHubExternalReferenceJob:
 
 
 @dataclass(frozen=True)
+class LinearStatusSyncJob:
+    # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
+    organization_id: str
+    # The ticket's identifier first, then any identifiers it had before it moved between Linear teams.
+    identifiers: tuple[str, ...]
+    # The workflow state the ticket left. The task reads its category to tell a reopen from a move
+    # between two open states.
+    previous_state_id: str
+
+    def __post_init__(self) -> None:
+        if not self.identifiers:
+            raise ValueError("Provide at least one Linear issue identifier.")
+
+
+@dataclass(frozen=True)
 class ErrorTrackingFingerprint:
     id: UUID
     fingerprint: str
     issue_id: UUID
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueImpact:
+    id: UUID
+    name: str | None
+    description: str | None
+    severity: str | None
+    is_assigned: bool
+    source: str | None
+    first_seen: datetime
+    last_seen: datetime
+    occurrences: int
+    users: int
+    sessions: int
+    daily_occurrences: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -172,6 +214,7 @@ class ErrorTrackingIssueAssignmentNotification:
 
 @dataclass(frozen=True)
 class ErrorTrackingSettings:
+    adaptive_ingestion_enabled: bool
     project_rate_limit_value: int | None
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
@@ -450,15 +493,6 @@ class ErrorTrackingAlert:
     updated_at: datetime
 
 
-class IssueSummaryCategory(LabeledStrEnum):
-    OWN_CODE = "own_code"
-    THIRD_PARTY = "third_party"
-    NETWORK = "network"
-    BOTS = "bots"
-    EXPECTED = "expected"
-    UNCLEAR = "unclear"
-
-
 @dataclass(frozen=True)
 class ErrorTrackingIssueSummary:
     issue_id: UUID
@@ -467,9 +501,27 @@ class ErrorTrackingIssueSummary:
     likely_cause: str
     who_is_affected: str
     suggested_next_step: str
-    # None when the category model did not answer.
-    category: IssueSummaryCategory | None
     model: str
     generated_at: datetime
-    # When the summary was last generated or confirmed unchanged. The 24h regenerate interval runs from it.
+    # When generation last wrote the summary.
     checked_at: datetime
+
+
+class IssueSummaryStatus(LabeledStrEnum):
+    READY = "ready"
+    NOT_GENERATED = "not_generated"
+    UNAVAILABLE = "unavailable"
+
+
+class IssueSummaryUnavailableReason(LabeledStrEnum):
+    RESTRICTED = "restricted"
+    DISABLED = "disabled"
+    AI_NOT_APPROVED = "ai_not_approved"
+
+
+@dataclass(frozen=True)
+class IssueSummaryRead:
+    status: IssueSummaryStatus
+    summary: ErrorTrackingIssueSummary | None
+    # Set only when the status is unavailable.
+    reason: IssueSummaryUnavailableReason | None

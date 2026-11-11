@@ -4,11 +4,14 @@ Both documents describe one server, and a client reads whichever one its stack s
 so they are built here rather than separately.
 """
 
+from oauth2_provider.models import AbstractApplication
+
 from posthog.api import id_jag
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
 from posthog.scopes import get_oauth_scopes_supported, get_scope_descriptions
+from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 type Document = dict[str, object]
 
@@ -16,6 +19,8 @@ SUPPORTED_GRANT_TYPES = [
     "authorization_code",
     "refresh_token",
     id_jag.JWT_BEARER_GRANT_TYPE,
+    TOKEN_EXCHANGE_GRANT_TYPE,
+    AbstractApplication.GRANT_DEVICE_CODE,
 ]
 
 # Every method a client can register under must appear here, or a client reads this
@@ -34,6 +39,7 @@ def _shared_metadata(base_url: str) -> Document:
         "issuer": base_url,
         "authorization_endpoint": f"{base_url}/oauth/authorize/",
         "token_endpoint": f"{base_url}/oauth/token/",
+        "device_authorization_endpoint": f"{base_url}/oauth/device-authorization/",
         "userinfo_endpoint": f"{base_url}/oauth/userinfo/",
         "revocation_endpoint": f"{base_url}/oauth/revoke/",
         "introspection_endpoint": f"{base_url}/oauth/introspect/",

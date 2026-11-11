@@ -8,7 +8,6 @@ export interface FilterLeaf {
     filter: UniversalFilterValue
 }
 
-/** Every condition in the group tree, in display order. */
 export function filterLeaves(group: UniversalFiltersGroup, path: number[] = []): FilterLeaf[] {
     return group.values.flatMap((value, index) =>
         isUniversalGroupFilterLike(value)
