@@ -65,6 +65,13 @@ describe('workflowLogic auto-save', () => {
     let updateCalls: number
     const workflow = makeWorkflow()
 
+    const showToasts = (): void => {
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
+    }
+    const toastShown = async (message: string): Promise<string | null | undefined> =>
+        (await screen.findByText(message)).closest('[data-attr$="-toast"]')?.getAttribute('data-attr')
+
     beforeEach(() => {
         updateCalls = 0
         useMocks({
@@ -869,23 +876,40 @@ describe('workflowLogic auto-save', () => {
         })
 
         it.each([
-            ['reports a run the API queued', 200, { status: 'queued', invocation_id: 'run-1' }, true],
-            ['reports a refused trigger instead of claiming the workflow ran', 403, { detail: 'No access' }, false],
-        ])('%s', async (_name, status, body, succeeded) => {
+            {
+                case: 'reports a run the API queued',
+                status: 200,
+                body: { status: 'queued', invocation_id: 'run-1' },
+                shown: 'Workflow triggered',
+                kind: 'success-toast',
+                absent: /^Error triggering workflow/,
+            },
+            {
+                case: 'reports a refused trigger instead of claiming the workflow ran',
+                status: 403,
+                body: { detail: 'No access' },
+                shown: 'Error triggering workflow: No access',
+                kind: 'error-toast',
+                absent: /^Workflow triggered$/,
+            },
+        ])('$case', async ({ status, body, shown, kind, absent }) => {
             useMocks({
                 get: { '/api/environments/:team_id/hog_flows/:id/': activeWorkflow() },
-                post: { '/api/projects/:team_id/hog_flows/:id/run/': () => [status, body] },
+                post: {
+                    '/api/projects/:team_id/hog_flows/:id/run/': ({ params }: MockResolverInfo) =>
+                        params.id === WORKFLOW_ID ? [status, body] : [404, { detail: 'Not found.' }],
+                },
             })
             await mountLoaded()
-            const errorToast = jest.spyOn(lemonToast, 'error')
-            const successToast = jest.spyOn(lemonToast, 'success')
+            showToasts()
 
             await expectLogic(logic, () => {
                 logic.actions.triggerManualWorkflow({})
             }).toFinishAllListeners()
 
-            expect(successToast).toHaveBeenCalledTimes(succeeded ? 1 : 0)
-            expect(errorToast).toHaveBeenCalledTimes(succeeded ? 0 : 1)
+            expect(await toastShown('Triggering workflow...')).toBe('info-toast')
+            expect(await toastShown(shown)).toBe(kind)
+            expect(screen.queryByText(absent)).toBeNull()
         })
     })
 
@@ -1261,8 +1285,6 @@ describe('workflowLogic auto-save', () => {
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
         }
-        const toastShown = async (message: string): Promise<string | null | undefined> =>
-            (await screen.findByText(message)).closest('[data-attr$="-toast"]')?.getAttribute('data-attr')
         const click = async (label: string): Promise<void> => {
             const button = await screen.findByText(label)
             await act(async () => fireEvent.click(button))
@@ -1270,8 +1292,7 @@ describe('workflowLogic auto-save', () => {
 
         beforeEach(() => {
             posted = []
-            lemonToast.dismiss()
-            render(createElement(jest.requireActual('react-toastify').ToastContainer))
+            showToasts()
         })
 
         afterEach(() => {
@@ -1468,21 +1489,28 @@ describe('workflowLogic auto-save', () => {
             { case: 'a link without an email', props: { ...linkProps, emailPrefill: undefined } },
             { case: 'a link without a draft source', props: { ...linkProps, draftSource: undefined } },
         ])('asks for no AI draft for $case', async ({ props }) => {
-            let requests = 0
+            let draftsGenerated = 0
             const email = { id: EMAIL_ACTION_ID, type: 'function_email', config: { inputs: { email: { value: {} } } } }
             useMocks({
                 get: {
                     '/api/environments/:team_id/hog_flows/:id/': { ...workflow, actions: [...workflow.actions, email] },
                 },
-                post: { '/api/projects/:team_id/workflow_email_drafts/': () => [200, (requests += 1)] },
+                post: {
+                    '/api/projects/:team_id/workflow_email_drafts/': () => {
+                        draftsGenerated += 1
+                        return [200, {}]
+                    },
+                },
             })
             initKeaTests()
             logic = workflowLogic(props)
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
-
-            expect(requests).toBe(0)
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
             expect(logic.values.aiEmailDraftStatus).toBeNull()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.aiEmailDraftStatus).toBeNull()
+            expect(draftsGenerated).toBe(0)
         })
     })
 
