@@ -754,6 +754,7 @@ describe('scenario environment', () => {
     })
 
     describe('role supervisor on real processes', () => {
+        const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'scenario-supervisor-'))
         const tag = `stop-${process.pid}`
         const tagged = (): ProcEntry[] =>
             readProcs().filter((entry) => entry.environ?.includes(`SCENARIO_TEST_TAG=${tag}`))
@@ -761,12 +762,14 @@ describe('scenario environment', () => {
             command: process.execPath,
             args: ['-e', 'setInterval(() => {}, 1000)'],
             cwd: os.tmpdir(),
-            logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+            logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
             graceMs: 5000,
             restartBackoffMs: 0,
         })
 
         afterEach(() => supervisor.stop())
+
+        afterAll(() => rmSync(tempRoot, { recursive: true, force: true }))
 
         it('stops a running role without recording its exit or starting it again', async () => {
             const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
@@ -784,7 +787,7 @@ describe('scenario environment', () => {
                 command: path.join(os.tmpdir(), `scenario-missing-${process.pid}`),
                 args: [],
                 cwd: os.tmpdir(),
-                logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
                 graceMs: 1000,
                 restartBackoffMs: 20,
             })
@@ -800,12 +803,12 @@ describe('scenario environment', () => {
         }, 15_000)
 
         it('records a role it cannot start again and keeps retrying until it starts', async () => {
-            const cwd = mkdtempSync(path.join(os.tmpdir(), 'scenario-role-cwd-'))
+            const cwd = mkdtempSync(path.join(tempRoot, 'cwd-'))
             const exiting = createSupervisor({
                 command: process.execPath,
                 args: ['-e', 'process.exit(3)'],
                 cwd,
-                logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
                 graceMs: 1000,
                 restartBackoffMs: 50,
             })
@@ -846,8 +849,9 @@ describe('scenario environment', () => {
         const realSpawn = childProcess.spawn
         const realExecFile = childProcess.execFile as (...args: unknown[]) => ChildProcess
         const stubRolePids = new Set<number>()
+        let rolesSpawnedWhileHeld = 0
         const stubRole =
-            "console.log('started at', Date.now()); require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
+            "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
@@ -959,12 +963,10 @@ describe('scenario environment', () => {
                 process.stderr.write('The fake docker has no command ' + args.join(' ') + '\\n')
                 process.exit(1)
             }
-            const leaves = path.join(__dirname, 'dead-member-leaves-at')
-            if (!fs.existsSync(leaves)) {
-                const session = Number(fs.readFileSync(path.join(__dirname, 'dead-member-session-ms'), 'utf8'))
-                fs.writeFileSync(leaves, String(Date.now() + session))
+            if (describes) {
+                fs.appendFileSync(path.join(__dirname, 'describes'), '.')
             }
-            const members = Date.now() < Number(fs.readFileSync(leaves, 'utf8')) ? 1 : 0
+            const members = fs.existsSync(path.join(__dirname, 'dead-member-held')) ? 1 : 0
             if (seeks) {
                 const answer = path.join(__dirname, 'seek')
                 if (fs.existsSync(answer)) {
@@ -1058,13 +1060,12 @@ describe('scenario environment', () => {
             }
             return () => holder.kill('SIGKILL')
         }
-        const deadMemberStaysFor = (sessionMs: number): void => {
-            writeFileSync(path.join(fakes, 'dead-member-session-ms'), String(sessionMs))
-            rmSync(path.join(fakes, 'dead-member-leaves-at'), { force: true })
+        const holdDeadMember = (): void => writeFileSync(path.join(fakes, 'dead-member-held'), '')
+        const releaseDeadMember = (): void => rmSync(path.join(fakes, 'dead-member-held'))
+        const describeCount = (): number => {
+            const describes = path.join(fakes, 'describes')
+            return existsSync(describes) ? readFileSync(describes, 'utf8').length : 0
         }
-        const deadMemberLeftAt = (): number => Number(readFileSync(path.join(fakes, 'dead-member-leaves-at'), 'utf8'))
-        const startedAt = (role: Role): number =>
-            Number(/^started at (\d+)$/m.exec(readFileSync(logOf(role), 'utf8'))?.[1])
         const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
@@ -1092,9 +1093,9 @@ describe('scenario environment', () => {
             writeFake(path.join(fakes, 'hogli'), fakeHogli)
             writeFake(path.join(fakes, 'docker'), fakeDocker)
             writeStack({ running: true, ready: true })
-            deadMemberStaysFor(0)
             process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronUrl
             await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
+            rolesSpawnedWhileHeld = 0
             await withPostgres(async (client) => {
                 await client.query('DELETE FROM posthog_hogfunctiontemplate')
                 await client.query(insertTemplates, [STACK.templates])
@@ -1127,6 +1128,9 @@ describe('scenario environment', () => {
                         : mode === exitsAfterHealth
                           ? stubRoleExitingAfterHealth
                           : stubRole
+                if (existsSync(path.join(fakes, 'dead-member-held'))) {
+                    rolesSpawnedWhileHeld += 1
+                }
                 const role = realSpawn(process.execPath, ['-e', script], options)
                 if (mode === losesItsPort) {
                     void holdPort(ROLE_PORTS[losesItsPort!], once(role, 'exit'))
@@ -1201,17 +1205,23 @@ describe('scenario environment', () => {
         })
 
         it('waits for a dead consumer to leave the events group before it starts the roles', async () => {
-            deadMemberStaysFor(2000)
+            holdDeadMember()
             environment = environmentOf()
 
-            await environment.up()
+            const up = environment.up().then(
+                () => 'up',
+                (error: unknown) => String(error)
+            )
+            await waitForExpect(() => expect(describeCount()).toBeGreaterThanOrEqual(3), 10_000, 50)
+            releaseDeadMember()
 
-            const firstStart = Math.min(...(Object.keys(ROLE_PORTS) as Role[]).map(startedAt))
             expect({
-                startedAfterItLeft: firstStart >= deadMemberLeftAt(),
+                rolesSpawnedWhileHeld,
+                up: await up,
                 apiHealth: await healthOf('cdp-api'),
             }).toEqual({
-                startedAfterItLeft: true,
+                rolesSpawnedWhileHeld: 0,
+                up: 'up',
                 apiHealth: 200,
             })
         }, 30_000)
@@ -1428,11 +1438,20 @@ describe('scenario environment', () => {
             const { group, topic } = eventsGroup()
             environment = environmentOf()
             await environment.up()
-            deadMemberStaysFor(2000)
+            holdDeadMember()
+            const describesBefore = describeCount()
 
-            await environment.reset({})
+            const reset = environment.reset({}).then(
+                () => 'reset',
+                (error: unknown) => String(error)
+            )
+            await waitForExpect(() => expect(describeCount()).toBeGreaterThanOrEqual(describesBefore + 3), 10_000, 50)
+            releaseDeadMember()
 
-            expect(offsetsOf()).toEqual({ [group]: { [topic]: 'end' } })
+            expect({ reset: await reset, offsets: offsetsOf() }).toEqual({
+                reset: 'reset',
+                offsets: { [group]: { [topic]: 'end' } },
+            })
         }, 30_000)
 
         it.each<[string, { stdout: string; stderr: string; code: number }, string | null]>([
