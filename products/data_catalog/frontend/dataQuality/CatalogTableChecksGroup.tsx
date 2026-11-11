@@ -6,7 +6,7 @@ import { Button, cn } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
-import { SubjectRunBanners } from 'products/data_quality/frontend/overview/SubjectRunBanners'
+import { QuillSubjectRunBanners } from 'products/data_quality/frontend/overview/QuillSubjectRunBanners'
 
 import { ChecksSubject } from '../catalogTableRows'
 import { CatalogChecksSummary } from '../components/CatalogChecksSummary'
@@ -90,7 +90,11 @@ export function CatalogTableChecksGroup({
                 </div>
                 <RunChecksButton row={row} />
             </div>
-            {row.checkGroup && <SubjectRunBanners group={row.checkGroup} />}
+            {row.checkGroup && (
+                <div className="flex flex-col gap-2 px-2 pb-2 empty:hidden">
+                    <QuillSubjectRunBanners group={row.checkGroup} />
+                </div>
+            )}
             {expanded && (
                 <div id={checksRegionId(row)} className="border-t border-border">
                     <TableChecksPanel row={row} />

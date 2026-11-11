@@ -47,15 +47,22 @@ export const Narrow: Story = {
     decorators: [inMainContent('w-128')],
 }
 
+async function expandRevenueChecks(canvasElement: HTMLElement): Promise<void> {
+    await clickWhenReady(canvasElement, 'button[aria-label="Show checks for revenue_by_account"]')
+    await waitFor(() => {
+        if (!canvasElement.querySelector('[data-attr="data-catalog-quality-add-check"]')) {
+            throw new Error('Checks not shown yet')
+        }
+    })
+}
+
 export const TableExpanded: Story = {
-    play: async ({ canvasElement }) => {
-        await clickWhenReady(canvasElement, 'button[aria-label="Show checks for revenue_by_account"]')
-        await waitFor(() => {
-            if (!canvasElement.querySelector('[data-attr="data-catalog-quality-add-check"]')) {
-                throw new Error('Checks not shown yet')
-            }
-        })
-    },
+    play: async ({ canvasElement }) => expandRevenueChecks(canvasElement),
+}
+
+export const TableExpandedNarrow: Story = {
+    decorators: [inMainContent('w-128')],
+    play: async ({ canvasElement }) => expandRevenueChecks(canvasElement),
 }
 
 export const FilteredToTable: Story = {

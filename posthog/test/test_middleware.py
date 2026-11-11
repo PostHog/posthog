@@ -1832,7 +1832,7 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
             data={"read_only": "true", "reason": "Test read-only impersonation"},
         )
 
-    @patch("posthog.views.get_client")
+    @patch("posthog.admin.console.redis_tool.get_client")
     def test_admin_writes_allowed_during_read_only_impersonation(self, mock_get_client: MagicMock):
         """Admin POST/PATCH/DELETE actions must not be blocked by the read-only
         impersonation middleware — admin runs as the original staff user."""
@@ -1842,12 +1842,11 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
 
         self.login_as_other_user_read_only()
 
-        # POST to /admin/redis/edit-ttl — a function-based admin view registered directly
-        # in the URLconf (not lazy-loaded), so it's reachable in tests. A successful POST
-        # redirects (302) to the redis values list.
+        # POST to a console tool operation, which is registered directly in the URLconf (not
+        # lazy-loaded), so it's reachable in tests. A successful POST redirects (302) to the tool.
         response = self.client.post(
-            "/admin/redis/edit-ttl",
-            data={"key": "test:key", "ttl_seconds": "60"},
+            "/admin/console/tools/redis-values/set-ttl/",
+            data={"key": "test:key", "ttl_seconds": "60", "reason": "Test"},
         )
 
         # Endpoint must be reached (would-be 404 means the test isn't proving anything).
@@ -1887,8 +1886,8 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         assert response.status_code == 302
         assert "/admin/login" in response.headers.get("Location", "")
 
-    @patch("posthog.views.get_client")
-    @patch("posthog.views.log_activity")
+    @patch("posthog.admin.console.redis_tool.get_client")
+    @patch("posthog.admin.console.redis_tool.log_activity")
     def test_admin_action_attributes_activity_to_staff_user_during_impersonation(
         self, mock_log_activity: MagicMock, mock_get_client: MagicMock
     ):
@@ -1900,7 +1899,7 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         A future middleware reorder that breaks attribution would silently leak
         `customer-as-actor` into audit logs without breaking any existing test.
 
-        Mechanism: `redis_edit_ttl_view` calls `log_activity(user=request.user, ...)`.
+        Mechanism: the Redis tool's `set_ttl` operation calls `log_activity(user=request.user, ...)`.
         Patch `log_activity` and assert the captured `user` kwarg is the staff user.
         """
         mock_redis = MagicMock()
@@ -1910,8 +1909,8 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         self.login_as_other_user()
 
         response = self.client.post(
-            "/admin/redis/edit-ttl",
-            data={"key": "test:key", "ttl_seconds": "60"},
+            "/admin/console/tools/redis-values/set-ttl/",
+            data={"key": "test:key", "ttl_seconds": "60", "reason": "Test"},
         )
 
         assert response.status_code in (200, 302), f"unexpected status: {response.status_code}"

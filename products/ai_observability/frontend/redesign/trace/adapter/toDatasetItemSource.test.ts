@@ -1,6 +1,6 @@
 import type { TraceNodeRawApi } from '../../../generated/api.schemas'
+import { makeRawNode } from '../testFixtures'
 import { RawLoad } from '../types'
-import { makeRawNode } from './testFixtures'
 import { toDatasetItemSource } from './toDatasetItemSource'
 
 const trace = { traceId: 'trace-1', createdAt: '2026-09-01T10:15:00Z' }

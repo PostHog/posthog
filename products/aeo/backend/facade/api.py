@@ -14,22 +14,35 @@ from collections.abc import Mapping
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Aggregate, Avg, Count, Exists, Max, Min, OuterRef, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.redis import get_client
 
-from products.aeo.backend import catalog, gaps, rankings, suggestions
-from products.aeo.backend.brand import brand_names, mention_filter
+from products.aeo.backend import catalog, dashboard, gaps, rankings, suggestions
+from products.aeo.backend.brand import (
+    SEGMENT_SQL,
+    brand_names,
+    brand_pattern,
+    branded_filter,
+    mention_filter,
+    segment_filter,
+    segment_sql_params,
+)
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
     Brand,
+    BrandCreate,
+    BrandCreateError,
+    BrandedSegment,
     BrandKind,
     BrandNotFoundError,
     BrandSource,
@@ -66,11 +79,12 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
+    VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
-from products.aeo.backend.tasks.tasks import suggest_aeo_prompts_task
+from products.aeo.backend.tasks.tasks import recompute_aeo_own_citations_task, suggest_aeo_prompts_task
 
 
 def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
@@ -97,10 +111,14 @@ def list_prompts(
     active: bool | None = None,
     include_archived: bool = False,
     needs_improvement: bool = False,
+    branded: bool | None = None,
 ) -> tuple[list[Prompt], int]:
     """One page of the team's prompt set and the total count, paged in SQL.
     A topic of "" selects the prompts that have no topic."""
     prompts = AEOPrompt.objects.for_team(team_id)
+    if branded is not None:
+        names_brand = branded_filter(catalog.own_domains(team_id), field="prompt")
+        prompts = prompts.filter(names_brand if branded else ~names_brand)
     if not include_archived:
         prompts = prompts.filter(archived_at__isnull=True)
     if topic is not None:
@@ -255,7 +273,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     the cited domains, brand sentiment and the words of the web searches over the last `days` days
     in the team's timezone."""
     prompt = _get_prompt_row(team_id, prompt_id)
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    target_domains = catalog.own_domains(team_id)
     checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
     engines = tuple(
         PromptEngineStats(
@@ -349,8 +367,19 @@ def _set_counts(row: Mapping[str, Any]) -> dict[str, Any]:
     return {key: row[key] for key in _SET_COUNT_KEYS}
 
 
+_TOP_DOMAINS_SQL = f"""
+    SELECT host, count(*) AS checks_citing
+    FROM posthog_aeo_citation_check AS check_row, jsonb_array_elements_text(check_row.top_cited_domains) AS host
+    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+        AND {SEGMENT_SQL}
+    GROUP BY host
+    ORDER BY checks_citing DESC, host
+    LIMIT %s
+"""
+
+
 def _top_domains(
-    team_id: int, *, since: dt.datetime, answers: int, target_domains: list[str]
+    team_id: int, *, since: dt.datetime, answers: int, target_domains: list[str], segment: BrandedSegment
 ) -> tuple[PromptSetDomain, ...]:
     """Domains ranked by how many answered checks in the window cited them, counted in Postgres from
     each check's distinct hosts. `answers` is the number of answered checks the shares are over."""
@@ -360,15 +389,8 @@ def _top_domains(
     team_id = resolve_effective_team_id(team_id)
     with connection.cursor() as cursor:
         cursor.execute(
-            """
-            SELECT host, count(*) AS checks_citing
-            FROM posthog_aeo_citation_check, jsonb_array_elements_text(top_cited_domains) AS host
-            WHERE team_id = %s AND created_at >= %s AND check_failed = false
-            GROUP BY host
-            ORDER BY checks_citing DESC, host
-            LIMIT %s
-            """,
-            [team_id, since, MAX_OVERVIEW_DOMAINS],
+            _TOP_DOMAINS_SQL,
+            [team_id, since, *segment_sql_params(segment, target_domains), MAX_OVERVIEW_DOMAINS],
         )
         rows = cursor.fetchall()
     return tuple(
@@ -385,7 +407,7 @@ def _top_domains(
 # One statement, so the window is read once: `searches` has one row per answered check and distinct
 # search it ran, lowercased with whitespace collapsed; `ranked` keeps the top searches and `top_prompts`
 # the prompts that ran each of them most. Postgres materializes `searches` because both read it.
-_TOP_SEARCHES_SQL = """
+_TOP_SEARCHES_SQL = f"""
     WITH searches AS MATERIALIZED (
         SELECT DISTINCT check_row.id, check_row.prompt_id, check_row.engine, check_row.cited,
             lower(btrim(regexp_replace(query, '\\s+', ' ', 'g'))) AS query
@@ -394,6 +416,7 @@ _TOP_SEARCHES_SQL = """
                 CASE WHEN jsonb_typeof(check_row.search_queries) = 'array' THEN check_row.search_queries ELSE '[]'::jsonb END
             ) AS query
         WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+            AND {SEGMENT_SQL}
     ),
     ranked AS (
         SELECT query, count(DISTINCT prompt_id) AS prompts, count(*) AS answers,
@@ -420,12 +443,23 @@ _TOP_SEARCHES_SQL = """
 """
 
 
-def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch, ...]:
+def _top_searches(
+    team_id: int, *, since: dt.datetime, target_domains: list[str], segment: BrandedSegment
+) -> tuple[PromptSetSearch, ...]:
     """The searches the engines ran while answering, ranked by how many prompts triggered them,
     each with the prompts that ran it most."""
     team_id = resolve_effective_team_id(team_id)
     with connection.cursor() as cursor:
-        cursor.execute(_TOP_SEARCHES_SQL, [team_id, since, MAX_OVERVIEW_SEARCHES, MAX_SEARCH_PROMPTS])
+        cursor.execute(
+            _TOP_SEARCHES_SQL,
+            [
+                team_id,
+                since,
+                *segment_sql_params(segment, target_domains),
+                MAX_OVERVIEW_SEARCHES,
+                MAX_SEARCH_PROMPTS,
+            ],
+        )
         rows = cursor.fetchall()
     texts = {
         row["id"]: row["prompt"]
@@ -450,10 +484,13 @@ def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch,
     )
 
 
-def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> PromptSetOverview:
+def get_prompt_set_overview(
+    team_id: int, *, timezone_name: str, days: int, branded: BrandedSegment = BrandedSegment.ALL
+) -> PromptSetOverview:
     """Checks across the whole prompt set over the last `days` days in the team's timezone, the same
-    counts for the `days` days before, and the current window split per engine and per topic."""
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    counts for the `days` days before, and the current window split per engine and per topic.
+    `branded` keeps the checks, and the active prompts, on one side of the branded split."""
+    target_domains = catalog.own_domains(team_id)
     tz = ZoneInfo(timezone_name)
     window_to = timezone.now().astimezone(tz).date()
     window_from = window_to - dt.timedelta(days=days - 1)
@@ -461,7 +498,12 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
     previous_start = window_start - dt.timedelta(days=days)
     counts = _check_counts(target_domains, prompts=True)
 
-    checks = AEOCitationCheck.objects.for_team(team_id)
+    all_checks = AEOCitationCheck.objects.for_team(team_id)
+    split = all_checks.filter(created_at__gte=window_start, check_failed=False).aggregate(
+        branded=Count("id", filter=branded_filter(target_domains)),
+        answers=Count("id"),
+    )
+    checks = all_checks.filter(segment_filter(branded, target_domains))
     current = checks.filter(created_at__gte=window_start)
     previous = checks.filter(created_at__gte=previous_start, created_at__lt=window_start)
     engines = tuple(
@@ -474,7 +516,7 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
     active_prompts = {
         row["topic"]: row["prompts"]
         for row in AEOPrompt.objects.for_team(team_id)
-        .filter(archived_at__isnull=True, active=True)
+        .filter(segment_filter(branded, target_domains, field="prompt"), archived_at__isnull=True, active=True)
         .values("topic")
         .annotate(prompts=Count("id"))
     }
@@ -499,8 +541,11 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
         prompts_tracked=sum(active_prompts.values()),
         target_domains=tuple(target_domains),
         brand_names=brand_names(target_domains),
+        branded=branded,
         current=current_counts,
         previous=PromptSetCounts(**_set_counts(previous.aggregate(**counts))),
+        branded_answers=split["branded"],
+        non_branded_answers=split["answers"] - split["branded"],
         engines=engines,
         topics=topics,
         top_domains=_top_domains(
@@ -508,17 +553,32 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
             since=window_start,
             answers=current_counts.checks - current_counts.failed,
             target_domains=target_domains,
+            segment=branded,
         ),
-        top_searches=_top_searches(team_id, since=window_start),
+        top_searches=_top_searches(team_id, since=window_start, target_domains=target_domains, segment=branded),
     )
 
 
-def get_prompt_set_rankings(team_id: int, *, timezone_name: str, days: int) -> PromptSetRankings:
+def get_prompt_set_rankings(
+    team_id: int, *, timezone_name: str, days: int, branded: BrandedSegment = BrandedSegment.ALL
+) -> PromptSetRankings:
     """How often answers named the project against the brands behind the domains the engines cite
-    most, over the last `days` days in the team's timezone, with the domains and pages cited most."""
+    most, over the last `days` days in the team's timezone, with the domains and pages cited most.
+    `branded` keeps the checks on one side of the branded split."""
     return rankings.get_rankings(
-        team_id, target_domains=settings.AEO_TARGET_DOMAINS, timezone_name=timezone_name, days=days
+        team_id,
+        target_domains=catalog.own_domains(team_id),
+        timezone_name=timezone_name,
+        days=days,
+        segment=branded,
     )
+
+
+def create_visibility_dashboard(team: Team, user: User) -> VisibilityDashboard:
+    """Create the "AI visibility weekly" dashboard. Each call creates a new one, so a person who deleted or
+    edited theirs can start over."""
+    created = dashboard.create_visibility_dashboard(team, user)
+    return VisibilityDashboard(id=created.id, name=created.name or dashboard.DASHBOARD_NAME)
 
 
 MAX_CONSENSUS_DOMAINS = 10
@@ -606,6 +666,11 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
     return catalog.sync_brands_from_run(team_id, run_id)
 
 
+def list_own_domains(team_id: int) -> list[str]:
+    """The registrable domains that count as the team itself in citations, from its own brands."""
+    return catalog.own_domains(team_id)
+
+
 def list_brands(
     team_id: int,
     *,
@@ -613,9 +678,12 @@ def list_brands(
     offset: int,
     kind: BrandKind | None = None,
     status: BrandStatus | None = None,
+    search: str | None = None,
 ) -> tuple[list[Brand], int]:
     """One page of the team's brand catalog, by domain, and the total count."""
     rows = AEOBrand.objects.for_team(team_id)
+    if search:
+        rows = rows.filter(Q(domain__icontains=search) | Q(name__icontains=search))
     if kind is not None:
         rows = rows.filter(kind=kind)
     if status is not None:
@@ -626,6 +694,41 @@ def list_brands(
 
 def get_brand(team_id: int, brand_id: str) -> Brand:
     return _to_brand(_get_brand_row(team_id, brand_id))
+
+
+# A burst of catalog edits shares one recompute, and each edit waits at most this long for it.
+RECOMPUTE_DEBOUNCE_SECONDS = 60
+# One DNS label: letters, digits and inner hyphens, at most 63 characters.
+_DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
+
+
+def create_brand(team_id: int, new: BrandCreate) -> Brand:
+    raw = new.domain.strip()
+    domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}")
+    if domain is None or not _is_dns_name(domain):
+        raise BrandCreateError(f"'{new.domain}' is not a valid domain. Use a domain such as example.com.")
+    duplicate = BrandCreateError(
+        f"The catalog already has {domain}. Update the existing brand instead of adding it again."
+    )
+    if AEOBrand.objects.for_team(team_id).filter(domain=domain).exists():
+        raise duplicate
+    try:
+        # A savepoint, so a concurrent add of the same domain surfaces as a duplicate, not a broken transaction.
+        with transaction.atomic():
+            brand = AEOBrand.objects.for_team(team_id).create(
+                team_id=resolve_effective_team_id(team_id),
+                name=new.name or catalog.placeholder_name(domain),
+                domain=domain,
+                kind=new.kind,
+                status=BrandStatus.CONFIRMED,
+                source=BrandSource.MANUAL,
+                aliases=_clean_aliases(new.aliases),
+            )
+    except IntegrityError as error:
+        raise duplicate from error
+    if catalog.counts_as_own(brand.kind, brand.status):
+        _recompute_own_citations_on_commit(brand.team_id)
+    return _to_brand(brand)
 
 
 def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
@@ -642,12 +745,44 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
         brand.status = change.status
         changed.append("status")
     if change.aliases is not None:
-        # Order kept and duplicates dropped, so the mention regex gets each name once.
-        brand.aliases = list(dict.fromkeys(alias.strip() for alias in change.aliases if alias.strip()))
+        brand.aliases = _clean_aliases(change.aliases)
         changed.append("aliases")
     if changed:
         brand.save(update_fields=[*changed, "updated_at"])
+    # Any kind or status edit, not only one that flips this row: two concurrent edits can each look
+    # like no change and still make the brand own together. A recompute with nothing stale writes nothing.
+    if "kind" in changed or "status" in changed:
+        _recompute_own_citations_on_commit(brand.team_id)
     return _to_brand(brand)
+
+
+def _recompute_own_citations_on_commit(team_id: int) -> None:
+    """Past checks were scored against the own domains of their run day, so a change to the own
+    domains recomputes them in the background, once the brand change is visible to the task.
+
+    Edits within the debounce window share one task, which reads the domains when it starts. When the
+    enqueue fails, the brand change stands and the reconcile after the next citation run catches up."""
+
+    def enqueue() -> None:
+        try:
+            if get_client().set(
+                f"aeo_own_citations_recompute_queued:{team_id}", 1, nx=True, ex=RECOMPUTE_DEBOUNCE_SECONDS
+            ):
+                recompute_aeo_own_citations_task.apply_async((team_id,), countdown=RECOMPUTE_DEBOUNCE_SECONDS)
+        except Exception as error:
+            capture_exception(error, {"team_id": team_id})
+
+    transaction.on_commit(enqueue)
+
+
+def _is_dns_name(domain: str) -> bool:
+    labels = domain.split(".")
+    return len(domain) <= 253 and len(labels) >= 2 and all(_DNS_LABEL.match(label) for label in labels)
+
+
+def _clean_aliases(aliases: tuple[str, ...]) -> list[str]:
+    # Order kept and duplicates dropped, so the mention regex gets each name once.
+    return list(dict.fromkeys(alias.strip() for alias in aliases if alias.strip()))
 
 
 def _get_brand_row(team_id: int, brand_id: str) -> AEOBrand:
@@ -896,10 +1031,21 @@ def _to_prompts(team_id: int, rows: list[AEOPrompt]) -> list[Prompt]:
     prompt_ids = [row.id for row in rows]
     latest_checks = _latest_checks(team_id, prompt_ids)
     version_counts = _version_counts(team_id, prompt_ids)
-    return [_to_prompt(row, latest_checks.get(row.id, ()), version_count=version_counts.get(row.id, 0)) for row in rows]
+    pattern = brand_pattern(catalog.own_domains(team_id))
+    return [
+        _to_prompt(
+            row,
+            latest_checks.get(row.id, ()),
+            version_count=version_counts.get(row.id, 0),
+            branded=bool(pattern and pattern.search(row.prompt)),
+        )
+        for row in rows
+    ]
 
 
-def _to_prompt(prompt: AEOPrompt, latest_checks: tuple[PromptEngineCheck, ...], *, version_count: int) -> Prompt:
+def _to_prompt(
+    prompt: AEOPrompt, latest_checks: tuple[PromptEngineCheck, ...], *, version_count: int, branded: bool
+) -> Prompt:
     visibility = (prompt.evidence or {}).get("external_visibility")
     return Prompt(
         id=str(prompt.id),
@@ -916,4 +1062,5 @@ def _to_prompt(prompt: AEOPrompt, latest_checks: tuple[PromptEngineCheck, ...], 
         current_version=prompt.current_version,
         version_count=version_count,
         latest_checks=latest_checks,
+        branded=branded,
     )
