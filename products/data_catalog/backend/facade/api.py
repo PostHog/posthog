@@ -26,6 +26,15 @@ from ..logic.metric_reads import (
     metric_names_for_ids,
     metric_reads_for_ids,
 )
+from ..logic.metric_search import (
+    MAX_SEARCH_PHRASING_LENGTH,
+    MAX_SEARCH_PHRASINGS,
+    SEARCH_DEFAULT_LIMIT,
+    SEARCH_MAX_LIMIT,
+    MetricSearchHit,
+    MetricSearchResult,
+    search_catalog,
+)
 from ..logic.metrics import (
     BULK_SKIP_NOT_FOUND,
     METRIC_BULK_MAX,
@@ -54,8 +63,15 @@ __all__ = [
     "DESCRIPTION_TOO_LONG_MESSAGE",
     "MAX_DESCRIPTION_LENGTH",
     "MAX_METRIC_RUN_PAGES",
+    "MAX_SEARCH_PHRASINGS",
+    "MAX_SEARCH_PHRASING_LENGTH",
     "METRIC_BULK_MAX",
     "METRIC_NAME_MAX_LENGTH",
+    "MetricSearchHit",
+    "MetricSearchResult",
+    "SEARCH_DEFAULT_LIMIT",
+    "SEARCH_MAX_LIMIT",
+    "search_catalog",
     "HogQLMetricDefinition",
     "Metric",
     "MetricBulkSkip",

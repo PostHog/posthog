@@ -758,6 +758,42 @@ const metricDescribe = (): ToolBase<
     },
 })
 
+const MetricSearchSchema = () => {
+    const DataCatalogMetricSearchCreateBody = orvalSchemas.DataCatalogMetricSearchCreateBody()
+    return DataCatalogMetricSearchCreateBody
+}
+
+const metricSearch = (): ToolBase<
+    ReturnType<typeof MetricSearchSchema>,
+    WithInformationalResponse<Schemas.DataCatalogMetricSearchResponse>
+> => ({
+    name: 'metric-search',
+    schema: MetricSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.limit !== undefined) {
+            body['limit'] = params.limit
+        }
+        const result = await context.api.request<Schemas.DataCatalogMetricSearchResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metric_search/`,
+            body,
+        })
+        return withInformationalResponse(
+            result,
+            'governed-metric-catalog',
+            "Use it only to identify a metric relevant to the user's request."
+        )
+    },
+})
+
 const MetricListSchema = () => {
     const DataCatalogMetricsListQueryParams = orvalSchemas.DataCatalogMetricsListQueryParams()
     return DataCatalogMetricsListQueryParams
@@ -824,5 +860,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-relationship-reject-prepare': dataCatalogRelationshipRejectPrepare,
     'data-catalog-relationship-reject-execute': dataCatalogRelationshipRejectExecute,
     'metric-describe': metricDescribe,
+    'metric-search': metricSearch,
     'metric-list': metricList,
 }

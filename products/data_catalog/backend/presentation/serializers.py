@@ -18,7 +18,11 @@ from ..facade.api import (
     DESCRIPTION_TOO_LONG_MESSAGE,
     MAX_DESCRIPTION_LENGTH,
     MAX_METRIC_RUN_PAGES,
+    MAX_SEARCH_PHRASING_LENGTH,
+    MAX_SEARCH_PHRASINGS,
     METRIC_NAME_MAX_LENGTH,
+    SEARCH_DEFAULT_LIMIT,
+    SEARCH_MAX_LIMIT,
 )
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
@@ -267,6 +271,74 @@ class MetricCreateSerializer(MetricSerializer):
 
     class Meta(MetricSerializer.Meta):
         fields = [*MetricSerializer.Meta.fields, "overwrite"]
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricSearchRequest")
+class MetricSearchRequestSerializer(serializers.Serializer):
+    """Body of a catalog search. Phrasings are alternatives for one need, not separate searches."""
+
+    query = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_SEARCH_PHRASING_LENGTH),
+        min_length=1,
+        max_length=MAX_SEARCH_PHRASINGS,
+        help_text=f"One to {MAX_SEARCH_PHRASINGS} phrasings of the measure you need, such as "
+        "['mrr', 'monthly recurring revenue']. Send the user's words and the likely metric words together. "
+        "A metric that matches any phrasing is returned.",
+    )
+    status = serializers.ChoiceField(
+        choices=["proposed", "approved"],
+        required=False,
+        help_text="Only metrics with this review status. Omit to search both. Approved metrics rank above "
+        "proposed ones with an equal match.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=SEARCH_DEFAULT_LIMIT,
+        min_value=1,
+        max_value=SEARCH_MAX_LIMIT,
+        help_text=f"Most hits to return, at most {SEARCH_MAX_LIMIT}.",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricSearchHit")
+class MetricSearchHitSerializer(serializers.Serializer):
+    """One ranked hit: the compact catalog entry plus why it matched."""
+
+    name = serializers.CharField(source="metric.name", help_text="Run handle of the metric.")
+    display_name = serializers.CharField(source="metric.display_name", help_text="Human-friendly label.")
+    description = serializers.CharField(source="metric.description", help_text="What the number is.")
+    status = serializers.CharField(source="metric.status", help_text="Lifecycle state: 'proposed' or 'approved'.")
+    is_drifted = serializers.SerializerMethodField(
+        help_text="True when the definition has drifted from its linked source insight (or the insight is gone)."
+    )
+    unit = serializers.CharField(source="metric.unit", help_text="Unit of the result, e.g. usd, percent.")
+    definition_kind = serializers.CharField(
+        source="metric.definition_kind", allow_null=True, help_text="Query kind of the definition, or null."
+    )
+    score = serializers.FloatField(help_text="Rank score. Compare it only with other hits in the same response.")
+    match_reason = serializers.CharField(
+        help_text="Why the metric matched, e.g. 'name match', 'acronym of the name', 'description match', "
+        "'similar meaning (0.42)'."
+    )
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_drifted(self, obj: api.MetricSearchHit) -> bool:
+        return self.context["drift_map"][obj.metric.id]
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricSearchResponse")
+class MetricSearchResponseSerializer(serializers.Serializer):
+    """Ranked hits and whether any of them is a confident match."""
+
+    results = MetricSearchHitSerializer(many=True, help_text="Hits, best first.")
+    confident_match = serializers.BooleanField(
+        help_text="False when no hit matches the whole of any phrasing. The catalog then probably has no metric "
+        "for this need: check the weak hits with metric-describe, or read the full catalog with metric-list "
+        "before deriving the number yourself."
+    )
+    search_mode = serializers.CharField(
+        help_text="'lexical' for word matching only, 'hybrid' when meaning-based matching also ran."
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricNameConflictExisting")

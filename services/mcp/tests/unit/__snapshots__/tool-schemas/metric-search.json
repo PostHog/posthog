@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Body of a catalog search. Phrasings are alternatives for one need, not separate searches.",
+    "properties": {
+        "limit": {
+            "default": 10,
+            "description": "Most hits to return, at most 50.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "number"
+        },
+        "query": {
+            "description": "One to 5 phrasings of the measure you need, such as ['mrr', 'monthly recurring revenue']. Send the user's words and the likely metric words together. A metric that matches any phrasing is returned.",
+            "items": {
+                "maxLength": 200,
+                "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "type": "array"
+        },
+        "status": {
+            "description": "Only metrics with this review status. Omit to search both. Approved metrics rank above proposed ones with an equal match.\n\n* `proposed` - proposed\n* `approved` - approved",
+            "enum": ["proposed", "approved"],
+            "type": "string"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

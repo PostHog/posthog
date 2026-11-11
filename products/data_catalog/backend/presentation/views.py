@@ -49,6 +49,8 @@ from .serializers import (
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
+    MetricSearchRequestSerializer,
+    MetricSearchResponseSerializer,
     MetricSerializer,
     RelationshipProposalSerializer,
     RelationshipRejectSerializer,
@@ -395,6 +397,42 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             request=request,
         )
         return Response(envelope)
+
+
+class MetricSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Ranked catalog search. On its own route, so no metric name can shadow it under /metrics/."""
+
+    scope_object = "data_catalog"
+    queryset = Metric.objects.unscoped()
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        # A search reads the catalog, although it is a POST with a body.
+        return ["data_catalog:read"]
+
+    @extend_schema(
+        description="Rank the catalog's metrics against one or more phrasings of a measure. Matches names, "
+        "display names, descriptions, and definition strings.",
+        request=MetricSearchRequestSerializer,
+        responses={200: MetricSearchResponseSerializer},
+    )
+    @validated_request(request_serializer=MetricSearchRequestSerializer)
+    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        user = cast(User, request.user)
+        result = api.search_catalog(
+            self.team,
+            api.metrics_visible_to_user(self.team, user, self.user_access_control),
+            request.validated_data["query"],
+            user=user,
+            status=request.validated_data.get("status"),
+            limit=request.validated_data["limit"],
+            request=request,
+        )
+        drift_map = api.compute_drift([hit.metric for hit in result.hits])
+        payload = MetricSearchResponseSerializer(
+            {"results": result.hits, "confident_match": result.confident_match, "search_mode": result.search_mode},
+            context={"drift_map": drift_map},
+        )
+        return Response(payload.data)
 
 
 class CertificationSearchFilter(CatalogSearchFilter):

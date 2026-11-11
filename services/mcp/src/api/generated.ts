@@ -33062,6 +33062,81 @@ export namespace Schemas {
       query_id?: string;
     }
 
+    /**
+     * One ranked hit: the compact catalog entry plus why it matched.
+     */
+    export interface DataCatalogMetricSearchHit {
+      /** Run handle of the metric. */
+      name: string;
+      /** Human-friendly label. */
+      display_name: string;
+      /** What the number is. */
+      description: string;
+      /** Lifecycle state: 'proposed' or 'approved'. */
+      status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted: boolean;
+      /** Unit of the result, e.g. usd, percent. */
+      unit: string;
+      /**
+         * Query kind of the definition, or null.
+         * @nullable
+         */
+      definition_kind: string | null;
+      /** Rank score. Compare it only with other hits in the same response. */
+      score: number;
+      /** Why the metric matched, e.g. 'name match', 'acronym of the name', 'description match', 'similar meaning (0.42)'. */
+      match_reason: string;
+    }
+
+    /**
+     * * `proposed` - proposed
+     * * `approved` - approved
+     */
+    export type DataCatalogMetricSearchRequestStatusEnum = typeof DataCatalogMetricSearchRequestStatusEnum[keyof typeof DataCatalogMetricSearchRequestStatusEnum];
+
+
+    export const DataCatalogMetricSearchRequestStatusEnum = {
+      Proposed: 'proposed',
+      Approved: 'approved',
+    } as const;
+
+    /**
+     * Body of a catalog search. Phrasings are alternatives for one need, not separate searches.
+     */
+    export interface DataCatalogMetricSearchRequest {
+      /**
+         * One to 5 phrasings of the measure you need, such as ['mrr', 'monthly recurring revenue']. Send the user's words and the likely metric words together. A metric that matches any phrasing is returned.
+         * @minItems 1
+         * @maxItems 5
+         * @items.maxLength 200
+         */
+      query: string[];
+      /** Only metrics with this review status. Omit to search both. Approved metrics rank above proposed ones with an equal match.
+       *
+       * * `proposed` - proposed
+       * * `approved` - approved */
+      status?: DataCatalogMetricSearchRequestStatusEnum;
+      /**
+         * Most hits to return, at most 50.
+         * @minimum 1
+         * @maximum 50
+         */
+      limit?: number;
+    }
+
+    /**
+     * Ranked hits and whether any of them is a confident match.
+     */
+    export interface DataCatalogMetricSearchResponse {
+      /** Hits, best first. */
+      results: DataCatalogMetricSearchHit[];
+      /** False when no hit matches the whole of any phrasing. The catalog then probably has no metric for this need: check the weak hits with metric-describe, or read the full catalog with metric-list before deriving the number yourself. */
+      confident_match: boolean;
+      /** 'lexical' for word matching only, 'hybrid' when meaning-based matching also ran. */
+      search_mode: string;
+    }
+
     export interface DataCatalogRelationshipProposal {
       readonly id: string;
       /**
