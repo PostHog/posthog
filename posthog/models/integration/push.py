@@ -138,7 +138,7 @@ class FirebaseIntegration:
         created_by: User | None = None,
         push_identity_verification: str | None = None,
         push_identity_public_keys: list[str] | None = None,
-    ) -> "model.Integration":
+    ) -> IntegrationRecord:
         scope = "https://www.googleapis.com/auth/firebase.messaging"
 
         key_info["token_uri"] = require_google_token_uri(key_info.get("token_uri"))
@@ -155,26 +155,22 @@ class FirebaseIntegration:
 
         # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
         with transaction.atomic():
-            integration, created = model.Integration.objects.update_or_create(
-                team_id=team_id,
-                kind="firebase",
-                integration_id=project_id,
-                defaults={
-                    "config": {
-                        **preserved_push_config(
-                            team_id, "firebase", project_id, push_identity_verification, push_identity_public_keys
-                        ),
-                        "project_id": project_id,
-                        "expires_in": credentials.expiry.timestamp() - int(time.time()),
-                        "refreshed_at": int(time.time()),
-                    },
-                    "sensitive_config": {
-                        "key_info": key_info,
-                        "access_token": credentials.token,
-                    },
-                    "created_by": created_by,
-                    "errors": "",
+            integration, _ = row_writes.creator_accessor("firebase").upsert(
+                team_id,
+                project_id,
+                config={
+                    **preserved_push_config(
+                        team_id, "firebase", project_id, push_identity_verification, push_identity_public_keys
+                    ),
+                    "project_id": project_id,
+                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                    "refreshed_at": int(time.time()),
                 },
+                sensitive_config={
+                    "key_info": key_info,
+                    "access_token": credentials.token,
+                },
+                created_by_id=created_by.id if created_by else None,
             )
 
         return integration
@@ -299,7 +295,7 @@ class ApplePushIntegration:
         environment: str = "production",
         push_identity_verification: str | None = None,
         push_identity_public_keys: list[str] | None = None,
-    ) -> "model.Integration":
+    ) -> IntegrationRecord:
         # The posted config is untyped JSON, so a field can arrive as any type. Stripping a number
         # below raises, which the endpoint answers with a server error rather than a validation one.
         if not all(
@@ -328,28 +324,25 @@ class ApplePushIntegration:
         integration_id = apns_integration_id(team_id_apple, bundle_id, environment)
         # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
         with transaction.atomic():
-            defaults = {
-                "config": {
-                    **preserved_push_config(
-                        team_id, "apns", integration_id, push_identity_verification, push_identity_public_keys
-                    ),
-                    "team_id": team_id_apple,
-                    "bundle_id": bundle_id,
-                    "key_id": key_id,
-                    "environment": environment,
-                },
-                "sensitive_config": {
-                    "signing_key": signing_key,
-                },
-                "errors": "",
+            config = {
+                **preserved_push_config(
+                    team_id, "apns", integration_id, push_identity_verification, push_identity_public_keys
+                ),
+                "team_id": team_id_apple,
+                "bundle_id": bundle_id,
+                "key_id": key_id,
+                "environment": environment,
             }
-            # A reconnect keeps the creator of the row.
-            integration, _ = model.Integration.objects.update_or_create(
-                team_id=team_id,
-                kind="apns",
-                integration_id=integration_id,
-                defaults=defaults,
-                create_defaults={**defaults, "created_by": created_by},
+            accessor = row_writes.creator_accessor("apns")
+            # A reconnect keeps the creator of the row. The advisory lock of `preserved_push_config`
+            # stops a concurrent setup from creating the row after this check.
+            new_row = not accessor.exists(team_id, external_id=integration_id)
+            integration, _ = accessor.upsert(
+                team_id,
+                integration_id,
+                config=config,
+                sensitive_config={"signing_key": signing_key},
+                created_by_id=created_by.id if created_by and new_row else None,
             )
 
         return integration

@@ -54,7 +54,7 @@
         "@modelcontextprotocol/ext-apps": "^1.7.5",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@posthog/llm-normalizer": "workspace:*",
-        "@posthog/mcp-analytics": "npm:@posthog/mcp@1.0.0",
+        "@posthog/mcp-analytics": "npm:@posthog/mcp@1.1.1",
         "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "@toon-format/toon": "^2.1.0",

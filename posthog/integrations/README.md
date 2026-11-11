@@ -66,6 +66,7 @@ These reads go across teams, for example to the teams that share one GitHub inst
 - `list_by_external_id(external_id, team_ids=None)` returns the rows with this external id.
 - `get_by_external_id(external_id, id)` returns the row with this id and this external id, or raises `IntegrationNotFound`.
 - `count_by_external_id(external_id)` and `exists_by_external_id(external_id)`.
+- `count_by_external_ids(external_ids)` returns `{external_id: count}` in one read, for a list page.
 
 They need an accessor with a kind: on `IntegrationManager.any` they raise `ValueError`, because external ids are unique only per provider.
 Do not take the first row of `list_by_external_id` without `team_ids`: the rule `github-installation-first-team` flags it for GitHub.
@@ -105,7 +106,10 @@ The operation has no count and no list of team ids: take them from the rows.
 
 `IntegrationManager.kinds(...)` takes `auth_types`: `"default"` (the default auth type of each kind), `"any"` for every auth type, or a list of auth types.
 
-Reads do not load the GitHub repository cache columns (`repository_cache`, `repository_cache_updated_at`). Django loads them with one more query when code reads them.
+Reads do not load the GitHub repository cache (`repository_cache`, `repository_cache_updated_at`), because the list can be large.
+Read it with `get_repository_cache(team_id, id)`, which returns a `RepositoryCache`.
+Store a fetch with `set_repository_cache(team_id, id, repositories=..., updated_at=...)`. Pass `repositories=None` when the list did not change, so the list is not written again.
+`expire_repository_cache_by_external_id(external_id)` marks the list of every team's row with this external id as stale.
 
 `where` compares named config keys for equality, for example `where={"region": "eu"}`.
 Equality also compares the JSON type, so `where={"installation_id": "123"}` misses a row that stores the number `123`.
@@ -120,8 +124,9 @@ Each operation has an async form with an `a` prefix: `aget`, `alist`, `aupdate`,
 Only an accessor with one auth type can write, because a new row has exactly one auth type.
 
 - `create(team_id, external_id=..., config=..., sensitive_config=..., created_by_id=...)`. It raises `IntegrationConflict` when the team already has a row of the kind with this external id, of any auth type.
-- `upsert(team_id, external_id, config=..., ...)` returns `(row, created)`. It replaces the config of an existing row. It raises `IntegrationConflict` when the existing row is not in the scope, for example a row with another auth type.
+- `upsert(team_id, external_id, config=..., ...)` returns `(row, created)`. It replaces the config of an existing row and clears its `errors`, because a new config is a reconnect. `created_by_id=None` keeps the creator of an existing row. It raises `IntegrationConflict` when the existing row is not in the scope, for example a row with another auth type.
 - `update(team_id, id, config_patch=..., config_remove=..., sensitive_config_patch=..., errors=...)` merges a patch. `errors=None` keeps the errors.
+- `update_where(team_id, where={...}, patch=...)` patches every row of the team whose config matches `where`, under row locks, all or none. It returns `UpdatedRows`: the matched rows after the write, and the ids of the rows that changed.
 - `update_by_external_id(external_id, patch)` patches the rows of every team that are in the scope. It writes only the rows that the patch changes, in one `bulk_update`, and returns their count. A `bulk_update` sends no `post_save` signal.
 - `change_external_id(team_id, id, external_id)` gives the row another external id. It raises `IntegrationConflict` when the team already has a row of the kind with that id.
 
@@ -164,10 +169,21 @@ The accessors hold the scope rules: the kinds, the auth types, the warehouse sou
 They send the storage work to one `StorageBackend` (`backend/protocol.py`), which `current_backend()` returns.
 The primitives take and return plain data (`RowScope`, `RowFilter`, `CrossTeamFilter`, `NewIntegration`, `IntegrationPatch`, records), so a backend can send them over HTTP.
 
-| Backend                       | Rows                                                        |
-| ----------------------------- | ----------------------------------------------------------- |
-| `DjangoBackend` (the default) | The `Integration` model. The only SDK code that queries it. |
-| `FakeBackend` (tests)         | A dict in memory. Returns `FrozenIntegrationRecord`s.       |
+| Backend                       | Rows                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| `DjangoBackend` (the default) | The `Integration` model. The only SDK code that queries it.             |
+| `ServiceBackend`              | The credentials service, over HTTP. Returns `FrozenIntegrationRecord`s. |
+| `FakeBackend` (tests)         | A dict in memory. Returns `FrozenIntegrationRecord`s.                   |
+
+`INTEGRATIONS_STORAGE_BACKEND` (`django` or `service`) chooses the backend of a deployment. No deployment uses `service` yet.
+
+`ServiceBackend` notes:
+
+- It signs a token for each request (`_ops_for` names the operations), with EdDSA (Ed25519). The private key comes from the file at `CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH`, read once per process. `CREDENTIALS_SERVICE_URL` is the service address. A single-ref call names exactly that ref, and each token has one owner. A cross-team token has none.
+- A plain read of the service returns no secrets. A team read gets the secrets of its rows from `POST /resolve`, and keeps them in memory for at most 60 seconds, never past the expiry of the access token. A write in the same process clears the entry. A write in another process can stay hidden for up to 60 seconds.
+- `list_across_teams` returns rows without secrets. A read of their secrets raises `IntegrationServiceError`. Read the row with `get`.
+- `change_external_id` and `refresh_access_token` raise `NotImplementedError` until the service has routes for them.
+- It maps each service error code to an SDK exception. A code with no SDK exception raises `IntegrationServiceError`. A transport failure or a key service failure raises `IntegrationServiceUnavailable`.
 
 To use the fake in a test:
 
@@ -184,7 +200,7 @@ with fake_integrations_backend() as backend:
 To add an operation:
 
 - When existing primitives can do it, add only the accessor method in `accessors.py`.
-- When it needs a new storage step, also add the primitive to `StorageBackend` in `backend/protocol.py`, implement it in `backend/django_backend.py` and `backend/fake_backend.py`, and add a case to `test/test_backends.py`, which runs against both backends.
+- When it needs a new storage step, also add the primitive to `StorageBackend` in `backend/protocol.py`, implement it in `backend/django_backend.py` and `backend/fake_backend.py`, and add a case to `test/test_backends.py`, which runs against every backend. When the service has a route for the step, add it to `backend/service_backend.py` and to the stub in `test/credentials_service_stub.py`. Otherwise skip the case for the service backend.
 
 ## Pick an auth type
 
