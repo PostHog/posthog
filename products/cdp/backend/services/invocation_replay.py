@@ -50,6 +50,7 @@ logger = structlog.get_logger(__name__)
 # person redundant. A template keyed on something else, like a company, does
 # not belong here, because two failures of one person can target two records.
 DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS = ("template-hubspot",)
+WORKFLOWS_TEMPLATE_KEY = "(workflows)"
 
 # Long enough to look up a replay after it ran, and to keep refusing a resend of
 # the same plan while its runs are still in flight.
@@ -323,7 +324,7 @@ class ReplayPlan:
     def invocations_by_template(self) -> dict[str, int]:
         counts: Counter[str] = Counter()
         for f in self.functions:
-            counts["(workflows)" if f.function_kind == "hog_flow" else f.template_id] += len(f.invocation_ids)
+            counts[WORKFLOWS_TEMPLATE_KEY if f.function_kind == "hog_flow" else f.template_id] += len(f.invocation_ids)
         return dict(counts.most_common())
 
     @property

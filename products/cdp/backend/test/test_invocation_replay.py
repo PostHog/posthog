@@ -27,6 +27,7 @@ from products.cdp.backend.services.invocation_replay import (
     ReplayOverlapError,
     _Failure,
     _plan_function,
+    _Target,
     can_release_replay,
     claim_replay,
     execute_replay,
@@ -151,10 +152,20 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         super().tearDown()
 
     def test_person_sync_picks_the_same_run_when_timestamps_tie_in_any_row_order(self) -> None:
-        function = _function(self.team, "template-hubspot")
+        function = _Target(
+            team_id=self.team.pk,
+            team_name="",
+            organization_name="",
+            function_kind="hog_function",
+            function_id="function-1",
+            function_name="",
+            template_id="template-hubspot",
+            not_replayable=None,
+            latest_per_person=True,
+        )
         failures = [
             _Failure(
-                function_id=str(function.id),
+                function_id=function.function_id,
                 invocation_id=_invocation_id(suffix),
                 person_id="person-1",
                 event_uuid="",
@@ -338,7 +349,11 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         for target in (function, workflow):
             _insert(target, [_row("a1", "failed"), _recovered()])
 
-        execute_replay(plan_replay(_criteria(include_workflows=True)), actor="test")
+        plan = plan_replay(_criteria(include_workflows=True))
+        claim = claim_replay(plan, actor="test")
+        assert claim is not None
+
+        execute_replay(plan, actor="test", claim=claim)
 
         sent = {(call.kwargs["function_kind"], call.kwargs["function_id"]) for call in rerun.call_args_list}
         assert sent == {("hog_function", str(function.id)), ("hog_flow", str(workflow.id))}
@@ -592,6 +607,17 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status
         task.delay.assert_not_called()
+
+    @parameterized.expand([("included", True), ("left_out", False)])
+    def test_workflow_failures_are_planned_only_when_included(self, _name: str, include: bool) -> None:
+        workflow = _workflow(self.team)
+        _insert(workflow, [_row("b1", "failed", 0), _recovered("person-workflow")])
+        query = f"{self.query}&include_workflows=on" if include else self.query
+
+        content = self.staff_client.get(f"{self.url}{query}").content.decode()
+
+        assert (str(workflow.id) in content) is include
+        assert str(self.function.id) in content
 
     def test_a_person_who_previews_needs_no_csrf_token_and_nothing_is_sent(self) -> None:
         with patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay") as task:
