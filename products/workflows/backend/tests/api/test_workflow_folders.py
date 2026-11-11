@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.db import close_old_connections, connection, transaction
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -313,6 +314,31 @@ class TestWorkflowFolders(APIBaseTest):
             FileSystem.objects.filter(team=self.team, type="message_template").delete()
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
         self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
+
+    def test_a_folder_delete_lists_the_team_surfaces_once_however_many_types_it_holds(self) -> None:
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+
+        def surface_reads_deleting(folder: str, with_workflow: bool) -> int:
+            self.client.post(
+                templates_url, {"name": f"{folder} email", "type": "email", "_create_in_folder": folder}, format="json"
+            )
+            if with_workflow:
+                workflow = HogFlow.objects.create(
+                    team=self.team, name=f"{folder} flow", status=HogFlow.State.ARCHIVED, created_by=self.user
+                )
+                FileSystem.objects.filter(team=self.team, type="hog_flow", ref=str(workflow.id)).update(
+                    path=f"{folder}/{workflow.name}", depth=2
+                )
+            entry = FileSystem.objects.create(team=self.team, path=folder, depth=1, type="folder")
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertFalse(FileSystem.objects.filter(team=self.team, path__startswith=f"{folder}/").exists())
+            return sum(
+                '"posthog_filesystem"."surface" IS NOT NULL' in query["sql"] for query in queries.captured_queries
+            )
+
+        self.assertEqual(surface_reads_deleting("Mixed", True), surface_reads_deleting("Single", False))
 
     def test_list_v2_off_writes_no_rows_and_hides_the_ones_filed_earlier(self) -> None:
         trigger = [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}]
