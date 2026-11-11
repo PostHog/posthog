@@ -1440,6 +1440,7 @@ describe('EmailService', () => {
             const sendAsTransactionalEmail = (): void => {
                 invocation.id = new UUIDT().toString()
                 invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             }
             const statusTopicEndOffsets = async (): Promise<TopicPartitionOffset[]> => {
                 const metadata = await new Promise<Metadata>((resolve, reject) =>
