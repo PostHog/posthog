@@ -15,6 +15,7 @@ import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
 import { urls } from 'scenes/urls'
 
 import { todayMenuLinkItem } from './todayMenuLinkItem'
+import { TodayMoreMenuSupportItem } from './TodayMoreMenuSupportItem'
 import { TodayNavSwitchMenuItem } from './TodayNavSwitchMenuItem'
 import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
@@ -58,6 +59,8 @@ export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'ta
                 }
             />
             <DropdownMenuContent side={placement === 'tab-bar' ? 'top' : 'right'} align="end" className="w-56">
+                <TodayMoreMenuSupportItem />
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                     render={todayMenuLinkItem(statusPageUrl, { external: true })}
                     description={

@@ -1,7 +1,3 @@
-// The repo hub landing page: the window-scoped sections (CI health, merge queue, master health,
-// workflows) inside a panel whose rim carries the date filter, then the current-state PR backlog
-// below it.
-
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
@@ -51,25 +47,19 @@ export function RepoOverviewScene(): JSX.Element {
         useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
 
-    // Window/source changes reload the overview, activity, and workflow health (the date-scoped
-    // surfaces); the PR backlog is current-state, not windowed, so it stays put. Surface the reload
-    // so a window change doesn't silently swap stale numbers.
+    // The PR backlog is current-state, not windowed, so its load is not part of the reload.
     const hubReloading = overviewLoading || repoActivityLoading || workflowHealthLoading
 
-    // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
-    // to the dedicated full table. Workflows are ranked by cost (or run count) to pick the top few; the
-    // table then displays them merge-queue-first. The server already orders them failing-first.
     const shownPrs = attention.rows.slice(0, prPreviewCount)
     const canShowMorePrs = shownPrs.length < attention.rows.length && prPreviewCount < HUB_PREVIEW_MAX
-    // Rank the leaderboard by spend when cost is known (where the money goes), else by run volume.
     const rankedWorkflows = jobsAvailable
         ? [...workflowHealth].sort((a, b) => (b.estimatedCostUsd ?? -1) - (a.estimatedCostUsd ?? -1))
         : [...workflowHealth].sort((a, b) => b.runCount - a.runCount)
     const shownWorkflows = rankedWorkflows.slice(0, workflowPreviewCount)
     const canShowMoreWorkflows = shownWorkflows.length < workflowHealth.length && workflowPreviewCount < HUB_PREVIEW_MAX
 
-    // jobsAvailable reads false until the overview payload lands, so "not synced" messaging
-    // during the initial fetch would misread as a broken setup — hold it back while loading.
+    // jobsAvailable reads false until the overview payload lands. A "not synced" message during the
+    // first fetch would read as a broken setup, so it waits for the payload.
     const overviewPending = overviewLoading && !overview
 
     const asMinutes = (seconds: number | null | undefined): number | null => (seconds != null ? seconds / 60 : null)
@@ -92,9 +82,7 @@ export function RepoOverviewScene(): JSX.Element {
         <div className="flex flex-col gap-4">
             {/* The PR backlog below the panel is current-state, not windowed. */}
             <ScopePanel busy={hubReloading}>
-                {/* The windowed headline metrics: each card compares this window against the previous
-                        one directly (two values), not as a time series. CI cost is a window total, not a
-                        rate, so its number lives on the Workflows section below. */}
+                {/* CI cost is a window total, not a rate, so its number lives on the Workflows section below. */}
                 <Section id="ci-health" title="CI health" busy={overviewLoading}>
                     <div className="@container">
                         <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2">
@@ -160,9 +148,7 @@ export function RepoOverviewScene(): JSX.Element {
                     title={`${overviewDefaultBranch === 'main' ? 'Main' : 'Master'} health`}
                     busy={repoActivityLoading}
                 >
-                    {/* Hub preview: one bar per default-branch commit, height = CI duration, color = verdict, so
-                    "is master healthy and fast lately" reads at a glance without the full chart's weight. The
-                    full scatter (start-time axis, in-flight band, zoom) lives on the workflow page. */}
+                    {/* One bar per default-branch commit. The full scatter lives on the workflow page. */}
                     {repoActivityLoading ? (
                         <LemonSkeleton className="h-40 w-full" />
                     ) : repoActivityFailed ? (

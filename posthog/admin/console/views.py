@@ -13,7 +13,8 @@ from django.db.models import Model, Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_safe
+from django.utils.cache import add_never_cache_headers
+from django.views.decorators.http import require_GET, require_safe
 
 import structlog
 
@@ -22,6 +23,7 @@ from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, SUPPORT_TICKET_PARAM, RecordLink, RecordType
 from posthog.admin.console.registry import console
+from posthog.admin.console.results import OperationResult, OperationResults, ResultState
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
@@ -242,7 +244,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
                         kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
                     ),
                 )
-                for operation in panel.operations(obj)
+                for operation in _offered_operations(panel, obj)
             ],
         )
         for panel in console.panels_for(record_type.key)
@@ -272,14 +274,23 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
     )
 
 
+def _offered_operations(panel: Panel, obj: Model) -> list[Operation]:
+    operations = panel.operations(obj)
+    if panel.operation_keys is not None:
+        undeclared = sorted({operation.key for operation in operations} - panel.operation_keys)
+        if undeclared:
+            raise ValueError(f"Console panel {panel.key!r} offers operations missing from operation_keys: {undeclared}")
+    return operations
+
+
 def _is_offered(panel: Panel, obj: Model, operation_key: str) -> bool:
-    return any(operation.key == operation_key for operation in panel.operations(obj))
+    return any(operation.key == operation_key for operation in _offered_operations(panel, obj))
 
 
 def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
     # Look the operation up in what the panel offers now, so a stale form cannot run an operation the
     # current state no longer allows, for example suspending a team that is already suspended.
-    for operation in panel.operations(obj):
+    for operation in _offered_operations(panel, obj):
         if operation.key == operation_key:
             return operation
     raise Http404("This operation is not available for this record right now")
@@ -373,7 +384,7 @@ class ConfirmStep:
     def render_preview(
         self, request: HttpRequest, context: dict[str, object], form: forms.Form, preview: Callable[[], Page]
     ) -> HttpResponse:
-        page = preview()
+        page = preview().refuse_secrets("preview")
         if form.errors:
             return render(request, "admin_console/operation.html", context, status=400)
         return render(
@@ -381,6 +392,39 @@ class ConfirmStep:
             "admin_console/confirm.html",
             {**context, "page": page, "confirm_token": self.confirmation.sign(form)},
         )
+
+
+def _no_store(response: HttpResponse) -> HttpResponse:
+    add_never_cache_headers(response)
+    return response
+
+
+def _show_result(
+    request: HttpRequest, operation: Operation | ToolOperation, target: OperationTarget, page: Page
+) -> HttpResponse:
+    result = OperationResult(
+        actor_id=cast(User, request.user).pk, operation_label=operation.label, target=target, page=page
+    )
+    try:
+        return _no_store(OperationResults.redirect_to(result))
+    except Exception:
+        # The operation already ran, and its result may hold a password that the control plane returns only
+        # once. When the result cannot be stored, this response is the only way left to show it, so the page
+        # renders here, at the cost that a reload would submit the form again.
+        logger.exception("admin_console_result_handoff_failed", operation=operation.key)
+        context = {**ConsoleEnvironment.context(), "result": result}
+        return _no_store(render(request, "admin_console/result.html", context))
+
+
+@require_GET
+def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
+    """The result page of an operation that ran. It shows once, so a reload never runs the operation again."""
+    read = OperationResults.take(request, result_id)
+    context = {**ConsoleEnvironment.context(), "result": read.result, "state": read.state}
+    response = render(request, "admin_console/result.html", context, status=200 if read.result else 410)
+    if read.state != ResultState.KEY_MISSING:
+        OperationResults.forget_key(response, result_id)
+    return _no_store(response)
 
 
 def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
@@ -454,6 +498,8 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
     response = _audited(audit, lambda: operation.handler(request, obj, form))
     if response is None:
         return redirect(record_url)
+    if isinstance(response, Page):
+        return _show_result(request, operation, target, response)
     if response.status_code >= 400:
         obj.refresh_from_db()
         # A handler can fail after its state change committed, for example when a notification fails.
@@ -508,7 +554,7 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         {
             **ConsoleEnvironment.context(),
             "tool": tool,
-            "page": tool.page(request),
+            "page": tool.page(request).refuse_secrets("tool page"),
             "operations": operations,
             "query_suffix": _query_suffix(request),
         },
@@ -582,7 +628,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if result is None:
         return redirect(tool_url)
     if isinstance(result, Page):
-        return render(request, "admin_console/result.html", {**context, "page": result})
+        return _show_result(request, operation, target, result)
     if result.status_code >= 400:
         if form is not None:
             return render(request, "admin_console/operation.html", context, status=result.status_code)
