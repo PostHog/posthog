@@ -180,4 +180,15 @@ describe('HogFlowActionSchema', () => {
             expect(issue?.message).toBe(message)
         }
     })
+
+    it('asks for at least one day when a time window has none', () => {
+        const result = HogFlowActionSchema.safeParse({
+            id: 'window_node',
+            name: 'Time window',
+            type: 'wait_until_time_window',
+            description: '',
+            config: { timezone: 'UTC', day: [], time: 'any' },
+        })
+        expect(result.error?.issues.map((issue) => issue.message)).toEqual(['Choose at least one day'])
+    })
 })

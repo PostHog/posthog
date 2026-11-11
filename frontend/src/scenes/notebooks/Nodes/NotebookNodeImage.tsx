@@ -1,4 +1,4 @@
-import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -51,15 +51,6 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         }
     }, [src, file])
 
-    const onImageLoad: ReactEventHandler<HTMLImageElement> = (e): void => {
-        if (!height) {
-            // Set the height value to match the image if it isn't already set
-            updateAttributes({
-                height: Math.min(e.currentTarget.naturalHeight, MAX_DEFAULT_HEIGHT),
-            })
-        }
-    }
-
     if (error) {
         return (
             <div className="flex flex-1 items-center justify-center">
@@ -70,7 +61,12 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
 
     return (
         <>
-            <img src={imageSource} onLoad={onImageLoad} alt="user uploaded file" />
+            <img
+                src={imageSource}
+                alt="user uploaded file"
+                className="w-full object-contain"
+                style={{ height: height ? '100%' : 'auto', maxHeight: height ? undefined : MAX_DEFAULT_HEIGHT }}
+            />
             {uploading ? <SpinnerOverlay className="text-3xl" /> : null}
         </>
     )
@@ -89,7 +85,7 @@ export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttrib
         // TODO file is null when this runs... should it be?
         return attrs?.file?.name || ''
     },
-    heightEstimate: 400,
+    heightEstimate: 'auto',
     minHeight: 100,
     resizeable: true,
     expandable: false,
