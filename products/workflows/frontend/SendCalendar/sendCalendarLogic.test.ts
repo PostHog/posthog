@@ -37,12 +37,11 @@ const WEEK_OF_SEND = SEND_AT.subtract(SEND_AT.day(), 'day').startOf('day')
 const NEXT_WEEK = WEEK_OF_SEND.add(7, 'day')
 
 const ONE_TIME_RRULE = 'FREQ=DAILY;COUNT=1'
+const ONE_TIME_RRULE_ON_SEND_WEEKDAY = `FREQ=WEEKLY;BYDAY=${['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][SEND_AT.day()]};COUNT=1`
 
 const SCHEDULE: HogFlowScheduleApi = {
     id: 'schedule-1',
-    // A move rewrites a one-time rule that names a weekday into a plain one-time rule. The server keeps the stored
-    // rule when a save leaves it out, so only this kind of rule shows whether a move or an Undo saved it.
-    rrule: `FREQ=WEEKLY;BYDAY=${['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][SEND_AT.day()]};COUNT=1`,
+    rrule: ONE_TIME_RRULE_ON_SEND_WEEKDAY,
     starts_at: SEND_AT.toISOString(),
     timezone: 'UTC',
     status: 'active',
@@ -148,16 +147,16 @@ describe('sendCalendarLogic', () => {
 
     it('refuses Undo when a teammate changed the schedule after the move', async () => {
         await dropOnMovedDay()
-        const teammateEdit = { ...server.schedule, rrule: TEAMMATE_EDIT.rrule }
-        server.schedule = teammateEdit
+        const teammateEditAfterMove = { ...server.schedule, rrule: TEAMMATE_EDIT.rrule }
+        server.schedule = teammateEditAfterMove
 
         await clickUndo()
 
-        expect(server.schedule).toEqual(teammateEdit)
+        expect(server.schedule).toEqual(teammateEditAfterMove)
         expect(lemonToast.error).toHaveBeenCalledWith(
             "Couldn't undo the move. Its schedule changed after the calendar loaded. Check the reloaded calendar and try again."
         )
-        expect(logic.values.scheduledFlows?.[0].schedules).toEqual([teammateEdit])
+        expect(logic.values.scheduledFlows?.[0].schedules).toEqual([teammateEditAfterMove])
     })
 
     it('refuses to move a send whose time passed while the calendar was open, and reloads', async () => {
