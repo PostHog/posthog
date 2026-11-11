@@ -44,12 +44,18 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformLastCheck,
     PlatformOwnershipHandover,
     SourceKind,
+    StateInterval,
     StoredAlertDestination,
     StoredAlertReceiver,
     StoredAlertRoute,
     VerdictChange,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import (
+    HoldRelease,
+    HoldReleasedBy,
+    PlatformAlertOwner,
+    PlatformAlertState,
+)
 from products.alerts_platform.backend.logic import (
     alert_destinations,
     alert_routing,
@@ -58,6 +64,7 @@ from products.alerts_platform.backend.logic import (
     platform_lifecycle,
     platform_reads,
     platform_writes,
+    state_timeline as state_timeline_logic,
     verdict_changes,
 )
 
@@ -428,6 +435,24 @@ def control_history_by_public_id(
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
     return platform_reads.control_history_by_public_id(team_id=team_id, public_ids=public_ids, since=since, until=until)
+
+
+def state_timeline(
+    *,
+    history: PlatformAlertHistory | None,
+    control: PlatformControlHistory | None,
+    current_state: PlatformAlertState,
+    current_enabled: bool,
+    window: tuple[datetime, datetime],
+) -> tuple[StateInterval, ...]:
+    """An alert's state over `window` from its check history and control-plane changes, oldest first."""
+    return state_timeline_logic.state_timeline(
+        history=history,
+        control=control,
+        current_state=current_state,
+        current_enabled=current_enabled,
+        window=window,
+    )
 
 
 def update_configuration(

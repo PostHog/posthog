@@ -12,18 +12,11 @@ from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
     PlatformAlertHistory,
     PlatformControlHistory,
+    StateInterval,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 
 _TOGGLES = {ControlChangeKind.ENABLE: True, ControlChangeKind.DISABLE: False}
-
-
-@frozen
-class StateInterval:
-    start: datetime
-    end: datetime
-    state: PlatformAlertState
-    enabled: bool
 
 
 @frozen

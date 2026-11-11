@@ -21,9 +21,9 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformControlHistory,
     PlatformLastCheck,
+    StateInterval,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
-from products.alerts_platform.backend.logic.state_timeline import StateInterval, state_timeline
 
 logger = structlog.get_logger(__name__)
 
@@ -87,7 +87,7 @@ def list_extras(
             last_error_message=histories[configuration.id].last_error_message
             if configuration.id in histories
             else None,
-            state_timeline=state_timeline(
+            state_timeline=platform_api.state_timeline(
                 history=histories.get(configuration.id),
                 control=controls.get(configuration.id),
                 current_state=_whole_alert_state(configuration),

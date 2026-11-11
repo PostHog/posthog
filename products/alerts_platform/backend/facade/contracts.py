@@ -558,6 +558,16 @@ class PlatformControlHistory:
     toggle_before: ControlChangeKind | None
 
 
+@frozen
+class StateInterval:
+    """A stretch of an alert's recent past with one state and one enabled setting, as alert lists draw it."""
+
+    start: datetime
+    end: datetime
+    state: PlatformAlertState
+    enabled: bool
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 
