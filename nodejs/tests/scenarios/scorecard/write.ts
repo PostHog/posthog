@@ -21,7 +21,7 @@ const REQUEST_TIMEOUT_MS = 10_000
 
 export type WriteOptions = { pollMs?: number; deadlineMs?: number }
 
-export type WriteOutcome = { recorded: boolean; problem?: string }
+export type WriteOutcome = { recorded: boolean; captured?: true; problem?: string }
 
 export function credentialsOf(env: NodeJS.ProcessEnv): { credentials?: Credentials; problem?: string } {
     const keys = Object.keys(CREDENTIALS) as (keyof Credentials)[]
@@ -99,7 +99,7 @@ async function readBack(
 
 function interrupted(captured: boolean, error: unknown): WriteOutcome {
     return captured
-        ? { recorded: false }
+        ? { recorded: false, captured: true }
         : {
               recorded: false,
               problem: `the run was interrupted before the scorecard was captured: ${(error as Error).message}`,

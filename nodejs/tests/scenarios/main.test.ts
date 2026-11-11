@@ -9,6 +9,7 @@ import * as stack from './environment/stack'
 import { main, runCards } from './main'
 import { RunResult, Runner, createRunner } from './runner/runner'
 import { EXIT_CODE } from './runner/status'
+import { startFakeProjectApi } from './scorecard/fake-project-api'
 
 const SMOKE = load(path.join(__dirname, 'cards', 'smoke.yaml'))
 
@@ -29,16 +30,46 @@ const passed = (cardId: string): RunResult => ({
     evidenceDir: '/tmp/scenario-evidence',
 })
 
+const runnerEnv = (cacheHome: string, credentials: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
+    ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('SCENARIO_RUNS_'))),
+    XDG_CACHE_HOME: cacheHome,
+    ...credentials,
+})
+
+function environmentWhoseResetFails(): Environment {
+    let edgeUrl: string | undefined = 'http://127.0.0.1:1'
+    return {
+        up: () => Promise.resolve(),
+        reset: () => {
+            edgeUrl = undefined
+            return Promise.reject(new Error('cdp-api did not join its consumer group'))
+        },
+        edgeUrl: () => {
+            if (edgeUrl === undefined) {
+                throw new Error('Start the environment with up() before edgeUrl().')
+            }
+            return edgeUrl
+        },
+        role: (name) => ({ name, metricsUrl: '' }),
+        health: () => Promise.resolve({ healthy: true, down: [] }),
+        exits: () => [],
+        down: () => Promise.resolve(),
+    }
+}
+
 describe('runCards', () => {
     let stderr: jest.SpyInstance
+    let cacheHome: string
 
     beforeEach(() => {
+        cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-main-'))
         jest.spyOn(process.stdout, 'write').mockReturnValue(true)
         stderr = jest.spyOn(process.stderr, 'write').mockReturnValue(true)
     })
 
     afterEach(() => {
         jest.restoreAllMocks()
+        rmSync(cacheHome, { recursive: true, force: true })
     })
 
     it.each<[string, 'up' | 'first run' | 'up fails' | 'never', number, string]>([
@@ -143,38 +174,36 @@ describe('runCards', () => {
     })
 
     it('names the failed reset for the cards it skips once a reset stopped the environment', async () => {
-        const cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-main-'))
-        let edgeUrl: string | undefined = 'http://127.0.0.1:1'
-        const environment: Environment = {
-            up: () => Promise.resolve(),
-            reset: () => {
-                edgeUrl = undefined
-                return Promise.reject(new Error('cdp-api did not join its consumer group'))
-            },
-            edgeUrl: () => {
-                if (edgeUrl === undefined) {
-                    throw new Error('Start the environment with up() before edgeUrl().')
-                }
-                return edgeUrl
-            },
-            role: (name) => ({ name, metricsUrl: '' }),
-            health: () => Promise.resolve({ healthy: true, down: [] }),
-            exits: () => [],
-            down: () => Promise.resolve(),
-        }
-        const runner = createRunner(environment, { ...process.env, XDG_CACHE_HOME: cacheHome })
+        const runner = createRunner(environmentWhoseResetFails(), runnerEnv(cacheHome))
+
+        const exitCode = await runCards(runner, [SMOKE, SMOKE], new AbortController().signal)
+
+        expect({ exitCode, stderr: stderr.mock.calls.map(([text]) => text).join('') }).toEqual({
+            exitCode: EXIT_CODE.invalid,
+            stderr: expect.stringMatching(
+                /The reset before run [\w-]+ failed and stopped the environment: cdp-api did not join its consumer group\. Restart the runner, then run the card again\.\nSkipped 1 of 2 cards after the error\.\n$/
+            ),
+        })
+    })
+
+    it('says the scorecard was captured when the run is interrupted before it was read back', async () => {
+        const api = await startFakeProjectApi()
+        const interrupt = new AbortController()
+        api.hideForQueries = Infinity
+        api.onCapture = () => interrupt.abort()
+        const runner = createRunner(environmentWhoseResetFails(), runnerEnv(cacheHome, api.credentials))
 
         try {
-            const exitCode = await runCards(runner, [SMOKE, SMOKE], new AbortController().signal)
+            const exitCode = await runCards(runner, [SMOKE], interrupt.signal)
 
-            expect({ exitCode, stderr: stderr.mock.calls.map(([text]) => text).join('') }).toEqual({
+            const stdout = jest.mocked(process.stdout.write).mock.calls.map(([text]) => String(text))
+            expect({ exitCode, scorecard: stdout.filter((text) => text.startsWith('scorecard:')) }).toEqual({
                 exitCode: EXIT_CODE.invalid,
-                stderr: expect.stringMatching(
-                    /The reset before run [\w-]+ failed and stopped the environment: cdp-api did not join its consumer group\. Restart the runner, then run the card again\.\nSkipped 1 of 2 cards after the error\.\n$/
-                ),
+                scorecard: ['scorecard: captured; the run was interrupted before it was read back\n'],
             })
+            expect(api.captured).toHaveLength(1)
         } finally {
-            rmSync(cacheHome, { recursive: true, force: true })
+            await api.close()
         }
     })
 })

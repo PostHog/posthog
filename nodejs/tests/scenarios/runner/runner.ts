@@ -26,6 +26,7 @@ export type RunResult = {
     status: Status
     statusReason: string
     recorded: boolean
+    captured?: true
     scorecardError?: string
     cardId: string
     cardHash: string
@@ -228,7 +229,12 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             const judged = withEvidenceError(base, evidenceError)
             const event = scorecardOf(judged, loaded, provenanceOf())
             const written = await publish(event, env, signal)
-            const result: RunResult = { ...judged, recorded: written.recorded, scorecardError: written.problem }
+            const result: RunResult = {
+                ...judged,
+                recorded: written.recorded,
+                captured: written.captured,
+                scorecardError: written.problem,
+            }
             const filesError =
                 evidenceError === undefined
                     ? await errorOf(() => {

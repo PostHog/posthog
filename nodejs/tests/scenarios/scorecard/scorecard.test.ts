@@ -202,7 +202,7 @@ describe('scorecard', () => {
                 deadlineMs: 120_000,
             })
 
-            expect(outcome).toEqual({ recorded: false })
+            expect(outcome).toEqual({ recorded: false, captured: true })
             expect(api.captured).toHaveLength(1)
             expect(api.queries).toBe(1)
         },

@@ -67,7 +67,8 @@ export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: A
             const result = await runner.run(loaded, interrupt)
             process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
             process.stdout.write(`evidence: ${result.evidenceDir}\n`)
-            const recording = result.recorded ? ['recorded'] : []
+            const readBackSkipped = result.captured ? ['captured; the run was interrupted before it was read back'] : []
+            const recording = result.recorded ? ['recorded'] : readBackSkipped
             const problems = result.scorecardError ? [result.scorecardError] : []
             const scorecard = [...recording, ...problems].join('; ') || 'not written, no credentials set'
             process.stdout.write(`scorecard: ${scorecard}\n`)
