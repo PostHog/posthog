@@ -18,7 +18,7 @@ import { releaseLogic } from './releaseLogic'
 import { STAGE_TONE } from './releaseUtils'
 
 export function ReleaseSidebar(): JSX.Element {
-    const { rows, decisionRows, flags, experiments, earlyAccessFeatures } = useValues(releaseLogic)
+    const { rows, decisionRows, activeFlags, experiments, earlyAccessFeatures } = useValues(releaseLogic)
     const { location } = useValues(router)
     const [query, setQuery] = useState('')
     const [closed, setClosed] = useState<Record<string, boolean>>({})
@@ -34,7 +34,7 @@ export function ReleaseSidebar(): JSX.Element {
             label: 'Feature flags',
             to: urls.featureFlags(),
             type: 'feature_flag',
-            count: flags.length,
+            count: activeFlags.length,
             prefix: '/feature-flags',
         },
         {

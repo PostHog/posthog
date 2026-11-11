@@ -32,41 +32,42 @@ export interface PaginatedReleaseDTOListApi {
 
 export interface WriteReleaseApi {
     /**
-     * Name of the feature.
+     * Name of the release.
      * @maxLength 255
      */
     name: string
-    /** What the feature does for the people who get it. */
+    /** What changes for the people who get the release. */
     description?: string
     /**
-     * ID of the user who owns the release of this feature.
+     * ID of the user who owns the release. Must be a member of the project's organization.
      * @nullable
      */
     owner_id?: number | null
-    /** IDs of the feature flags that gate this feature. */
+    /** IDs of the feature flags that control who gets the release. */
     feature_flag_ids?: number[]
 }
 
-export interface PatchedWriteReleaseApi {
+export interface PatchedUpdateReleaseApi {
     /**
-     * Name of the feature.
+     * Name of the release.
      * @maxLength 255
      */
     name?: string
-    /** What the feature does for the people who get it. */
+    /** What changes for the people who get the release. */
     description?: string
     /**
-     * ID of the user who owns the release of this feature.
+     * ID of the user who owns the release. Must be a member of the project's organization.
      * @nullable
      */
     owner_id?: number | null
-    /** IDs of the feature flags that gate this feature. */
+    /** IDs of the feature flags that control who gets the release. */
     feature_flag_ids?: number[]
 }
 
 export type ReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

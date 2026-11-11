@@ -9,20 +9,38 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create a release.
+ */
 export const releasesCreateBodyNameMax = 255
 
 export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(releasesCreateBodyNameMax).describe('Name of the feature.'),
-    description: zod.string().optional().describe('What the feature does for the people who get it.'),
-    owner_id: zod.number().nullish().describe('ID of the user who owns the release of this feature.'),
-    feature_flag_ids: zod.array(zod.number()).optional().describe('IDs of the feature flags that gate this feature.'),
+    name: zod.string().max(releasesCreateBodyNameMax).describe('Name of the release.'),
+    description: zod.string().optional().describe('What changes for the people who get the release.'),
+    owner_id: zod
+        .number()
+        .nullish()
+        .describe("ID of the user who owns the release. Must be a member of the project's organization."),
+    feature_flag_ids: zod
+        .array(zod.number())
+        .optional()
+        .describe('IDs of the feature flags that control who gets the release.'),
 })
 
+/**
+ * Change the name, description, owner or linked flags of a release.
+ */
 export const releasesPartialUpdateBodyNameMax = 255
 
 export const ReleasesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(releasesPartialUpdateBodyNameMax).optional().describe('Name of the feature.'),
-    description: zod.string().optional().describe('What the feature does for the people who get it.'),
-    owner_id: zod.number().nullish().describe('ID of the user who owns the release of this feature.'),
-    feature_flag_ids: zod.array(zod.number()).optional().describe('IDs of the feature flags that gate this feature.'),
+    name: zod.string().max(releasesPartialUpdateBodyNameMax).optional().describe('Name of the release.'),
+    description: zod.string().optional().describe('What changes for the people who get the release.'),
+    owner_id: zod
+        .number()
+        .nullish()
+        .describe("ID of the user who owns the release. Must be a member of the project's organization."),
+    feature_flag_ids: zod
+        .array(zod.number())
+        .optional()
+        .describe('IDs of the feature flags that control who gets the release.'),
 })

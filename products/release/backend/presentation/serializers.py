@@ -3,6 +3,8 @@
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.models import OrganizationMembership
+
 from ..facade.contracts import ReleaseDTO
 
 
@@ -12,15 +14,29 @@ class ReleaseSerializer(DataclassSerializer):
 
 
 class WriteReleaseSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=255, help_text="Name of the feature.")
+    name = serializers.CharField(max_length=255, help_text="Name of the release.")
     description = serializers.CharField(
-        allow_blank=True, required=False, help_text="What the feature does for the people who get it."
+        allow_blank=True, required=False, help_text="What changes for the people who get the release."
     )
     owner_id = serializers.IntegerField(
-        allow_null=True, required=False, help_text="ID of the user who owns the release of this feature."
+        allow_null=True,
+        required=False,
+        help_text="ID of the user who owns the release. Must be a member of the project's organization.",
     )
     feature_flag_ids = serializers.ListField(
         child=serializers.IntegerField(),
         required=False,
-        help_text="IDs of the feature flags that gate this feature.",
+        help_text="IDs of the feature flags that control who gets the release.",
     )
+
+    def validate_owner_id(self, value: int | None) -> int | None:
+        if value is None:
+            return value
+        team = self.context["team"]
+        if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=value).exists():
+            raise serializers.ValidationError("The owner must be a member of this organization.")
+        return value
+
+
+class UpdateReleaseSerializer(WriteReleaseSerializer):
+    name = serializers.CharField(max_length=255, required=False, help_text="Name of the release.")

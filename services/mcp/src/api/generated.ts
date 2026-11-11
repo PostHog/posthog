@@ -92515,6 +92515,23 @@ export namespace Schemas {
       widgets?: UpdateDashboardWidgetRequest[];
     }
 
+    export interface PatchedUpdateRelease {
+      /**
+         * Name of the release.
+         * @maxLength 255
+         */
+      name?: string;
+      /** What changes for the people who get the release. */
+      description?: string;
+      /**
+         * ID of the user who owns the release. Must be a member of the project's organization.
+         * @nullable
+         */
+      owner_id?: number | null;
+      /** IDs of the feature flags that control who gets the release. */
+      feature_flag_ids?: number[];
+    }
+
     /**
      * @nullable
      */
@@ -93098,23 +93115,6 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       readonly created_at?: string;
       readonly updated_at?: string;
-    }
-
-    export interface PatchedWriteRelease {
-      /**
-         * Name of the feature.
-         * @maxLength 255
-         */
-      name?: string;
-      /** What the feature does for the people who get it. */
-      description?: string;
-      /**
-         * ID of the user who owns the release of this feature.
-         * @nullable
-         */
-      owner_id?: number | null;
-      /** IDs of the feature flags that gate this feature. */
-      feature_flag_ids?: number[];
     }
 
     export interface PathCleaningPreviewExample {
@@ -121963,18 +121963,18 @@ export namespace Schemas {
 
     export interface WriteRelease {
       /**
-         * Name of the feature.
+         * Name of the release.
          * @maxLength 255
          */
       name: string;
-      /** What the feature does for the people who get it. */
+      /** What changes for the people who get the release. */
       description?: string;
       /**
-         * ID of the user who owns the release of this feature.
+         * ID of the user who owns the release. Must be a member of the project's organization.
          * @nullable
          */
       owner_id?: number | null;
-      /** IDs of the feature flags that gate this feature. */
+      /** IDs of the feature flags that control who gets the release. */
       feature_flag_ids?: number[];
     }
 
@@ -137517,6 +137517,7 @@ export namespace Schemas {
     export type ReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**

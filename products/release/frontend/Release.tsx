@@ -58,8 +58,8 @@ function ReleaseSkeleton(): JSX.Element {
 }
 
 export function Release({ id }: ReleaseSceneProps): JSX.Element {
-    const { rows, dataLoading } = useValues(releaseLogic)
-    const { updateRelease } = useActions(releaseLogic)
+    const { rows, dataLoading, loadFailed } = useValues(releaseLogic)
+    const { updateRelease, reload } = useActions(releaseLogic)
     const row = rows.find((item) => item.id === id)
 
     if (!row) {
@@ -67,6 +67,23 @@ export function Release({ id }: ReleaseSceneProps): JSX.Element {
             <SceneContent>
                 {dataLoading ? (
                     <ReleaseSkeleton />
+                ) : loadFailed ? (
+                    <div data-quill>
+                        <Empty>
+                            <EmptyHeader>
+                                <EmptyMedia variant="icon">
+                                    <IconFlag />
+                                </EmptyMedia>
+                                <EmptyTitle>This release could not load</EmptyTitle>
+                                <EmptyDescription>Check your connection, then try again.</EmptyDescription>
+                            </EmptyHeader>
+                            <EmptyContent>
+                                <Button variant="outline" onClick={() => reload(true)} data-attr="release-retry">
+                                    Try again
+                                </Button>
+                            </EmptyContent>
+                        </Empty>
+                    </div>
                 ) : (
                     <div data-quill>
                         <Empty>

@@ -131,12 +131,13 @@ export function ReleaseList(): JSX.Element {
             />
             <div data-quill className="flex flex-col gap-3">
                 <ReleaseFilters />
-                {dataLoading ? (
+                {dataLoading && !filteredRows.length ? (
                     <Skeleton className="h-64 w-full" />
                 ) : (
                     <Card size="sm" flush className="pt-0" data-attr="release-table">
                         <DataTable
                             columns={COLUMNS}
+                            pageSize={50}
                             data={filteredRows}
                             fullWidth
                             size="sm"

@@ -1,6 +1,7 @@
 import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { hasDeniedApprovalRequest, isSchedulePaused } from 'scenes/feature-flags/scheduleOccurrences'
 import { urls } from 'scenes/urls'
 
 import { ExperimentStatus } from '~/types'
@@ -8,6 +9,7 @@ import { ExperimentStatus } from '~/types'
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
+import { isRulesV2FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
@@ -98,6 +100,7 @@ export interface ReleaseRow {
 interface FlagGroup {
     properties?: unknown[] | null
     rollout_percentage?: number | null
+    variant?: string | null
 }
 
 interface FlagFilters {
@@ -145,21 +148,35 @@ export function badgeVariantForTag(type: LemonTagType): ReleaseBadgeVariant {
 
 const flagFilters = (flag: FeatureFlagApi): FlagFilters => (flag.filters ?? {}) as FlagFilters
 
-export const isExperimentDraft = (experiment: ExperimentBasicApi): boolean =>
-    getExperimentStatus(experiment as never) === ExperimentStatus.Draft
+const experimentStatus = (experiment: ExperimentBasicApi): ExperimentStatus => getExperimentStatus(experiment as never)
 
-export const isExperimentDone = (experiment: ExperimentBasicApi): boolean => !!experiment.end_date
+export const isExperimentDraft = (experiment: ExperimentBasicApi): boolean =>
+    experimentStatus(experiment) === ExperimentStatus.Draft
+
+export const isExperimentPaused = (experiment: ExperimentBasicApi): boolean =>
+    experimentStatus(experiment) === ExperimentStatus.Paused
+
+export const isExperimentDone = (experiment: ExperimentBasicApi): boolean =>
+    experimentStatus(experiment) === ExperimentStatus.Stopped || !!experiment.end_date
 
 export const isExperimentRunning = (experiment: ExperimentBasicApi): boolean =>
-    !isExperimentDraft(experiment) && !isExperimentDone(experiment)
+    !isExperimentDraft(experiment) && !isExperimentPaused(experiment) && !isExperimentDone(experiment)
+
+const isRulesV2 = (flag: FeatureFlagApi): boolean => !!flag.filters && isRulesV2FeatureFlagConfig(flag.filters as never)
 
 function isFullyRolledOut(flag: FeatureFlagApi): boolean {
+    if (!flag.active || isRulesV2(flag)) {
+        return false
+    }
     const filters = flagFilters(flag)
-    const open = (filters.groups ?? []).some(
-        (group) => !group.properties?.length && (group.rollout_percentage ?? 100) === 100
-    )
+    const groups = filters.groups ?? []
+    const open = groups.some((group) => !group.properties?.length && (group.rollout_percentage ?? 100) === 100)
     const variants = filters.multivariate?.variants ?? []
-    return !!flag.active && open && (variants.length === 0 || variants.some((v) => v.rollout_percentage === 100))
+    if (!variants.length) {
+        return open
+    }
+    const winner = variants.find((variant) => variant.rollout_percentage === 100)
+    return open && !!winner && groups.every((group) => !group.variant || group.variant === winner.key)
 }
 
 export function scheduledChangeLabel(change: ScheduledChangeApi): string {
@@ -194,6 +211,9 @@ const CONCLUSION_LABEL: Record<string, string> = {
 }
 
 function flagAudienceRow(flag: FeatureFlagApi, optIn = false): ReleaseFlagAudience {
+    if (isRulesV2(flag)) {
+        return { flag, percent: null, who: 'Rules decide', summary: 'The flag rules decide who gets it', variants: [] }
+    }
     const filters = flagFilters(flag)
     const groups = filters.groups ?? []
     const variants = (filters.multivariate?.variants ?? []).map((variant) => ({
@@ -259,20 +279,33 @@ export function buildReleaseRow(
         (item) => item.feature_flag && flagKeys.has(item.feature_flag.key) && item.stage !== 'archived'
     )
     const changes = allScheduled
-        .filter((change) => flagById.has(String(change.record_id)))
+        .filter(
+            (change) =>
+                flagById.has(String(change.record_id)) &&
+                (!!change.executed_at ||
+                    (!isSchedulePaused(change as never) && !hasDeniedApprovalRequest(change as never)))
+        )
         .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
     const firstFlagCreated = flags.map((flag) => flag.created_at).sort()[0] ?? null
 
     const drafts = experiments.filter(isExperimentDraft)
     const done = experiments.filter(isExperimentDone)
     const running = experiments.filter(isExperimentRunning)
+    const paused = experiments.filter(isExperimentPaused)
     const openEarlyAccess = earlyAccess.find((item) => item.stage !== 'general-availability')
+    const flagsArchived = flags.length > 0 && flags.every((flag) => flag.archived)
     const released =
-        flags.length > 0 && flags.every(isFullyRolledOut) && !running.length && !drafts.length && !openEarlyAccess
+        flagsArchived ||
+        (flags.length > 0 &&
+            flags.every(isFullyRolledOut) &&
+            !running.length &&
+            !paused.length &&
+            !drafts.length &&
+            !openEarlyAccess)
 
     const stage: ReleaseStage = released
         ? 'released'
-        : running.length || drafts.length || done.length
+        : running.length || paused.length || drafts.length || done.length
           ? 'experiment'
           : openEarlyAccess
             ? 'early_access'
@@ -280,9 +313,10 @@ export function buildReleaseRow(
               ? 'flag'
               : 'planned'
 
-    const firstStart = running.map((experiment) => experiment.start_date as string).sort()[0]
+    const current = [...running].sort((a, b) => (a.start_date as string).localeCompare(b.start_date as string))[0]
+    const firstStart = current?.start_date
     const runningDays = firstStart ? today.diff(dayjs(firstStart), 'day') + 1 : 0
-    const lastDone = [...done].sort((a, b) => (b.end_date as string).localeCompare(a.end_date as string))[0]
+    const lastDone = [...done].sort((a, b) => (b.end_date ?? '').localeCompare(a.end_date ?? ''))[0]
     const optInKeys = new Set(earlyAccess.map((item) => item.feature_flag?.key))
     const audiences = flags.map((flag) => flagAudienceRow(flag, optInKeys.has(flag.key)))
     const mainAudience = audiences[0]
@@ -293,18 +327,26 @@ export function buildReleaseRow(
     if (released) {
         status = 'Rolled out to all users'
         headline = 'Rolled out to all users'
-        detail = 'Every flag of this release serves it to everyone.'
+        detail = flagsArchived
+            ? 'The flags of this release are archived. Nothing is left to do.'
+            : 'Every flag of this release serves it to everyone.'
     } else if (running.length) {
         status = `Experiment running, day ${runningDays}`
         headline = `Experiment running for ${runningDays} day${runningDays === 1 ? '' : 's'}`
         detail = `Started on ${dayjs(firstStart).format(DAY_FORMAT)}. Results are worth reading after about two weeks.`
+    } else if (paused.length) {
+        status = 'Experiment paused'
+        headline = 'Experiment paused'
+        detail = `${paused[0].name} is paused, so it collects no new data.`
     } else if (drafts.length) {
         status = 'Experiment in draft'
         headline = 'Experiment ready to launch'
         detail = `${drafts[0].name} is in draft. Nobody is in it yet.`
     } else if (lastDone) {
         status = 'Experiment complete'
-        headline = `Experiment ended on ${dayjs(lastDone.end_date as string).format(DAY_FORMAT)}`
+        headline = lastDone.end_date
+            ? `Experiment ended on ${dayjs(lastDone.end_date).format(DAY_FORMAT)}`
+            : 'Experiment stopped'
         detail = lastDone.conclusion
             ? `${CONCLUSION_LABEL[lastDone.conclusion] ?? lastDone.conclusion}.${lastDone.conclusion_comment ? ` ${lastDone.conclusion_comment}` : ''}`
             : 'No result is recorded on the experiment yet.'
@@ -335,9 +377,9 @@ export function buildReleaseRow(
     } else if (running.length && runningDays >= REVIEW_AFTER_DAYS - 2) {
         nextStep = {
             title: 'Review the results',
-            detail: `${running[0].name} has ${runningDays} days of data. Decide if the test variant should ship.`,
+            detail: `${current.name} has ${runningDays} days of data. Decide if the test variant should ship.`,
             label: 'Open results',
-            to: urls.experiment(running[0].id),
+            to: urls.experiment(current.id),
             urgent: true,
         }
     } else if (running.length) {
@@ -345,7 +387,15 @@ export function buildReleaseRow(
             title: 'Let the experiment run',
             detail: `Check the results around ${dayjs(firstStart).add(REVIEW_AFTER_DAYS, 'day').format(DAY_FORMAT)}, when it has two weeks of data.`,
             secondaryLabel: 'Open experiment',
-            secondaryTo: urls.experiment(running[0].id),
+            secondaryTo: urls.experiment(current.id),
+        }
+    } else if (paused.length) {
+        nextStep = {
+            title: 'Resume or end the experiment',
+            detail: `${paused[0].name} is paused. Resume it to collect more data, or end it and record the result.`,
+            label: 'Open experiment',
+            to: urls.experiment(paused[0].id),
+            urgent: true,
         }
     } else if (lastDone && !released && !lastDone.conclusion) {
         nextStep = {
@@ -355,8 +405,8 @@ export function buildReleaseRow(
             to: urls.experiment(lastDone.id),
             urgent: true,
         }
-    } else if (!released && flags.some((flag) => !isFullyRolledOut(flag)) && !openEarlyAccess) {
-        const flag = flags.find((item) => !isFullyRolledOut(item)) ?? flags[0]
+    } else if (!released && !openEarlyAccess && flags.some((flag) => !isFullyRolledOut(flag) && !isRulesV2(flag))) {
+        const flag = flags.find((item) => !isFullyRolledOut(item) && !isRulesV2(item)) ?? flags[0]
         nextStep = {
             title: lastDone ? 'Roll out the winner' : 'Roll out to more users',
             detail: lastDone
@@ -375,7 +425,7 @@ export function buildReleaseRow(
             label: 'Open early access',
             to: urls.earlyAccessFeature(openEarlyAccess.id),
         }
-    } else if (released) {
+    } else if (released && !flagsArchived) {
         nextStep = {
             title: 'Clean up the flag',
             detail: 'Everyone gets the release now. Remove the flag check from your code, then archive the flag.',
@@ -510,15 +560,22 @@ export function buildReleaseRow(
             href: urls.earlyAccessFeature(item.id),
         })
     }
-    for (const experiment of [...running, ...done]) {
-        const from = (experiment.start_date as string).slice(0, 10)
+    for (const experiment of [...running, ...paused, ...done]) {
+        if (!experiment.start_date) {
+            continue
+        }
+        const from = experiment.start_date.slice(0, 10)
         const finished = isExperimentDone(experiment)
         spans.push({
             key: `exp-${experiment.id}`,
             kind: finished ? 'experiment_done' : 'experiment',
             from,
-            to: finished ? (experiment.end_date as string).slice(0, 10) : end,
-            label: finished ? 'Experiment complete' : `Experiment, day ${today.diff(dayjs(from), 'day') + 1}`,
+            to: finished && experiment.end_date ? experiment.end_date.slice(0, 10) : end,
+            label: finished
+                ? 'Experiment complete'
+                : isExperimentPaused(experiment)
+                  ? 'Experiment paused'
+                  : `Experiment, day ${today.diff(dayjs(from), 'day') + 1}`,
             href: urls.experiment(experiment.id),
         })
     }

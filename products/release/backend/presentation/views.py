@@ -5,39 +5,60 @@ Validate JSON via serializers, call facade methods,
 return serialized responses. No business logic here.
 """
 
-from drf_spectacular.utils import extend_schema
+from typing import Any
+from uuid import UUID
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import TypedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api, contracts
-from .serializers import ReleaseSerializer, WriteReleaseSerializer
+from .serializers import ReleaseSerializer, UpdateReleaseSerializer, WriteReleaseSerializer
 
 
 class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "feature_flag"
+    requires_resource_level_access = True
     serializer_class = ReleaseSerializer
+    pagination_class = FacadeLimitOffsetPagination
+    lookup_value_regex = "[0-9a-f-]{36}"
 
     @extend_schema(responses={200: ReleaseSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
-        return Response(ReleaseSerializer(api.list_all(), many=True).data)
+        """List the releases of the project, oldest first."""
+        return facade_page_response(self, api.list_page, serializer_class=ReleaseSerializer)
 
-    @extend_schema(request=WriteReleaseSerializer, responses={201: ReleaseSerializer})
-    def create(self, request: Request, **kwargs) -> Response:
-        serializer = WriteReleaseSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        dto = api.create(contracts.CreateReleaseInput(team_id=self.team_id, **serializer.validated_data))
+    @validated_request(
+        request_serializer=WriteReleaseSerializer,
+        responses={201: OpenApiResponse(response=ReleaseSerializer)},
+        include_serializer_context=True,
+    )
+    def create(self, request: TypedRequest[dict[str, Any]], **kwargs) -> Response:
+        """Create a release."""
+        dto = api.create(contracts.CreateReleaseInput(team_id=self.team_id, **request.validated_data))
         return Response(ReleaseSerializer(dto).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=WriteReleaseSerializer, responses={200: ReleaseSerializer})
-    def partial_update(self, request: Request, pk: str, **kwargs) -> Response:
-        serializer = WriteReleaseSerializer(data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        return Response(ReleaseSerializer(api.update(pk, serializer.validated_data)).data)
+    @validated_request(
+        request_serializer=UpdateReleaseSerializer,
+        responses={200: OpenApiResponse(response=ReleaseSerializer)},
+        include_serializer_context=True,
+    )
+    def partial_update(self, request: TypedRequest[dict[str, Any]], pk: UUID, **kwargs) -> Response:
+        """Change the name, description, owner or linked flags of a release."""
+        try:
+            dto = api.update(pk, request.validated_data)
+        except api.ReleaseNotFoundError:
+            raise NotFound("Release not found.")
+        return Response(ReleaseSerializer(dto).data)
 
     @extend_schema(responses={204: None})
-    def destroy(self, request: Request, pk: str, **kwargs) -> Response:
+    def destroy(self, request: Request, pk: UUID, **kwargs) -> Response:
+        """Delete a release. Its flags, experiments and early access features stay."""
         api.delete(pk)
         return Response(status=status.HTTP_204_NO_CONTENT)

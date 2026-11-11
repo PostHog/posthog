@@ -11,9 +11,14 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
+
 from .. import logic
 from ..models import Release
 from . import contracts
+
+ReleaseNotFoundError = contracts.ReleaseNotFoundError
 
 
 def _to_dto(obj: Release) -> contracts.ReleaseDTO:
@@ -27,8 +32,8 @@ def _to_dto(obj: Release) -> contracts.ReleaseDTO:
     )
 
 
-def list_all() -> list[contracts.ReleaseDTO]:
-    return [_to_dto(obj) for obj in logic.list_releases()]
+def list_page(page: PageRequest) -> Page[contracts.ReleaseDTO]:
+    return select_page(logic.list_releases(), page).map(_to_dto)
 
 
 def create(input: contracts.CreateReleaseInput) -> contracts.ReleaseDTO:

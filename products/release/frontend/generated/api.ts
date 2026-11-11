@@ -10,7 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedReleaseDTOListApi,
-    PatchedWriteReleaseApi,
+    PatchedUpdateReleaseApi,
     ReleaseDTOApi,
     ReleasesListParams,
     WriteReleaseApi,
@@ -32,6 +32,9 @@ export const getReleasesListUrl = (projectId: string, params?: ReleasesListParam
         : `/api/projects/${projectId}/releases/`
 }
 
+/**
+ * List the releases of the project, oldest first.
+ */
 export const releasesList = async (
     projectId: string,
     params?: ReleasesListParams,
@@ -47,6 +50,9 @@ export const getReleasesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/releases/`
 }
 
+/**
+ * Create a release.
+ */
 export const releasesCreate = async (
     projectId: string,
     writeReleaseApi: WriteReleaseApi,
@@ -64,17 +70,20 @@ export const getReleasesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/releases/${id}/`
 }
 
+/**
+ * Change the name, description, owner or linked flags of a release.
+ */
 export const releasesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedWriteReleaseApi?: PatchedWriteReleaseApi,
+    patchedUpdateReleaseApi?: PatchedUpdateReleaseApi,
     options?: RequestInit
 ): Promise<ReleaseDTOApi> => {
     return apiMutator<ReleaseDTOApi>(getReleasesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedWriteReleaseApi),
+        body: JSON.stringify(patchedUpdateReleaseApi),
     })
 }
 
@@ -82,6 +91,9 @@ export const getReleasesDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/releases/${id}/`
 }
 
+/**
+ * Delete a release. Its flags, experiments and early access features stay.
+ */
 export const releasesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getReleasesDestroyUrl(projectId, id), {
         ...options,

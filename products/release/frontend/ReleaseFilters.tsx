@@ -109,7 +109,7 @@ export function ReleaseFilters(): JSX.Element {
 }
 
 export function NewReleaseDialog(): JSX.Element {
-    const { newReleaseOpen } = useValues(releaseLogic)
+    const { newReleaseOpen, creatingRelease } = useValues(releaseLogic)
     const { setNewReleaseOpen, createRelease } = useActions(releaseLogic)
     const [name, setName] = useState('')
     const [description, setDescription] = useState('')
@@ -161,6 +161,7 @@ export function NewReleaseDialog(): JSX.Element {
                     </Button>
                     <Button
                         variant="primary"
+                        loading={creatingRelease}
                         disabledReason={!name.trim() ? 'Give the release a name' : undefined}
                         data-attr="release-new-create"
                         onClick={() => createRelease(name.trim(), description.trim())}

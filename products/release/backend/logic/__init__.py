@@ -4,15 +4,23 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from django.db.models import QuerySet
+
+from posthog.models.utils import strict_fetch
+
+from ..facade.contracts import ReleaseNotFoundError
 from ..models import Release
 
 
-def list_releases() -> list[Release]:
-    return list(Release.objects.select_related("owner").order_by("created_at"))
+def list_releases() -> QuerySet[Release]:
+    return strict_fetch(Release.objects.select_related("owner").order_by("created_at", "id"))
 
 
 def get_release(release_id: UUID) -> Release:
-    return Release.objects.select_related("owner").get(id=release_id)
+    release = Release.objects.select_related("owner").filter(id=release_id).first()
+    if release is None:
+        raise ReleaseNotFoundError(release_id)
+    return release
 
 
 def create_release(
@@ -28,10 +36,10 @@ def create_release(
 
 
 def update_release(release_id: UUID, changes: dict) -> Release:
-    feature = Release.objects.get(id=release_id)
+    release = get_release(release_id)
     for field, value in changes.items():
-        setattr(feature, field, value)
-    feature.save()
+        setattr(release, field, value)
+    release.save()
     return get_release(release_id)
 
 

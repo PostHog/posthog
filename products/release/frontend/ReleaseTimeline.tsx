@@ -113,6 +113,12 @@ export function ReleaseTimeline(): JSX.Element {
                         </div>
                         <div className="relative" style={{ width: total * DAY }}>
                             {row.spans.map((span) => {
+                                if (
+                                    dayjs(span.to).isBefore(start) ||
+                                    dayjs(span.from).isAfter(start.add(total, 'day'))
+                                ) {
+                                    return null
+                                }
                                 const left = x(span.from)
                                 const width = Math.max(x(span.to) + DAY / 2 - left, span.kind === 'flag' ? 0 : DAY)
                                 const look = SPAN_LOOK[span.kind]

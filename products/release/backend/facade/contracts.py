@@ -11,6 +11,10 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class ReleaseNotFoundError(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class ReleaseOwnerDTO:
     id: int
