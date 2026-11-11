@@ -9,8 +9,11 @@ from posthog.kafka_client.topics import KAFKA_CDP_INTERNAL_EVENTS
 
 
 @contextmanager
-def recorded_internal_events(*, flag_enabled: bool = True) -> Iterator[tuple[list[dict], MagicMock]]:
-    """Record each message produced to the CDP internal events topic, with the destinations flag answered."""
+def recorded_internal_events(*, flag_enabled: bool | None = True) -> Iterator[tuple[list[dict], MagicMock]]:
+    """Record each message produced to the CDP internal events topic, with the destinations flag answered.
+
+    `flag_enabled=None` answers as a flag service that could not evaluate the flag.
+    """
     sent: list[dict] = []
     original_produce = KafkaProducerForTests.produce
 
@@ -21,9 +24,7 @@ def recorded_internal_events(*, flag_enabled: bool = True) -> Iterator[tuple[lis
 
     with (
         patch.object(KafkaProducerForTests, "produce", record),
-        patch(
-            "products.signals.backend.inbox_report_events.feature_enabled_or_false", return_value=flag_enabled
-        ) as flag,
+        patch("products.signals.backend.inbox_report_events.feature_enabled", return_value=flag_enabled) as flag,
     ):
         yield sent, flag
 

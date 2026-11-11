@@ -21,11 +21,11 @@ from django.utils import timezone
 
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
+from posthoganalytics import feature_enabled
 
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.team.team import Team
-from posthog.ph_client import feature_enabled_or_false
 
 from products.cdp.backend.internal_events import (
     INBOX_REPORT_READY_EVENT,
@@ -37,6 +37,7 @@ from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.priority import persisted_report_priority
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.typed_report_links import incoming_links
 
 logger = structlog.get_logger(__name__)
@@ -75,7 +76,8 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_produc
     """Send the report out once, the first time it settles as ready, together with the layers of its plan.
 
     A layer is born ready in the transaction that settles its plan and runs no workflow of its own,
-    so this is the only point that sends it.
+    so this is the only point that sends it. A report the Inbox hides, because the scout that wrote
+    it turned its Inbox destination off, is not sent.
 
     Waits for the broker to accept the events. An event the broker rejects or never confirms keeps
     its claim unconfirmed, and `reconcile_stranded_ready_events` sends it again once the claim goes
@@ -95,7 +97,7 @@ def send_inbox_report_ready_events(*, team_id: int, report_id: str, source_produ
     Nothing records a report that was never claimed, so only the caller's retry can still send it.
     Once claimed, a report is the sweep's to send again.
     """
-    if not inbox_report_destinations_enabled(team_id):
+    if not inbox_report_destinations_enabled(team_id) or report_is_hidden_from_inbox(team_id, report_id):
         return
     _publish_ready_events(
         [
@@ -108,11 +110,16 @@ def send_inbox_report_ready_events(*, team_id: int, report_id: str, source_produ
 
 def inbox_report_destinations_enabled(team_id: int) -> bool:
     """Fails closed: a flag-service error must not start sending a project's reports off-platform."""
+    return _destinations_flag(team_id) is True
+
+
+def _destinations_flag(team_id: int) -> bool | None:
+    """The project's flag, or None when it could not be evaluated."""
     if settings.DEBUG:
         return True
     try:
         organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
-        return feature_enabled_or_false(
+        enabled = feature_enabled(
             INBOX_REPORT_DESTINATIONS_FLAG,
             str(organization_id),
             groups={"organization": str(organization_id), "project": str(team_id)},
@@ -121,7 +128,8 @@ def inbox_report_destinations_enabled(team_id: int) -> bool:
         )
     except Exception:
         logger.warning("inbox_report_destinations_flag_check_failed", team_id=team_id, exc_info=True)
-        return False
+        return None
+    return None if enabled is None else enabled is True
 
 
 def reconcile_stranded_ready_events() -> None:
@@ -129,22 +137,27 @@ def reconcile_stranded_ready_events() -> None:
 
     A delivery still pending after the flush, or a worker that died between the claim and the
     publish, leaves such a claim. Works through the claims batch by batch until none is left or the
-    time budget runs out. A project whose flag is off, or did not answer, gets its claims back
-    unsent, so the flag stops retries as well as first sends.
+    time budget runs out. A project whose flag is off gets its claims back unsent, so the flag stops
+    retries as well as first sends. A project whose flag could not be evaluated keeps its claims for
+    a later sweep.
     """
     deadline = time.monotonic() + _SWEEP_TIME_BUDGET.total_seconds()
     while True:
         stranded = _stranded_claims()
-        enabled = {team_id: inbox_report_destinations_enabled(team_id) for team_id in {c.team_id for c, _ in stranded}}
-        _publish_ready_events(
-            [
-                claim
-                for claim, claimed_at in stranded
-                if _renew_stale_claim(
-                    claim.team_id, claim.report_id, claimed_at, destinations_enabled=enabled[claim.team_id]
-                )
-            ]
-        )
+        flags: dict[int, bool | None] = {}
+        renewed: list[_ReadyEventClaim] = []
+        for claim, claimed_at in stranded:
+            if claim.team_id not in flags:
+                # Each project's flag check can wait on the flag service, so stop before the time limit
+                # and leave the rest of the batch stale for the next sweep.
+                if time.monotonic() >= deadline:
+                    break
+                flags[claim.team_id] = _destinations_flag(claim.team_id)
+            if _renew_stale_claim(
+                claim.team_id, claim.report_id, claimed_at, destinations_enabled=flags[claim.team_id]
+            ):
+                renewed.append(claim)
+        _publish_ready_events(renewed)
         # A short batch was the last one. Stopping there also keeps a claim that could be neither
         # renewed nor released from being re-read until the deadline.
         if len(stranded) < _RECONCILE_BATCH_SIZE or time.monotonic() >= deadline:
@@ -236,8 +249,17 @@ def _plan_layer_ids(team_id: int, report_id: str) -> list[str]:
     ]
 
 
-def _renew_stale_claim(team_id: int, report_id: str, claimed_at: datetime, *, destinations_enabled: bool) -> bool:
-    """Take the claim over for a retry, or give it back when the report is no longer ready or its project's flag is off."""
+def _renew_stale_claim(
+    team_id: int, report_id: str, claimed_at: datetime, *, destinations_enabled: bool | None
+) -> bool:
+    """Take the claim over for a retry, or give it back when the report is no longer ready or its project's flag is off.
+
+    With the flag unknown, the claim is renewed without a send, so it waits for a later sweep at the
+    back of the queue instead of holding up other projects' claims.
+    """
+    if destinations_enabled is None:
+        _stale_claim(team_id, report_id, claimed_at).update(ready_event_emitted_at=timezone.now())
+        return False
     if destinations_enabled and _stale_claim(team_id, report_id, claimed_at).filter(
         status=SignalReport.Status.READY
     ).update(ready_event_emitted_at=timezone.now()):
