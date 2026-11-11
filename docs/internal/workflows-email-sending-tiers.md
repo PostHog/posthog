@@ -60,6 +60,8 @@ The blast radius preview takes the rate limit as `email_sending_rate_limit` and 
 The broadcast wizard uses it to suggest a qualifying rate, with a one-click button on the recipients, schedule, and review steps.
 The reputation endpoint returns the largest rate-limited batch as `rate_limited_max_batch_audience`, which the Reputation tab shows under the batch cap.
 Batch dispatch reads the rate limit stored on the workflow.
+The worker paces each send with the workflow's live rate limit, so an owner can loosen it after dispatch.
+The worker's daily cap then bounds the batch, which is why `EMAIL_TEAM_SENDING_CAP_MODE` must be `enforce` wherever `WORKFLOWS_EMAIL_TIER_MODE` is.
 
 ## Decision rules the sweep applies
 
