@@ -241,12 +241,16 @@ class CreateRunInputSerializer(DataclassSerializer):
 
 
 class NoRunNeededInputSerializer(DataclassSerializer):
+    commit_sha = serializers.RegexField(
+        r"^[0-9a-f]{40}$", help_text="Full SHA of the commit that gets the passing status."
+    )
+
     class Meta:
         dataclass = NoRunNeededInput
+        fields = ("repo_id", "run_type", "commit_sha", "branch", "pr_number")
         extra_kwargs = {
             "repo_id": {"help_text": "ID of the Visual Review repo the commit belongs to."},
             "run_type": {"help_text": "Run type that needs no run at this commit, for example `storybook`."},
-            "commit_sha": {"help_text": "Full SHA of the commit that gets the passing status."},
             "branch": {"help_text": "Branch CI ran on. Only logged."},
             "pr_number": {"help_text": "Pull request the commit belongs to, if any. Only logged."},
         }

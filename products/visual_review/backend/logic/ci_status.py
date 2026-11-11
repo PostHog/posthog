@@ -8,6 +8,7 @@ A `commit_status` run is gated by the status itself, which `commit_status` decid
 from __future__ import annotations
 
 from enum import StrEnum
+from urllib.parse import quote
 
 import structlog
 
@@ -126,7 +127,10 @@ def _send_commit_status(
     if target_url:
         body["target_url"] = target_url
     try:
-        response = github.api_request("POST", f"/repos/{repo.repo_full_name}/statuses/{commit_sha}", json_body=body)
+        # One path segment, so a SHA with a slash or a "#" cannot reach another path or commit.
+        response = github.api_request(
+            "POST", f"/repos/{repo.repo_full_name}/statuses/{quote(commit_sha, safe='')}", json_body=body
+        )
     except Exception:
         logger.warning("visual_review.status_check_error", commit_sha=commit_sha, context=context, exc_info=True)
         return StatusPost.REFUSED
