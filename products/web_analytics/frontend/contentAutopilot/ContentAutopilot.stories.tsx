@@ -129,7 +129,10 @@ const meta: Meta<typeof ContentAutopilot> = {
     component: ContentAutopilot,
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+        featureFlags: [
+            FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+            FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT_DRAFTING,
+        ],
         // The fixtures carry fixed dates and the UI shows them relative to now, so the clock is pinned near them.
         mockDate: '2026-09-30',
     },
@@ -255,6 +258,14 @@ PromptsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opport
 export const OverviewTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
 OverviewTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
 OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+// Without the drafting flag there are no Opportunities or Drafts tabs, and no draft buttons.
+export const OverviewTabWithoutDrafting: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
+OverviewTabWithoutDrafting.decorators = OverviewTab.decorators
+OverviewTabWithoutDrafting.parameters = {
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+    testOptions: { snapshotBrowsers: [] },
+}
 
 export const RankingsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" />
 RankingsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]

@@ -18,7 +18,6 @@ import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
-import { ContentAutopilotTraffic } from './ContentAutopilotTraffic'
 
 export interface ContentAutopilotBotsTab {
     active: boolean
@@ -49,9 +48,13 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
         workspaceError,
         profileDataLoaded,
         visibleOpportunities,
+        draftingEnabled,
     } = useValues(contentAutopilotLogic)
     const { beginOnboarding, cancelRun, selectProfile, loadWorkspace, setWorkspaceTab } =
         useActions(contentAutopilotLogic)
+    // A link to a drafting tab still opens the page when drafting is off, on the overview instead.
+    const visibleTab =
+        !draftingEnabled && (workspaceTab === 'opportunities' || workspaceTab === 'drafts') ? 'overview' : workspaceTab
     const loading = siteProfilesLoading || runsLoading || proposalsLoading
     const lastRun = siteRuns[0]
     const confirmCancelRun = (): void => {
@@ -147,11 +150,11 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                         </div>
                     ) : (
                         <LemonTabs<AiVisibilityTab>
-                            activeKey={bots?.active ? 'bots' : workspaceTab}
+                            activeKey={bots?.active ? 'bots' : visibleTab}
                             onChange={selectTab}
                             data-attr="content-autopilot-workspace-tabs"
                             rightSlot={
-                                activeRun ? (
+                                activeRun && draftingEnabled ? (
                                     <LemonButton
                                         type="tertiary"
                                         status="danger"
@@ -176,11 +179,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                     content: <ContentAutopilotRankings />,
                                 },
                                 {
-                                    key: 'traffic',
-                                    label: 'Traffic',
-                                    content: <ContentAutopilotTraffic />,
-                                },
-                                {
                                     key: 'prompts',
                                     label: 'Prompts',
                                     content: <ContentAutopilotPrompts />,
@@ -191,19 +189,21 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                     content: <ContentAutopilotKeywords />,
                                 },
                                 bots ? { key: 'bots', label: 'Bots', content: bots.content } : null,
-                                {
-                                    key: 'opportunities',
-                                    label:
-                                        profile && visibleOpportunities.length
-                                            ? `Opportunities (${visibleOpportunities.length})`
-                                            : 'Opportunities',
-                                    content: (
-                                        <ContentAutopilotSiteGate>
-                                            <ContentAutopilotOpportunities />
-                                        </ContentAutopilotSiteGate>
-                                    ),
-                                },
-                                profile
+                                draftingEnabled
+                                    ? {
+                                          key: 'opportunities',
+                                          label:
+                                              profile && visibleOpportunities.length
+                                                  ? `Opportunities (${visibleOpportunities.length})`
+                                                  : 'Opportunities',
+                                          content: (
+                                              <ContentAutopilotSiteGate>
+                                                  <ContentAutopilotOpportunities />
+                                              </ContentAutopilotSiteGate>
+                                          ),
+                                      }
+                                    : null,
+                                profile && draftingEnabled
                                     ? {
                                           key: 'drafts',
                                           label: readyDraftCount

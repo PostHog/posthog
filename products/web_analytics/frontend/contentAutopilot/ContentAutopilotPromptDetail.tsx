@@ -7,7 +7,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { pluralize } from 'lib/utils/strings'
 
-import { ContentAutopilotAnswerOutcomeChart } from './ContentAutopilotAnswerOutcomeChart'
 import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -16,9 +15,9 @@ import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActi
 import { ContentAutopilotPromptAnswer } from './ContentAutopilotPromptAnswer'
 import { ContentAutopilotPromptArchiveBanner } from './ContentAutopilotPromptArchiveBanner'
 import { ContentAutopilotPromptChecks } from './ContentAutopilotPromptChecks'
-import { ContentAutopilotPromptConsensus } from './ContentAutopilotPromptConsensus'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPromptEditModal } from './ContentAutopilotPromptEditModal'
+import { ContentAutopilotPromptOverview } from './ContentAutopilotPromptOverview'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
 import { ContentAutopilotPromptSentiment } from './ContentAutopilotPromptSentiment'
 import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions'
@@ -74,9 +73,9 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         setReportTab,
         setVisibilityMetric,
     } = useActions(contentAutopilotPromptDetailLogic)
-    const { opportunityByPromptId } = useValues(contentAutopilotLogic)
+    const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
-    const draftOpportunity = prompt ? draftableOpportunity(opportunityByPromptId, prompt) : null
+    const draftOpportunity = prompt && draftingEnabled ? draftableOpportunity(opportunityByPromptId, prompt) : null
     const backToPrompts = (): void => setWorkspaceTab('prompts')
 
     if (!promptId) {
@@ -243,13 +242,16 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                         key: 'overview',
                                         label: 'Overview',
                                         content: (
-                                            <ContentAutopilotAnswerOutcomeChart
+                                            <ContentAutopilotPromptOverview
+                                                stats={stats}
+                                                kpis={reportKpis}
                                                 chart={visibilityChart}
                                                 metric={visibilityMetric}
                                                 onMetricChange={setVisibilityMetric}
                                                 query={visibilityQuery}
-                                                footer={`${pluralize(reportKpis.answers, 'answer')} across ${pluralize(reportKpis.days, 'day')}. Failed checks are left out.`}
-                                                data-attr="content-autopilot-prompt-visibility-tile"
+                                                consensus={consensusMatrix}
+                                                sentiment={sentimentSummary}
+                                                onOpenTab={setReportTab}
                                             />
                                         ),
                                     },
@@ -279,12 +281,6 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                                         data-attr="content-autopilot-prompt-citations-tile"
                                                     />
                                                 </div>
-                                                <TabSection
-                                                    title="Cited sites by engine"
-                                                    description="The share of each engine's answers that link to a site. A darker cell means the engine links to that site more often."
-                                                >
-                                                    <ContentAutopilotPromptConsensus matrix={consensusMatrix} />
-                                                </TabSection>
                                             </div>
                                         ),
                                     },
@@ -312,23 +308,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                                 query={searchesQuery}
                                                 uniqueKey={`aeo-prompt-searches-${promptId}`}
                                                 context={promptSearchesContext}
-                                                footer={
-                                                    stats.top_words.length ? (
-                                                        <span className="flex flex-wrap items-center gap-1">
-                                                            <span className="mr-1">
-                                                                Most common words in those searches:
-                                                            </span>
-                                                            {stats.top_words.map((word) => (
-                                                                <LemonTag key={word.word} size="small">
-                                                                    {word.word}{' '}
-                                                                    <span className="text-muted">{word.count}</span>
-                                                                </LemonTag>
-                                                            ))}
-                                                        </span>
-                                                    ) : (
-                                                        "Engines that don't report their searches are left out."
-                                                    )
-                                                }
+                                                description="Engines that don't report their searches are left out."
                                                 data-attr="content-autopilot-prompt-searches-tile"
                                             />
                                         ),

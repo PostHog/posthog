@@ -89,11 +89,6 @@ export const ContentAutopilotPromptsSearchTable = ({
                 ),
             }}
             emptyState={`No web searches in the last ${OVERVIEW_DAYS} days. Only some engines report the searches they run.`}
-            footer={
-                <span className="px-3 py-2 text-xs text-muted">
-                    The web searches the engines ran while answering your prompts. Expand one to see its prompts.
-                </span>
-            }
         />
     )
 }

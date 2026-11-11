@@ -33,14 +33,14 @@ export const ContentAutopilotAnswerOutcomeChart = ({
     metric,
     onMetricChange,
     query,
-    footer,
+    description,
     'data-attr': dataAttr,
 }: {
     chart: AnswerOutcomeChart
     metric: PromptOutcomeMetric
     onMetricChange: (metric: PromptOutcomeMetric) => void
     query: DataVisualizationNode
-    footer?: React.ReactNode
+    description?: string
     'data-attr': string
 }): JSX.Element => {
     const theme = useChartTheme()
@@ -55,8 +55,9 @@ export const ContentAutopilotAnswerOutcomeChart = ({
         [chart, metric, yesColor, noColor]
     )
     return (
-        <PagePerformanceCard className="min-w-0" footer={footer}>
+        <PagePerformanceCard className="min-w-0">
             <PagePerformanceCardHeader
+                description={description}
                 title={COPY[metric].title}
                 actions={
                     <div className="flex flex-wrap items-center gap-2">

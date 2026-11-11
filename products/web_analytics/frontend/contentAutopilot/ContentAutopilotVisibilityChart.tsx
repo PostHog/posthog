@@ -44,14 +44,14 @@ export const ContentAutopilotVisibilityChart = ({
     metric,
     onMetricChange,
     query,
-    footer,
+    description,
     'data-attr': dataAttr,
 }: {
     chart: EngineVisibilityChart
     metric: PromptVisibilityMetric
     onMetricChange: (metric: PromptVisibilityMetric) => void
     query: DataVisualizationNode
-    footer?: React.ReactNode
+    description?: string
     'data-attr': string
 }): JSX.Element => {
     const theme = useChartTheme()
@@ -60,8 +60,9 @@ export const ContentAutopilotVisibilityChart = ({
         [chart]
     )
     return (
-        <PagePerformanceCard className="min-w-0" footer={footer}>
+        <PagePerformanceCard className="min-w-0">
             <PagePerformanceCardHeader
+                description={description}
                 title={TITLES[metric]}
                 actions={
                     <div className="flex flex-wrap items-center gap-2">

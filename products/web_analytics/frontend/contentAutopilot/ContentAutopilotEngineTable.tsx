@@ -2,7 +2,7 @@ import { LemonTable } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
-import type { AEOPromptSetEngineCountsApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type { AEOPromptEngineStatsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { POSITION_DESCRIPTION, positionLabel } from './promptReport'
@@ -10,9 +10,15 @@ import { POSITION_DESCRIPTION, positionLabel } from './promptReport'
 const rateCell = (rate: number | null): JSX.Element =>
     rate === null ? <span className="text-muted">-</span> : <span className="tabular-nums">{percentage(rate, 0)}</span>
 
+// The fields the prompt set overview and a single prompt's stats both carry per engine.
+type EngineRow = Pick<
+    AEOPromptEngineStatsApi,
+    'engine' | 'mention_rate' | 'citation_rate' | 'avg_position' | 'checks' | 'failed'
+>
+
 /** Mention rate, citation rate and position side by side for each engine that answered in the window. */
-export const ContentAutopilotEngineTable = ({ engines }: { engines: AEOPromptSetEngineCountsApi[] }): JSX.Element => (
-    <LemonTable<AEOPromptSetEngineCountsApi>
+export const ContentAutopilotEngineTable = ({ engines }: { engines: EngineRow[] }): JSX.Element => (
+    <LemonTable<EngineRow>
         size="small"
         embedded
         dataSource={engines}

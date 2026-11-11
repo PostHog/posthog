@@ -179,18 +179,25 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 metric={chartMetric}
                 onMetricChange={setChartMetric}
                 query={visibilityQuery}
+                description="One line per engine, one point per day. Failed checks are left out."
                 data-attr="content-autopilot-prompts-overview-visibility"
             />
 
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader title="By engine" />
+                    <PagePerformanceCardHeader
+                        title="By engine"
+                        description={`Each engine's answers to your prompts over the last ${OVERVIEW_DAYS} days. Failed checks are left out.`}
+                    />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-engines">
                         <ContentAutopilotEngineTable engines={engines} />
                     </div>
                 </PagePerformanceCard>
                 <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader title="Mentions by topic" />
+                    <PagePerformanceCardHeader
+                        title="Mentions by topic"
+                        description="Pick a topic to see its prompts."
+                    />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
                         <ContentAutopilotPromptsTopicTable
                             rows={overview.topics}
@@ -217,7 +224,10 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     </div>
                 </PagePerformanceCard>
                 <PagePerformanceCard className="min-w-0">
-                    <PagePerformanceCardHeader title="What the engines searched for" />
+                    <PagePerformanceCardHeader
+                        title="What the engines searched for"
+                        description="The web searches the engines ran while answering your prompts. Expand one to see its prompts."
+                    />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
                         <ContentAutopilotPromptsSearchTable
                             rows={overview.top_searches}

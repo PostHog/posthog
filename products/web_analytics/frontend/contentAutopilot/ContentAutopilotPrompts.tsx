@@ -100,7 +100,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         setPromptsBranded,
         setShowArchived,
     } = useActions(contentAutopilotPromptsLogic)
-    const { opportunityByPromptId } = useValues(contentAutopilotLogic)
+    const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
 
     if (promptsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -303,17 +303,21 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                     <span className="text-muted whitespace-nowrap">Never</span>
                                 ),
                         },
-                        {
-                            key: 'draft',
-                            render: (_, prompt) => {
-                                const opportunity = draftableOpportunity(opportunityByPromptId, prompt)
-                                return opportunity ? (
-                                    <div className="whitespace-nowrap">
-                                        <ContentAutopilotDraftButton opportunity={opportunity} />
-                                    </div>
-                                ) : null
-                            },
-                        },
+                        ...(draftingEnabled
+                            ? [
+                                  {
+                                      key: 'draft',
+                                      render: (_: unknown, prompt: AEOPromptApi) => {
+                                          const opportunity = draftableOpportunity(opportunityByPromptId, prompt)
+                                          return opportunity ? (
+                                              <div className="whitespace-nowrap">
+                                                  <ContentAutopilotDraftButton opportunity={opportunity} />
+                                              </div>
+                                          ) : null
+                                      },
+                                  },
+                              ]
+                            : []),
                         {
                             title: 'Active',
                             key: 'active',
