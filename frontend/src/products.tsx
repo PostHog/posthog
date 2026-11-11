@@ -282,7 +282,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
     '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
-    '/mcp-registry': ['MCPRegistry', 'mcpRegistry'],
     '/mcp-servers/server/:id': ['McpGatewayServer', 'mcpGatewayServer'],
     '/mcp-servers/agent/:id': ['McpGatewayAgent', 'mcpGatewayAgent'],
     '/mcp-servers/member/:id': ['McpGatewayMember', 'mcpGatewayMember'],
@@ -299,6 +298,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
+    '/releases': ['ReleaseCalendar', 'releases'],
+    '/releases/list': ['Releases', 'releaseList'],
+    '/releases/:id': ['Release', 'release'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
     '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
@@ -372,6 +374,7 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/etl': ['PipelineOverview', 'pipelineOverview'],
     '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+    '/web/content-autopilot/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -1109,11 +1112,6 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'mcp_analytics',
     },
-    MCPRegistry: {
-        name: 'MCP registry',
-        projectBased: true,
-        description: 'Find an MCP server for a task, ranked by whether it answers and how well it works.',
-    },
     McpGateway: {
         projectBased: true,
         name: 'MCP servers',
@@ -1174,6 +1172,13 @@ export const productConfiguration: Record<string, any> = {
             'Your always-on product manager: spots growth opportunities and shows how to move the numbers that matter.',
         iconType: 'activity',
     },
+    ReleaseCalendar: {
+        name: 'Release calendar',
+        projectBased: true,
+        description: 'One row for each release, with its flags, experiments and early access.',
+    },
+    Releases: { name: 'Releases', projectBased: true },
+    Release: { name: 'Release', projectBased: true },
     ReplayVision: {
         name: 'Replay vision',
         projectBased: true,
@@ -1837,7 +1842,6 @@ export const productUrls = {
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
     mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
-    mcpRegistry: (): string => '/mcp-registry',
     mcpGateway: (): string => '/mcp-servers',
     mcpGatewayTab: (tab: string): string => `/mcp-servers/${tab}`,
     mcpGatewayServer: (id: string, scope?: string): string =>
@@ -1932,6 +1936,9 @@ export const productUrls = {
     productTours: (): string => '/product_tours',
     productTour: (id: string): string => `/product_tours/${id}`,
     pulse: (): string => '/pulse',
+    releases: (): string => '/releases',
+    releaseList: (): string => '/releases/list',
+    release: (id: string): string => `/releases/${id}`,
     replay: (
         tab?: ReplayTabs,
         filters?: Partial<RecordingUniversalFilters>,
@@ -2059,6 +2066,7 @@ export const productUrls = {
     webAnalyticsLive: (): string => `/web/live`,
     webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
     webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
+    webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/content-autopilot/prompts/${id}`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>
@@ -3681,6 +3689,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         ],
         sceneKey: 'Models',
         sceneKeys: ['Models'],
+        hiddenWhenFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
     },
     {
         path: 'Property definitions',

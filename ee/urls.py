@@ -17,7 +17,6 @@ from posthog.api.sso import saml_metadata_view
 from posthog.ingress.vercel.provider import build_vercel_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.middleware import impersonated_session_logout
-from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
 from products.cdp.backend.api import hooks
 
@@ -42,7 +41,7 @@ def extend_api_router() -> None:
         r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
     )
     projects_router.register(r"billing", project_billing.ProjectBillingViewSet, "project_billing", ["team_id"])
-    root_router.register(r"integrations", integration.PublicIntegrationViewSet)
+    root_router.register(r"integrations", integration.PublicIntegrationViewSet, "integration")
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 
     projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])
@@ -74,9 +73,22 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
         path("admin/oauth2/success", admin_oauth_success, name="admin_oauth_success"),
         path("admin/auth_check", admin_auth_check, name="admin_auth_check"),
-        path("admin/redisvalues", redis_values_view, name="redis_values"),
-        path("admin/redis/edit-ttl", redis_edit_ttl_view, name="redis_edit_ttl"),
-        path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
+        path(
+            "admin/redisvalues",
+            MovedToConsole.page_redirect("Redis values", "/admin/console/tools/redis-values/"),
+            name="redis_values",
+        ),
+        path(
+            "admin/redis/edit-ttl",
+            MovedToConsole.page_redirect("Editing a Redis TTL", "/admin/console/tools/redis-values/set-ttl/"),
+            name="redis_edit_ttl",
+        ),
+        # The old page took the key in a POST body, so a bookmark carries no key and none lands in the new URL.
+        path(
+            "admin/apikeysearch",
+            MovedToConsole.page_redirect("API key search", "/admin/console/tools/api-key-search/"),
+            name="api_key_search",
+        ),
         path(
             "admin/resave-cohorts/",
             MovedToConsole.page_redirect("Re-save cohorts", "/admin/console/tools/resave-cohorts/"),

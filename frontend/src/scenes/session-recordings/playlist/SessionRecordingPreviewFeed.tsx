@@ -54,7 +54,7 @@ export const SessionRecordingPreviewFeed = memo(
                 <div
                     data-quill
                     className={clsx(
-                        'SessionRecordingPreview SessionRecordingPreview--compact group flex items-start gap-x-2 overflow-hidden cursor-pointer py-2 px-2 text-[11px] text-foreground',
+                        'SessionRecordingPreview SessionRecordingPreview--compact group flex items-center gap-x-2 overflow-hidden cursor-pointer py-2 px-2 text-[11px] text-foreground',
                         isActive && 'SessionRecordingPreview--active'
                     )}
                 >
