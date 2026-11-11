@@ -388,8 +388,8 @@ def _group_reach(
 
 
 def views_by(viewer_id: int, as_of: datetime) -> QuerySet[ReplayObservationView]:
-    """The viewer's observation views older than the seen grace at `as_of`, so a load and its later pages agree."""
-    return ReplayObservationView.objects.filter(user_id=viewer_id, created_at__lte=as_of - HIGHLIGHT_PICK_SEEN_GRACE)
+    """The viewer's observation views up to `as_of`, so later views wait for the next feed load."""
+    return ReplayObservationView.objects.filter(user_id=viewer_id, created_at__lte=as_of)
 
 
 def select_embedding_picks(
@@ -445,8 +445,9 @@ def select_embedding_picks(
     window_values = {observation_id: entry for observation_id, entry in window_values.items() if observation_id in live}
     if not window_values:
         return []
+    # Only the pick penalty waits out the grace; filler still labels a just-opened row as viewed.
     viewed = set(
-        views_by(viewer_id, window.as_of)
+        views_by(viewer_id, window.as_of - HIGHLIGHT_PICK_SEEN_GRACE)
         .filter(observation_id__in=list(window_values))
         .values_list("observation_id", flat=True)
     )

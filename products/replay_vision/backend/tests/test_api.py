@@ -5053,6 +5053,16 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             [item["observation"]["session_id"] for item in items], [f"row-{i}" for i in range(len(expected_kinds))]
         )
 
+    def test_filler_the_reader_just_opened_is_not_labeled_new(self) -> None:
+        scanner = self._create_scanner(name="m")
+        opened = self._ranked_observation(scanner, "opened", 10)
+        assert self.client.post(f"{self.observations_url(str(scanner.id))}{opened.id}/viewed/").status_code == 204
+
+        items = self.client.get(self.feed_url).json()["results"]
+        self.assertEqual(
+            [(item["observation"]["session_id"], item["reason"]["kind"]) for item in items], [("opened", "recent")]
+        )
+
     def test_categories_drop_the_left_out_picks_between_loads(self) -> None:
         scanner = self._create_scanner(name="m")
         # Of 20 ranked rows the top four clear the percentile cut: two failures and two revenue rows.

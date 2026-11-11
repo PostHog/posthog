@@ -2685,7 +2685,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         viewer_id = cast(User, request.user).id
         # Before ranking, so a row the viewer marked not useful never takes a slot.
         # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
-        # Views also wait out the seen grace, so going back to the feed does not drop the card just opened.
         dismissed_ids = list(
             ReplayObservationFeedDismissal.objects.filter(user_id=viewer_id, created_at__lte=as_of).values_list(
                 "observation_id", flat=True
