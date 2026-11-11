@@ -20,8 +20,6 @@ interface MockCanvas {
 
 const mockCanvases: MockCanvas[] = []
 
-// Unlayer runs in a third-party iframe jsdom can't load. The fake keeps its contract: it loads a design,
-// reports edits through design:updated, exports what it holds, and starts empty on every mount.
 jest.mock('react-email-editor', () => {
     const React = jest.requireActual('react')
     return {
@@ -54,7 +52,6 @@ jest.mock('react-email-editor', () => {
                 }
             }, [])
             React.useImperativeHandle(ref, () => ({ editor: canvas.editor }), [canvas])
-            // Unlayer reports ready once per mount, whatever its props do afterwards.
             React.useEffect(() => {
                 mockCanvases.push(canvas)
                 onReady?.()
@@ -146,7 +143,6 @@ function storedStep(): HogFlowAction | undefined {
     return workflowLogic(LOGIC_PROPS).values.workflow.actions.find((action) => action.id === STEP_ID)
 }
 
-// Renders the stored step through the step registry, like the editor panel, so a switch swaps the form.
 function StoredStepConfiguration(): JSX.Element | null {
     const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
     const action = workflow.actions.find((candidate) => candidate.id === STEP_ID)
