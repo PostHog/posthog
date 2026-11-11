@@ -259,6 +259,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Cin7": "cin7",
     "CircleCI": "circle-ci",
     "CircleSo": "circle-so",
+    "Circleback": "circleback",
     "CircleciInsights": "circleci-insights",
     "CiscoDuo": "cisco-duo",
     "CiscoMeraki": "cisco-meraki",

@@ -124,10 +124,12 @@ def saved_query_data_revision(team_id: int, name: str) -> str | None:
     return f"{query_fingerprint(saved_query.query) or ''}:{materialized_at.isoformat() if materialized_at else ''}"
 
 
-def all_saved_query_names(team_id: int) -> dict[str, str]:
+def all_saved_query_names(team_id: int, *, ids: Collection[UUID] | None = None) -> dict[str, str]:
     """The current name of every saved query in this team that still resolves. One query."""
-    rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "name")
-    return {str(saved_query_id): name for saved_query_id, name in rows}
+    saved_queries = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True)
+    if ids is not None:
+        saved_queries = saved_queries.filter(id__in=ids)
+    return {str(saved_query_id): name for saved_query_id, name in saved_queries.values_list("id", "name")}
 
 
 def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None) -> list[SavedQueryDefinition]:

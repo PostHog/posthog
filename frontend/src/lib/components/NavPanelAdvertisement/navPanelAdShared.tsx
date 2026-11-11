@@ -79,6 +79,12 @@ export interface ProductPushDisplay {
     href?: string
 }
 
+/** The parts of a display a card's hero draws: the title color and the illustration. */
+export type ProductHeroDisplay = Pick<
+    ProductPushDisplay,
+    'Hoggie' | 'Icon' | 'iconUpright' | 'accentColor' | 'hoggieOffset'
+>
+
 const DEFAULT_HOGGIE_OFFSET: Required<HoggieOffset> = { x: 50, y: 22 }
 
 /**
@@ -95,7 +101,7 @@ export function ProductHogHero({
     text,
     topRight,
 }: {
-    hero: ProductPushDisplay
+    hero: ProductHeroDisplay
     title: string
     text: React.ReactNode
     topRight?: JSX.Element
@@ -155,7 +161,7 @@ export function AdvertisementCard({
     emojiLabel?: string
     title: string
     text: React.ReactNode
-    hero?: ProductPushDisplay
+    hero?: ProductHeroDisplay
     onClose?: () => void
 }): JSX.Element {
     const { hideAdvertisement } = useActions(navPanelAdvertisementLogic)

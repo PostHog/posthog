@@ -261,6 +261,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "cin7": "credentials",
     "circle-ci": "credentials",
     "circle-so": "credentials",
+    "circleback": "token",
     "circleci-insights": "credentials",
     "cisco-duo": "credentials",
     "cisco-meraki": "credentials",

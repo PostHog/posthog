@@ -548,41 +548,45 @@ def render_alert_insight_chart(
         return None
 
 
+def _threshold_lines(alerts: Collection[AlertConfiguration]) -> list[dict[str, Any]]:
+    lines: list[dict[str, Any]] = []
+    for insight_alert in alerts:
+        if insight_alert.threshold is None or insight_alert.condition.get("type") != "absolute_value":
+            continue
+        threshold_config = insight_alert.threshold.configuration
+        if threshold_config.get("type") != "absolute":
+            continue
+        for side, value in (threshold_config.get("bounds") or {}).items():
+            if side in {"upper", "lower"} and value is not None:
+                label = f"{insight_alert.name} {side} threshold"
+                lines.append({"label": label, "value": value, "borderColor": "#d14343", "displayLabel": False})
+    return lines
+
+
 def render_alert_insight_chart_or_raise(
-    alert: AlertConfiguration, render_user: User | None = None
+    alert: AlertConfiguration, render_user: User | None = None, *, platform_slack_destination: bool = False
 ) -> RenderedInsightChart | None:
     """`render_alert_insight_chart`, but a failed render raises `InsightChartRenderFailed`, for a caller
-    that renders again later. None still means no chart applies."""
+    that renders again later. None still means no chart applies. `platform_slack_destination` is a Slack
+    destination the platform keeps, which the HogFunction lookup cannot see."""
     render_user = render_user or _resolve_alert_render_user(alert)
     if render_user is None:
         return None
     try:
-        destinations = list_active_alert_destinations(
-            team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
-        )
-        if not any(destination.destination_type == "slack" for destination in destinations):
+        if not platform_slack_destination and not any(
+            destination.destination_type == "slack"
+            for destination in list_active_alert_destinations(
+                team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
+            )
+        ):
             return None
-        alert_threshold_lines: list[dict[str, Any]] = []
-        for insight_alert in (
+        rows = (
             AlertConfiguration.objects.filter(team_id=alert.team_id, insight_id=alert.insight_id, enabled=True)
             .select_related("threshold")
             .order_by("created_at", "id")
-        ):
-            if insight_alert.threshold is None or insight_alert.condition.get("type") != "absolute_value":
-                continue
-            threshold_config = insight_alert.threshold.configuration
-            if threshold_config.get("type") != "absolute":
-                continue
-            for side, value in (threshold_config.get("bounds") or {}).items():
-                if side in {"upper", "lower"} and value is not None:
-                    alert_threshold_lines.append(
-                        {
-                            "label": f"{insight_alert.name} {side} threshold",
-                            "value": value,
-                            "borderColor": "#d14343",
-                            "displayLabel": False,
-                        }
-                    )
+        )
+        # An alert built from its platform alert is not one of the rows, so its own threshold is added.
+        alert_threshold_lines = _threshold_lines([*rows, *([alert] if alert._state.adding else [])])
         asset, content = exports.render_png_export(
             team=alert.team,
             created_by=render_user,
