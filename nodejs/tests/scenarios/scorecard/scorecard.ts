@@ -1,0 +1,89 @@
+import { createHash } from 'crypto'
+
+import type { LoadedCard } from '../cards'
+import type { RunResult } from '../runner/runner'
+import type { Provenance } from './provenance'
+
+export const SCHEMA_VERSION = 1
+export const TARGET = 'local'
+
+type Property = string | number | boolean | null | string[] | unknown[]
+
+export type ScorecardProperties = { run_id: string; ended_at: string } & Record<string, Property>
+
+const propertyName = (...parts: string[]): string => parts.join('_').replace(/[^A-Za-z0-9_]/g, '_')
+
+function invariantProperties(result: RunResult): Record<string, Property> {
+    return Object.fromEntries([
+        ...result.invariants.flatMap(({ name, passed, observed, gate, violation, unitIds }) => [
+            [propertyName('inv', name, 'passed'), passed],
+            [propertyName('inv', name, 'observed'), observed],
+            [propertyName('inv', name, 'gate'), gate ?? null],
+            [propertyName('inv', name, 'violation'), violation ?? null],
+            [propertyName('inv', name, 'ids'), unitIds],
+        ]),
+        ['invariants_failed', result.invariants.filter(({ passed }) => !passed).map(({ name }) => name)],
+    ])
+}
+
+function measurementProperties(result: RunResult): Record<string, Property> {
+    return Object.fromEntries(
+        result.measurements.map(({ name, of, value }) => [
+            propertyName('m', name, ...(of === undefined ? [] : [of])),
+            value,
+        ])
+    )
+}
+
+export function scorecardOf(
+    result: RunResult,
+    { card, profile }: LoadedCard,
+    provenance: Provenance
+): ScorecardProperties {
+    const fingerprint = createHash('sha256')
+        .update(
+            JSON.stringify([
+                TARGET,
+                provenance.hostCpu,
+                provenance.hostMemoryGb,
+                provenance.runnerVersion,
+                provenance.generatorVersion,
+                provenance.valvesVersion,
+                card.seed,
+            ])
+        )
+        .digest('hex')
+    return {
+        schema_version: SCHEMA_VERSION,
+        run_id: result.runId,
+        card_id: result.cardId,
+        card_version: card.version,
+        card_hash: result.cardHash,
+        profile_name: profile.name,
+        profile_hash: result.profileHash,
+        head_sha: provenance.headSha,
+        head_dirty: provenance.headDirty,
+        origin: result.origin,
+        target: TARGET,
+        fingerprint,
+        host_cpu: provenance.hostCpu,
+        host_memory_gb: provenance.hostMemoryGb,
+        runner_version: provenance.runnerVersion,
+        generator_version: provenance.generatorVersion,
+        valves_version: provenance.valvesVersion,
+        seed: card.seed,
+        status: result.status,
+        status_reason: result.statusReason,
+        started_at: result.startedAt,
+        ended_at: result.endedAt,
+        duration_s: (Date.parse(result.endedAt) - Date.parse(result.startedAt)) / 1000,
+        units_target: result.units?.targetUnits ?? null,
+        units_offered: result.units?.offeredUnits ?? null,
+        converged: result.convergence?.converged ?? null,
+        unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
+        ...invariantProperties(result),
+        ...measurementProperties(result),
+        valve_timeline: result.timeline,
+        evidence_dir: result.evidenceDir,
+    }
+}

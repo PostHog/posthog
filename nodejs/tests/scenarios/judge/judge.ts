@@ -32,7 +32,7 @@ export type InvariantResult = {
     unitIds: string[]
 }
 
-export type Measurement = { name: string; value: number; unit: string }
+export type Measurement = { name: string; of?: string; value: number; unit: string }
 
 export interface Judge {
     open(seed: SeedState): Promise<void>

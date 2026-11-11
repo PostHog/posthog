@@ -14,6 +14,9 @@ import { STACK } from '../environment/stack'
 import { DriveSummary, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, Judge, Measurement, createJudge } from '../judge/judge'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
+import { provenanceOf } from '../scorecard/provenance'
+import { scorecardOf } from '../scorecard/scorecard'
+import { publish } from '../scorecard/write'
 import { Status, statusOf } from './status'
 
 export type RunResult = {
@@ -21,6 +24,7 @@ export type RunResult = {
     status: Status
     statusReason: string
     recorded: boolean
+    scorecardError?: string
     cardId: string
     cardHash: string
     profileHash: string
@@ -76,8 +80,9 @@ function keepLogTails(stateDir: string): (evidenceDir: string) => void {
     }
 }
 
-function writeEvidence(result: RunResult, judge: Judge): void {
+function writeEvidence(result: RunResult, event: unknown, judge: Judge): void {
     const { journal, truth } = judge.evidence()
+    writeFileSync(path.join(result.evidenceDir, 'scorecard-event.json'), JSON.stringify(event, null, 2))
     writeFileSync(path.join(result.evidenceDir, 'journal.json'), JSON.stringify(journal, null, 2))
     writeFileSync(path.join(result.evidenceDir, 'truth.json'), JSON.stringify(truth, null, 2))
     writeFileSync(path.join(result.evidenceDir, 'scorecard.json'), JSON.stringify(result, null, 2))
@@ -154,8 +159,12 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 endedAt: new Date().toISOString(),
                 evidenceDir,
             }
+            const event = scorecardOf(result, loaded, provenanceOf())
+            const written = await publish(event, env)
+            result.recorded = written.recorded
+            result.scorecardError = written.problem
             writeLogTails(evidenceDir)
-            writeEvidence(result, judge)
+            writeEvidence(result, event, judge)
             return result
         },
 

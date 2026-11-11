@@ -4,33 +4,22 @@ import { parseArgs } from 'util'
 import { CardError, LoadedCard, load } from './cards'
 import { createEnvironment } from './environment/environment'
 import { createRunner } from './runner/runner'
-import { EXIT_CODE } from './runner/status'
+import { EXIT_CODE, exitCodeOf } from './runner/status'
+import { credentialsOf } from './scorecard/write'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
 const USAGE = 'Usage: scenarios run <card id or path>... [--profile <file>]'
-const CREDENTIALS = [
-    'SCENARIO_RUNS_HOST',
-    'SCENARIO_RUNS_PROJECT_ID',
-    'SCENARIO_RUNS_PROJECT_TOKEN',
-    'SCENARIO_RUNS_READ_KEY',
-]
 
 function cardPathOf(card: string): string {
     return card.endsWith('.yaml') || card.includes('/') ? path.resolve(card) : path.join(CARDS_DIR, `${card}.yaml`)
-}
-
-function credentialProblems(env: NodeJS.ProcessEnv): string[] {
-    const missing = CREDENTIALS.filter((name) => !env[name])
-    return missing.length > 0 && missing.length < CREDENTIALS.length
-        ? [`Scorecard credentials are set only in part; set all of them or none. Missing: ${missing.join(', ')}`]
-        : []
 }
 
 function preflight(
     cards: string[],
     profilePath: string | undefined
 ): { loaded: LoadedCard[] } | { problems: string[] } {
-    const problems = credentialProblems(process.env)
+    const { problem } = credentialsOf(process.env)
+    const problems = problem === undefined ? [] : [problem]
     const loaded = cards.flatMap((card) => {
         try {
             return [load(cardPathOf(card), { profilePath })]
@@ -73,7 +62,10 @@ async function main(argv: string[]): Promise<number> {
             const result = await runner.run(loaded, interrupt.signal)
             process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
             process.stdout.write(`evidence: ${result.evidenceDir}\n`)
-            code = Math.max(code, EXIT_CODE[result.status])
+            process.stdout.write(
+                `scorecard: ${result.recorded ? 'recorded' : (result.scorecardError ?? 'not written, no credentials set')}\n`
+            )
+            code = Math.max(code, exitCodeOf(result))
         }
     } catch (error) {
         process.stderr.write(`${(error as Error).message}\n`)
