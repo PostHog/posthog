@@ -207,7 +207,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.aeo"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.authorization", "products.dashboards"]
 layer = "modules"
 
 [[interfaces]]
@@ -632,6 +632,7 @@ depends_on = [
     "products.engineering_analytics",
     # Trace feedback reads trace-linked survey responses through the surveys facade.
     "products.surveys",
+    "products.today",
 ]
 layer = "modules"
 

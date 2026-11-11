@@ -23,7 +23,11 @@ export type CardFault = z.infer<typeof CardFault>
 
 export type SesStatusAnswer = { status: number; type: string; message: string }
 
-export type SesAnswer = { kind: 'status'; answer: SesStatusAnswer } | { kind: 'drop-connection' }
+export type SesAnswer =
+    | { kind: 'status'; answer: SesStatusAnswer }
+    | { kind: 'drop-connection' }
+    | { kind: 'no-answer' }
+    | { kind: 'stalled-body' }
 
 export type FaultRule = {
     name: string

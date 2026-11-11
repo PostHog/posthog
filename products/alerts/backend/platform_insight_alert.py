@@ -2,20 +2,24 @@
 platform alert's settings when insight keeps no row for it."""
 
 from collections.abc import Collection
+from dataclasses import replace
 from typing import Any, Final
 from uuid import UUID
 
 from django.db.models import Prefetch, prefetch_related_objects
 
 from posthog.models.tagged_item import TaggedItem
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import (
     get_configuration,
     list_configurations,
     native_configuration_matches,
+    update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -85,6 +89,20 @@ def insight_of(team_id: int, source_config: dict) -> Insight | None:
     return found[0] if found and not found[0].deleted else None
 
 
+def subscribers_with_insight_access(*, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> list[int]:
+    """The users who can still view the insight an insight alert watches. Nobody, once it is gone."""
+    configuration = get_configuration(
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=configuration_id
+    )
+    insight = insight_of(team_id, configuration.source_config) if configuration is not None else None
+    if insight is None:
+        return []
+    controls = UserAccessControl.for_user_ids(user_ids=user_ids, team=Team.objects.get(id=team_id))
+    return [
+        user_id for user_id, control in controls.items() if control.check_access_level_for_object(insight, "viewer")
+    ]
+
+
 def evaluation_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
     """The alert a check evaluates: a copy's insight row, or, for an alert insight keeps no row for,
     one built from the platform alert. None when either is gone."""
@@ -106,12 +124,30 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
 
 
-def native_insight_alert_view(team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
-    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None."""
+def native_insight_alert_view(
+    team_id: int, alert_id: UUID, *, lock: bool = False
+) -> PlatformAlertConfigurationView | None:
+    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None.
+    With `lock`, its row stays locked until the caller's transaction ends."""
     configuration = get_configuration(
-        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id, lock=lock
     )
     return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
+
+
+def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
+    """Turns on an insight alert with no insight row, through the platform's admission, once the
+    insight API has run its own checks. None when it is gone.
+
+    Raises `InvalidPlatformAlertEdit` when the admission refuses it.
+    """
+    return update_configuration(
+        team_id=team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        configuration_id=alert_id,
+        change=lambda stored: replace(stored, enabled=True),
+        source_checked=True,
+    )
 
 
 def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:

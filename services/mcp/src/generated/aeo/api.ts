@@ -22,6 +22,8 @@ export const AeoBrandsListParams = () => zod.object({
 
 export const aeoBrandsListQueryLimitMax = 1000
 
+export const aeoBrandsListQuerySearchMax = 200
+
 export const AeoBrandsListQueryParams = () => zod.object({
     kind: zod
         .enum(['own', 'competitor', 'publisher', 'unknown'])
@@ -31,6 +33,11 @@ export const AeoBrandsListQueryParams = () => zod.object({
         ),
     limit: zod.number().max(aeoBrandsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .max(aeoBrandsListQuerySearchMax)
+        .optional()
+        .describe('Only list brands whose domain or name contains this text, ignoring case.'),
     status: zod
         .enum(['suggested', 'confirmed', 'ignored'])
         .optional()
