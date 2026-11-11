@@ -20,6 +20,8 @@ import {
 const MAX_VALUE_SUGGESTIONS = 50
 const MAX_CROSS_FACET_SUGGESTIONS = 8
 const MIN_CROSS_FACET_TOKEN_LENGTH = 2
+// Enough for the scopes one keystroke reads: the draft's, the one without pills, and the one before it.
+const MAX_COUNTED_SCOPES = 4
 
 // The logic serves any item type. The typed `FacetSearchBar` component keeps callers consistent.
 /* oxlint-disable @typescript-eslint/no-explicit-any */
@@ -68,6 +70,9 @@ const DRAFT_PATTERN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"?|(\S*))$/
 // A token is complete when whitespace follows it, or when its quoted value is closed.
 const COMPLETE_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s))/g
 
+const isInsideOpenQuote = (input: string, offset: number): boolean =>
+    (input.slice(0, offset).match(/(?<!\\)"/g)?.length ?? 0) % 2 === 1
+
 /** Takes every complete, known `facet:value` token out of the input. The rest stays as typed. */
 function extractCompleteFilters(
     input: string,
@@ -76,10 +81,19 @@ function extractCompleteFilters(
     const filters: FacetFilter[] = []
     const remaining = input.replace(
         COMPLETE_TOKEN,
-        (token: string, lead: string, minus: string, key: string, quoted?: string, bare?: string) => {
+        (
+            token: string,
+            lead: string,
+            minus: string,
+            key: string,
+            quoted: string | undefined,
+            bare: string | undefined,
+            offset: number
+        ) => {
             const facet = findFacet(facets, key)
             const value = facet && normalizeFacetValue(facet, tokenValue(quoted, bare))
-            if (!facet || !value) {
+            // A token inside a quoted value that is still being typed is part of that value.
+            if (!facet || !value || isInsideOpenQuote(input, offset)) {
                 return token
             }
             filters.push({ facet: facet.key, value, negated: minus === '-' })
@@ -173,18 +187,23 @@ function reportFilterChange(
     })
 }
 
-type SuggestionSource = Pick<FacetSearchBarLogicProps, 'facets' | 'items' | 'value' | 'matchesText'>
+export type CountValuesIn = (scope: FacetSearchValue) => (facetKey: string) => FacetValueCount[]
+
+interface SuggestionSource {
+    facets: FacetDefinition<unknown>[]
+    value: FacetSearchValue
+    countValuesIn: CountValuesIn
+}
 
 /** The pill a draft names as if its suggestion were picked: exactly one value, and no other value that starts with the text. */
-function filterNamedBy(draft: FacetDraft, { facets, items, value, matchesText }: SuggestionSource): FacetFilter | null {
+function filterNamedBy(draft: FacetDraft, { facets, value, countValuesIn }: SuggestionSource): FacetFilter | null {
     if (!draft.partial || draft.openQuote) {
         return null
     }
     const facet = findFacet(facets, draft.facetKey)!
     const typed = draft.partial.toLowerCase()
     const namesOf = (v: string): string[] => [v.toLowerCase(), formatFacetValue(facet, v).toLowerCase()]
-    const valuesFor = (scope: FacetSearchValue): string[] =>
-        createFacetCounter(items, scope, facets, matchesText)(facet.key).map(({ value: v }) => v)
+    const valuesFor = (scope: FacetSearchValue): string[] => countValuesIn(scope)(facet.key).map(({ value: v }) => v)
     const named = valuesFor({ filters: value.filters, text: draft.rest }).filter((v) => namesOf(v).includes(typed))
     // Values the other pills hide still count, so a pill change never decides what the typing meant.
     const startsAnother = valuesFor({ filters: [], text: '' }).some(
@@ -201,19 +220,14 @@ function filterNamedBy(draft: FacetDraft, { facets, items, value, matchesText }:
 function buildSuggestions(
     input: string,
     draft: FacetDraft | null,
-    { facets, items, value, matchesText }: SuggestionSource
+    { facets, value, countValuesIn }: SuggestionSource
 ): FacetSuggestion[] {
     const chosen = new Set(value.filters.map((filter) => resolvedFacetFilterKey(facets, filter)))
 
     if (draft) {
         const facet = findFacet(facets, draft.facetKey)!
         const partial = draft.partial.toLowerCase()
-        const counts = createFacetCounter(
-            items,
-            { filters: value.filters, text: draft.rest },
-            facets,
-            matchesText
-        )(facet.key)
+        const counts = countValuesIn({ filters: value.filters, text: draft.rest })(facet.key)
         const pinnedValues = facet.pinnedValues ?? []
         const isPinned = (v: string): boolean => pinnedValues.some((pinned) => pinned.toLowerCase() === v.toLowerCase())
         const pinned = pinnedValues.map((pinnedValue): FacetValueCount => {
@@ -223,34 +237,39 @@ function buildSuggestions(
                 count: counts.find(({ value: v }) => v.toLowerCase() === resolved)?.count ?? 0,
             }
         })
-        const matching = [...pinned, ...counts.filter(({ value: v }) => !isPinned(v))].filter(({ value: v }) => {
-            const label = formatFacetValue(facet, v).toLowerCase()
-            return !partial || label.includes(partial) || v.toLowerCase().includes(partial)
-        })
-        const isChosen = (v: string): boolean =>
-            chosen.has(resolvedFacetFilterKey(facets, { facet: facet.key, value: v, negated: draft.negated }))
-        const rows = matching
-            .filter(({ value: v }) => !isChosen(v))
-            .slice(0, MAX_VALUE_SUGGESTIONS)
-            .map(
-                ({ value: v, count }): FacetSuggestion => ({
-                    id: `value-${facet.key}-${v}`,
-                    kind: 'value',
-                    label: `${draft.negated ? 'Not ' : ''}${formatFacetValue(facet, v)}`,
-                    detail: draft.negated ? `Hides ${count}` : undefined,
-                    count: draft.negated ? undefined : count,
-                    filter: { facet: facet.key, value: v, negated: draft.negated },
-                    rest: draft.rest,
-                })
-            )
+        const rows: FacetSuggestion[] = []
+        let firstChosenLabel: string | null = null
+        for (const { value: v, count } of [...pinned, ...counts.filter(({ value: v }) => !isPinned(v))]) {
+            if (rows.length === MAX_VALUE_SUGGESTIONS) {
+                break
+            }
+            const label = formatFacetValue(facet, v)
+            if (partial && !label.toLowerCase().includes(partial) && !v.toLowerCase().includes(partial)) {
+                continue
+            }
+            const filter = { facet: facet.key, value: v, negated: draft.negated }
+            if (chosen.has(resolvedFacetFilterKey(facets, filter))) {
+                firstChosenLabel ??= label
+                continue
+            }
+            rows.push({
+                id: `value-${facet.key}-${v}`,
+                kind: 'value',
+                label: `${draft.negated ? 'Not ' : ''}${label}`,
+                detail: draft.negated ? `Hides ${count}` : undefined,
+                count: draft.negated ? undefined : count,
+                filter,
+                rest: draft.rest,
+            })
+        }
         if (rows.length) {
             return rows
         }
         const label =
             counts.length === 0 && facet.emptyLabel
                 ? facet.emptyLabel
-                : matching.length
-                  ? `${formatFacetValue(facet, matching[0].value)} is already a filter`
+                : firstChosenLabel !== null
+                  ? `${firstChosenLabel} is already a filter`
                   : noValuesLabel(draft, value, !!facet.freeTextValues)
         return [{ id: 'none', kind: 'none', label }]
     }
@@ -291,9 +310,12 @@ function buildSuggestions(
 
     if (bare.length >= MIN_CROSS_FACET_TOKEN_LENGTH) {
         const matches: FacetSuggestion[] = []
-        const countValues = createFacetCounter(items, { filters: value.filters, text: rest }, facets, matchesText)
+        const countValues = countValuesIn({ filters: value.filters, text: rest })
         for (const facet of facets) {
             for (const { value: v, count } of countValues(facet.key)) {
+                if (matches.length === MAX_CROSS_FACET_SUGGESTIONS) {
+                    break
+                }
                 const label = formatFacetValue(facet, v)
                 if (!label.toLowerCase().includes(bare) && !v.toLowerCase().includes(bare)) {
                     continue
@@ -312,7 +334,7 @@ function buildSuggestions(
                 })
             }
         }
-        result.push(...matches.slice(0, MAX_CROSS_FACET_SUGGESTIONS))
+        result.push(...matches)
     }
     return result
 }
@@ -320,6 +342,7 @@ function buildSuggestions(
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface facetSearchBarLogicValues {
     composing: boolean
+    countValuesIn: CountValuesIn
     draft: FacetDraft | null
     highlightedIndex: number
     highlightedSuggestion: FacetSuggestion | null
@@ -381,14 +404,14 @@ export interface facetSearchBarLogicActions {
 export interface facetSearchBarLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        countValuesIn: (items: any[], facets: FacetDefinition<any>[], matchesText: MatchesText<any>) => CountValuesIn
         draft: (input: string, facets: FacetDefinition<any>[]) => FacetDraft | null
         suggestions: (
             input: string,
             draft: FacetDraft | null,
             facets: FacetDefinition<any>[],
-            items: any[],
             value: FacetSearchValue,
-            matchesText: MatchesText<any>
+            countValuesIn: CountValuesIn
         ) => FacetSuggestion[]
         highlightedIndex: (rawHighlightedIndex: number, suggestions: FacetSuggestion[]) => number
         highlightedSuggestion: (suggestions: FacetSuggestion[], highlightedIndex: number) => FacetSuggestion | null
@@ -459,20 +482,38 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
         ],
     })),
     selectors({
+        countValuesIn: [
+            (_, p) => [p.items, p.facets, p.matchesText],
+            (items: any[], facets: FacetDefinition<any>[], matchesText: MatchesText<any>): CountValuesIn => {
+                // Typing a value keeps its scope, so each keystroke reuses the counts instead of walking every item.
+                const counters = new Map<string, (facetKey: string) => FacetValueCount[]>()
+                return (scope) => {
+                    const key = JSON.stringify([scope.filters.map(facetFilterKey), scope.text.trim()])
+                    let counter = counters.get(key)
+                    if (!counter) {
+                        counter = createFacetCounter(items, scope, facets, matchesText)
+                        counters.set(key, counter)
+                        if (counters.size > MAX_COUNTED_SCOPES) {
+                            counters.delete(counters.keys().next().value!)
+                        }
+                    }
+                    return counter
+                }
+            },
+        ],
         draft: [
             (s, p) => [s.input, p.facets],
             (input: string, facets: FacetDefinition<unknown>[]): FacetDraft | null => parseFacetDraft(input, facets),
         ],
         suggestions: [
-            (s, p) => [s.input, s.draft, p.facets, p.items, p.value, p.matchesText],
+            (s, p) => [s.input, s.draft, p.facets, p.value, s.countValuesIn],
             (
                 input: string,
                 draft: FacetDraft | null,
                 facets: FacetDefinition<any>[],
-                items: any[],
                 value: FacetSearchValue,
-                matchesText: MatchesText<any>
-            ): FacetSuggestion[] => buildSuggestions(input, draft, { facets, items, value, matchesText }),
+                countValuesIn: CountValuesIn
+            ): FacetSuggestion[] => buildSuggestions(input, draft, { facets, value, countValuesIn }),
         ],
         highlightedIndex: [
             (s) => [s.rawHighlightedIndex, s.suggestions],
@@ -546,8 +587,9 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             const named =
                 draft && !values.composing && caret >= input.length
                     ? filterNamedBy(draft, {
-                          ...props,
+                          facets: props.facets,
                           value: { ...props.value, filters: [...props.value.filters, ...added] },
+                          countValuesIn: values.countValuesIn,
                       })
                     : null
             if (draft && named) {
