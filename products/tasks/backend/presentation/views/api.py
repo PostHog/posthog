@@ -1900,7 +1900,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {
                     "task_id": result.task_id,
                     "run_id": result.run_id,
-                    "permission_mode_mutable": origin_product == tasks_facade.TaskOriginProduct.USER_CREATED,
+                    "permission_mode_mutable": origin_product
+                    in (
+                        tasks_facade.TaskOriginProduct.USER_CREATED,
+                        tasks_facade.TaskOriginProduct.POSTHOG_AI,
+                    ),
                 }
             ).data
         )

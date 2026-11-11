@@ -131,6 +131,29 @@ describe('taskTrackerSceneLogic', () => {
         toolEvents?.unmount()
     })
 
+    it.each([true, false])('resets the warm budget only after a successful cold run (success: %s)', async (success) => {
+        let warmCalls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': () => {
+                    warmCalls++
+                    return [200, {}]
+                },
+                '/api/projects/:team/tasks/:id/run/': () =>
+                    success ? [200, { run: { id: 'cold-run' } }] : [500, { detail: 'Run failed' }],
+            },
+        })
+        logic.mount()
+        const warm = taskWarmLogic({ panelId: undefined })
+        logic.actions.setNewTaskData({ description: 'First draft' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(warm, () => warm.actions.prewarm({ branch: null })).toFinishAllListeners()
+        expect(warmCalls).toBe(1)
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+        await expectLogic(warm, () => warm.actions.prewarm({ branch: null })).toFinishAllListeners()
+        expect(warmCalls).toBe(success ? 2 : 1)
+    })
+
     describe('file attachments', () => {
         let attachments: ReturnType<typeof composerAttachmentsLogic.build>
 
@@ -663,7 +686,7 @@ describe('taskTrackerSceneLogic', () => {
     // Issuing the usual run-create on top would strand that warm sandbox and cold-boot a second one —
     // exactly the ~16s the warm existed to avoid. The create must also carry the warm-reuse hints, since
     // the backend never even attempts a match unless `branch` is present as a key.
-    it('skips the run create when the backend activated a warm run', async () => {
+    it.each([false, true])('targets a capable warm and skips a second run (mutable: %s)', async (mutable) => {
         useMocks({
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -678,6 +701,13 @@ describe('taskTrackerSceneLogic', () => {
         })
         logic.mount()
         logic.actions.setNewTaskData({ description: 'do the thing' })
+        const warm = taskWarmLogic({ panelId: undefined })
+        warm.actions.setWarmLease({
+            key: 'k',
+            taskId: 'warm-task',
+            runId: 'warm-run-1',
+            permissionModeMutable: mutable,
+        })
         logic.actions.submitNewTask()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -691,6 +721,8 @@ describe('taskTrackerSceneLogic', () => {
         // stored default for warm matching the same way the warm was provisioned.
         expect(createBody?.model).toBeUndefined()
         expect(createBody?.runtime_adapter).toBeUndefined()
+        expect(createBody?.warm_run_id).toBe(mutable ? 'warm-run-1' : undefined)
+        expect(createBody?.warm_submission_id).toEqual(mutable ? expect.any(String) : undefined)
         expect(runBody).toBeNull()
         expect(logic.values.activeCreation?.runId).toBe('warm-run-1')
     })

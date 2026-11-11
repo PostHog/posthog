@@ -1321,11 +1321,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 values.selectedMode,
                 { resume_from_run_id: props.runId }
             )
-            // A run on the ChatGPT plan boots cold, so its draft releases the warm like an empty one.
             getWarmLogic()?.actions.noteDraft(
-                Boolean(values.composerForm.draft.trim()) &&
-                    !usesChatGptPlan(getRuntimeAdapterForModel(values.catalogue, values.selectedModel)),
-                createRequest as WarmTaskResumeRequestApi
+                Boolean(values.composerForm.draft.trim()),
+                createRequest as WarmTaskResumeRequestApi,
+                !usesChatGptPlan(getRuntimeAdapterForModel(values.catalogue, values.selectedModel))
             )
         }
 
