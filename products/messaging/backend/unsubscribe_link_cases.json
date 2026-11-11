@@ -54,6 +54,12 @@
         "has_unsubscribe_link": true
     },
     {
+        "name": "link_after_a_self_closed_paragraph",
+        "html": "<p/><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
         "name": "no_placeholder",
         "html": "<p>News</p>",
         "text": "",
@@ -98,6 +104,114 @@
     {
         "name": "link_inside_a_template_element",
         "html": "<template><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></template><p>News</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_noscript_left_open_in_the_head",
+        "html": "<head><noscript></head><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_cdata_section_in_html",
+        "html": "<![CDATA[><textarea>]]><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_an_end_tag_inside_a_template",
+        "html": "<div><template></div><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_self_closed_style",
+        "html": "<style/><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_self_closed_title",
+        "html": "<title/><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_self_closed_textarea",
+        "html": "<textarea/><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_an_iframe",
+        "html": "<iframe><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></iframe><p>News</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_xmp",
+        "html": "<xmp><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></xmp><p>News</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_noembed",
+        "html": "<noembed><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></noembed><p>News</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_noframes",
+        "html": "<noframes><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></noframes><p>News</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_noframes_in_the_body",
+        "html": "<p>News</p><noframes><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></noframes>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_noframes_element",
+        "html": "<p>News</p><noframes><style></noframes><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_plaintext",
+        "html": "<p>News</p><plaintext><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_svg",
+        "html": "<svg><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></svg>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_math",
+        "html": "<math><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></math>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_tag_that_leaves_svg",
+        "html": "<svg></p><style/><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_a_select",
+        "html": "<select><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></select>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_frameset",
+        "html": "<frameset></frameset><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
         "text": "",
         "has_unsubscribe_link": false
     },
