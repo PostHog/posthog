@@ -476,7 +476,14 @@ export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | nu
 }
 
 export function isTextContentItem(item: unknown): item is TextContentItem {
-    return !!item && typeof item === 'object' && 'type' in item && item.type === 'text' && 'text' in item
+    return (
+        !!item &&
+        typeof item === 'object' &&
+        'type' in item &&
+        item.type === 'text' &&
+        'text' in item &&
+        isString(item.text)
+    )
 }
 
 export function hasStringContentField(value: unknown): value is StringContentObject {
