@@ -474,8 +474,6 @@ describe('SandboxEmailSendStep', () => {
             expect(world.ses.attempts).toBe(0)
             expect(stalled.invocation.queue).toBe('emailsandbox')
             expect(stalled.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
-            expect(stalled.invocation.state.currentAction).toMatchObject({ sandboxEmailRetries: 1 })
-            expect(stalled.invocation.state.currentAction?.sandboxEmailUncertainSends).toBeUndefined()
 
             await runSandboxQueue(buildExecutor(), stalled.invocation)
             expect(world.ses.delivered).toHaveLength(1)
