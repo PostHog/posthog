@@ -1,10 +1,57 @@
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
+import { serverDetailOf, withServerDetail } from '@/lib/errors'
+
 export function errorCode(error: unknown): unknown {
     return typeof error === 'object' && error !== null && 'code' in error
         ? (error as { code?: unknown }).code
         : undefined
+}
+
+// Jenkins, Azure Pipelines and AWS CodeBuild don't export CI, so their own variables count too.
+const CI_SERVICE_VARIABLES = [
+    'GITHUB_ACTIONS',
+    'GITLAB_CI',
+    'CIRCLECI',
+    'BUILDKITE',
+    'JENKINS_URL',
+    'TRAVIS',
+    'BITBUCKET_COMMIT',
+    'TF_BUILD',
+    'CODEBUILD_BUILD_ARN',
+    'TEAMCITY_VERSION',
+    'DRONE',
+    'SEMAPHORE',
+    'APPVEYOR',
+    'BITRISE_IO',
+    'CM_BUILD_ID',
+    'EAS_BUILD',
+    'HARNESS_BUILD_ID',
+    'DEPOT_JOB_URL',
+    'NETLIFY',
+    'CF_PAGES',
+    'BUILDER_OUTPUT',
+]
+
+export function isCi(env: NodeJS.ProcessEnv): boolean {
+    const ci = env.CI?.trim().toLowerCase()
+    return (
+        (ci !== undefined && ci !== '' && ci !== '0' && ci !== 'false') ||
+        CI_SERVICE_VARIABLES.some((name) => env[name])
+    )
+}
+
+// PostHog's reason is useful at a terminal, but it can repeat values from the request, and CI logs
+// are often public. In CI the reason is left out and a note says where to see it.
+export function failureText(error: unknown, ci: boolean): string {
+    const message = error instanceof Error ? error.message : String(error)
+    if (serverDetailOf(error) === undefined) {
+        return message
+    }
+    return ci
+        ? `${message}\n\nPostHog's reason is hidden in CI. Run the command outside CI to see it.`
+        : withServerDetail(message, error)
 }
 
 // Matches Linux's MAXSYMLINKS, so a link cycle fails instead of looping.

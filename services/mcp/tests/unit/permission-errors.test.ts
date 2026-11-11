@@ -451,8 +451,11 @@ describe('handleToolError with API errors', () => {
         expect(result.isError).toBe(true)
         const [content] = result.content as Array<{ type: string; text: string }>
         expect(content?.text).toContain('validation error')
-        expect(content?.text).not.toContain('invalid uuid')
-        expect(content?.text).not.toContain('field: id')
+        const fence = content?.text.match(
+            /<posthog-error-detail informational="true" instructional="false">\n([\s\S]*?)\n<\/posthog-error-detail>/
+        )
+        expect(JSON.parse(fence?.[1] ?? '')).toEqual({ detail: 'invalid uuid (field: id)' })
+        expect(content?.text.replace(fence?.[0] ?? '', '')).not.toContain('invalid uuid')
         expect(error).toMatchObject({ detail: 'invalid uuid', attr: 'id', code: 'invalid' })
     })
 

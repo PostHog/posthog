@@ -247,7 +247,12 @@ describe('experiment not-found rewrite', () => {
 
         const handled = handleToolError(thrown, 'experiment-results-get')
         expect(handled.content[0]).toMatchObject({ text: expect.stringContaining('HTTP 403') })
-        expect((handled.content[0] as { text: string }).text).not.toContain(denied.detail)
+        const text = (handled.content[0] as { text: string }).text
+        const fence = text.match(
+            /<posthog-error-detail informational="true" instructional="false">\n([\s\S]*?)\n<\/posthog-error-detail>/
+        )
+        expect(JSON.parse(fence?.[1] ?? '')).toEqual({ detail: denied.detail })
+        expect(text.replace(fence?.[0] ?? '', '')).not.toContain(denied.detail)
         expect(captureException).toHaveBeenCalledWith(
             expect.anything(),
             undefined,

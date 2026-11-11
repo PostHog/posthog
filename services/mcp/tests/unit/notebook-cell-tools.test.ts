@@ -634,8 +634,18 @@ describe('notebook cell tools', () => {
                 expect(JSON.parse(reference?.[1] ?? '')).toEqual({ node_id: upstreamId, return_variable: 'events_df' })
                 expect(output.replace(reference?.[0] ?? '', '')).not.toContain('UNTRUSTED_CELL_SENTINEL')
                 expect(output).toContain('Run the upstream cell with notebooks-run-cell, then run this cell again.')
-                expect(output).not.toContain('BODY_SECRET')
+                const detail = output.match(
+                    /<posthog-error-detail informational="true" instructional="false">\n([\s\S]*?)\n<\/posthog-error-detail>/
+                )
+                expect(output.replace(detail?.[0] ?? '', '')).not.toContain('BODY_SECRET')
             }
+            expect(
+                JSON.parse(
+                    formatted.match(
+                        /<posthog-error-detail informational="true" instructional="false">\n([\s\S]*?)\n<\/posthog-error-detail>/
+                    )?.[1] ?? ''
+                )
+            ).toEqual({ detail: state.runDispatchError })
             expect(findRecoverableApiError(error)).toBeInstanceOf(PostHogValidationError)
             expect(findRecoverableApiError(error)).toMatchObject({ detail: state.runDispatchError })
         })

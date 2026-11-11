@@ -3,6 +3,8 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { Schemas } from '@/api/generated'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
+import { withInformationalResponse } from '@/tools/tool-utils'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
@@ -541,6 +543,55 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
     return undefined
 }
 
+/**
+ * PostHog's own reason for refusing a request: the DRF `detail`, with the field for a validation
+ * error, and never a raw body. The reason can repeat values from the request, so error messages
+ * leave it out. The hosted server returns it to the agent that sent the request. The CLI prints it
+ * only outside CI, because CI logs are often public.
+ */
+export function serverDetailOf(error: unknown): string | undefined {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogValidationError) {
+            return current.attr ? `${current.detail} (field: ${current.attr})` : current.detail
+        }
+        if (current instanceof PostHogPermissionError) {
+            return current.detail
+        }
+        if (current instanceof PostHogApiError) {
+            return drfDetail(current.body)
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return undefined
+}
+
+function drfDetail(body: string): string | undefined {
+    try {
+        const detail = (JSON.parse(body) as { detail?: unknown } | null)?.detail
+        return typeof detail === 'string' && detail ? detail : undefined
+    } catch {
+        return undefined
+    }
+}
+
+// The reason can quote text that someone other than the caller wrote, such as notebook content, so
+// it reaches the agent fenced as data and never as instructions.
+export function withServerDetail(message: string, error: unknown): string {
+    const detail = serverDetailOf(error)
+    if (!detail) {
+        return message
+    }
+    const fenced = withInformationalResponse(
+        { detail },
+        'posthog-error-detail',
+        "It holds PostHog's reason for refusing the request."
+    )
+    return `${message}\n\n${fenced[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]}`
+}
+
 /** True when the error or any error in its `cause` chain came from a request deadline. Tools that
  *  rethrow through `wrapError` keep the timeout in `cause`. */
 export function hasTimeoutCause(error: unknown): boolean {
@@ -619,7 +670,7 @@ export function handleToolError(
                 content: [
                     {
                         type: 'text',
-                        text: `Error: [${toolName}]: ${recoverableApiError.message}`,
+                        text: `Error: [${toolName}]: ${withServerDetail(recoverableApiError.message, recoverableApiError)}`,
                     },
                 ],
                 isError: true,
@@ -652,7 +703,7 @@ export function handleToolError(
             content: [
                 {
                     type: 'text',
-                    text: `Error: [${toolName}]: ${formatPermissionErrorMessage(permissionError)}`,
+                    text: `Error: [${toolName}]: ${withServerDetail(formatPermissionErrorMessage(permissionError), permissionError)}`,
                 },
             ],
             isError: true,
