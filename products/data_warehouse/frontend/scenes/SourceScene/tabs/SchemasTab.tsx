@@ -69,7 +69,13 @@ import type { ExternalDataDestinationApi } from 'products/warehouse_sources/fron
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
 import { ReplaceFileModal } from './ReplaceFileModal'
-import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
+import {
+    BulkSyncMethod,
+    bulkSyncMethodDisabledReason,
+    isQueryableLive,
+    liveQueryDisabledReason,
+    sourceSettingsLogic,
+} from './sourceSettingsLogic'
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
@@ -485,8 +491,8 @@ function ManagedSchemaTable({
     inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
-    const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
-    const { setSelectedSchemas } = useActions(sourceSettingsLogic)
+    const { inProgressRowsBySchema, liveQuerySavingIds } = useValues(sourceSettingsLogic)
+    const { setSelectedSchemas, setSchemaLiveQuery } = useActions(sourceSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -496,6 +502,7 @@ function ManagedSchemaTable({
     }, [isLoading, initialLoad])
 
     const isFileUpload = !!onReplaceFile
+    const showLiveQuery = !!source?.direct_query_enabled && supportsDirectQuery(source.source_type)
 
     return (
         <LemonTable
@@ -513,9 +520,13 @@ function ManagedSchemaTable({
                               return reason ? { disabledReason: reason } : true
                           },
                           noun: ['schema', 'schemas'],
-                          barClassName: 'mb-2',
+                          barClassName: 'mb-2 flex-wrap',
                           renderActions: (ctx) => (
-                              <SchemaBulkActions schemas={ctx.selectedRecords} clearSelection={ctx.clearSelection} />
+                              <SchemaBulkActions
+                                  schemas={ctx.selectedRecords}
+                                  clearSelection={ctx.clearSelection}
+                                  showLiveQuery={showLiveQuery}
+                              />
                           ),
                       }
             }
@@ -837,6 +848,27 @@ function ManagedSchemaTable({
                         )
                     },
                 },
+                ...(showLiveQuery
+                    ? [
+                          {
+                              title: 'Live query',
+                              key: 'live_query_enabled' as const,
+                              render: function RenderLiveQuery(_: unknown, schema: ExternalDataSourceSchema) {
+                                  return (
+                                      <SchemaEditorAction schema={schema}>
+                                          <LemonSwitch
+                                              checked={isQueryableLive(schema)}
+                                              disabledReason={liveQueryDisabledReason(schema)}
+                                              loading={!!liveQuerySavingIds[schema.id]}
+                                              onChange={(enabled) => setSchemaLiveQuery(schema, enabled)}
+                                              data-attr="schemas-tab-live-query-switch"
+                                          />
+                                      </SchemaEditorAction>
+                                  )
+                              },
+                          },
+                      ]
+                    : []),
                 {
                     key: 'actions',
                     width: 0,
@@ -886,9 +918,11 @@ function ManagedSchemaTable({
 function SchemaBulkActions({
     schemas,
     clearSelection,
+    showLiveQuery,
 }: {
     schemas: readonly ExternalDataSourceSchema[]
     clearSelection: () => void
+    showLiveQuery: boolean
 }): JSX.Element {
     const {
         bulkEnable,
@@ -896,6 +930,7 @@ function SchemaBulkActions({
         bulkSetFrequency,
         bulkSetSyncMethod,
         bulkSyncNow,
+        bulkSetLiveQuery,
         bulkResync,
         bulkDeleteData,
         pausePolling,
@@ -990,6 +1025,26 @@ function SchemaBulkActions({
             <LemonButton type="secondary" size="small" onClick={onDisable}>
                 Disable
             </LemonButton>
+            {showLiveQuery && (
+                <>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => run(() => bulkSetLiveQuery(selected, true))}
+                        data-attr="schemas-tab-bulk-enable-live-query"
+                    >
+                        Enable live queries
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => run(() => bulkSetLiveQuery(selected, false))}
+                        data-attr="schemas-tab-bulk-disable-live-query"
+                    >
+                        Disable live queries
+                    </LemonButton>
+                </>
+            )}
             <LemonMenu
                 items={frequencyOptions.map((interval) => ({
                     label: SyncFrequencyLabelMap[interval],

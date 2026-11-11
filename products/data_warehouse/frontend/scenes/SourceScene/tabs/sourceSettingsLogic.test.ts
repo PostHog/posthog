@@ -5,8 +5,10 @@ import { allowedCdcSyncFrequencies, clampSyncFrequency } from 'products/data_war
 
 import {
     buildBulkEnablePayloads,
+    buildLiveQueryPayloads,
     bulkSyncMethodDisabledReason,
     effectiveLookbackDays,
+    isQueryableLive,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
     runBulkSchemaAction,
@@ -308,6 +310,41 @@ describe('buildBulkEnablePayloads', () => {
             { id: 'configured', should_sync: true },
             { id: 'unconfigured', should_sync: true, apply_sync_defaults: true },
         ])
+    })
+})
+
+describe('live query selection', () => {
+    const rowFilters = [
+        { column: 'id', operator: '=', value: '1' },
+    ] as unknown as ExternalDataSourceSchema['row_filters']
+
+    it.each([
+        ['a synced table is live', { should_sync: true }, true],
+        ['a live-only table is live', { live_query_enabled: true }, true],
+        ['an unselected table is not live', {}, false],
+        ['a synced table with row filters is not live', { should_sync: true, row_filters: rowFilters }, false],
+        [
+            'a live-only table with masked columns is not live',
+            { live_query_enabled: true, masked_columns: ['email'] },
+            false,
+        ],
+    ])('%s', (_, overrides, expected) => {
+        expect(isQueryableLive(makeSchema(overrides as Partial<ExternalDataSourceSchema>))).toBe(expected)
+    })
+
+    const selection = [
+        makeSchema({ id: 'synced', should_sync: true }),
+        makeSchema({ id: 'filtered', row_filters: rowFilters }),
+        makeSchema({ id: 'masked', masked_columns: ['email'] }),
+        makeSchema({ id: 'off' }),
+        makeSchema({ id: 'on', live_query_enabled: true }),
+    ]
+
+    it.each([
+        [true, { payloads: [{ id: 'off', live_query_enabled: true }], skipped: 3 }],
+        [false, { payloads: [{ id: 'on', live_query_enabled: false }], skipped: 3 }],
+    ])('enabled=%s skips locked rows and rows already in that state', (enabled, expected) => {
+        expect(buildLiveQueryPayloads(selection, enabled)).toEqual(expected)
     })
 })
 

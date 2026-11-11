@@ -6756,6 +6756,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     /** The requesting user's effective access level for this table (inherits the source). */
     user_access_level?: AccessControlLevel
+    /** Queryable live without syncing it. Synced tables are always queryable live. */
+    live_query_enabled?: boolean
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
