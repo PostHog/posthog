@@ -2301,13 +2301,19 @@ class TestFindTaskRun(TestCase):
             branch="feature/my-branch",
             output={"head_branches": [{"repository": "posthog/posthog", "branch": "feature/my-branch"}]},
         )
-        result = find_task_run(
-            team_ids=[self.team.id],
-            pr_url="https://github.com/posthog/posthog/pull/999",
-            branch="feature/my-branch",
-            repository="posthog/posthog",
-        )
+        with CaptureQueriesContext(connection) as queries:
+            result = find_task_run(
+                team_ids=[self.team.id],
+                pr_url="https://github.com/posthog/posthog/pull/999",
+                branch="feature/my-branch",
+                repository="posthog/posthog",
+            )
+
         self.assertEqual(result, branch_run)
+        self.assertEqual(len(queries), 2)
+        self.assertIn("UNION ALL", queries[0]["sql"])
+        self.assertNotIn("JOIN", queries[0]["sql"])
+        self.assertIn('INNER JOIN "posthog_task"', queries[1]["sql"])
 
     def test_finds_wizard_run_by_state_head_branch(self):
         # Wizard cloud runs never have the PR head branch in TaskRun.branch (that column is
