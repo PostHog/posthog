@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
+import { ExperimentNotStartedError } from '@/lib/errors'
 import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { getHealthHandler } from '@/tools/experiments/getHealth'
 import { getResultsHandler } from '@/tools/experiments/getResults'
@@ -149,34 +150,65 @@ describe('experiment health gate', () => {
         expect(trackEvent).toHaveBeenCalledWith(
             'mcp experiment health returned',
             expect.objectContaining({
-                tool,
+                tool_name: tool,
                 experiment_id: 7,
-                finding_codes: codes,
-                configuration_checks: outcome,
-                exposure_checks: 'read',
+                health_finding_codes: codes,
+                configuration_checks_outcome: outcome,
+                exposure_checks_outcome: 'read',
             })
         )
     })
 
-    const draftExposureRead = { success: false, error: new Error('Experiment "Test" has not started yet.') }
+    const draftExposureRead = {
+        success: false,
+        error: new ExperimentNotStartedError('Experiment "Test" has not started yet.'),
+    }
 
-    it('experiment-health-get returns the configuration checks of a draft, whose exposure query fails', async () => {
-        vi.mocked(isFeatureFlagEnabled).mockResolvedValue(true)
+    it.each([
+        {
+            name: 'returns the configuration checks of a draft',
+            flag: true,
+            codes: ['no_metric'],
+            summary:
+                'Findings: 1 warning. Checks: 1 finding. The exposure checks did not run: the experiment has not started.',
+        },
+        {
+            name: 'answers for a draft without the flag',
+            flag: false,
+            codes: [],
+            summary:
+                'Findings: none. Checks: none ran. The exposure checks did not run: the experiment has not started.',
+        },
+    ])('experiment-health-get $name', async ({ flag, codes, summary }) => {
+        vi.mocked(isFeatureFlagEnabled).mockResolvedValue(flag)
         const getHealth = vi.fn().mockResolvedValue({ success: true, data: configHealth })
 
         const result = await getHealthHandler(buildContext(getHealth, draftExposureRead, vi.fn()), { id: 7 })
 
-        expect(result.findings.map((f) => f.code)).toEqual(['no_metric'])
-        expect(result.summary).toBe(
-            'Findings: 1 warning. Checks: 1 finding. The exposure checks did not run: Experiment "Test" has not started yet.'
-        )
+        expect(result.findings.map((f) => f.code)).toEqual(codes)
+        expect(result.summary).toBe(summary)
+        expect(result).not.toHaveProperty('exposures')
     })
 
     it('experiment-health-get fails when the exposure query fails and the flag is off', async () => {
         vi.mocked(isFeatureFlagEnabled).mockResolvedValue(false)
+        const failedRead = { success: false, error: new Error('Internal server error') }
 
-        await expect(getHealthHandler(buildContext(vi.fn(), draftExposureRead, vi.fn()), { id: 7 })).rejects.toThrow(
+        await expect(getHealthHandler(buildContext(vi.fn(), failedRead, vi.fn()), { id: 7 })).rejects.toThrow(
             'Failed to get experiment health'
         )
+    })
+
+    it('experiment-health-get returns the exposure counts without their health fields', async () => {
+        vi.mocked(isFeatureFlagEnabled).mockResolvedValue(false)
+
+        const result = await getHealthHandler(buildContext(vi.fn(), exposureOk, vi.fn()), { id: 7 })
+
+        expect(result.exposures).toEqual({
+            kind: 'ExperimentExposureQuery',
+            timeseries: [],
+            total_exposures: {},
+            date_range: { date_from: '2026-01-01T00:00:00Z', date_to: null },
+        })
     })
 })

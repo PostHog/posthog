@@ -182,9 +182,10 @@ type HealthCheck = Schemas.ExperimentHealthCheckResult | Schemas.ExperimentExpos
 export type ExperimentHealthDetails = {
     findings: HealthFinding[]
     checks: HealthCheck[]
-    /** One sentence for each source whose checks did not run, so that a missing check is not read as passed. */
     not_run: string[]
 }
+
+type ExposureCounts = Omit<ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
 
 export type ExperimentHealthOverview = {
     summary: string
@@ -197,8 +198,8 @@ export type ExperimentHealthSummary = {
     summary: string
     findings: HealthFinding[]
     checks: HealthCheck[]
-    /** The flag settings that decide which variant a user gets. Present only with the configuration checks. */
     setup?: Schemas.ExperimentHealthSetup
+    exposures?: ExposureCounts
 }
 
 export type MetricSummary = {
@@ -242,7 +243,7 @@ export interface ExperimentResultsSummary {
             rollout_percentage?: number | null | undefined
         }>
     }
-    exposures: Omit<ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
+    exposures: ExposureCounts
     metrics: {
         primary: {
             count: number
@@ -474,10 +475,19 @@ export function overviewHealth(details: ExperimentHealthDetails): ExperimentHeal
     }
 }
 
+function exposureCounts({
+    health_findings: _findings,
+    health_checks: _checks,
+    ...counts
+}: ExperimentExposureQueryResponse): ExposureCounts {
+    return counts
+}
+
 export function transformExperimentHealth(
     experimentId: number,
     details: ExperimentHealthDetails,
-    setup: Schemas.ExperimentHealthSetup | null
+    setup: Schemas.ExperimentHealthSetup | null,
+    exposures: ExperimentExposureQueryResponse | null
 ): ExperimentHealthSummary {
     return {
         experiment_id: experimentId,
@@ -485,6 +495,7 @@ export function transformExperimentHealth(
         findings: details.findings,
         checks: details.checks,
         ...(setup ? { setup } : {}),
+        ...(exposures ? { exposures: exposureCounts(exposures) } : {}),
     }
 }
 
@@ -551,13 +562,13 @@ export function transformExperimentResults(input: {
         }
     }
 
-    const { health_findings, health_checks, ...exposureCounts } = exposures
-
     // The health overview comes first so that it survives a client that cuts the end of a long result.
     return {
-        health: overviewHealth(health ?? collectHealth([{ findings: health_findings, checks: health_checks }])),
+        health: overviewHealth(
+            health ?? collectHealth([{ findings: exposures.health_findings, checks: exposures.health_checks }])
+        ),
         experiment: transformedExperiment,
-        exposures: exposureCounts,
+        exposures: exposureCounts(exposures),
         metrics: {
             primary: buildRows(primaryMetricsResults, primaryMetricEntries),
             secondary: buildRows(secondaryMetricsResults, secondaryMetricEntries),

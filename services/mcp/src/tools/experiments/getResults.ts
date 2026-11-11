@@ -52,10 +52,10 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
 
     const health = collectHealth(
         [configRead.health ?? {}, { findings: exposures.health_findings, checks: exposures.health_checks }],
-        healthNotRun(configRead.outcome)
+        healthNotRun(configRead.outcome, 'read', null)
     )
     trackHealthReturned(context, {
-        tool: 'experiment-results-get',
+        toolName: 'experiment-results-get',
         experimentId: params.id,
         details: health,
         configOutcome: configRead.outcome,

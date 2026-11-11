@@ -1,5 +1,11 @@
 import type { Schemas } from '@/api/generated'
-import { findRecoverableApiError, PostHogApiError, PostHogValidationError, wrapError } from '@/lib/errors'
+import {
+    ExperimentNotStartedError,
+    findRecoverableApiError,
+    PostHogApiError,
+    PostHogValidationError,
+    wrapError,
+} from '@/lib/errors'
 import { AnalyticsEvent, buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import type { ExperimentHealthDetails } from '@/schema/experiments'
@@ -11,6 +17,8 @@ const EXPERIMENT_HEALTH_FINDINGS_FLAG = 'experiment-health-findings'
 
 /** `flag_off` also covers a failed flag check, because then the caller may not be in the flag. */
 export type ConfigHealthOutcome = 'read' | 'flag_off' | 'failed' | 'timed_out'
+
+export type ExposureHealthOutcome = 'read' | 'not_started' | 'failed'
 
 export type ConfigHealthRead = {
     health: Schemas.ExperimentHealth | null
@@ -30,7 +38,6 @@ async function configHealthEnabled(context: Context): Promise<boolean> {
     }
 }
 
-/** Reads the configuration checks of `/health/`. A failed read returns no checks rather than failing the tool. */
 export async function readConfigHealth(
     context: Context,
     projectId: string,
@@ -51,13 +58,29 @@ export async function readConfigHealth(
     return { health: null, outcome: signal?.aborted ? 'timed_out' : 'failed' }
 }
 
-/** The sentences that tell the agent which checks did not run, so that it does not read a missing check as passed. */
-export function healthNotRun(configOutcome: ConfigHealthOutcome, exposureError?: Error): string[] {
+export function exposureHealthOutcome(error: Error | null): ExposureHealthOutcome {
+    if (error === null) {
+        return 'read'
+    }
+    return error instanceof ExperimentNotStartedError ? 'not_started' : 'failed'
+}
+
+/** One sentence per source whose checks did not run, so that the agent does not read a missing check as passed. */
+export function healthNotRun(
+    configOutcome: ConfigHealthOutcome,
+    exposureOutcome: ExposureHealthOutcome,
+    exposureError: Error | null
+): string[] {
     return [
         ...(configOutcome === 'failed' || configOutcome === 'timed_out'
             ? ['The configuration checks did not run.']
             : []),
-        ...(exposureError ? [`The exposure checks did not run: ${exposureError.message}`] : []),
+        ...(exposureOutcome === 'not_started'
+            ? ['The exposure checks did not run: the experiment has not started.']
+            : []),
+        ...(exposureOutcome === 'failed' && exposureError
+            ? [`The exposure checks did not run: ${exposureError.message}`]
+            : []),
     ]
 }
 
@@ -74,38 +97,38 @@ export function experimentReadError(message: string, error: Error): Error {
 }
 
 /**
- * Records what health an agent got and from which tool. A results call with findings followed by an
- * experiment-health-get call on the same experiment and session shows that the overview leads agents to the details.
+ * A results call with findings, followed by an experiment-health-get call on the same experiment, shows that the
+ * overview leads agents to the details.
  */
 export function trackHealthReturned(
     context: Context,
     {
-        tool,
+        toolName,
         experimentId,
         details,
         configOutcome,
         exposureOutcome,
     }: {
-        tool: 'experiment-results-get' | 'experiment-health-get'
+        toolName: 'experiment-results-get' | 'experiment-health-get'
         experimentId: number
         details: ExperimentHealthDetails
         configOutcome: ConfigHealthOutcome
-        exposureOutcome: 'read' | 'failed'
+        exposureOutcome: ExposureHealthOutcome
     }
 ): void {
-    const severityCount = (severity: string): number =>
-        details.findings.filter((finding) => finding.severity === severity).length
     void context.trackEvent(AnalyticsEvent.MCP_EXPERIMENT_HEALTH_RETURNED, {
-        tool,
+        tool_name: toolName,
         experiment_id: experimentId,
-        finding_count: details.findings.length,
-        critical_count: severityCount('critical'),
-        warning_count: severityCount('warning'),
-        info_count: severityCount('info'),
-        finding_codes: details.findings.map((finding) => finding.code),
-        check_count: details.checks.length,
-        not_checked_count: details.checks.filter((check) => check.status === 'not_checked').length,
-        configuration_checks: configOutcome,
-        exposure_checks: exposureOutcome,
+        health_finding_codes: details.findings.map((finding) => finding.code),
+        health_finding_count: details.findings.length,
+        // pinned: `code:subcode:severity:reason` and `key:status:reason`, the formats of `experiment health checked`.
+        health_findings: details.findings.map(({ code, subcode, severity, reason }) =>
+            [code, subcode ?? '', severity, reason ?? ''].join(':')
+        ),
+        health_checks: details.checks.map(({ key, status, reason }) =>
+            [key, status, status === 'not_checked' ? (reason ?? '') : ''].join(':')
+        ),
+        configuration_checks_outcome: configOutcome,
+        exposure_checks_outcome: exposureOutcome,
     })
 }

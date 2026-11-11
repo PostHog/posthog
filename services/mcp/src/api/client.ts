@@ -5,6 +5,7 @@ import { MCP_CLIENT_IP_HEADERS, signedClientIpHeaders } from '@/lib/client-ip-si
 import { getUserAgent } from '@/lib/constants'
 import {
     ErrorCode,
+    ExperimentNotStartedError,
     hasTimeoutCause,
     isTimeoutError,
     parseRetryAfterSeconds,
@@ -1150,7 +1151,7 @@ export class ApiClient {
                 if (!experiment.start_date) {
                     return {
                         success: false,
-                        error: new Error(
+                        error: new ExperimentNotStartedError(
                             `Experiment "${experiment.name}" has not started yet. Exposure data is only available for started experiments.`
                         ),
                     }
