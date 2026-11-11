@@ -22,6 +22,7 @@ interface ReleaseImportLogicValues {
 
 interface ReleaseImportLogicActions {
     reload: (force?: boolean) => { force: boolean }
+    loadReleasesSuccess: (releases: ReleaseDTOApi[]) => { releases: ReleaseDTOApi[] }
     runAutoImport: () => void
     setAutoImportState: (state: AutoImportState) => { state: AutoImportState }
     markAutoImported: (projectId: string) => { projectId: string }
@@ -33,7 +34,7 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
     path(['products', 'release', 'frontend', 'releaseImportLogic']),
     connect(() => ({
         values: [releaseLogic, ['currentProjectId', 'releases', 'dataLoading', 'loadFailed', 'canEditReleases']],
-        actions: [releaseLogic, ['reload']],
+        actions: [releaseLogic, ['reload', 'loadReleasesSuccess']],
     })),
     actions({
         runAutoImport: () => ({}),
@@ -74,6 +75,15 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        loadReleasesSuccess: () => {
+            if (
+                values.canEditReleases &&
+                values.autoImportState === 'idle' &&
+                !values.autoImportedProjects[String(values.currentProjectId)]
+            ) {
+                actions.runAutoImport()
+            }
+        },
         runAutoImport: async () => {
             const projectId = String(values.currentProjectId)
             actions.setAutoImportState('running')

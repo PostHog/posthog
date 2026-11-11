@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from django.db.models import Prefetch, Q, QuerySet
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 
 from posthog.scopes import APIScopeObject
 
@@ -39,11 +39,15 @@ def _visible(
 
 
 def _survey_flag_ids(project_id: int, flag_ids: list[int]) -> set[int]:
-    fields = ("targeting_flag_id", "internal_targeting_flag_id", "internal_response_sampling_flag_id")
-    matches = Q()
-    for field in fields:
-        matches |= Q(**{f"{field}__in": flag_ids})
-    rows = Survey.objects.filter(team__project_id=project_id).filter(matches).values_list(*fields)
+    rows = (
+        Survey.objects.filter(team__project_id=project_id)
+        .filter(
+            Q(targeting_flag_id__in=flag_ids)
+            | Q(internal_targeting_flag_id__in=flag_ids)
+            | Q(internal_response_sampling_flag_id__in=flag_ids)
+        )
+        .values_list("targeting_flag_id", "internal_targeting_flag_id", "internal_response_sampling_flag_id")
+    )
     return {flag_id for row in rows for flag_id in row if flag_id in flag_ids}
 
 
@@ -111,14 +115,24 @@ def list_release_import_flags(
     ]
 
 
-def on_flag_created(handler: Callable[[int, int], None]) -> None:
+ACTIVATED_ATTR = "_release_activated"
+
+
+def on_flag_activated(handler: Callable[[int, int], None]) -> None:
+    uid = f"on_flag_activated:{handler.__module__}.{handler.__qualname__}"
+
+    def remember(sender: Any, instance: FeatureFlag, raw: bool = False, **kwargs: Any) -> None:
+        if raw or instance.pk is None or not instance.active:
+            return
+        was_active = FeatureFlag.objects.filter(pk=instance.pk).values_list("active", flat=True).first()
+        setattr(instance, ACTIVATED_ATTR, was_active is False)
+
     def receiver(sender: Any, instance: FeatureFlag, created: bool, raw: bool = False, **kwargs: Any) -> None:
-        if created and not raw:
+        if raw:
+            return
+        if (created and instance.active) or getattr(instance, ACTIVATED_ATTR, False):
+            setattr(instance, ACTIVATED_ATTR, False)
             handler(instance.id, instance.team_id)
 
-    post_save.connect(
-        receiver,
-        sender=FeatureFlag,
-        weak=False,
-        dispatch_uid=f"on_flag_created:{handler.__module__}.{handler.__qualname__}",
-    )
+    pre_save.connect(remember, sender=FeatureFlag, weak=False, dispatch_uid=f"{uid}:pre")
+    post_save.connect(receiver, sender=FeatureFlag, weak=False, dispatch_uid=uid)

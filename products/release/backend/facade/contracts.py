@@ -109,8 +109,8 @@ class ImportFlag:
     key: str
     created_at: datetime
     created_by_id: int | None
-    experiment_names: tuple[str, ...] = ()
-    early_access_names: tuple[str, ...] = ()
+    has_experiment: bool = False
+    has_early_access: bool = False
 
 
 @dataclass(frozen=True)

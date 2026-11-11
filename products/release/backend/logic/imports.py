@@ -18,16 +18,21 @@ from ..models import Release
 RELATED_WINDOW = timedelta(days=14)
 MIN_PREFIX_LENGTH = 3
 MAX_NAME_LENGTH = 255
+MAX_GROUP_SIZE = 100
 REASON_ORDER = [ImportReason.EXPERIMENT, ImportReason.EARLY_ACCESS, ImportReason.RELATED_FLAGS, ImportReason.FLAG]
 
 _SEPARATORS = re.compile(r"[-_.:/\s]+")
 
 
-def linked_flag_ids(team_id: int) -> set[int]:
+def linked_flag_ids(team_id: int, flag_ids: list[int] | None = None) -> set[int]:
+    releases = Release.objects.filter(team_id=team_id)
+    if flag_ids is not None:
+        releases = releases.filter(feature_flag_ids__overlap=flag_ids)
     return {
         flag_id
-        for flag_ids in Release.objects.filter(team_id=team_id).values_list("feature_flag_ids", flat=True)
-        for flag_id in flag_ids
+        for linked in releases.values_list("feature_flag_ids", flat=True)
+        for flag_id in linked
+        if flag_ids is None or flag_id in flag_ids
     }
 
 
@@ -35,7 +40,7 @@ def create_unlinked_releases(team_id: int, releases: list[tuple[str, list[int]]]
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"release-import:{team_id}"])
-        linked = linked_flag_ids(team_id)
+        linked = linked_flag_ids(team_id, sorted({flag_id for _, flag_ids in releases for flag_id in flag_ids}))
         rows: list[Release] = []
         for name, flag_ids in releases:
             unlinked = [flag_id for flag_id in dict.fromkeys(flag_ids) if flag_id not in linked]
@@ -107,13 +112,18 @@ def group_import_candidates(flags: Iterable[ImportFlag], linked: set[int]) -> li
     for flag in flags:
         if flag.id in linked:
             continue
-        if flag.early_access_names:
-            candidates.append(_candidate(ImportReason.EARLY_ACCESS, flag.early_access_names[0], [flag]))
-        elif flag.experiment_names:
-            candidates.append(_candidate(ImportReason.EXPERIMENT, flag.experiment_names[0], [flag]))
+        if flag.has_early_access:
+            candidates.append(_candidate(ImportReason.EARLY_ACCESS, humanize(flag.key), [flag]))
+        elif flag.has_experiment:
+            candidates.append(_candidate(ImportReason.EXPERIMENT, humanize(flag.key), [flag]))
         else:
             loose.append(flag)
-    for group in _related_groups(loose):
+    groups = [
+        group[start : start + MAX_GROUP_SIZE]
+        for group in _related_groups(loose)
+        for start in range(0, len(group), MAX_GROUP_SIZE)
+    ]
+    for group in groups:
         if len(group) == 1:
             candidates.append(_candidate(ImportReason.FLAG, humanize(group[0].key), group))
         else:

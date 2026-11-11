@@ -10,14 +10,16 @@ from products.release.backend.logic.imports import group_import_candidates
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def flag(flag_id: int, key: str, days: int = 0, creator: int | None = 1, experiments=(), early_access=()) -> ImportFlag:
+def flag(
+    flag_id: int, key: str, days: int = 0, creator: int | None = 1, experiment: bool = False, early_access: bool = False
+) -> ImportFlag:
     return ImportFlag(
         id=flag_id,
         key=key,
         created_at=START + timedelta(days=days),
         created_by_id=creator,
-        experiment_names=tuple(experiments),
-        early_access_names=tuple(early_access),
+        has_experiment=experiment,
+        has_early_access=early_access,
     )
 
 
@@ -50,15 +52,15 @@ class TestGroupImportCandidates(SimpleTestCase):
                 [("flag", "Checkout v2", [1]), ("flag", "Checkout banner", [2])],
             ),
             (
-                "puts experiments and early access first, named after them",
+                "puts experiments and early access first, named after their flag",
                 [
                     flag(1, "quiet-theme", days=5),
-                    flag(2, "new-pricing", experiments=["Pricing test"]),
-                    flag(3, "beta-search", experiments=["Search test"], early_access=["Search beta"]),
+                    flag(2, "new-pricing", experiment=True),
+                    flag(3, "beta-search", experiment=True, early_access=True),
                 ],
                 [
-                    ("experiment", "Pricing test", [2]),
-                    ("early_access", "Search beta", [3]),
+                    ("experiment", "New pricing", [2]),
+                    ("early_access", "Beta search", [3]),
                     ("flag", "Quiet theme", [1]),
                 ],
             ),
@@ -73,3 +75,10 @@ class TestGroupImportCandidates(SimpleTestCase):
         candidates = group_import_candidates([flag(1, "checkout-v2"), flag(2, "checkout-banner")], linked={1})
 
         assert [item.feature_flag_ids for item in candidates] == [[2]]
+
+    def test_splits_large_groups_at_the_link_limit(self) -> None:
+        flags = [flag(index, f"checkout-step-{index}") for index in range(1, 151)]
+
+        candidates = group_import_candidates(flags, linked=set())
+
+        assert sorted(len(item.feature_flag_ids) for item in candidates) == [50, 100]

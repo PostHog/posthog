@@ -212,8 +212,8 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 key=flag.key,
                 created_at=flag.created_at,
                 created_by_id=flag.created_by_id,
-                experiment_names=tuple(item.name for item in flag.experiments),
-                early_access_names=tuple(item.name for item in flag.early_access),
+                has_experiment=bool(flag.experiments),
+                has_early_access=bool(flag.early_access),
             )
             for flag in list_release_import_flags(
                 team_id=self.team_id, project_id=self.team.project_id, access_control=self.user_access_control

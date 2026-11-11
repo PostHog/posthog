@@ -316,9 +316,23 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
-    @parameterized.expand([("enabled", True, ["Quiet theme"]), ("disabled", False, [])])
-    def test_a_new_flag_gets_its_own_release(self, _name: str, enabled: bool, expected: list[str]) -> None:
+    @parameterized.expand(
+        [
+            ("enabled", True, False, ["Quiet theme"]),
+            ("disabled", False, False, []),
+            ("activated_later", True, True, ["Quiet theme"]),
+        ]
+    )
+    def test_a_new_flag_gets_its_own_release(
+        self, _name: str, enabled: bool, starts_inactive: bool, expected: list[str]
+    ) -> None:
         with patch(FLAG_PATCH, return_value=enabled), self.captureOnCommitCallbacks(execute=True):
-            self._flag("quiet-theme")
+            flag_id = self._flag("quiet-theme", active=not starts_inactive)
+        if starts_inactive:
+            assert self.client.get(self._url()).json()["results"] == []
+            with patch(FLAG_PATCH, return_value=enabled), self.captureOnCommitCallbacks(execute=True):
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/feature_flags/{flag_id}/", {"active": True}, format="json"
+                )
 
         assert [release["name"] for release in self.client.get(self._url()).json()["results"]] == expected
