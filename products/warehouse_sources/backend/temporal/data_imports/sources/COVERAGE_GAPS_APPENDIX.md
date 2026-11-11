@@ -12126,14 +12126,14 @@ Note: Full v1 path list read out of the embedded ReadMe OAS on the reference pag
 
 ## Teamcity — gaps
 
-Today (8): `agents`, `build_types`, `builds`, `changes`, `problem_occurrences`, `projects`, `test_occurrences`, `vcs_roots`
+Today (10): `agents`, `build_statistics`, `build_types`, `builds`, `changes`, `problem_occurrences`, `projects`, `test_occurrences`, `users`, `vcs_roots`
 
 Diffed against: <https://teamcity.jetbrains.com/app/rest/swagger.json>
 
-- [ ] `tests` — test lookup table resolving the test IDs carried by test_occurrences we already sync (high)
-- [ ] `problems` — problem lookup table resolving the problem IDs carried by problem_occurrences we already sync (high)
-- [ ] `users` — user lookup resolving build triggeredBy, change authors and investigation assignees (high)
-- [ ] `builds/{buildLocator}/statistics` — per-build metric values (duration, queue time, artifact size, coverage) — TeamCity's headline build metrics, not present on the build object (high)
+- ~~`tests` — test lookup table resolving the test IDs carried by test_occurrences we already sync (high)~~ — skipped: `/tests` has no list-all locator (only `id:`, `name:`, or currently failing/muted tests of a project), and `test_occurrences` already carries each test's id and name
+- ~~`problems` — problem lookup table resolving the problem IDs carried by problem_occurrences we already sync (high)~~ — skipped: `/problems` has no list-all locator (only `id:` or currently failing/muted problems of a project), and `problem_occurrences` already carries each problem's id, type and identity
+- [x] `users` — user lookup resolving build triggeredBy, change authors and investigation assignees (high). Added as `users` (full refresh, off by default: it needs the global View user profile permission)
+- [x] `builds/{buildLocator}/statistics` — per-build metric values (duration, queue time, artifact size, coverage) — TeamCity's headline build metrics, not present on the build object (high). Added as `build_statistics` (fan-out over finished builds, incremental on the build finish date)
 - [ ] `investigations` — who owns each failing build/test and its state — failure-ownership analysis (medium)
 - [ ] `mutes` — muted tests/problems, required to compute a truthful failure rate from test_occurrences (medium)
 - [ ] `agentPools` — lookup grouping agents we already sync into pools for capacity analysis (medium)
