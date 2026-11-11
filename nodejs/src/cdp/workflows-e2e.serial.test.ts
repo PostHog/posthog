@@ -3592,7 +3592,6 @@ describe('Workflows E2E (email queue)', () => {
             })
             .strict()
 
-        // SES's SendEmail API, which refuses a request outside its schema and keeps what it accepts.
         const startSesFake = async () => {
             const received: { to: string[]; headers: Record<string, string>; text?: string; html?: string }[] = []
             const ses = createServer((req, res) => {
