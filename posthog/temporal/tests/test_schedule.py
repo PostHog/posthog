@@ -23,6 +23,8 @@ from posthog.temporal.schedule import (
     create_wa_weekly_digest_schedule,
 )
 
+from products.ai_observability.backend.facade.temporal import EVAL_SUGGESTIONS_SCHEDULE_ID
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cloud_deployment,debug", [(None, False), (None, True), ("LOCAL", True), ("E2E", False)])
@@ -109,7 +111,7 @@ async def test_wa_digest_schedules_target_the_weekly_digest_queue() -> None:
 
 
 # The reaper converges self-hosted instances that still hold clustering/summarization schedule rows a
-# prior release created. It must delete all four there, and nothing where the coordinators still
+# prior release created. It must delete all of them there, and nothing where the coordinators still
 # register, which is cloud and a local DEBUG install.
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -123,6 +125,7 @@ async def test_wa_digest_schedules_target_the_weekly_digest_queue() -> None:
                 trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
                 trace_clustering_constants.COORDINATOR_SCHEDULE_ID,
                 trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+                EVAL_SUGGESTIONS_SCHEDULE_ID,
             ],
         ),
         ("US", False, []),

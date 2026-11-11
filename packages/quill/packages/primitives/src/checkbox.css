@@ -22,7 +22,7 @@
         background-color: color-mix(in oklab, var(--input) 30%, transparent);
     }
 
-    .quill-checkbox:not(:disabled) {
+    .quill-checkbox:not(:disabled, [data-disabled]) {
         cursor: pointer;
     }
 
@@ -35,7 +35,7 @@
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
-    .quill-checkbox:disabled {
+    .quill-checkbox:is(:disabled, [data-disabled]) {
         cursor: not-allowed;
         opacity: 0.5;
     }
