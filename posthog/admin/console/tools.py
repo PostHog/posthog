@@ -165,6 +165,11 @@ class Live:
     def __post_init__(self) -> None:
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", self.key):
             raise ValueError(f"Live block key {self.key!r} must be lowercase and dash-separated, like a URL slug")
+        # The live endpoint renders this block on every refresh, so a Secret here would be shown again and again.
+        if not isinstance(self.block, INNER_BLOCKS):
+            raise ValueError(
+                f"Live block {self.key!r} holds a {type(self.block).__name__}, not a table, notice, output or stats"
+            )
 
 
 @frozen
@@ -200,10 +205,6 @@ class Page:
         for block in self.blocks:
             if not isinstance(block, Block):
                 raise ValueError(f"{type(block).__name__} is not a console block. Add new blocks to the shell.")
-            if isinstance(block, Live) and not isinstance(block.block, INNER_BLOCKS):
-                raise ValueError(
-                    f"Live block {block.key!r} holds a {type(block.block).__name__}, not a table, notice, output or stats"
-                )
             inner = block.block if isinstance(block, Live) else block
             if isinstance(inner, Table):
                 _check_table(inner)

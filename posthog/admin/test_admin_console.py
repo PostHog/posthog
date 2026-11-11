@@ -233,7 +233,13 @@ class _SecretTool(_Tool):
     @classmethod
     def issue(cls, request: HttpRequest, form: object) -> Page:
         cls.runs += 1
-        return Page(blocks=(Secret(label="Root password", value="example-secret-value"),))
+        return Page(
+            blocks=(
+                Stats(items=(Stat(label="Passwords issued", value="1"),)),
+                Secret(label="Root password", value="example-secret-value"),
+                Links(items=(Link(label="Back to the cluster", href="/admin/console/"),)),
+            )
+        )
 
 
 def _register_twice() -> None:
@@ -447,6 +453,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                         ),
                     )
                 ),
+                "not a table, notice, output or stats",
+            ),
+            (
+                "live_block_holding_a_secret",
+                lambda: Live(key="password", block=Secret(label="Root password", value="example")),  # type: ignore[arg-type]
                 "not a table, notice, output or stats",
             ),
             (
@@ -751,6 +762,7 @@ class TestAdminConsoleViews(BaseTest):
         assert first.cookies[KEY_COOKIE]["max-age"] == 0
         assert first.status_code == 200
         assert "example-secret-value" in first.content.decode()
+        assert "Passwords issued" in first.content.decode() and "Back to the cluster" in first.content.decode()
         assert reload.status_code == 410
         assert "example-secret-value" not in reload.content.decode()
         assert _SecretTool.runs == 1
