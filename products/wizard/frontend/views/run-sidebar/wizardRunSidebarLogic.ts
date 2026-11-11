@@ -40,6 +40,7 @@ export interface wizardRunSidebarLogicValues {
     detectedSources: WizardDetectedWarehouseSourceApi[] | null
     detectedSourcesLoading: boolean
     runDetectedSources: WizardDetectedWarehouseSourceApi[]
+    railEligible: boolean
     railVisible: boolean
     railState: WizardRailState
     railProgress: number
@@ -53,6 +54,7 @@ export interface wizardRunSidebarLogicActions {
     refreshDetectedSources: () => { value: true }
     dismissRuns: (runIds: string[]) => { runIds: string[] }
     markRunsSeen: () => { seenAt: string }
+    revealRail: () => { value: true }
     syncWatchedRuns: () => { value: true }
     watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
 }
@@ -88,6 +90,7 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
         dismissRuns: (runIds: string[]) => ({ runIds }),
         markRunsSeen: () => ({ seenAt: new Date().toISOString() }),
         syncWatchedRuns: true,
+        revealRail: true,
     }),
     reducers(({ props: { projectId, userId } }) => ({
         dismissedRunIds: [
@@ -101,9 +104,11 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             { persist: true, storageKey: `${projectId}.${userId}.wizard_runs_seen_at` },
             { markRunsSeen: (_, { seenAt }) => seenAt },
         ],
+        // Only a reload resets this, so dismissing runs or the 24-hour window ending never removes the tile mid-session.
+        railVisible: [false, { revealRail: () => true }],
     })),
     selectors({
-        railVisible: [
+        railEligible: [
             (s) => [s.visibleRuns],
             (runs: WizardRunApi[]): boolean => {
                 const cutoff = Date.now() - RAIL_RECENT_RUN_WINDOW_MS
@@ -161,7 +166,12 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
         ],
     }),
     listeners(({ actions, values, cache, props: { projectId } }) => ({
-        [wizardRunSyncLogic({ projectId }).actionTypes.runsLoaded]: () => actions.syncWatchedRuns(),
+        [wizardRunSyncLogic({ projectId }).actionTypes.runsLoaded]: () => {
+            actions.syncWatchedRuns()
+            if (!values.railVisible && values.railEligible) {
+                actions.revealRail()
+            }
+        },
         [wizardRunSyncLogic({ projectId }).actionTypes.runUpdated]: () => actions.syncWatchedRuns(),
         // Runs on a fixed cadence, never per streamed update. A run's scan can land any time until it ends,
         // so every run seen active is refreshed until a load requested after it ended succeeds.
@@ -215,7 +225,10 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             })
         },
     })),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, values, cache }) => {
+        if (values.railEligible) {
+            actions.revealRail()
+        }
         cache.disposables.add(() => {
             actions.syncWatchedRuns()
             return () => actions.watchRuns('sidebar', [])
