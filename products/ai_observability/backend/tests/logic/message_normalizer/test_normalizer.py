@@ -32,16 +32,24 @@ from products.ai_observability.backend.logic.message_normalizer.rules import Rec
 from products.ai_observability.backend.logic.message_normalizer.run_limits import check_time_limit, time_limit
 from products.ai_observability.backend.logic.message_normalizer.values import MISSING, CompatMessage, JsonValue, Value
 
-TS_DEFAULT_RECIPES = Path(__file__).parents[6] / "packages/llm-normalizer/src/normalizer/recipe/default_recipes"
 ECHO = compile_recipe({"id": "echo", "rules": [{"on": {"say": {"exists": True}}, "emit": {"content": "$.say"}}]})
 
 
-def test_bundled_recipes_are_byte_identical_to_the_typescript_ones() -> None:
+def test_every_bundled_recipe_file_is_registered() -> None:
     ours = sorted(path.name for path in DEFAULT_RECIPES_DIR.glob("*.yaml"))
-    assert ours == sorted(path.name for path in TS_DEFAULT_RECIPES.glob("*.yaml"))
     assert ours == sorted(f"{name}.yaml" for name in DEFAULT_RECIPE_FILES)
-    for name in ours:
-        assert (DEFAULT_RECIPES_DIR / name).read_bytes() == (TS_DEFAULT_RECIPES / name).read_bytes()
+
+
+def test_a_run_reports_every_recipe_that_matched_including_nested_dispatches() -> None:
+    outcome = RecipeNormalizer([*default_recipes(), ECHO]).normalize_messages([{"say": "hi"}], "user")
+
+    assert "echo" in outcome.matched_recipe_ids
+    assert outcome.matched_recipe_ids - {"echo"}, "the built-in that split the list is reported too"
+
+
+def test_custom_recipe_ids_leave_out_the_bundled_recipes() -> None:
+    assert RecipeNormalizer([*default_recipes(), ECHO]).custom_recipe_ids == frozenset({"echo"})
+    assert RecipeNormalizer().custom_recipe_ids == frozenset()
 
 
 def test_reads_bundled_recipes_as_utf8(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

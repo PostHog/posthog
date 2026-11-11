@@ -86,6 +86,8 @@ def _compile_stored_source(stored: StoredRecipe) -> Recipe:
 class RecipeNormalizer:
     def __init__(self, recipes: Sequence[Recipe] | None = None, time_limit_seconds: float = TIME_LIMIT_SECONDS) -> None:
         self._pipeline = RecipePipeline(default_recipes() if recipes is None else recipes, time_limit_seconds)
+        bundled_ids = {recipe.id for recipe in default_recipes()}
+        self.custom_recipe_ids = frozenset(recipe.id for recipe in self._pipeline.recipes) - bundled_ids
 
     def normalize_message(self, value: Value, default_role: str) -> RunOutcome:
         if isinstance(value, Missing):
@@ -104,7 +106,11 @@ class RecipeNormalizer:
             )
             if isinstance(value, str) or is_object_like(value):
                 outcome = self.normalize_message(value, default_role)
-                return RunOutcome(messages=(*tools_messages, *outcome.messages), recognized=outcome.recognized)
+                return RunOutcome(
+                    messages=(*tools_messages, *outcome.messages),
+                    recognized=outcome.recognized,
+                    matched_recipe_ids=outcome.matched_recipe_ids,
+                )
             return RunOutcome(messages=tools_messages, recognized=True)
 
 

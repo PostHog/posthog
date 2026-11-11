@@ -1,4 +1,6 @@
+import dataclasses
 from collections.abc import Iterable, Mapping
+from contextvars import ContextVar
 from types import MappingProxyType
 from typing import Final
 
@@ -34,6 +36,9 @@ MAX_DEPTH: Final = 10
 # The operation budget alone still allows seconds of CPU per run, so the time limit is what bounds a run.
 TIME_LIMIT_SECONDS: Final = 1.0
 
+# One pipeline serves concurrent runs, so each run collects the recipes that matched in its own context.
+_matched_recipe_ids: ContextVar[set[str] | None] = ContextVar("recipe_matched_ids", default=None)
+
 ROLE_TAG_ROLES: Final[Mapping[RoleTag, str]] = MappingProxyType(
     {
         "user": "user",
@@ -52,6 +57,8 @@ _EMPTY_MESSAGE_SLOTS: Final = ("content", "tool_calls", "tool_call_id", "tools")
 class RunOutcome:
     messages: tuple[CompatMessage, ...]
     recognized: bool
+    # Which recipes produced the messages, not what the messages are, so two runs that render the same are equal.
+    matched_recipe_ids: frozenset[str] = dataclasses.field(default=frozenset(), compare=False)
 
 
 class SlotCoercer:
@@ -134,15 +141,25 @@ class RecipePipeline:
         self.time_limit_seconds = time_limit_seconds
 
     def run(self, value: Value, default_role: str) -> RunOutcome:
+        matched_ids: set[str] = set()
+        token = _matched_recipe_ids.set(matched_ids)
         try:
             with run_limits(self.time_limit_seconds):
                 matched = self._match(value, default_role, 0)
                 if not isinstance(matched, NoMatch):
-                    return RunOutcome(messages=tuple(matched), recognized=True)
+                    return RunOutcome(
+                        messages=tuple(matched), recognized=True, matched_recipe_ids=frozenset(matched_ids)
+                    )
                 salvaged = self._salvage(value, default_role)
         except RecursionError as error:
             raise RecipeRuntimeError("RecipeNormalizer: the input nests too deeply to normalize") from error
-        return RunOutcome(messages=() if isinstance(salvaged, NoMatch) else tuple(salvaged), recognized=False)
+        finally:
+            _matched_recipe_ids.reset(token)
+        return RunOutcome(
+            messages=() if isinstance(salvaged, NoMatch) else tuple(salvaged),
+            recognized=False,
+            matched_recipe_ids=frozenset(matched_ids),
+        )
 
     def dispatch(self, value: Value, inherited_role: str, depth: int) -> DispatchResult:
         matched = self._match(value, inherited_role, depth)
@@ -158,6 +175,7 @@ class RecipePipeline:
             for rule in recipe.rules:
                 result = self._apply(rule, value, inherited_role, depth)
                 if not isinstance(result, NoMatch):
+                    _record_match(recipe.id)
                     return result
         return NO_MATCH
 
@@ -237,3 +255,9 @@ def _type_name(value: Value) -> str:
     if is_number(value):
         return "number"
     return "object"
+
+
+def _record_match(recipe_id: str) -> None:
+    matched_ids = _matched_recipe_ids.get()
+    if matched_ids is not None:
+        matched_ids.add(recipe_id)
