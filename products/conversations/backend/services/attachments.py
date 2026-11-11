@@ -32,9 +32,7 @@ _FILENAME_STRIP_RE = re.compile(r"[^\w\s\-.,()]+")
 _REHOSTED_MEDIA_URL_RE = re.compile(
     r"/uploaded_media/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
 )
-_UPLOADED_MEDIA_PATH_RE = re.compile(
-    r"/uploaded_media/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/?"
-)
+_UPLOADED_MEDIA_ID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
 def sanitize_attachment_filename(name: str | None) -> str:
@@ -224,9 +222,21 @@ def discard_rehosted_attachments(team: Team, attachments: list[dict[str, Any]]) 
         media.delete()
 
 
-def _origin(url: str) -> str:
-    parsed = urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}".lower()
+def _uploaded_media_id(src: str, media_bases: list[str]) -> str | None:
+    """The media ID when src is exactly `<base>/uploaded_media/<uuid>` for one of the bases, else None."""
+    try:
+        parsed = urlparse(src)
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.params or parsed.query or parsed.fragment:
+        return None
+    for base in media_bases:
+        prefix = f"{base.rstrip('/')}/uploaded_media/"
+        if src.lower().startswith(prefix.lower()):
+            media_id = src[len(prefix) :]
+            if _UPLOADED_MEDIA_ID_RE.fullmatch(media_id):
+                return media_id.lower()
+    return None
 
 
 def _rich_content_image_sources(node: Any) -> list[str]:
@@ -252,22 +262,15 @@ def find_disallowed_image_sources(team_id: int, rich_content: Any) -> list[str]:
     support email. Media URLs use UPLOADED_MEDIA_PUBLIC_URL, or SITE_URL for images saved before it
     was set.
     """
-    allowed_origins = {_origin(origin) for origin in (settings.UPLOADED_MEDIA_PUBLIC_URL, settings.SITE_URL) if origin}
+    media_bases = [base for base in (settings.UPLOADED_MEDIA_PUBLIC_URL, settings.SITE_URL) if base]
     media_ids: dict[str, str] = {}
     disallowed: list[str] = []
     for src in _rich_content_image_sources(rich_content):
-        parsed = urlparse(src)
-        is_relative = not parsed.scheme and not parsed.netloc
-        match = _UPLOADED_MEDIA_PATH_RE.fullmatch(parsed.path)
-        if (
-            match is None
-            or parsed.query
-            or parsed.fragment
-            or (not is_relative and _origin(src) not in allowed_origins)
-        ):
+        media_id = _uploaded_media_id(src, media_bases)
+        if media_id is None:
             disallowed.append(src)
         else:
-            media_ids[src] = match.group(1).lower()
+            media_ids[src] = media_id
 
     if media_ids:
         live_ids = {

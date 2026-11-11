@@ -30,6 +30,7 @@ from rest_framework import (
     status as drf_status,
     viewsets,
 )
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.parsers import MultiPartParser
@@ -1785,6 +1786,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         )
 
     def _validate_rich_content_images(self, rich_content: object) -> None:
+        # The in-app editor can paste external images, as it always could. The check covers API and MCP callers.
+        if isinstance(self.request.successful_authenticator, SessionAuthentication):
+            return
         disallowed = find_disallowed_image_sources(self.team_id, rich_content)
         if disallowed:
             raise ValidationError(
