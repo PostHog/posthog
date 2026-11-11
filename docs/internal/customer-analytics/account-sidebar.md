@@ -77,7 +77,7 @@ role-assignment events retain the existing role metadata and internal-user ident
 
 ## Properties in account views
 
-With `customer-analytics-account-views` enabled, the view component picker offers Properties.
+The view component picker offers Properties.
 Each tile stores its own ordered selection in the view document under `config.properties`.
 The tile's Edit action changes its selection and title through the existing view save flow.
 Adding a tile starts with an empty selection.
