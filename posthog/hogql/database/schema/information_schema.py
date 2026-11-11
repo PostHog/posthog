@@ -56,6 +56,8 @@ from posthog.hogql.errors import BaseHogQLError
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnSensitivity
+
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.database import Database
@@ -74,6 +76,7 @@ _INTEGER = "integer"
 _NULLABLE_INTEGER = "nullable_integer"
 _NULLABLE_FLOAT = "nullable_float"
 _BOOLEAN = "boolean"
+_NULLABLE_DATETIME = "nullable_datetime"
 
 
 def _cell(value: Any) -> ast.Constant:
@@ -100,6 +103,10 @@ def _column_expr(kind: str, index: int) -> ast.Expr:
         return ast.Call(name="accurateCastOrNull", args=[source, ast.Constant(value="Float64")])
     if kind == _BOOLEAN:
         return ast.Call(name="equals", args=[source, ast.Constant(value="true")])
+    if kind == _NULLABLE_DATETIME:
+        return ast.Call(
+            name="parseDateTimeBestEffort", args=[ast.Call(name="nullIf", args=[source, ast.Constant(value="")])]
+        )
     raise ValueError(f"Unknown information_schema column kind: {kind}")
 
 
@@ -521,6 +528,7 @@ class _Introspection:
         self.saved_query_ids_by_name = warehouse_metadata.saved_query_ids_by_name
         self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
+        self._sensitivity_enabled: Optional[bool] = None
         self._collected: Optional[_CollectedCatalog] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
         self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
@@ -575,6 +583,33 @@ class _Introspection:
             _capture_unexpected("information_schema: failed to resolve expression column type", e)
             return "Expression"
 
+    def _traverser_target(self, table_name: str, column_name: str) -> Optional[DatabaseField]:
+        """The plain field a traverser column resolves to, or None when it lands on a table, an
+        expression, or nothing resolvable."""
+        scope = self._table_scope(table_name)
+        if scope is None:
+            return None
+        # Deferred: see `_table_scope`.
+        from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+
+        chain: list[str | int] = [*column_name.split(".")]
+        try:
+            resolved_type = resolve_types(ast.Field(chain=chain), self.context, "hogql", [scope]).type
+            # The table scope is a `SELECT *`, so a column comes back wrapped in its select alias.
+            while isinstance(resolved_type, ast.FieldAliasType):
+                resolved_type = resolved_type.type
+            if not isinstance(resolved_type, ast.FieldType):
+                return None
+            target = resolved_type.resolve_database_field(self.context)
+        except BaseHogQLError:
+            return None  # genuinely unresolvable chain — expected
+        except Exception as e:
+            _capture_unexpected("information_schema: failed to resolve field traverser target", e)
+            return None
+        if not isinstance(target, DatabaseField) or isinstance(target, ExpressionField):
+            return None
+        return target
+
     def _row_count(self, name: str, table: Table, table_type: str) -> Optional[int]:
         if table_type == "data_warehouse" and table.name:
             return self.row_counts.get(table.name)
@@ -588,6 +623,18 @@ class _Introspection:
 
     def _column_description(self, table: Table, column_name: str, field: FieldOrTable) -> Optional[str]:
         return self.table_descriptions.for_column(table, column_name, field)
+
+    def _column_sensitivity(self, table_type: str, column_name: str, data_type: str) -> Optional[str]:
+        if table_type != "data_warehouse" or self.context.team_id is None:
+            return None
+        from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415
+            column_sensitivity,
+            column_sensitivity_enabled,
+        )
+
+        if self._sensitivity_enabled is None:
+            self._sensitivity_enabled = column_sensitivity_enabled(self.context.team_id)
+        return column_sensitivity(column_name, data_type) if self._sensitivity_enabled else None
 
     def _column_stats(self, table: Table, table_type: str, column_name: str) -> _ColumnStats:
         """`(null_fraction, min_value, max_value)` for a warehouse column, or all-None otherwise."""
@@ -701,13 +748,14 @@ class _Introspection:
             if isinstance(field, DatabaseField):
                 kind = "expression" if isinstance(field, ExpressionField) else "column"
                 null_fraction, min_value, max_value = self._column_stats(table, table_type, qualified)
+                data_type = self._data_type(table_name, field)
                 column_rows.append(
                     [
                         table_schema,
                         table_name,
                         qualified,
                         ordinal,
-                        self._data_type(table_name, field),
+                        data_type,
                         bool(field.is_nullable()),
                         bool(field.array),
                         kind,
@@ -715,6 +763,7 @@ class _Introspection:
                         null_fraction,
                         min_value,
                         max_value,
+                        self._column_sensitivity(table_type, qualified, data_type),
                     ]
                 )
                 ordinal += 1
@@ -747,6 +796,26 @@ class _Introspection:
                         provenance_key=None,
                     )
                 )
+                target_field = self._traverser_target(table_name, qualified)
+                if target_field is not None:
+                    column_rows.append(
+                        [
+                            table_schema,
+                            table_name,
+                            qualified,
+                            ordinal,
+                            _field_type_name(target_field),
+                            bool(target_field.is_nullable()),
+                            bool(target_field.array),
+                            "field_traverser",
+                            self._column_description(table, qualified, field),
+                            None,
+                            None,
+                            None,
+                            None,
+                        ]
+                    )
+                    ordinal += 1
             elif isinstance(field, VirtualTable):
                 # Surface nested virtual-table columns as `parent.child` columns.
                 column_rows.append(
@@ -759,6 +828,7 @@ class _Introspection:
                         False,
                         False,
                         "virtual_table",
+                        None,
                         None,
                         None,
                         None,
@@ -845,6 +915,7 @@ _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("null_fraction", _NULLABLE_FLOAT),
     ("min_value", _NULLABLE_STRING),
     ("max_value", _NULLABLE_STRING),
+    ("sensitivity", _NULLABLE_STRING),
 ]
 
 _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
@@ -900,7 +971,6 @@ _METRICS_COLUMNS: list[tuple[str, str]] = [
     ("definition", _NULLABLE_STRING),
     ("definition_kind", _NULLABLE_STRING),
     ("owner", _NULLABLE_STRING),
-    ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
     ("source_insight_short_id", _NULLABLE_STRING),
     ("last_run_at", _NULLABLE_STRING),
@@ -1086,7 +1156,6 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
                     json.dumps(metric.definition) if metric.definition else None,
                     metric.definition_kind,
                     metric.owner.email if metric.owner else None,
-                    metric.confidence,
                     metric.reasoning,
                     metric.source_insight_short_id,
                     metric.last_run_at.isoformat() if metric.last_run_at else None,
@@ -1688,7 +1757,8 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
     description: str = (
         "SQL-standard catalog of every column on every visible table; one row per column. Filter by "
         "table_name to inspect a table's columns, their types, descriptions, and (for data warehouse "
-        "tables) profiling statistics: null_fraction, min_value, max_value."
+        "tables) profiling statistics (null_fraction, min_value, max_value) and a sensitivity flag for "
+        "columns that likely hold personal or secret data."
     )
     fields: dict[str, FieldOrTable] = {
         "table_schema": _string_field(
@@ -1719,7 +1789,10 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
         "field_kind": _string_field(
             "field_kind",
             nullable=False,
-            description="How the column is backed: 'column', 'expression' (computed), or 'virtual_table'.",
+            description=(
+                "How the column is backed: 'column', 'expression' (computed), 'field_traverser' (read "
+                "through a join, typed by the field it reaches), or 'virtual_table'."
+            ),
         ),
         "description": _string_field(
             "description", nullable=True, description="Human/agent-facing description of what the column holds."
@@ -1747,6 +1820,16 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
             description=(
                 "Maximum value observed in this column (from the Delta-log statistics), as a string. "
                 "Use it to bound range and time-window filters. NULL when unprofiled or not applicable."
+            ),
+        ),
+        "sensitivity": _string_field(
+            "sensitivity",
+            nullable=True,
+            description=(
+                "Kind of personal or secret data a data warehouse column likely holds, from its name and type: "
+                + ", ".join(f"'{kind.value}'" for kind in WarehouseColumnSensitivity)
+                + ". Avoid selecting or exposing these columns unless the task needs them. "
+                "NULL when the column is not flagged or is not a synced warehouse column."
             ),
         ),
     }
@@ -1897,9 +1980,6 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
             description="Query kind: HogQLQuery, TrendsQuery, FunnelsQuery, or an event node.",
         ),
         "owner": _string_field("owner", nullable=True, description="Email of the human accountable for this metric."),
-        "confidence": FloatDatabaseField(
-            name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
-        ),
         "reasoning": _string_field(
             "reasoning",
             nullable=True,
@@ -2266,7 +2346,7 @@ def static_column_rows() -> list[list[Any]]:
 
     Row layout matches `_Introspection.column_rows()`:
     `[table_schema, table_name, column_name, ordinal, data_type, is_nullable, is_array, field_kind,
-    description, null_fraction, min_value, max_value]`.
+    description, null_fraction, min_value, max_value, sensitivity]`.
     """
     # Deferred: `Database` imports the schema package, so a module-level import would cycle.
     from posthog.hogql.context import HogQLContext  # noqa: PLC0415

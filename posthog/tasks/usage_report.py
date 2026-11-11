@@ -33,7 +33,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AI_EVENT_NAME_PREFIX, MCP_EVENT_NAME_PREFIX, FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.billing import AI_COST_MARKUP_PERCENT
+from posthog.llm.billing import AI_COST_MARKUP_PERCENT, POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
 from posthog.models.ai_events.sql import TABLE_BASE_NAME as AI_EVENTS_TABLE
@@ -1918,23 +1918,7 @@ CLOUD_REGION_TO_URL = {
 }
 
 
-# ai_product values that roll into PostHog AI (Max) billing credits.
-POSTHOG_AI_PRODUCTS = [
-    "posthog_ai",
-    "slack_app",
-    "workflows",
-    "subscriptions",
-    "alert_investigation_agent",
-    "alert_llm_detector",
-    "product_analytics",
-    "surveys",
-    "replay_vision",
-    "hogql_decide",
-]
-
-# ai_product values billed as PostHog Desktop credits.
 UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis", "account_audit")
-POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
@@ -3066,17 +3050,21 @@ def capture_report(
         )
 
     # Update organization group properties so they can be used for email campaigns
+    group_properties: dict[str, Any] = {
+        "member_count": full_report_dict.get("organization_user_count", 0),
+        "project_count": full_report_dict.get("team_count", 0),
+        "dashboard_count": full_report_dict.get("dashboard_count", 0),
+        "ff_count": full_report_dict.get("ff_count", 0),
+        "survey_count": full_report_dict.get("survey_count", 0),
+    }
+    # Flags target orgs that send logs or traces. Set only when true, so a quiet day keeps the org targeted.
+    if full_report_dict.get("logs_records_in_period", 0) or full_report_dict.get("apm_tracing_spans_in_period", 0):
+        group_properties["sends_logs_or_traces"] = True
     try:
         pha_client.group_identify(
             group_type="organization",
             group_key=organization_id,
-            properties={
-                "member_count": full_report_dict.get("organization_user_count", 0),
-                "project_count": full_report_dict.get("team_count", 0),
-                "dashboard_count": full_report_dict.get("dashboard_count", 0),
-                "ff_count": full_report_dict.get("ff_count", 0),
-                "survey_count": full_report_dict.get("survey_count", 0),
-            },
+            properties=group_properties,
         )
     except Exception as err:
         logger.exception(

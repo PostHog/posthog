@@ -28,8 +28,8 @@ interface NavMenuProps {
     projectName: string
     /** The focused tab's Edit pins row, in its own section above Settings. Null leaves the section out. */
     editPins: TabHeaderSlot['editPins']
-    /** A pinned list's rows, at the top while its tab is focused. Null leaves the section out. */
-    navList: { onUnpin: () => void; onOpenWeb: (() => void) | null } | null
+    /** A pinnable list's rows, at the top while its tab is focused. Null leaves the section out. */
+    navList: { pinned: boolean; onTogglePin: () => void; onOpenWeb: (() => void) | null } | null
     onClose: () => void
     status: PostHogStatus
     onOpenStatus: () => void
@@ -187,10 +187,10 @@ export function NavMenu({
                             {navList ? (
                                 <>
                                     <MenuRow
-                                        label="Unpin from navigation"
+                                        label={navList.pinned ? 'Unpin from navigation' : 'Pin to navigation'}
                                         Icon={PinIcon}
-                                        onPress={navList.onUnpin}
-                                        testID="nav-list-unpin"
+                                        onPress={navList.onTogglePin}
+                                        testID={navList.pinned ? 'nav-list-unpin' : 'nav-list-pin'}
                                     />
                                     {navList.onOpenWeb ? (
                                         <MenuRow

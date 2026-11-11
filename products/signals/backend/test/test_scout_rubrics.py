@@ -43,6 +43,7 @@ from products.signals.backend.scout_harness.rubrics_runner import (
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
+from products.signals.backend.task_profiles import SCOUT_SUGGESTIONS
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from products.tasks.backend.facade.contracts import SessionFile
@@ -716,7 +717,7 @@ class TestScoutRubricsAPI(APIBaseTest):
                 ],
             )
             self.assertNotIn("shared_defaults", scout_context)
-            self.assertEqual(kwargs["origin_product"], "scout_suggestions")
+            self.assertEqual(kwargs["profile"], SCOUT_SUGGESTIONS)
             context = kwargs["context"]
             assert isinstance(context, CustomPromptSandboxContext)
             self.assertEqual(context.posthog_mcp_scopes, "read_only")

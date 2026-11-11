@@ -1,11 +1,16 @@
 from pathlib import Path
 
 from django.conf import settings
-from django.test import SimpleTestCase, override_settings
+from django.contrib.auth.models import Group
+from django.core.checks import Tags
+from django.db import DEFAULT_DB_ALIAS
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.admin.console.registry import console
 from posthog.checks import (
+    check_admin_console_staff_groups,
     check_allowed_ip_blocks,
     check_cron_schedules,
     check_encryption_salt_keys,
@@ -161,3 +166,22 @@ class TestSettingWarnings(SimpleTestCase):
     def test_warns_only_on_a_bad_value(self, _name, overrides, check, expected_ids) -> None:
         with override_settings(**overrides):
             assert [message.id for message in check(None)] == expected_ids
+
+
+class TestAdminConsoleStaffGroupsCheck(TestCase):
+    @parameterized.expand([("every_group_exists", 0), ("a_group_is_missing", 1)])
+    def test_warns_about_a_staff_group_that_does_not_exist(self, _name: str, missing_count: int) -> None:
+        staff_groups = sorted(console.staff_groups())
+        assert staff_groups, "No console owner has a staff group, so this test checks nothing."
+        missing = staff_groups[:missing_count]
+        for name in staff_groups:
+            Group.objects.get_or_create(name=name)
+        Group.objects.filter(name__in=missing).delete()
+
+        warnings = check_admin_console_staff_groups(None, databases=[DEFAULT_DB_ALIAS])
+
+        assert [(warning.id, missing[0] in warning.msg) for warning in warnings] == [
+            ("posthog.admin_console.W001", True)
+        ] * missing_count
+        # Without the tag, Django would run the query on every startup.
+        assert Tags.database in check_admin_console_staff_groups.tags  # type: ignore[attr-defined]

@@ -18,8 +18,6 @@ import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import type { TraceClusterApi } from '../../../generated/api.schemas'
 import { queryEvaluationRuns } from '../../../utils'
-import { traceReviewLogic } from '../traceReviewLogic'
-import { TraceScene } from '../TraceScene'
 import {
     decodeIdSegment,
     makeEvaluationResult,
@@ -28,12 +26,16 @@ import {
     makeFeedback,
     makeFeedbackScore,
     makeFeedbackText,
+    makeMessage,
     makeNodeDetail,
+    makeRawNode,
     makeSurveyResponse,
     makeTrace,
     makeTraceCluster,
     makeTraceResource,
-} from './testFixtures'
+} from '../testFixtures'
+import { traceReviewLogic } from '../traceReviewLogic'
+import { TraceScene } from '../TraceScene'
 
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
@@ -48,6 +50,8 @@ jest.mock('../../../utils', () => ({
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const RAW_NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/raw/'
+const DATASET_ITEM_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/dataset_item/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
@@ -61,20 +65,49 @@ const REVIEW_QUEUES_URL = '/api/projects/:team_id/llm_analytics/review_queues/'
 const QUEUE_ITEM_URL = '/api/projects/:team_id/llm_analytics/review_queue_items/:id/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
-    properties: {
-        $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
-        $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
+    content: {
+        input: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-2-in-0',
+                    role: 'user',
+                    parts: [{ kind: 'text', text: 'Why did my invoice go up?' }],
+                }),
+            ],
+        },
+        output: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-2-out-0',
+                    role: 'assistant',
+                    parts: [{ kind: 'text', text: 'Two seats were added.' }],
+                }),
+            ],
+        },
     },
-    ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
 })
 const askedGeneration = makeNodeDetail({
     id: 'gen-1',
-    properties: { $ai_input: [{ role: 'user', content: 'Is my invoice right?' }] },
-    ioKeys: { input: '$ai_input' },
+    content: {
+        input: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-1-in-0',
+                    role: 'user',
+                    parts: [{ kind: 'text', text: 'Is my invoice right?' }],
+                }),
+            ],
+        },
+        output: { kind: 'messages', messages: [] },
+    },
 })
 const nodeDetails: Record<string, typeof answeredGeneration> = { 'gen-1': askedGeneration, 'gen-2': answeredGeneration }
 let nodeRequests: string[] = []
 let datasetListRequests = 0
+let datasetItemRequests: { nodeId: string; timestampHint: string | null }[] = []
 const nodeMock = {
     [NODE_URL]: ({ params }: { params: Record<string, unknown> }) => {
         const nodeId = decodeIdSegment(String(params.node_id))
@@ -103,6 +136,14 @@ const generation = makeEvent({
     },
 })
 
+function findElement(container: HTMLElement, dataAttr: string): HTMLElement {
+    const element = container.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
+    if (!element) {
+        throw new Error(`expected ${dataAttr} to render`)
+    }
+    return element
+}
+
 let accessToRestore: { saved: Record<AccessControlResourceType, AccessControlLevel> } | null = null
 
 function renderNewView(
@@ -126,6 +167,7 @@ function renderNewView(
     )
     nodeRequests = []
     datasetListRequests = 0
+    datasetItemRequests = []
     jest.mocked(performQuery).mockReset()
     jest.mocked(performQuery).mockResolvedValue({ results: [] })
     aiObservabilityTraceLogic.mount()
@@ -155,6 +197,25 @@ describe('TraceScene', () => {
                     [DATASETS_URL]: () => {
                         datasetListRequests++
                         return [200, { count: 0, results: [] }]
+                    },
+                    [DATASET_ITEM_URL]: ({ params, request }) => {
+                        const nodeId = decodeIdSegment(String(params.node_id))
+                        datasetItemRequests.push({
+                            nodeId,
+                            timestampHint: new URL(request.url).searchParams.get('timestamp_hint'),
+                        })
+                        return [
+                            200,
+                            {
+                                clientItemId: nodeId,
+                                sourceTraceId: 'trace-1',
+                                sourceEventId: nodeId,
+                                sourceTimestamp: '2026-09-01T10:15:00Z',
+                                input: {},
+                                sourceOutput: null,
+                                metadata: {},
+                            },
+                        ]
                     },
                     [SEARCH_URL]: () => [200, { total: 1, matches: [{ nodeId: 'gen-1', count: 1 }] }],
                     ...nodeMock,
@@ -261,7 +322,7 @@ describe('TraceScene', () => {
                                 bullets: [{ text: 'Context is retrieved first.', nodeId: 'span-1' }],
                                 notes: [],
                                 flow: 'retrieve → answer',
-                                model: 'gpt-4.1-mini',
+                                model: 'gpt-6-luna',
                                 generatedAt: '2026-09-01T10:20:00Z',
                             },
                             failure: null,
@@ -366,7 +427,7 @@ describe('TraceScene', () => {
                                 bullets: [{ text: 'Context is retrieved first.', nodeId: 'span-1' }],
                                 notes: [],
                                 flow: 'retrieve → answer',
-                                model: 'gpt-4.1-mini',
+                                model: 'gpt-6-luna',
                                 generatedAt: '2026-09-01T10:20:00Z',
                             },
                             failure: null,
@@ -502,17 +563,61 @@ describe('TraceScene', () => {
         })
 
         it('keeps the dataset list loaded while an unread step loads', async () => {
-            const { findByText } = renderNewView({ [DATASETS_FLAG]: true })
-            await findByText('Add to dataset')
+            const { container, findByText } = renderNewView({ [DATASETS_FLAG]: true })
+            await waitFor(() => findElement(container, 'save-to-dataset-open'))
             await waitFor(() => expect(datasetListRequests).toBeGreaterThan(0))
             const requestsBeforeStep = datasetListRequests
 
             fireEvent.click(await findByText('span-1'))
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
-            await findByText('Add to dataset')
+            await waitFor(() => findElement(container, 'save-to-dataset-open'))
             await expectLogic(saveToDatasetButtonLogic).toFinishAllListeners()
 
             expect(datasetListRequests).toBe(requestsBeforeStep)
+        })
+
+        it('shows add to dataset on a selected step without reading its raw event', async () => {
+            let rawRequests = 0
+            useMocks({
+                get: {
+                    [RAW_NODE_URL]: ({ params }) => {
+                        rawRequests++
+                        return [200, makeRawNode({ id: decodeIdSegment(String(params.node_id)) })]
+                    },
+                },
+            })
+            const { container, findByText } = renderNewView({ [DATASETS_FLAG]: true }, {}, AccessControlLevel.Editor)
+
+            fireEvent.click(await findByText('gen-1'))
+            await waitFor(() => expect(nodeRequests).toContain('gen-1'))
+            await waitFor(() => findElement(container, 'save-to-dataset-open'))
+            await expectLogic(saveToDatasetButtonLogic).toFinishAllListeners()
+
+            expect(rawRequests).toBe(0)
+        })
+
+        it('reads the selected step as a dataset item when the dropdown opens', async () => {
+            const { container } = renderNewView({ [DATASETS_FLAG]: true }, {}, AccessControlLevel.Editor)
+
+            fireEvent.click(await waitFor(() => findElement(container, 'save-to-dataset-open')))
+
+            await waitFor(() =>
+                expect(datasetItemRequests).toEqual([{ nodeId: 'gen-2', timestampHint: '2026-09-01T10:15:00Z' }])
+            )
+        })
+
+        it('reads the step selected now after moving to another step', async () => {
+            const { container, findByText } = renderNewView({ [DATASETS_FLAG]: true }, {}, AccessControlLevel.Editor)
+            const openButton = (): Promise<HTMLElement> => waitFor(() => findElement(container, 'save-to-dataset-open'))
+            fireEvent.click(await openButton())
+            await waitFor(() => expect(datasetItemRequests.map(({ nodeId }) => nodeId)).toEqual(['gen-2']))
+            fireEvent.click(await openButton())
+
+            fireEvent.click(await findByText('gen-1'))
+            await waitFor(() => expect(nodeRequests).toContain('gen-1'))
+            fireEvent.click(await openButton())
+
+            await waitFor(() => expect(datasetItemRequests.map(({ nodeId }) => nodeId)).toEqual(['gen-2', 'gen-1']))
         })
 
         it.each([
@@ -612,13 +717,15 @@ describe('TraceScene', () => {
         })
 
         it('opens the feedback from the header chip and the step chips, and links each entry to its step', async () => {
+            const helpfulness = makeFeedbackScore({ name: 'helpfulness', value: '0', nodeId: 'gen-1' })
             useMocks({
                 get: {
                     [FEEDBACK_URL]: () => [
                         200,
                         makeFeedback({
-                            scores: [makeFeedbackScore({ name: 'helpfulness', value: '0', nodeId: 'gen-1' })],
+                            scores: [helpfulness],
                             responses: [makeFeedbackText({ text: 'Too long, but correct.', nodeId: 'trace-1' })],
+                            steps: [{ nodeId: 'gen-1', scores: [helpfulness], responseCount: 0, total: 1 }],
                         }),
                     ],
                 },

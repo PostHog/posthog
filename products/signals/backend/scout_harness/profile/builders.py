@@ -56,7 +56,7 @@ from products.business_knowledge.backend.models.constants import SourceStatus
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.experiments.backend.facade import scout as experiments_scout
 from products.experiments.backend.facade.contracts import RecentExperiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -426,20 +426,15 @@ def _recent_dashboards(team: Team) -> list[dict[str, Any]]:
     "what's the team currently looking at" rather than "what's most trafficked." The
     name reflects what we actually have.
     """
-    rows = (
-        Dashboard.objects.filter(team=team, deleted=False, last_accessed_at__isnull=False)
-        .order_by("-last_accessed_at")[:RECENT_DASHBOARDS_LIMIT]
-        .values("id", "name", "last_accessed_at", "last_refresh", "created_at")
-    )
     return [
         {
-            "id": row["id"],
-            "name": row["name"] or "",
-            "last_accessed_at": row["last_accessed_at"].isoformat() if row["last_accessed_at"] else None,
-            "last_refresh": row["last_refresh"].isoformat() if row["last_refresh"] else None,
-            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "id": dashboard.id,
+            "name": dashboard.name or "",
+            "last_accessed_at": dashboard.last_accessed_at.isoformat() if dashboard.last_accessed_at else None,
+            "last_refresh": dashboard.last_refresh.isoformat() if dashboard.last_refresh else None,
+            "created_at": dashboard.created_at.isoformat() if dashboard.created_at else None,
         }
-        for row in rows
+        for dashboard in dashboards_api.recently_accessed_dashboards(team_id=team.id, limit=RECENT_DASHBOARDS_LIMIT)
     ]
 
 

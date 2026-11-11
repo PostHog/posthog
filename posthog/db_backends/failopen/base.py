@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from django.db import InterfaceError, OperationalError
-from django.db.backends.postgresql.base import DatabaseWrapper as PostgresDatabaseWrapper
 
+from posthog.db_backends.postgresql.base import DatabaseWrapper as PostgresDatabaseWrapper
 from posthog.db_circuit_breaker import get_circuit_breaker
 
 

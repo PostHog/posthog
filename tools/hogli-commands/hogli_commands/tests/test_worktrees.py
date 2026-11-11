@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
 import json
 import math
 import time
 import fcntl
 import shutil
 import subprocess
+import dataclasses
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from unittest.mock import Mock, patch
 import click
 from click.testing import CliRunner
 from hogli import telemetry
+from hogli.cli import cli
 from hogli_commands import worktrees
 from hogli_commands.cargo_targets import (
     cargo_target_locked,
@@ -25,7 +28,11 @@ from hogli_commands.cargo_targets import (
     unused_legacy_cargo_target,
     worktrees_running_cargo,
 )
-from hogli_commands.devbox import config as devbox_config
+from hogli_commands.devbox import (
+    coder as devbox_coder,
+    config as devbox_config,
+    mutagen as devbox_mutagen,
+)
 from hogli_commands.worktrees import (
     Worktree,
     WorktreeBox,
@@ -73,6 +80,75 @@ def _git_stub(responses: dict[str, tuple[int, str]]):
         return subprocess.CompletedProcess(args=list(args), returncode=rc, stdout=out, stderr="")
 
     return _run
+
+
+_FAKE_CLI = """\
+import json, os, sys
+
+state_path = os.environ["HOGLI_TEST_BOUNDARY_STATE"]
+with open(state_path) as f:
+    state = json.load(f)
+tool, args = os.path.basename(sys.argv[0]), sys.argv[1:]
+
+def save(command):
+    state["commands"].append([tool, *command])
+    with open(state_path, "w") as f:
+        json.dump(state, f)
+
+def selected(sessions, selector):
+    key, _, value = selector.partition("=")
+    return [s for s in sessions if s["labels"].get(key) == value]
+
+if tool == "coder" and args == ["users", "show", "me", "--output", "json"]:
+    print(json.dumps({"username": "test-user"}))
+elif tool == "coder" and args == ["list", "--output", "json"]:
+    print(json.dumps(state["workspaces"]))
+elif tool == "coder" and args[:1] == ["delete"] and args[2:] == ["--yes"]:
+    if not any(w["name"] == args[1] for w in state["workspaces"]):
+        sys.exit(1)
+    state["workspaces"] = [w for w in state["workspaces"] if w["name"] != args[1]]
+    save(args)
+elif tool == "mutagen" and args[:2] == ["sync", "list"] and "--label-selector" in args:
+    print(json.dumps(selected(state["sessions"], args[args.index("--label-selector") + 1])))
+elif tool == "mutagen" and args[:3] == ["sync", "terminate", "--label-selector"]:
+    matched = selected(state["sessions"], args[3])
+    state["sessions"] = [s for s in state["sessions"] if s not in matched]
+    save(args)
+else:
+    sys.exit(1)
+"""
+
+
+class _FakeCoderAndMutagen:
+    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        bin_dir = tmp_path / "fake-bin"
+        bin_dir.mkdir()
+        for tool in ("coder", "mutagen"):
+            executable = bin_dir / tool
+            executable.write_text(f"#!{sys.executable}\n{_FAKE_CLI}")
+            executable.chmod(0o755)
+        self._state_path = tmp_path / "boundary.json"
+        self._write({"workspaces": [], "sessions": [], "commands": []})
+        monkeypatch.setenv("HOGLI_TEST_BOUNDARY_STATE", str(self._state_path))
+        monkeypatch.setattr(devbox_coder, "_MANAGED_CODER_DIR", bin_dir)
+        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", bin_dir)
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_coder, "get_username", devbox_coder.get_username.__wrapped__)
+
+    def add_running_box(self, name: str, workspace_id: str) -> None:
+        state = self._read()
+        state["workspaces"].append({"name": name, "id": workspace_id, "latest_build": {"status": "running"}})
+        state["sessions"].append({"name": name, "labels": {"hogli-workspace": name}})
+        self._write(state)
+
+    def commands(self) -> list[list[str]]:
+        return self._read()["commands"]
+
+    def _read(self) -> dict:
+        return json.loads(self._state_path.read_text())
+
+    def _write(self, state: dict) -> None:
+        self._state_path.write_text(json.dumps(state))
 
 
 # Frozen reference clock (2023-11-14T22:13:20Z) for deterministic cutoff math.
@@ -892,6 +968,8 @@ class TestWorktreeBoxes:
             ("removed", {"claude"}, True),
             ("removed", {"phw"}, False),
             ("moved", None, False),
+            ("folder-deleted", None, True),
+            ("folder-deleted-locked", None, False),
             ("admin-dir-reused", None, True),
             ("other-repo", None, False),
         ],
@@ -899,7 +977,9 @@ class TestWorktreeBoxes:
             "removed",
             "removed-source-selected",
             "source-not-selected",
-            "moved-or-unmounted",
+            "moved",
+            "folder-deleted-admin-dir-left-behind",
+            "locked-worktree-on-an-unmounted-drive",
             "admin-dir-reused-by-another-worktree",
             "other-repo",
         ],
@@ -913,9 +993,18 @@ class TestWorktreeBoxes:
         (common / "worktrees").mkdir(parents=True)
         (other_common / "worktrees").mkdir(parents=True)
         admin = (other_common if case == "other-repo" else common) / "worktrees" / "feature"
-        if case in ("moved", "admin-dir-reused"):
+        keeps_admin_dir = case in ("moved", "folder-deleted", "folder-deleted-locked")
+        if keeps_admin_dir or case == "admin-dir-reused":
             admin.mkdir()
-        worktree_id = devbox_config.ensure_worktree_id(admin) if case == "moved" else "id-of-the-removed-worktree"
+        if keeps_admin_dir:
+            checkout = tmp_path / ("moved" if case == "moved" else "deleted") / "feature"
+            if case == "moved":
+                checkout.mkdir(parents=True)
+                (checkout / ".git").write_text(f"gitdir: {admin}\n")
+            (admin / "gitdir").write_text(f"{checkout / '.git'}\n")
+        if case == "folder-deleted-locked":
+            (admin / "locked").write_text("")
+        worktree_id = devbox_config.ensure_worktree_id(admin) if keeps_admin_dir else "id-of-the-removed-worktree"
         record = _box("devbox-test-user-feature", git_dir=admin, worktree_id=worktree_id)
         registry = {str(repo / ".claude" / "worktrees" / "feature"): record}
 
@@ -950,8 +1039,8 @@ class TestWorktreeBoxes:
         monkeypatch.setattr(
             worktrees,
             "_clean_worktree_boxes",
-            lambda boxes, action, keep_stopped_records=False: cleaned.append(
-                ([b.workspace for b in boxes], action, keep_stopped_records)
+            lambda boxes, action, require_removed=False: cleaned.append(
+                ([b.workspace for b in boxes], action, require_removed)
             ),
         )
 
@@ -959,7 +1048,145 @@ class TestWorktreeBoxes:
             repo, "stop", None if path_arg is None else tmp_path / path_arg, dry_run=False
         )
 
-        assert cleaned == [(expected_workspaces, "stop", False)]
+        assert cleaned == [(expected_workspaces, "stop", True)]
+
+    @pytest.mark.parametrize(
+        ("change", "pruned"),
+        [
+            ("none", False),
+            ("worktree-removed", True),
+            ("mirror-wrote-the-folder-back", True),
+            ("git-dir-gone", True),
+            ("recreated-at-the-path-to-take-over-the-box", False),
+        ],
+    )
+    def test_prune_deletes_the_box_once_its_folder_no_longer_holds_the_worktree(
+        self, tmp_path, monkeypatch, git, change: str, pruned: bool
+    ) -> None:
+        repo, worktree, admin, record, boundary = self._worktree_with_a_running_box(tmp_path, monkeypatch, git)
+
+        if change != "none":
+            git(repo, "worktree", "remove", "--force", str(worktree))
+        if change == "mirror-wrote-the-folder-back":
+            worktree.mkdir(parents=True)
+            (worktree / "README.md").write_text("synced back from the box\n")
+        if change == "git-dir-gone":
+            git(repo, "worktree", "add", "-q", str(worktree), "feature")
+            shutil.rmtree(admin)
+        if change == "recreated-at-the-path-to-take-over-the-box":
+            git(repo, "worktree", "add", "-q", str(worktree), "feature")
+        monkeypatch.chdir(repo)
+
+        result = CliRunner().invoke(cli, ["devbox:worktree:prune", "--delete"])
+
+        assert result.exit_code == 0, result.output
+        selector = worktrees.mutagen.workspace_label_selector("devbox-test-user-feature")
+        if pruned:
+            assert boundary.commands() == [
+                ["mutagen", "sync", "terminate", "--label-selector", selector],
+                ["coder", "delete", "devbox-test-user-feature", "--yes"],
+            ]
+            assert devbox_config.load_worktree_boxes() == {}
+        else:
+            assert boundary.commands() == []
+            assert devbox_config.load_worktree_boxes() == {str(worktree): record}
+        assert worktree.exists() is (change != "worktree-removed")
+
+    @pytest.mark.parametrize("takes_over_the_box_before_clean_acts", [True, False])
+    def test_clean_leaves_the_box_alone_when_its_worktree_comes_back_while_it_asks(
+        self, tmp_path, monkeypatch, git, takes_over_the_box_before_clean_acts: bool
+    ) -> None:
+        repo, worktree, admin, record, boundary = self._worktree_with_a_running_box(tmp_path, monkeypatch, git)
+        git(repo, "worktree", "remove", "--force", str(worktree))
+        worktree.mkdir(parents=True)
+        (worktree / "README.md").write_text("synced back from the box\n")
+        taken_over = dataclasses.replace(record, worktree_id="id-of-the-recreated-worktree")
+        expected_record = taken_over if takes_over_the_box_before_clean_acts else record
+
+        def recreate_the_worktree_then_confirm(*args, **kwargs) -> bool:
+            if not (worktree / ".git").exists():
+                shutil.rmtree(worktree)
+                git(repo, "worktree", "add", "-q", str(worktree), "feature")
+                if takes_over_the_box_before_clean_acts:
+                    devbox_config.record_worktree_box(worktree, taken_over)
+            return True
+
+        monkeypatch.setattr(worktrees.click, "confirm", recreate_the_worktree_then_confirm)
+
+        result = CliRunner().invoke(
+            cli, ["worktrees:clean", "--before", "all", "--mode", "full", "--delete-boxes", "--repo", str(repo)]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert boundary.commands() == []
+        assert devbox_config.load_worktree_boxes() == {str(worktree): expected_record}
+
+    def _worktree_with_a_running_box(self, tmp_path, monkeypatch, git):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "hogli.yaml").write_text("")
+        git(repo, "init", "-q", "-b", "master")
+        git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+        worktree = tmp_path / "worktrees" / "feature"
+        git(repo, "worktree", "add", "-q", "-b", "feature", str(worktree))
+        admin = repo / ".git" / "worktrees" / "feature"
+        record = _box(
+            "devbox-test-user-feature",
+            git_dir=admin,
+            workspace_id="ws-feature",
+            worktree_id=devbox_config.ensure_worktree_id(admin),
+        )
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        devbox_config.record_worktree_box(worktree, record)
+        boundary = _FakeCoderAndMutagen(tmp_path, monkeypatch)
+        boundary.add_running_box("devbox-test-user-feature", "ws-feature")
+        return repo, worktree, admin, record, boundary
+
+    @pytest.mark.parametrize(
+        ("prune_already_running", "expected_prune_attempts", "box_still_tracked"),
+        [(False, [False], False), (True, [], True)],
+        ids=["prune-started-during-clean-is-skipped", "clean-gives-up-on-a-prune-that-outlasts-the-wait"],
+    )
+    def test_clean_and_a_prune_never_act_on_the_same_boxes(
+        self,
+        tmp_path,
+        monkeypatch,
+        registry_path,
+        prune_already_running: bool,
+        expected_prune_attempts: list[bool],
+        box_still_tracked: bool,
+    ) -> None:
+        worktree = tmp_path / "wt"
+        record = _box("devbox-test-user-wt", worktree_id="id-wt")
+        devbox_config.record_worktree_box(worktree, record)
+        registry_before = devbox_config.load_worktree_boxes()
+        monkeypatch.setattr(worktrees, "_PRUNE_LOCK_TIMEOUT_SECONDS", 0)
+        prune_attempts: list[bool] = []
+
+        def execute(stale, mode, repo_root, before_remove):
+            with devbox_config.worktree_prune_lock() as holds_lock:
+                prune_attempts.append(holds_lock)
+            return worktrees._ReapResult(reclaimed_bytes=0, removed=1, failed=0)
+
+        monkeypatch.setattr(worktrees, "_execute", execute)
+
+        def clean() -> None:
+            worktrees._remove_worktrees_and_their_boxes(
+                [_make_worktree(worktree)],
+                "full",
+                tmp_path,
+                [WorktreeBox(worktree_path=worktree, record=record, current_path=worktree)],
+                box_action=None,
+            )
+
+        if prune_already_running:
+            with devbox_config.worktree_prune_lock():
+                clean()
+        else:
+            clean()
+
+        assert prune_attempts == expected_prune_attempts
+        assert devbox_config.load_worktree_boxes() == (registry_before if box_still_tracked else {})
 
     @pytest.mark.parametrize(
         ("same_worktree", "background", "keep_record", "expected_calls"),
@@ -1073,6 +1300,8 @@ class TestWorktreeBoxes:
         monkeypatch.setattr(worktrees, "delete_workspace", lambda name: calls.append(("delete", name)))
         monkeypatch.setattr(worktrees, "stop_workspace", lambda name: calls.append(("stop", name)))
         monkeypatch.setattr(worktrees.mutagen, "sync_terminate", terminated.append)
+        forgotten_in_herdr: list[str] = []
+        monkeypatch.setattr(worktrees.herdr, "forget_machine", forgotten_in_herdr.append)
         box_a, box_b = _box("devbox-test-user-a", workspace_id="id-a"), _box("devbox-test-user-b")
         devbox_config.record_worktree_box(tmp_path / "a", box_a)
         devbox_config.record_worktree_box(tmp_path / "b", box_b)
@@ -1088,6 +1317,7 @@ class TestWorktreeBoxes:
         )
 
         assert calls == expected_calls
+        assert forgotten_in_herdr == [name for call, name in expected_calls if call == "delete"]
         acted = live_id == box_a.workspace_id and (last_used_at is None or bool(expected_calls))
         assert terminated == ([worktrees.mutagen.workspace_label_selector("devbox-test-user-a")] if acted else [])
         kept = live_id == box_a.workspace_id and (not acted or (keep_stopped and action == "stop"))
@@ -1176,6 +1406,37 @@ class TestWorktreeBoxes:
         _clean_worktree_boxes([WorktreeBox(worktree_path=tmp_path / "a", record=_box("devbox-test-user-a"))], "delete")
 
         assert deleted == []
+
+    @pytest.mark.parametrize(
+        ("require_removed", "expected_deleted"),
+        [(True, []), (False, ["devbox-test-user-a"])],
+        ids=["prune-leaves-the-adopted-box-alone", "the-new-record-survives-the-cleanup"],
+    )
+    def test_worktree_recreated_during_the_listing_keeps_its_record(
+        self, tmp_path, monkeypatch, registry_path, require_removed, expected_deleted
+    ) -> None:
+        stale = _box("devbox-test-user-a", workspace_id="id-a", worktree_id="id-of-the-removed-worktree")
+        adopted = _box("devbox-test-user-a", workspace_id="id-a", worktree_id="id-of-the-new-worktree")
+        devbox_config.record_worktree_box(tmp_path / "a", stale)
+
+        def list_while_a_worktree_reclaims_the_path() -> list[dict[str, str]]:
+            (tmp_path / "a").mkdir()
+            devbox_config.record_worktree_box(tmp_path / "a", adopted)
+            return [{"name": "devbox-test-user-a", "id": "id-a", "status": "running"}]
+
+        deleted: list[str] = []
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(worktrees, "fetch_user_workspaces", list_while_a_worktree_reclaims_the_path)
+        monkeypatch.setattr(worktrees, "delete_workspace", deleted.append)
+        monkeypatch.setattr(worktrees.herdr, "forget_machine", lambda name: None)
+        monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: None)
+
+        _clean_worktree_boxes(
+            [WorktreeBox(worktree_path=tmp_path / "a", record=stale)], "delete", require_removed=require_removed
+        )
+
+        assert deleted == expected_deleted
+        assert devbox_config.load_worktree_boxes() == {str(tmp_path / "a"): adopted}
 
 
 class TestReclaimedBytes:

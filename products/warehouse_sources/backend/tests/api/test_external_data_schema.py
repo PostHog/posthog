@@ -1,5 +1,6 @@
 import uuid
 import contextlib
+import dataclasses
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
@@ -9,8 +10,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.conf import settings
+from django.db import connection
 from django.test import SimpleTestCase
 from django.test.client import Client as HttpClient
+from django.test.utils import CaptureQueriesContext
 
 import psycopg
 import pytest_asyncio
@@ -41,6 +44,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
 from products.warehouse_sources.backend.facade.models import (
+    INCREMENTAL_HISTORY_KEY,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -166,7 +170,12 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.status == expected
 
-    def test_incremental_fields_stripe(self):
+    @parameterized.expand(
+        [("flag_off", False, True, False), ("flag_on", True, True, True), ("unsupported", True, False, False)]
+    )
+    def test_incremental_fields_stripe(
+        self, _name: str, flag_on: bool, supports_history: bool, history_available: bool
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.STRIPE,
@@ -180,7 +189,14 @@ class TestExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-        with mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)):
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "supports_incremental_history", new=supports_history),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_incremental_history_enabled_for_team",
+                return_value=flag_on,
+            ),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
             )
@@ -194,6 +210,7 @@ class TestExternalDataSchema(APIBaseTest):
             "append_available": True,
             "cdc_available": None,
             "xmin_available": None,
+            "incremental_history_available": history_available,
             "full_refresh_available": True,
             "supports_webhooks": False,
             "webhook_only": False,
@@ -441,6 +458,12 @@ class TestExternalDataSchema(APIBaseTest):
                     "nullable": True,
                     # Table has no index on `id`, so the warning UI will fire for this field.
                     "is_indexed": False,
+                    "recommended": True,
+                    "notes": [
+                        "Only marks new rows. Edits to existing rows don't sync.",
+                        "Not indexed, so each sync scans the whole table.",
+                        "Can be empty. Rows where it's empty never sync.",
+                    ],
                 },
                 # xmin is synthetic: advertised for any ordinary PG13+ table, unindexed by definition.
                 {
@@ -455,11 +478,12 @@ class TestExternalDataSchema(APIBaseTest):
             "append_available": True,
             "cdc_available": None,
             "xmin_available": True,
+            "incremental_history_available": False,
             "full_refresh_available": True,
             "supports_webhooks": False,
             "webhook_only": False,
             "available_columns": [
-                {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
             ],
             "detected_primary_keys": ["id"],
             "primary_key_detection_supported": True,
@@ -467,15 +491,13 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (test name, source_cdc_enabled, team_ff_enabled, expected_cdc_available)
-            ("source_enabled_team_enabled", True, True, True),
-            ("source_enabled_team_disabled", True, False, None),
-            ("source_disabled_team_enabled", False, True, None),
-            ("source_disabled_team_disabled", False, False, None),
+            # (test name, source_cdc_enabled, expected_cdc_available)
+            ("source_enabled", True, True),
+            ("source_disabled", False, None),
         ]
     )
     def test_incremental_fields_cdc_available_gating(
-        self, _name: str, source_cdc_enabled: bool, team_ff_enabled: bool, expected_cdc_available
+        self, _name: str, source_cdc_enabled: bool, expected_cdc_available
     ):
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -518,10 +540,6 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)),
             mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=team_ff_enabled,
-            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
@@ -1381,7 +1399,6 @@ class TestExternalDataSchema(APIBaseTest):
                 "rejects_a_history_table_for_a_source_column_named_like_a_validity_column",
                 {
                     "primary_key_columns": ["id"],
-                    "cdc_table_mode": "both",
                     "schema_metadata": {"columns": [{"name": "id"}, {"name": "_ph_valid_from"}]},
                 },
                 None,
@@ -1389,6 +1406,7 @@ class TestExternalDataSchema(APIBaseTest):
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,
                 "_ph_valid_from",
+                "both",
             ),
             (
                 "accepts_a_validity_column_name_without_a_history_table",
@@ -1412,6 +1430,7 @@ class TestExternalDataSchema(APIBaseTest):
         expected_sync_type: str,
         expected_pk_columns: list[str] | None,
         expected_error: str = "primary key",
+        cdc_table_mode: str | None = None,
     ):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1430,12 +1449,10 @@ class TestExternalDataSchema(APIBaseTest):
         request_body: dict[str, Any] = {"sync_type": "cdc"}
         if payload_pk is not None:
             request_body["primary_key_columns"] = payload_pk
+        if cdc_table_mode is not None:
+            request_body["cdc_table_mode"] = cdc_table_mode
 
         with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
@@ -1458,9 +1475,28 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config["primary_key_columns"] == expected_pk_columns
             assert schema.sync_type_config["cdc_mode"] == "snapshot"
 
-    def test_update_cdc_schema_rejects_primary_key_change_with_existing_data(self):
-        # CDC uses the PK as the UPDATE/DELETE merge key, so — same as incremental — it can't be
-        # changed once data has synced (the schema has a materialized table).
+    @parameterized.expand(
+        [
+            # CDC uses the PK as the UPDATE/DELETE merge key, so it can't be swapped once data has synced.
+            (
+                "swapping_an_established_key_is_rejected",
+                ExternalDataSchema.SyncType.CDC,
+                {"cdc_mode": "streaming", "primary_key_columns": ["id"]},
+                400,
+                ["id"],
+            ),
+            # A table synced by full refresh has no key to break, so switching it to CDC sets the first one.
+            ("setting_the_first_key_is_allowed", ExternalDataSchema.SyncType.FULL_REFRESH, {}, 200, ["order_key"]),
+        ]
+    )
+    def test_update_synced_schema_to_cdc_primary_key(
+        self,
+        _name: str,
+        initial_sync_type: str,
+        initial_sync_type_config: dict,
+        expected_status: int,
+        expected_pk: list[str],
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -1473,25 +1509,28 @@ class TestExternalDataSchema(APIBaseTest):
             source=source,
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
-            sync_type=ExternalDataSchema.SyncType.CDC,
-            sync_type_config={"cdc_mode": "streaming", "primary_key_columns": ["id"]},
+            sync_type=initial_sync_type,
+            sync_type_config=initial_sync_type_config,
             table=table,
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-            return_value=True,
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "cdc", "primary_key_columns": ["order_key"]},
             )
 
-        assert response.status_code == 400
-        assert "primary key cannot be changed" in str(response.json()).lower()
-
+        assert response.status_code == expected_status, response.content
         schema.refresh_from_db()
-        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+        assert schema.sync_type_config["primary_key_columns"] == expected_pk
 
     def _xmin_postgres_source(self) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
@@ -1539,27 +1578,47 @@ class TestExternalDataSchema(APIBaseTest):
         # xmin never sets CDC state.
         assert "cdc_mode" not in schema.sync_type_config
 
-    def test_update_schema_to_xmin_rejected_without_primary_key(self):
+    @parameterized.expand(
+        [
+            ("switch_to_xmin_rejected", ExternalDataSchema.SyncType.FULL_REFRESH, status.HTTP_400_BAD_REQUEST),
+            # A table saved as xmin before its first sync has no key yet; the sync resolves one.
+            ("enable_keyless_xmin_accepted", ExternalDataSchema.SyncType.XMIN, status.HTTP_200_OK),
+        ]
+    )
+    def test_update_schema_to_xmin_without_primary_key(self, _name: str, current_sync_type: str, expected_status: int):
         source = self._xmin_postgres_source()
         schema = ExternalDataSchema.objects.create(
             name="public.orders",
             team=self.team,
             source=source,
             should_sync=False,
-            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type=current_sync_type,
             sync_type_config={},
         )
 
-        with self._xmin_discovery_patch():
+        with (
+            self._xmin_discovery_patch(),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "xmin"},
+                data={"sync_type": "xmin", "should_sync": True},
             )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "primary key" in str(response.json()).lower()
+        assert response.status_code == expected_status, response.content
         schema.refresh_from_db()
-        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "primary key" in str(response.json()).lower()
+            assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+        else:
+            assert schema.sync_type == ExternalDataSchema.SyncType.XMIN
+            assert schema.should_sync
 
     @parameterized.expand(
         [
@@ -1584,14 +1643,10 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-            return_value=True,
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": sync_type, "primary_key_columns": ["id"]},
-            )
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": sync_type, "primary_key_columns": ["id"]},
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_message in str(response.json()).lower()
@@ -1780,10 +1835,6 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
@@ -2109,7 +2160,14 @@ class TestExternalDataSchema(APIBaseTest):
         assert (schema.full_refresh_interval_days, schema.next_full_refresh_at) == expected
         assert schema.full_refresh_time_of_day == expected_time
 
-    def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
+    @parameterized.expand(
+        [
+            ("toggle_only", {"should_sync": True}),
+            # The settings page resends the sync type on every save.
+            ("with_sync_type", {"sync_type": "cdc", "should_sync": True}),
+        ]
+    )
+    def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self, _name: str, data: dict[str, Any]):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
         # API gate landed) must not be re-enabled until a PK is added on the source side.
         source = ExternalDataSource.objects.create(
@@ -2128,7 +2186,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"should_sync": True},
+            data=data,
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -3277,10 +3335,6 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
-            mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ) as mock_add_table,
             mock.patch(
@@ -3358,7 +3412,6 @@ class TestUpdateExternalDataSchema:
     def _patch_cdc_switch(add_table_side_effect: BaseException | None = None) -> contextlib.ExitStack:
         stack = contextlib.ExitStack()
         views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
-        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
         stack.enter_context(mock.patch(f"{views}.external_data_workflow_exists", return_value=False))
         stack.enter_context(mock.patch(f"{views}.sync_external_data_job_workflow"))
         stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
@@ -3381,6 +3434,7 @@ class TestUpdateExternalDataSchema:
                     "cdc_mode": "streaming",
                     "cdc_last_log_position": "0/16B3748",
                     "cdc_snapshot_lane": "buffer",
+                    "cdc_snapshot_position": 23803368,
                 },
                 "posthog",
                 id="left_over_from_earlier_cdc_period",
@@ -3416,6 +3470,7 @@ class TestUpdateExternalDataSchema:
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert "cdc_snapshot_lane" not in schema.sync_type_config
+        assert "cdc_snapshot_position" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
 
     @pytest.mark.parametrize(
@@ -3825,7 +3880,6 @@ class TestUpdateExternalDataSchema:
         views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
         data_imports = "products.warehouse_sources.backend.temporal.data_imports"
         facade = "products.data_warehouse.backend.facade.api"
-        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
         stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
         stack.enter_context(mock.patch(f"{facade}.trigger_cdc_extraction_schedule", return_value=True))
         stack.enter_context(mock.patch(f"{data_imports}.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"))
@@ -4011,10 +4065,6 @@ class TestUpdateExternalDataSchema:
         )
 
         with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ),
@@ -4524,6 +4574,19 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
 
 
+@dataclasses.dataclass(frozen=True)
+class _OutputTablesCase:
+    mode: str
+    initial_mode: str
+    cursor_type: str = "datetime"
+    flag_on: bool = True
+    request_body: dict[str, Any] | None = None
+    source_supports_history: bool = True
+    initial_sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL
+    blocking_table: str | None = None
+    source_columns: tuple[str, ...] = ()
+
+
 class TestSerializerLostUpdateProtection(APIBaseTest):
     """A PATCH must not revert what another writer committed after the request loaded the row —
     a sync_type_config key from a CDC extract activity, or the link fields "Delete data" clears."""
@@ -4787,15 +4850,358 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("flag_off", _OutputTablesCase(mode="both", initial_mode="consolidated", flag_on=False), "not enabled"),
+            (
+                "integer_cursor",
+                _OutputTablesCase(mode="both", initial_mode="consolidated", cursor_type="integer"),
+                "date and time",
+            ),
+            (
+                "source_replaces_rows_by_file",
+                _OutputTablesCase(mode="both", initial_mode="consolidated", source_supports_history=False),
+                "replaces rows by file",
+            ),
+            (
+                "integer_field_while_keeping_history",
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={"incremental_field": "id", "incremental_field_type": "integer"},
+                ),
+                "date and time",
+            ),
+            (
+                "integer_field_sent_with_the_unchanged_mode",
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={
+                        "cdc_table_mode": "both",
+                        "incremental_field": "id",
+                        "incremental_field_type": "integer",
+                    },
+                ),
+                "date and time",
+            ),
+            (
+                "switch_from_cdc_with_a_legacy_history_table",
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={"sync_type": "incremental", "cdc_table_mode": "both"},
+                    initial_sync_type=ExternalDataSchema.SyncType.CDC,
+                    blocking_table="legacy_history_table",
+                ),
+                "older history table",
+            ),
+            (
+                "switch_from_cdc_when_a_sibling_syncs_the_history_name",
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={"sync_type": "incremental", "cdc_table_mode": "both"},
+                    initial_sync_type=ExternalDataSchema.SyncType.CDC,
+                    blocking_table="sibling_schema",
+                ),
+                "share its name",
+            ),
+            (
+                "a_source_column_named_like_a_validity_column",
+                _OutputTablesCase(mode="both", initial_mode="consolidated", source_columns=("_ph_valid_from",)),
+                "can't sync the column",
+            ),
+            (
+                "a_source_column_named_like_a_staging_column",
+                _OutputTablesCase(mode="both", initial_mode="consolidated", source_columns=("_ph_staged_batch",)),
+                "can't sync the column",
+            ),
+        ]
+    )
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_patch_refuses_output_tables_an_incremental_table_cannot_have(
+        self, _name: str, case: _OutputTablesCase, refusal: str
+    ):
+        with pytest.raises(ValidationError, match=refusal):
+            self._patch_output_tables(case)
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == case.initial_mode
+        assert self.schema.keeps_history == (case.initial_mode != "consolidated")
+        assert not self.schema.sync_type_config.get("reset_pipeline")
+
+    @parameterized.expand(
+        [
+            ("turn_on", _OutputTablesCase(mode="both", initial_mode="consolidated"), True),
+            (
+                "turn_on_with_a_column_named_like_a_capture_column",
+                _OutputTablesCase(mode="both", initial_mode="consolidated", source_columns=("_ph_cdc_seq",)),
+                True,
+            ),
+            ("turn_off", _OutputTablesCase(mode="consolidated", initial_mode="both", cursor_type="date"), False),
+            # The form sends the mode it shows on every save, which must not need the flag again.
+            ("flag_off_keeping_the_mode", _OutputTablesCase(mode="both", initial_mode="both", flag_on=False), False),
+            (
+                "switch_from_cdc_keeping_the_history_table",
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={"sync_type": "incremental", "cdc_table_mode": "both"},
+                    initial_sync_type=ExternalDataSchema.SyncType.CDC,
+                ),
+                False,
+            ),
+        ]
+    )
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_patch_sets_the_output_tables_of_an_incremental_table(
+        self, _name: str, case: _OutputTablesCase, reloads: bool
+    ):
+        self._patch_output_tables(case)
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == case.mode
+        assert self.schema.keeps_history == (case.mode != "consolidated")
+        assert bool(self.schema.sync_type_config.get("reset_pipeline")) == reloads
+
+    def _patch_output_tables(self, case: _OutputTablesCase) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
+        self.schema.sync_type = case.initial_sync_type
+        self.schema.sync_type_config = {
+            "incremental_field": "updated_at",
+            "incremental_field_type": case.cursor_type,
+            "primary_key_columns": ["id"],
+            "cdc_table_mode": case.initial_mode,
+        }
+        if case.initial_sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+            self.schema.sync_type_config[INCREMENTAL_HISTORY_KEY] = case.initial_mode != "consolidated"
+        if case.source_columns:
+            self.schema.sync_type_config["schema_metadata"] = {
+                "columns": [{"name": name} for name in ("id", "updated_at", *case.source_columns)]
+            }
+        self.schema.table = DataWarehouseTable.objects.create(
+            team=self.team, name="orders", format="Parquet", external_data_source=self.source
+        )
+        self.schema.save()
+        if case.blocking_table == "legacy_history_table":
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=build_table_name(self.source, f"{self.schema.name}_cdc"),
+                format="DeltaS3Wrapper",
+                external_data_source=self.source,
+                options={"history_table": True},
+            )
+        elif case.blocking_table == "sibling_schema":
+            ExternalDataSchema.objects.create(
+                name=f"{self.schema.name}_history", team=self.team, source=self.source, should_sync=True
+            )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_incremental_history_enabled_for_team",
+                return_value=case.flag_on,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.supports_incremental_history",
+                new=case.source_supports_history,
+            ),
+        ):
+            self._save_through_serializer(self.schema, case.request_body or {"cdc_table_mode": case.mode})
+
+    # A history-only table is the history table, so leaving it reloads the consolidated table from the start.
+    @parameterized.expand([("both", False), ("cdc_only", True)])
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_leaving_incremental_drops_the_history_choice(self, mode: str, reloads: bool):
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type_config = {
+            "incremental_field": "updated_at",
+            "incremental_field_type": "datetime",
+            "primary_key_columns": ["id"],
+            "cdc_table_mode": mode,
+            INCREMENTAL_HISTORY_KEY: True,
+        }
+        self.schema.save()
+
+        self._save_through_serializer(self.schema, {"sync_type": "full_refresh"})
+
+        self.schema.refresh_from_db()
+        assert INCREMENTAL_HISTORY_KEY not in self.schema.sync_type_config
+        assert bool(self.schema.sync_type_config.get("reset_pipeline")) == reloads
+
+    @parameterized.expand(
+        [
+            ("keeps_history", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, [], ["email"], {}, True),
+            ("history_only", ExternalDataSchema.SyncType.INCREMENTAL, "cdc_only", True, [], ["email"], {}, True),
+            # The history table stays registered after the schema stops writing it.
+            (
+                "history_turned_off",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                "consolidated",
+                False,
+                [],
+                ["email"],
+                {},
+                True,
+            ),
+            ("cdc_left_history", ExternalDataSchema.SyncType.CDC, "consolidated", False, [], ["email"], {}, True),
+            # A CDC table that keeps history reseeds it from the new snapshot.
+            ("cdc_keeps_history", ExternalDataSchema.SyncType.CDC, "both", False, [], ["email"], {}, False),
+            # The same request leaves CDC, so nothing reseeds the history table.
+            (
+                "cdc_switching_to_incremental",
+                ExternalDataSchema.SyncType.CDC,
+                "both",
+                False,
+                [],
+                ["email"],
+                {"sync_type": "incremental"},
+                True,
+            ),
+            # The same request stops writing history, so nothing reseeds the history table.
+            (
+                "cdc_turning_history_off",
+                ExternalDataSchema.SyncType.CDC,
+                "both",
+                False,
+                [],
+                ["email"],
+                {"cdc_table_mode": "consolidated"},
+                True,
+            ),
+            # The past versions stay masked, so removing a mask leaks nothing.
+            ("removing_a_mask", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, ["email"], [], {}, False),
+        ]
+    )
+    def test_masking_a_column_of_a_table_with_a_history_table(
+        self,
+        _name: str,
+        sync_type: str,
+        mode: str,
+        chose_history: bool,
+        stored_masks: list[str],
+        requested_masks: list[str],
+        request_extra: dict[str, Any],
+        refused: bool,
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
+        self.schema.sync_type = sync_type
+        self.schema.masked_columns = stored_masks
+        self.schema.sync_type_config = {
+            "incremental_field": "updated_at",
+            "incremental_field_type": "datetime",
+            "primary_key_columns": ["id"],
+            "cdc_table_mode": mode,
+            INCREMENTAL_HISTORY_KEY: chose_history,
+            "schema_metadata": {
+                "columns": [
+                    {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+                ]
+            },
+        }
+        self.schema.save()
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name=build_table_name(self.source, f"{self.schema.name}_history"),
+            format="DeltaS3Wrapper",
+            external_data_source=self.source,
+            options={"history_table": True, "history_naming": "ph_validity"},
+        )
+
+        body = {"masked_columns": requested_masks, **request_extra}
+        if refused:
+            with pytest.raises(ValidationError, match="history table"):
+                self._save_through_serializer(self.schema, body)
+        else:
+            self._save_through_serializer(self.schema, body)
+
+        self.schema.refresh_from_db()
+        assert (self.schema.masked_columns or []) == (stored_masks if refused else requested_masks)
+
+    @parameterized.expand(
+        [
+            ("both", True),
+            ("cdc_only", True),
+            # The history table stays queryable after history is turned off.
+            ("both", False),
+        ]
+    )
+    def test_unselecting_a_column_hides_it_from_the_incremental_history_table(self, mode: str, keeps_history: bool):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type_config = {
+            "incremental_field": "updated_at",
+            "incremental_field_type": "datetime",
+            "primary_key_columns": ["id"],
+            "cdc_table_mode": mode,
+            INCREMENTAL_HISTORY_KEY: keeps_history,
+            "schema_metadata": {
+                "columns": [
+                    {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+                ]
+            },
+        }
+        self.schema.save()
+        source_columns = dict.fromkeys(("id", "email", "updated_at"), "String")
+        history = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=build_table_name(self.source, f"{self.schema.name}_history"),
+            format="DeltaS3Wrapper",
+            external_data_source=self.source,
+            columns={**source_columns, "_ph_valid_from": "DateTime", "_ph_valid_to": "DateTime"},
+            options={"history_table": True, "history_naming": "ph_validity"},
+        )
+        main = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="orders",
+            format="DeltaS3Wrapper",
+            external_data_source=self.source,
+            columns=source_columns,
+        )
+        self.schema.table = history if mode == "cdc_only" else main
+        self.schema.save()
+
+        self._save_through_serializer(self.schema, {"enabled_columns": ["id", "updated_at"]})
+
+        history.refresh_from_db()
+        main.refresh_from_db()
+        assert set(history.columns or {}) == {"id", "updated_at", "_ph_valid_from", "_ph_valid_to"}
+        assert set(main.columns or {}) == ({"id", "updated_at"} if mode == "both" else set(source_columns))
+
+    @parameterized.expand(
+        [
             ("no_history_table", ExternalDataSchema.SyncType.CDC, "consolidated", False, None),
             ("legacy_naming", ExternalDataSchema.SyncType.CDC, "both", False, "public.orders_cdc"),
             ("new_naming", ExternalDataSchema.SyncType.CDC, "both", True, "public.orders_history"),
             # Leaving CDC keeps the stored table mode, but the table no longer keeps history.
             ("left_cdc", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, None),
+            (
+                "incremental_history",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                "both",
+                True,
+                "public.orders_history",
+                True,
+            ),
+            (
+                "incremental_history_with_the_naming_flag_off",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                "both",
+                False,
+                "public.orders_history",
+                True,
+            ),
         ]
     )
     def test_history_table_name_names_the_table_the_mode_writes(
-        self, _name: str, sync_type: str, mode: str, ph_naming: bool, storage_name: str | None
+        self,
+        _name: str,
+        sync_type: str,
+        mode: str,
+        ph_naming: bool,
+        storage_name: str | None,
+        chose_incremental_history: bool = False,
     ):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
@@ -4804,6 +5210,8 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
         self.schema.sync_type = sync_type
         self.schema.sync_type_config["cdc_table_mode"] = mode
+        if chose_incremental_history:
+            self.schema.sync_type_config[INCREMENTAL_HISTORY_KEY] = True
         self.schema.save()
 
         with mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: ph_naming):
@@ -4889,8 +5297,8 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 200, response.json()
         payload = response.json()
         assert payload["available_columns"] == [
-            {"name": "id", "data_type": "integer", "is_nullable": False},
-            {"name": "email", "data_type": "text", "is_nullable": True},
+            {"name": "id", "data_type": "integer", "is_nullable": False, "sensitivity": None},
+            {"name": "email", "data_type": "text", "is_nullable": True, "sensitivity": "email"},
         ]
 
     @parameterized.expand(
@@ -4950,8 +5358,8 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 200, response.json()
         # Sort by name: `columns` is JSONB, which doesn't preserve key insertion order.
         assert sorted(response.json()["available_columns"], key=lambda column: column["name"]) == [
-            {"name": "balance", "data_type": "Int64", "is_nullable": True},
-            {"name": "id", "data_type": "String", "is_nullable": False},
+            {"name": "balance", "data_type": "Int64", "is_nullable": True, "sensitivity": None},
+            {"name": "id", "data_type": "String", "is_nullable": False, "sensitivity": None},
         ]
 
     def test_available_columns_fallback_preserves_descriptions_for_source_projection(self):
@@ -4976,7 +5384,7 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["available_columns"] == [
-            {"name": "account_id", "data_type": "String", "is_nullable": False}
+            {"name": "account_id", "data_type": "String", "is_nullable": False, "sensitivity": None}
         ]
         assert response.json()["source_column_metadata_available"] is False
 
@@ -5201,6 +5609,28 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         results = response.json()["results"]
         assert len(results) > 0
         assert all(item["source"] is None for item in results)
+
+    def test_unrestricted_list_applies_pagination_before_loading_rows(self):
+        source, _ = self._create()
+        ExternalDataSchema.objects.bulk_create(
+            [ExternalDataSchema(name=f"schema_{index}", team=self.team, source=source) for index in range(10)]
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/?limit=5")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 11
+        assert len(response.json()["results"]) == 5
+        schema_table = ExternalDataSchema._meta.db_table
+        row_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if f'FROM "{schema_table}"' in query["sql"]
+            and f'ORDER BY "{schema_table}"."created_at" DESC' in query["sql"]
+        ]
+        assert row_queries
+        assert all("LIMIT 5" in query for query in row_queries)
 
     def test_retrieve_cross_team_is_404(self):
         other_team = create_team(organization=self.organization)

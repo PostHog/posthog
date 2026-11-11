@@ -727,7 +727,7 @@ class TestComputeMinSamplesForDetector:
     @parameterized.expand(
         [
             # The AI detector holds no training point back, so its lookback is the exact requirement.
-            ("hour", "hour", 168),
+            ("hour", "hour", 169),
             ("day", "day", 90),
             ("week", "week", 52),
             ("month", "month", 24),

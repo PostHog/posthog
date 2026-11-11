@@ -251,6 +251,18 @@ class TestInboxChannel:
         assert result is None
 
     @patch("posthog.models.integration.slack.WebClient")
+    def test_a_cached_no_scans_once_and_an_invite_turns_it_into_a_yes(self, mock_webclient_class):
+        client = self._client(mock_webclient_class)
+
+        with patch.object(inbox_channel, "_get_team_channel", return_value="C1"):
+            assert inbox_channel.is_in_team_inbox_channel(self.integration, "U1") is False
+            assert inbox_channel.is_in_team_inbox_channel(self.integration, "U1") is False
+            assert inbox_channel.invite_user_to_inbox(self.integration, "C1", "U1") is True
+            assert inbox_channel.is_in_team_inbox_channel(self.integration, "U1") is True
+
+        client.conversations_members.assert_called_once()
+
+    @patch("posthog.models.integration.slack.WebClient")
     def test_is_channel_member(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
         client.conversations_members.return_value = {"members": ["U1", "U2"], "response_metadata": {"next_cursor": ""}}

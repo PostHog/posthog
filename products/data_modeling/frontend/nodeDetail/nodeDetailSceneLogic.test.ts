@@ -3,6 +3,8 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import {
@@ -502,6 +504,45 @@ describe('nodeDetailSceneLogic', () => {
         dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuerySuccess([], deletedId)
 
         expect(router.values.location.pathname).toEqual(expectedPath)
+    })
+
+    it('leads back to Data catalog tables instead of Models on the catalog restructure path', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true,
+        })
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        expect(logic.values.breadcrumbs.map(({ name, path }) => [name, path])).toEqual([
+            ['Data catalog', urls.dataCatalog()],
+            ['Tables & views', urls.dataCatalog('tables')],
+            ['orders', undefined],
+        ])
+
+        dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuerySuccess([], SAVED_QUERY_ID)
+
+        expect(router.values.location.pathname + router.values.location.search).toEqual(
+            `/project/997${urls.dataCatalog('tables')}`
+        )
+    })
+
+    // Reverting and cancelling materialization only announce themselves through this action. Without
+    // the subscription the scene stays on is_materialized true, and the next update re-materializes
+    // the view that was just reverted.
+    it.each<[string, string, boolean]>([
+        ['its own view', SAVED_QUERY_ID, false],
+        ['another view', 'saved-query-2', true],
+    ])('refreshes materialization state when %s changes', async (_name, changedId, expected) => {
+        node = buildNode('matview')
+        savedQuery = { ...savedQuery, is_materialized: true }
+        await mountScene(urls.nodeDetail(NODE_ID))
+        expect(logic.values.isMaterialized).toBe(true)
+
+        savedQuery = { ...savedQuery, is_materialized: false }
+        dataWarehouseViewsLogic.actions.materializationChanged(changedId)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isMaterialized).toBe(expected)
     })
 
     it('keeps a tab mounted once it has been visited', async () => {

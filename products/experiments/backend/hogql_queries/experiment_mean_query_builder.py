@@ -278,6 +278,7 @@ class MeanQueryBuilder:
             entity_key=self._b.entity_key,
             date_range_query=self._b.date_range_query,
             conversion_window_seconds=self._b._get_conversion_window_seconds(),
+            distinct_id_column_sql=self._b.context.precompute_distinct_id_column_sql("distinct_id"),
         )
 
     def build_mean_query(self) -> ast.SelectQuery:

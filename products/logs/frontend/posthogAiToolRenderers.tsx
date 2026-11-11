@@ -1,4 +1,13 @@
-import { IconBell, IconList, IconPulse, IconSearch, IconServer, IconStack, IconWarning } from '@posthog/icons'
+import {
+    IconBell,
+    IconList,
+    IconPeople,
+    IconPulse,
+    IconSearch,
+    IconServer,
+    IconStack,
+    IconWarning,
+} from '@posthog/icons'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -39,6 +48,7 @@ export const posthogAiToolRenderers: ToolRegistryEntry[] = [
         'Log attributes',
         <IconList />
     ),
+    ...labelled(['logs-impact'], 'Logs impact', <IconPeople />),
     ...labelled(['logs-anomalies-scan', 'logs-anomalies-series-bands'], 'Log anomalies', <IconWarning />),
     ...labelled(
         [

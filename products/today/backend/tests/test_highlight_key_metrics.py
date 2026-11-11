@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.today.backend.facade.contracts import PulseSlot
 from products.today.backend.facade.enums import PulseSlotStatus
@@ -52,7 +54,10 @@ def _trend(series: dict[str, str]) -> dict[str, Any]:
 
 
 class TestKeyMetrics(SimpleTestCase):
-    def test_key_metrics_fill_the_pulse_and_a_weekday_drop_becomes_an_item(self) -> None:
+    @parameterized.expand([("nothing_hidden", frozenset()), ("a_hidden_metric", frozenset({"activity_event"}))])
+    def test_key_metrics_fill_the_pulse_and_a_weekday_drop_becomes_an_item(
+        self, _name: str, hidden: frozenset[str]
+    ) -> None:
         drop = [1000.0] * 6 + [1010.0] + [1000.0] * 6 + [990.0] + [1000.0] * 20 + [500.0]
         metrics = [
             metric("signup_event", drop),
@@ -65,6 +70,7 @@ class TestKeyMetrics(SimpleTestCase):
                 team=SimpleNamespace(id=1),
                 user=SimpleNamespace(id=2),
                 today=TODAY,
+                hidden=hidden,
                 publish_pulse=lambda found, slots: None,
             ),
         )
@@ -84,13 +90,21 @@ class TestKeyMetrics(SimpleTestCase):
             ),
             (
                 [
-                    ("signup_event", 6500.0, "events", -7.1, 7000.0, 28),
-                    ("activity_event", 140.0, "people", 0.0, 140.0, 28),
+                    tile
+                    for tile in (
+                        ("signup_event", 6500.0, "events", -7.1, 7000.0, 28),
+                        ("activity_event", 140.0, "people", 0.0, 140.0, 28),
+                    )
+                    if tile[0] not in hidden
                 ],
                 [("‘Signup event’ decreased by 50% yesterday", "500 yesterday · 1,000 on an average Monday", "risk")],
                 [
-                    _trend({"kind": "EventsNode", "event": "signup_event", "math": "total"}),
-                    _trend({"kind": "EventsNode", "event": "activity_event", "math": "dau"}),
+                    query
+                    for key, query in (
+                        ("signup_event", _trend({"kind": "EventsNode", "event": "signup_event", "math": "total"})),
+                        ("activity_event", _trend({"kind": "EventsNode", "event": "activity_event", "math": "dau"})),
+                    )
+                    if key not in hidden
                 ],
             ),
         )
@@ -103,6 +117,7 @@ class TestKeyMetrics(SimpleTestCase):
                 team=SimpleNamespace(id=1),
                 user=SimpleNamespace(id=2),
                 today=TODAY,
+                hidden=frozenset(),
                 publish_pulse=lambda found, slots: published.append(slots),
             ),
         )

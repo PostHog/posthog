@@ -97,6 +97,12 @@ PROJECTIONS: tuple[Projection, ...] = (
         ),
     ),
     Projection(
+        name="scope-docs",
+        renderer="posthog/scope_docs_projection.py",
+        inputs=("posthog/scope_docs.py", "posthog/scopes.py", "products/*/backend/scopes.py"),
+        outputs=("frontend/src/lib/scopeDocs.generated.ts",),
+    ),
+    Projection(
         name="commands",
         renderer="products/commands/backend/commands_projection.py",
         inputs=("products/commands/backend/logic/schema.py",),

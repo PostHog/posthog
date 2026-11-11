@@ -1,4 +1,9 @@
+from datetime import timedelta
+
 from django.db import models
+
+# The Node `EmailSuppressionService` holds a global entry for at most this long after its last bounce.
+GLOBAL_HARD_BOUNCE_MAX_HOLD = timedelta(days=14)
 
 
 class EmailHardBounce(models.Model):
@@ -7,6 +12,10 @@ class EmailHardBounce(models.Model):
     not exist adds it, whichever team sent the email. Every team's sends skip a listed address, except a
     team that removed the address from its own suppression list. A later successful delivery from any team
     proves the address exists, and deletes the row.
+
+    An entry only holds for as long as the address has been bouncing, from 1 day up to 14 days after its last
+    bounce. After that the next send tries the address again, and a new bounce renews the entry with a longer
+    hold. The Node `EmailSuppressionService` applies the hold when it reads the table.
 
     The table has no team_id because the fact belongs to the address, not to a team.
     """

@@ -4,7 +4,7 @@ from typing import Any
 from parameterized import parameterized
 from requests import HTTPError
 
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver, always
 from products.warehouse_sources.sources.shopwired._config import ShopWiredSourceConfig
 from products.warehouse_sources.sources.shopwired.settings import PAGE_SIZE
 from products.warehouse_sources.sources.shopwired.shopwired import ShopWiredResumeConfig, to_unix_timestamp
@@ -20,9 +20,19 @@ def _full_page(start_id: int) -> list[dict[str, Any]]:
 
 
 class TestPagination:
-    def test_paginates_and_progresses_offset(self) -> None:
-        result = _driver().run("products", [ScriptedResponse(json=_full_page(0)), ScriptedResponse(json=[{"id": 999}])])
+    @parameterized.expand(
+        [
+            ("products", "/v1/products", None),
+            ("transactions", "/v1/shopwired-payments/transactions", "created_asc"),
+            ("payouts", "/v1/shopwired-payments/payouts", "created_asc"),
+        ]
+    )
+    def test_paginates_and_progresses_offset(self, endpoint: str, path: str, sort: str | None) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=_full_page(0)), ScriptedResponse(json=[{"id": 999}])])
 
+        assert result.raised is None
+        assert result.paths == [path, path]
+        assert result.params("sort") == [sort, sort]
         assert len(result.rows) == PAGE_SIZE + 1
         assert result.rows[-1] == {"id": 999}
         # count/offset are ShopWired's pagination params (limit_param="count").
@@ -31,9 +41,10 @@ class TestPagination:
         # Checkpoint saved once after the full first page (points at the next page); short page ends it.
         assert result.saved_states == [ShopWiredResumeConfig(offset=PAGE_SIZE, from_timestamp=None)]
 
-    def test_resumes_from_saved_offset_and_pinned_window(self) -> None:
+    @parameterized.expand([("orders",), ("incomplete_orders",)])
+    def test_resumes_from_saved_offset_and_pinned_window(self, endpoint: str) -> None:
         result = _driver().run(
-            "orders",
+            endpoint,
             [ScriptedResponse(json=[{"id": 5}])],
             resume_state=ShopWiredResumeConfig(offset=200, from_timestamp=1700000000),
             should_use_incremental_field=True,
@@ -44,6 +55,79 @@ class TestPagination:
         assert result.rows == [{"id": 5}]
         assert result.params("offset") == ["200"]
         assert result.params("from") == ["1700000000"]
+
+
+class TestIncrementalRequests:
+    @parameterized.expand(
+        [
+            ("orders", False),
+            ("orders", True),
+            ("incomplete_orders", False),
+            ("incomplete_orders", True),
+        ]
+    )
+    def test_creation_filter_and_sort(self, endpoint: str, incremental: bool) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=[{"id": 1, "created": "2024-01-02T00:00:00Z"}])],
+            incremental_field="created",
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 1, "created": "2024-01-02T00:00:00Z"}]
+        assert result.paths == [f"/v1/{endpoint.replace('_', '-')}"]
+        assert result.params("from") == ["1704067200" if incremental else None]
+        assert result.params("sort") == ["date"]
+
+
+class TestProductVariations:
+    def test_walks_products_and_keeps_all_variations_with_parent_ids(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/v1/products":
+                return ScriptedResponse(json=_full_page(0) if request.param("offset") == "0" else [{"id": 100}])
+            if request.path == "/v1/products/0/variations":
+                return ScriptedResponse(json=[*_full_page(0), {"id": 100}])
+            if request.path == "/v1/products/100/variations":
+                return ScriptedResponse(json=[{"id": 0, "sku": "example-sku"}])
+            return ScriptedResponse(json=[])
+
+        result = _driver().run("product_variations", respond)
+
+        assert result.raised is None
+        assert len(result.rows) == 102
+        assert result.rows[:101] == [{"id": i, "product_id": 0} for i in range(101)]
+        assert result.rows[-1] == {"id": 0, "sku": "example-sku", "product_id": 100}
+        parents = [request for request in result.requests if request.path == "/v1/products"]
+        assert [request.param("offset") for request in parents] == ["0", "100"]
+        assert [request.param("count") for request in parents] == ["100", "100"]
+        children = [request for request in result.requests if request.path.endswith("/variations")]
+        assert len(children) == 101
+        assert all(not request.query for request in children)
+
+    def test_resumes_after_a_completed_product(self) -> None:
+        interrupted = _driver().run(
+            "product_variations",
+            [
+                ScriptedResponse(json=[{"id": 11}, {"id": 22}]),
+                ScriptedResponse(json=[{"id": 1}]),
+                ScriptedResponse(status=403, json={"error": "Forbidden"}),
+            ],
+        )
+
+        assert isinstance(interrupted.raised, HTTPError)
+        assert interrupted.rows == [{"id": 1, "product_id": 11}]
+        assert interrupted.final_state is not None
+        resumed = _driver().run(
+            "product_variations",
+            [ScriptedResponse(json=[{"id": 11}, {"id": 22}]), ScriptedResponse(json=[{"id": 1}])],
+            resume_state=interrupted.final_state,
+        )
+
+        assert resumed.raised is None
+        assert resumed.paths == ["/v1/products", "/v1/products/22/variations"]
+        assert resumed.rows == [{"id": 1, "product_id": 22}]
 
 
 class TestErrorClassification:

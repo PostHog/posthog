@@ -16,11 +16,7 @@ describe('hog', () => {
             ['-o', 'json', 'help', 'query', 'run'],
             'Usage: hog query run',
         ],
-        [
-            'command help lists examples and scopes',
-            ['query', 'run', '--help'],
-            'Needs a personal API key with: query:read',
-        ],
+        ['command help lists examples and scopes', ['query', 'run', '--help'], 'Needs the scopes: query:read'],
     ])('%s', async (_name, argv, stdout) => {
         const result = await runHog(argv)
         expect(result.exitCode).toBe(0)
@@ -100,10 +96,13 @@ describe('hog', () => {
             scopes: ['query:read'],
         })
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
+            'setup',
             'auth login',
+            'auth add',
             'auth logout',
             'auth migrate',
             'auth status',
+            'ci setup',
             'query run',
             'query check',
             'query editor',
@@ -116,6 +115,7 @@ describe('hog', () => {
             'api access',
             'api skill',
             'api agents-md',
+            'learn',
             'error-tracking inject',
             'error-tracking clone',
             'error-tracking upload',
