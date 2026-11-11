@@ -5365,14 +5365,17 @@ export interface Response3Api {
     error?: string | null
     /** Query explanation output */
     explain?: string[] | null
+    /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT or uses UNION. */
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
     limit?: number | null
     /** Query metadata output */
     metadata?: HogQLMetadataResponseApi | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Rows skipped before the default row limit applied. */
     offset?: number | null
     /** Input query string */
     query?: string | null
@@ -7399,14 +7402,17 @@ export interface HogQLQueryResponseApi {
     error?: string | null
     /** Query explanation output */
     explain?: string[] | null
+    /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT or uses UNION. */
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
     limit?: number | null
     /** Query metadata output */
     metadata?: HogQLMetadataResponseApi | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Rows skipped before the default row limit applied. */
     offset?: number | null
     /** Input query string */
     query?: string | null
@@ -7461,6 +7467,7 @@ export interface HogQLQueryApi {
     name?: string | null
     /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
     offset?: number | null
+    /** The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit. */
     query: string
     response?: HogQLQueryResponseApi | null
     /** Run the selected connection query directly without translating it through HogQL first */
