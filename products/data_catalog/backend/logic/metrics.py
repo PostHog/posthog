@@ -694,9 +694,18 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
 
 
-def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
-    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
+def metrics_visible_to_user(
+    team: Team, user: User, user_access_control: UserAccessControl, filters: MetricListFilters | None = None
+) -> QuerySet[Metric]:
+    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read.
+
+    With ``filters``, only the metrics the list shows. The plain list and the ranked search both pass them here.
+    """
     metrics = metrics_for_team(team)
+    if filters is not None and filters.status:
+        metrics = metrics.filter(status=filters.status)
+    if filters is not None and filters.definition_kind:
+        metrics = metrics.filter(definition__kind=filters.definition_kind)
     denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics
@@ -706,18 +715,6 @@ def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAcc
         if not references_denied_table(metric.referenced_table_names, denied_tables)
     ]
     return metrics.filter(id__in=visible_metric_ids)
-
-
-def metrics_for_list(
-    team: Team, user: User, user_access_control: UserAccessControl, filters: MetricListFilters
-) -> QuerySet[Metric]:
-    """The metrics the list shows the caller. The plain list and the ranked search both start here."""
-    metrics = metrics_visible_to_user(team, user, user_access_control)
-    if filters.status:
-        metrics = metrics.filter(status=filters.status)
-    if filters.definition_kind:
-        metrics = metrics.filter(definition__kind=filters.definition_kind)
-    return metrics
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:

@@ -32,7 +32,7 @@ from ..facade.contracts import MetricListFilters
 from ..facade.enums import MetricStatus
 from ..models import Metric
 from .analytics import AnalyticsProps, capture_metric_search_event
-from .metrics import metrics_for_list
+from .metrics import metrics_visible_to_user
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -309,7 +309,7 @@ def search_catalog(
     analytics_props: AnalyticsProps | None = None,
 ) -> MetricSearchResult:
     """Search the metrics the list would show the user, and record the search without its text."""
-    candidates = metrics_for_list(team, user, user_access_control, filters)
+    candidates = metrics_visible_to_user(team, user, user_access_control, filters)
     phrasings = split_search(search)
     result = search_metrics(candidates, phrasings, limit=limit, offset=offset)
     # Later pages of the same search are not new searches.

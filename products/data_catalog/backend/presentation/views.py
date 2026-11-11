@@ -128,7 +128,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
-        metrics = api.metrics_for_list(
+        metrics = api.metrics_visible_to_user(
             self.team, cast(User, self.request.user), self.user_access_control, self._list_filters()
         )
         return metrics.select_related("created_by", "owner")
