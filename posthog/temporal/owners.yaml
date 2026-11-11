@@ -71,3 +71,8 @@ rules:
     - match:
           - '/tests/data_modeling/test_*.py'
       owners: team-data-modeling
+    - match:
+          - '/workflow_catalog.py'
+          - '/workflow_catalog.json'
+          - '/tests/test_workflow_catalog.py'
+      owners: team-cloud-foundations
