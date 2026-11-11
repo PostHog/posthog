@@ -40527,6 +40527,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly group_type_index: number | null;
+      /**
+         * Number of query executions in the last 30 days that referenced this property. Set only when the list request passes `include_query_usage=true` or orders by `query_usage`, otherwise null.
+         * @nullable
+         */
+      readonly query_usage_30_day: number | null;
     }
 
     export interface ErrorDetail {
@@ -74527,6 +74532,20 @@ export namespace Schemas {
       count_is_capped?: boolean;
     }
 
+    /**
+     * Freshness of `query_usage_30_day`. Present only when the request orders by `query_usage` or passes `include_query_usage=true`.
+     * @nullable
+     */
+    export type PaginatedEnterprisePropertyDefinitionListQueryUsage = {
+      /** When the counts were computed. They refresh in the background about every 15 minutes. */
+      computed_at: string;
+      /**
+         * When query usage tracking started for this project, if that is less than 30 days ago. Then the counts cover only the time since. Null when the counts cover the full 30 days.
+         * @nullable
+         */
+      tracking_since: string | null;
+    } | null;
+
     export interface PaginatedEnterprisePropertyDefinitionList {
       count: number;
       /** @nullable */
@@ -74534,6 +74553,11 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: EnterprisePropertyDefinition[];
+      /**
+         * Freshness of `query_usage_30_day`. Present only when the request orders by `query_usage` or passes `include_query_usage=true`.
+         * @nullable
+         */
+      query_usage?: PaginatedEnterprisePropertyDefinitionListQueryUsage;
     }
 
     export interface PaginatedErrorTrackingAlertList {
@@ -85194,6 +85218,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly group_type_index?: number | null;
+      /**
+         * Number of query executions in the last 30 days that referenced this property. Set only when the list request passes `include_query_usage=true` or orders by `query_usage`, otherwise null.
+         * @nullable
+         */
+      readonly query_usage_30_day?: number | null;
     }
 
     export interface PatchedErrorTrackingAlertUpdateRequest {
@@ -98165,6 +98194,13 @@ export namespace Schemas {
     }
 
     export interface PropertyUsageMetricsResponse {
+      /** When the counts were computed. They refresh in the background about every 15 minutes. */
+      computed_at: string;
+      /**
+         * When query usage tracking started for this project, if that is less than 30 days ago. Then the counts cover only the time since. Null when the counts cover the full 30 days.
+         * @nullable
+         */
+      tracking_since: string | null;
       /** One entry per requested property, in request order. */
       results: PropertyUsageMetricsItem[];
     }
@@ -138153,6 +138189,10 @@ export namespace Schemas {
      */
     group_type_index?: number;
     /**
+     * Include `query_usage_30_day` on each result and `query_usage` freshness on the response, without changing the order.
+     */
+    include_query_usage?: boolean;
+    /**
      * Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all.
      * @nullable
      */
@@ -138171,6 +138211,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by 30-day query count. `-query_usage` puts the most queried properties first, `query_usage` puts unqueried properties first. Ties sort by name. Both include `query_usage_30_day` on each result. Refused with a 400 when more than 250,000 properties match. Omit for the default order.
+     *
+     * * `-query_usage` - Most queried first
+     * * `query_usage` - Least queried first
+     * @minLength 1
+     */
+    ordering?: string;
     /**
      * Comma-separated list of properties to filter
      * @minLength 1
