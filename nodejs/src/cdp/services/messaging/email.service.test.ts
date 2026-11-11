@@ -1341,7 +1341,7 @@ describe('EmailService', () => {
                 case: "keeps the defaults on a template's workflow that isn't sensitive",
                 sensitive: false,
                 tracking: { captureEngagement: true },
-                links: ['https://example.com/a', 'https://example.com/b'],
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
                 pixel: true,
             },
             {
@@ -1443,77 +1443,146 @@ describe('EmailService', () => {
 
         const untracked = ['https://example.com/a', 'https://example.com/b']
         const clicksTracked = ['tracked https://example.com/a', 'https://example.com/b']
-        it.each([
+        it.each<{
+            case: string
+            sensitive: boolean
+            send: { sensitive?: boolean; tracking?: { opens?: false; clicks?: boolean } } | undefined
+            links: string[]
+            opens: boolean
+            subject: boolean
+        }>([
             {
-                case: 'a code send that keeps the defaults',
+                case: "a code send that keeps the defaults on a template's workflow that isn't sensitive",
                 sensitive: false,
-                tracking: {},
-                links: untracked,
+                send: {},
+                links: clicksTracked,
                 opens: true,
+                subject: true,
             },
             {
                 case: 'a code send that turns clicks on',
                 sensitive: false,
-                tracking: { clicks: true },
+                send: { tracking: { clicks: true } },
                 links: clicksTracked,
                 opens: true,
+                subject: true,
+            },
+            {
+                case: "a code send that turns clicks off on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: { tracking: { clicks: false } },
+                links: untracked,
+                opens: true,
+                subject: true,
             },
             {
                 case: 'a sensitive code send that keeps the defaults',
                 sensitive: true,
-                tracking: {},
+                send: {},
                 links: untracked,
                 opens: true,
+                subject: false,
             },
             {
                 case: 'a sensitive code send that turns clicks on',
                 sensitive: true,
-                tracking: { clicks: true },
+                send: { tracking: { clicks: true } },
                 links: clicksTracked,
                 opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send marked not sensitive on a sensitive workflow',
+                sensitive: true,
+                send: { sensitive: false },
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: "a code send marked sensitive on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: { sensitive: true },
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send marked not sensitive that turns opens off',
+                sensitive: true,
+                send: { sensitive: false, tracking: { opens: false } },
+                links: untracked,
+                opens: false,
+                subject: true,
             },
             {
                 case: 'a code send that turns opens off',
                 sensitive: false,
-                tracking: { opens: false },
+                send: { tracking: { opens: false } },
                 links: untracked,
                 opens: false,
+                subject: true,
             },
-            { case: 'a template send', sensitive: false, tracking: undefined, links: clicksTracked, opens: true },
-            { case: 'a sensitive template send', sensitive: true, tracking: undefined, links: untracked, opens: true },
-        ] as const)(
-            'delivers $case with the links and opens SES tracks',
-            async ({ sensitive, tracking, links, opens }) => {
-                invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive }
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1 },
-                    html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
-                })
-                invocation.state.send = tracking && { tracking: { captureEngagement: true, ...tracking } }
+            {
+                case: 'a template send',
+                sensitive: false,
+                send: undefined,
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: 'a sensitive template send',
+                sensitive: true,
+                send: undefined,
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+        ])('delivers $case with the links and opens SES tracks', async ({ sensitive, send, links, opens, subject }) => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, true, 'off', '', '', 0)`,
+                [team.id],
+                'test-set-engagement-capture'
+            )
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+            })
+            invocation.state.send = send && { ...send, tracking: { captureEngagement: true, ...send.tracking } }
 
-                const result = await service.executeSendEmail(invocation)
+            const result = await service.executeSendEmail(invocation)
 
-                expect(result.error).toBeUndefined()
-                expect(fakeSes.deliveries).toHaveLength(1)
-                const [{ html }] = fakeSes.deliveries
-                const delivered = await Promise.all(
-                    [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(async ([, href]) => {
-                        if (!href.startsWith(sesEndpoint)) {
-                            return href
-                        }
-                        const clicked = await supertest(sesEndpoint).get(new URL(href).pathname)
-                        return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
-                    })
-                )
-                for (const [, src] of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) {
-                    if (src.startsWith(sesEndpoint)) {
-                        await supertest(sesEndpoint).get(new URL(src).pathname)
+            expect(result.error).toBeUndefined()
+            expect(fakeSes.deliveries).toHaveLength(1)
+            const [{ html }] = fakeSes.deliveries
+            const delivered = await Promise.all(
+                [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(async ([, href]) => {
+                    if (!href.startsWith(sesEndpoint)) {
+                        return href
                     }
+                    const clicked = await supertest(sesEndpoint).get(new URL(href).pathname)
+                    return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
+                })
+            )
+            for (const [, src] of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) {
+                if (src.startsWith(sesEndpoint)) {
+                    await supertest(sesEndpoint).get(new URL(src).pathname)
                 }
-                expect(delivered).toEqual(links)
-                expect(fakeSes.opened).toBe(opens ? 1 : 0)
             }
-        )
+            expect(delivered).toEqual(links)
+            expect(fakeSes.opened).toBe(opens ? 1 : 0)
+            expect(
+                result.capturedPostHogEvents
+                    .filter(({ event }) => event === '$workflows_email_sent')
+                    .map(({ properties }) => properties.$email_subject)
+            ).toEqual([subject ? 'Test Subject' : undefined])
+        })
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction

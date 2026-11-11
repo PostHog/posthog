@@ -38,11 +38,12 @@ export const AcceptedSendSchema = z
         replyTo: z.array(z.string()).readonly().optional(),
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
+        sensitive: z.boolean().optional(),
         tracking: z
             .object({
                 captureEngagement: z.boolean(),
                 opens: z.literal(false).optional(),
-                clicks: z.literal(true).optional(),
+                clicks: z.boolean().optional(),
             })
             .strict()
             .readonly()

@@ -2585,6 +2585,12 @@ describe('CDP API', () => {
                     { ...codeSend, tracking: { captureEngagement: true, clicks: true } },
                 ],
                 [
+                    'a code send without click tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, clicks: false } },
+                ],
+                ['a code send marked sensitive', { ...codeSend, sensitive: true }],
+                ['a code send marked not sensitive', { ...codeSend, sensitive: false }],
+                [
                     'a code send with copies to addresses that use atext symbols',
                     { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
                 ],
@@ -2613,6 +2619,7 @@ describe('CDP API', () => {
                     'click tracking without open tracking',
                     { ...codeSend, tracking: { captureEngagement: true, opens: false, clicks: true } },
                 ],
+                ['a sensitivity that is not a boolean', { ...codeSend, sensitive: 'yes' }],
                 ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
                 ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
                 ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],

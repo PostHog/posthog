@@ -19,7 +19,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
-import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_EMAIL_EVENT, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -461,7 +461,7 @@ export class EmailService {
         trackingEnabled: boolean,
         isTest: boolean
     ): boolean {
-        const sensitive = invocation.hogFunction?.metadata?.sensitive === true
+        const sensitive = isSensitiveMessage(invocation)
         return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
     }
 
@@ -949,7 +949,7 @@ export class EmailService {
                     ...(messageId ? { $email_message_id: messageId } : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
-                    ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
+                    ...(isSensitiveMessage(invocation) ? {} : { $email_subject: params.subject }),
                     // Always set, never conditional: an untracked send can never produce a
                     // `$workflows_email_opened` or `$workflows_email_link_clicked`, so without this
                     // dimension on the send there is no way to build an open rate in an insight that
@@ -1303,9 +1303,7 @@ export class EmailService {
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [
                 { Name: 'ph_id', Value: shortTrackingCode },
-                ...(result.invocation.hogFunction?.metadata?.sensitive === true
-                    ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
-                    : []),
+                ...(isSensitiveMessage(result.invocation) ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }] : []),
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
                     ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
                     : []),

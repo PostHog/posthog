@@ -132,10 +132,18 @@ describe('MessageAssetsService', () => {
             expect(row!.subject).toBe('Welcome aboard')
         })
 
-        it('keeps a placeholder instead of the body when the template is marked sensitive', () => {
+        it.each([
+            { case: 'the template is marked sensitive', templateSensitive: true, send: undefined },
+            {
+                case: "the send is marked sensitive on a template that isn't",
+                templateSensitive: false,
+                send: { sensitive: true, tracking: { captureEngagement: true } },
+            },
+        ])('keeps a placeholder instead of the body when $case', ({ templateSensitive, send }) => {
             const invocation = invocationWithAction('flow-1')
-            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: templateSensitive }
             invocation.hogFunction.inputs = { email: { value: { subject: 'Your code is {{ variables.code }}' } } }
+            invocation.state.send = send
 
             const row = service.buildRowForEmail(
                 invocation,

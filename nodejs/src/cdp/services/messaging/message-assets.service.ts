@@ -12,6 +12,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MessageAssetRow } from '../../types'
+import { isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { escapeHtml } from './helpers/escape-html'
 
@@ -145,7 +146,7 @@ export class MessageAssetsService {
             return null
         }
         const bodyBytes = Buffer.byteLength(body, 'utf8')
-        const sensitive = invocation.hogFunction.metadata?.sensitive === true
+        const sensitive = isSensitiveMessage(invocation)
         let html = body
         if (sensitive) {
             html = SENSITIVE_PLACEHOLDER_HTML
