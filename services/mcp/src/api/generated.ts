@@ -627,7 +627,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptSetRankings {
-      /** The project's brand and up to 10 competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count. */
+      /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
       brands: AEORankedBrand[];
       /** Visibility per brand and day in the current window, ordered by day then domain. */
       daily: AEORankedBrandDay[];
@@ -649,6 +649,8 @@ export namespace Schemas {
       branded: BrandedSegmentEnum;
       /** Answered checks in the current window: the denominator of every share. */
       answers: number;
+      /** Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains. */
+      competitors_confirmed: boolean;
     }
 
     export interface AEOPromptStats {
@@ -814,6 +816,13 @@ export namespace Schemas {
       created_at: string;
       /** Whether this is the version the prompt runs with. */
       is_current: boolean;
+    }
+
+    export interface AEOVisibilityDashboard {
+      /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
+      id: number;
+      /** Name of the new dashboard. */
+      name: string;
     }
 
     export interface AIContextAccountProperty {
@@ -126789,6 +126798,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only list brands whose domain or name contains this text, ignoring case.
+     * @maxLength 200
+     */
+    search?: string;
     /**
      * Only list brands with this review status.
      *
