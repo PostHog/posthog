@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { useMocks } from '~/mocks/jest'
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
@@ -640,6 +641,35 @@ describe('projectTreeDataLogic', () => {
         }).toFinishAllListeners()
 
         expect(error).toHaveBeenCalledWith('Error moving item: Error: nope')
+    })
+
+    it('drops stale folders and what is under them across thousands of cached folders', () => {
+        const folders: Record<string, FileSystemEntry[]> = {}
+        const stale: FileSystemEntry[] = []
+        for (let i = 0; i < 10000; i++) {
+            folders[`Team ${i}`] = []
+            folders[`Team ${i}/Sub`] = []
+            if (i % 2 === 0) {
+                stale.push({ id: `team-${i}`, path: `Team ${i}`, type: 'folder' })
+            }
+        }
+        folders['Team 2 archive'] = []
+        folders['Team 4\\/x'] = []
+
+        // A scan that compares every cached folder with every stale one takes many seconds at this size, and a
+        // linear one a few milliseconds, so the budget sits far from both.
+        const started = performance.now()
+        const pruned = logic.reducers.folders(folders, {
+            type: logic.actionTypes.dropStaleItems,
+            payload: { items: stale },
+        }) as Record<string, FileSystemEntry[]>
+        expect(performance.now() - started).toBeLessThan(2000)
+
+        const kept = Object.keys(pruned)
+        expect(kept).toHaveLength(10002)
+        expect(kept).toEqual(expect.arrayContaining(['Team 1', 'Team 1/Sub', 'Team 2 archive', 'Team 4\\/x']))
+        expect(kept).not.toContain('Team 2')
+        expect(kept).not.toContain('Team 9998/Sub')
     })
 
     it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {

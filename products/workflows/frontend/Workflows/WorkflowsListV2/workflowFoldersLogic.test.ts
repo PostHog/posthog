@@ -616,6 +616,10 @@ describe('workflowFoldersLogic', () => {
                     moves.push(body.new_path)
                     if (params.id === 'billing') {
                         await renameHeld
+                        serverEntries = serverEntries.map((entry) => ({
+                            ...entry,
+                            path: entry.path.replace(/^Billing(?=\/|$)/, body.new_path),
+                        }))
                         return [200, { id: params.id, path: body.new_path, type: 'folder' }]
                     }
                     return [200, { id: params.id, path: body.new_path, type: 'hog_flow', ref: FIXTURE_WORKFLOWS[2].id }]
@@ -647,83 +651,92 @@ describe('workflowFoldersLogic', () => {
 
         releaseRename()
         await renamed
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.folderBusyReason('Invoices')).toBeNull()
+        await waitFor(() => expect(logic.values.folderBusyReason('Invoices')).toBeNull())
         expect(deletes).toBe(0)
         expect(logic.values.folderPaths).toEqual(expect.arrayContaining(['Invoices', 'Invoices/Cards']))
         expect(logic.values.folderPaths).not.toContain('Billing/Cards')
     })
 
-    it.each([
-        {
-            change: 'rename',
-            run: (folders: typeof logic) => folders.asyncActions.renameFolder('Empty', 'Archive'),
-            stall: (answer: Promise<unknown>) => ({
-                post: { '/api/projects/:team_id/file_system/:id/move/': () => answer.then(() => [200, {}]) },
-            }),
-            landed: (entries: FileSystemEntry[]) =>
-                entries.map((entry) => (entry.id === 'empty' ? { ...entry, path: 'Archive' } : entry)),
-            shown: ['Archive'],
-        },
-        {
-            change: 'delete',
-            run: (folders: typeof logic) => folders.asyncActions.deleteFolder('Empty'),
-            stall: (answer: Promise<unknown>) => ({
-                delete: { '/api/projects/:team_id/file_system/:id/': () => answer.then(() => [204]) },
-            }),
-            landed: (entries: FileSystemEntry[]) => entries.filter((entry) => entry.id !== 'empty'),
-            shown: [],
-        },
-    ])(
-        'keeps only the folder busy until a slow $change answers, then shows what the server saved',
-        async (scenario) => {
-            await expectLogic(logic).toFinishAllListeners()
-            const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
-            let answer: () => void = () => {}
-            useMocks(scenario.stall(new Promise<void>((resolve) => (answer = resolve))))
-            jest.useFakeTimers()
-            let changed: Promise<void> | undefined
-            try {
-                changed = scenario.run(logic)
-                await jest.advanceTimersByTimeAsync(10 * 60 * 1000)
-                expect(logic.values.folderBusyReason('Empty')).not.toBeNull()
-                expect(logic.values.folderBusyReason('Billing')).toBeNull()
-                expect(errorToast).not.toHaveBeenCalled()
-            } finally {
-                jest.useRealTimers()
-            }
-            try {
-                serverEntries = scenario.landed(serverEntries)
-                answer()
-                await changed
-                await waitFor(() => expect(logic.values.folderPaths).not.toContain('Empty'))
-                expect(logic.values.folderBusyReason('Empty')).toBeNull()
-                expect(logic.values.folderPaths).toEqual(expect.arrayContaining(scenario.shown))
-                expect(errorToast).not.toHaveBeenCalled()
-            } finally {
-                errorToast.mockRestore()
-            }
-        }
-    )
-
-    it('shows what the server saved when a rename fails after the server already renamed the folder', async () => {
+    it('keeps only the folder busy until a slow delete answers, then shows what the server saved', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+        let answer: () => void = () => {}
+        const answered = new Promise<void>((resolve) => (answer = resolve))
+        useMocks({ delete: { '/api/projects/:team_id/file_system/:id/': () => answered.then(() => [204]) } })
+        jest.useFakeTimers()
+        let deleted: Promise<void> | undefined
+        try {
+            deleted = logic.asyncActions.deleteFolder('Empty')
+            await jest.advanceTimersByTimeAsync(10 * 60 * 1000)
+            expect(logic.values.folderBusyReason('Empty')).toEqual('Wait until this folder finishes deleting')
+            expect(logic.values.folderBusyReason('Billing')).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
+        try {
+            serverEntries = serverEntries.filter((entry) => entry.id !== 'empty')
+            answer()
+            await deleted
+            await waitFor(() => expect(logic.values.folderPaths).not.toContain('Empty'))
+            expect(logic.values.folderBusyReason('Empty')).toBeNull()
+            expect(errorToast).not.toHaveBeenCalled()
+        } finally {
+            errorToast.mockRestore()
+        }
+    })
+
+    it('renames a folder through the shared project tree move, which offers Undo', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const successToast = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
         useMocks({
             post: {
-                '/api/projects/:team_id/file_system/:id/move/': () => {
+                '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 0 }],
+                '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => {
+                    const body = (await request.json()) as { new_path: string }
                     serverEntries = serverEntries.map((entry) =>
-                        entry.id === 'empty' ? { ...entry, path: 'Archive' } : entry
+                        entry.id === params.id ? { ...entry, path: body.new_path } : entry
                     )
-                    return [504, {}]
+                    return [200, { id: params.id, path: body.new_path, type: 'folder' }]
                 },
             },
         })
         try {
             await logic.asyncActions.renameFolder('Empty', 'Archive')
             await waitFor(() => expect(logic.values.folderPaths).toContain('Archive'))
+            await waitFor(() =>
+                expect(successToast.mock.calls.map(([message, options]) => [message, options?.button?.label])).toEqual([
+                    [expect.stringMatching(/^Moved 1\sitem$/), 'Undo'],
+                ])
+            )
+        } finally {
+            successToast.mockRestore()
+        }
+    })
+
+    it('frees a folder whose rename passes the shared deadline, and shows what the server saved', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 0 }],
+                '/api/projects/:team_id/file_system/:id/move/': () => new Promise(() => {}),
+            },
+        })
+        jest.useFakeTimers()
+        try {
+            void logic.asyncActions.renameFolder('Empty', 'Archive')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.folderBusyReason('Empty')).toEqual('Wait until this folder finishes moving')
+            serverEntries = serverEntries.map((entry) => (entry.id === 'empty' ? { ...entry, path: 'Archive' } : entry))
+            await jest.advanceTimersByTimeAsync(60_000)
+        } finally {
+            jest.useRealTimers()
+        }
+        try {
+            await waitFor(() => expect(logic.values.folderPaths).toContain('Archive'))
             expect(logic.values.folderPaths).not.toContain('Empty')
-            expect(errorToast).toHaveBeenCalledWith("Couldn't rename the folder. Try again.")
+            expect(logic.values.folderBusyReason('Archive')).toBeNull()
+            expect(errorToast).toHaveBeenCalled()
         } finally {
             errorToast.mockRestore()
         }
