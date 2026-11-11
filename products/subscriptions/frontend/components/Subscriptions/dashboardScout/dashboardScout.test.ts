@@ -8,7 +8,11 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { signalsScoutConfigList, signalsScoutMetadataGet } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportsList,
+    signalsScoutConfigList,
+    signalsScoutMetadataGet,
+} from 'products/signals/frontend/generated/api'
 import { scoutCronScheduleError } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import {
@@ -18,8 +22,10 @@ import {
     dashboardScoutCron,
 } from './dashboardScout'
 import { dashboardScoutLogic } from './dashboardScoutLogic'
+import { dashboardScoutReportLogic } from './dashboardScoutReportLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
+    signalsReportsList: jest.fn(),
     signalsScoutConfigList: jest.fn(),
     signalsScoutCreate: jest.fn(),
     signalsScoutMetadataGet: jest.fn(),
@@ -97,5 +103,37 @@ describe('dashboard scout', () => {
                 expect(logic.values.scoutOffered).toBe(offered)
             }
         )
+    })
+
+    describe('reports from the dashboard header', () => {
+        beforeEach(() => {
+            initKeaTests()
+            ;(signalsReportsList as jest.Mock).mockReset()
+            ;(signalsReportsList as jest.Mock).mockResolvedValue({ results: [{ id: 'r1' }, { id: 'r2' }] })
+            organizationLogic.mount()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+        })
+
+        it('asks for reports only when the dashboard has a scout', async () => {
+            ;(signalsScoutConfigList as jest.Mock).mockResolvedValue([])
+            const withoutScout = dashboardScoutReportLogic({ dashboardId: 1 })
+            withoutScout.mount()
+            await expectLogic(withoutScout).toFinishAllListeners()
+            expect(signalsReportsList).not.toHaveBeenCalled()
+            expect(withoutScout.values.latestReport).toBeNull()
+            ;(signalsScoutConfigList as jest.Mock).mockResolvedValue([{ skill_name: 'growth-scout' }])
+            const withScout = dashboardScoutReportLogic({ dashboardId: 2 })
+            withScout.mount()
+            await expectLogic(withScout).toFinishAllListeners()
+            expect(signalsReportsList).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ scout: 'growth-scout' })
+            )
+            expect(withScout.values.latestReport).toMatchObject({ id: 'r1' })
+            expect(withScout.values.reports).toHaveLength(2)
+        })
     })
 })
