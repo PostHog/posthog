@@ -221,18 +221,27 @@ class TestTaskDone(TestCase):
 
     @parameterized.expand(
         [
-            ("closes_idle_task", "enforce", Task.Status.IDLE, 200, "done"),
-            ("already_done", "enforce", Task.Status.DONE, 200, "done"),
-            ("not_enabled", "off", Task.Status.IDLE, 400, "idle"),
-            ("running_task", "enforce", Task.Status.RUNNING, 409, "running"),
+            ("closes_idle_task", "enforce", Task.Status.IDLE, False, 200, "done"),
+            ("already_done", "enforce", Task.Status.DONE, False, 200, "done"),
+            ("not_enabled", "off", Task.Status.IDLE, False, 400, "idle"),
+            ("running_task", "enforce", Task.Status.RUNNING, False, 409, "running"),
+            ("handed_off_mid_request", "enforce", Task.Status.IDLE, True, 404, "idle"),
         ]
     )
-    def test_close_endpoint(self, _name: str, mode: str, current: str, code: int, status: str) -> None:
+    def test_close_endpoint(
+        self, _name: str, mode: str, current: str, handed_off_mid_request: bool, code: int, status: str
+    ) -> None:
         self._set_status(current)
+        new_owner = User.objects.create(email="new-owner@example.com")
         client = APIClient()
         client.force_login(self.user)
 
-        with self._mode(mode):
+        def flag_payload(*args: object, **kwargs: object) -> dict[str, str]:
+            if handed_off_mid_request:
+                Task.objects.filter(pk=self.task.pk).update(created_by=new_owner)
+            return {USER.key: mode}
+
+        with patch(PAYLOAD, side_effect=flag_payload):
             response = client.post(f"/api/projects/{self.team.id}/tasks/{self.task.id}/close/")
 
         self.assertEqual(response.status_code, code)

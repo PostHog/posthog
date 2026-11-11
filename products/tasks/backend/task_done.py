@@ -2,6 +2,7 @@ from typing import Literal
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 
 import structlog
 
@@ -60,19 +61,23 @@ def check_wake_by_task_id(task_id: UUID | str, *, source: str) -> None:
 
 
 def close_task(task_id: UUID | str, team_id: int, user_id: int) -> CloseTaskOutcome:
-    task = (
-        Task.objects.filter(task_control_q(user_id), id=task_id, team_id=team_id, deleted=False)
-        .only("id", "team_id", "profile", "status")
-        .first()
-    )
+    controlled = Q(task_control_q(user_id), team_id=team_id, deleted=False)
+    task = Task.objects.filter(controlled, id=task_id).only("id", "team_id", "profile", "status").first()
     if task is None:
         return "not_found"
     if done_mode(task.profile, task.team_id) != DoneMode.ENFORCE:
         return "not_enabled"
     if task.status == Task.Status.DONE:
         return "closed"
-    closed = mark_done(task.id, reason=Task.StatusReason.CLOSED, actor=f"user:{user_id}", expected=Task.Status.IDLE)
-    return "closed" if closed else "not_idle"
+    if mark_done(
+        task.id,
+        reason=Task.StatusReason.CLOSED,
+        actor=f"user:{user_id}",
+        expected=Task.Status.IDLE,
+        only_if=controlled,
+    ):
+        return "closed"
+    return "not_idle" if Task.objects.filter(controlled, id=task.id).exists() else "not_found"
 
 
 def _canonical(url: str) -> str:
