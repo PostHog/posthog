@@ -12315,14 +12315,14 @@ Note: The official documentation bundle embeds both version 2.0.1 OpenAPI specif
 
 ## TerraformCloud — gaps
 
-Today (6): `organizations`, `projects`, `runs`, `state_versions`, `teams`, `workspaces`
+Today (10): `applies`, `assessment_results`, `organizations`, `plans`, `projects`, `runs`, `state_versions`, `teams`, `workspace_resources`, `workspaces`
 
 Diffed against: <https://developer.hashicorp.com/terraform/cloud-docs/api-docs>
 
-- [ ] `applies (/applies/{id}, run relationship)` — resource additions/changes/destructions actually applied per run — the core outcome metric for every synced run (high)
-- [ ] `plans (/plans/{id}, run relationship)` — planned resource adds/changes/destroys and plan status, needed to measure drift and change volume (high)
-- [ ] `workspace-resources (/workspaces/{id}/resources)` — the managed resource inventory per workspace; without it you can count runs but not what they manage (high)
-- [ ] `assessment-results (/assessment-results/{id})` — health assessment / drift detection results, HCP Terraform's headline workspace-health metric (high)
+- [x] `applies (/applies/{id}, run relationship)` — resource additions/changes/destructions actually applied per run — the core outcome metric for every synced run (high)
+- [x] `plans (/plans/{id}, run relationship)` — planned resource adds/changes/destroys and plan status, needed to measure drift and change volume (high)
+- [x] `workspace-resources (/workspaces/{id}/resources)` — the managed resource inventory per workspace; without it you can count runs but not what they manage (high)
+- [x] `assessment-results (/assessment-results/{id})` — health assessment / drift detection results, HCP Terraform's headline workspace-health metric (high)
 - [ ] `policy-evaluations and policy-set-outcomes (/runs/{id}/policy-evaluations)` — Sentinel/OPA pass-fail per run, the governance reporting use case (medium)
 - [ ] `cost-estimates (/cost-estimates/{id})` — prior and proposed monthly cost delta per run, the FinOps use case (medium)
 - [ ] `state-version-outputs (/state-versions/{id}/outputs)` — outputs of the state versions already synced, the queryable payload of a state version (medium)
