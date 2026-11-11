@@ -2085,14 +2085,18 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         config = self._create_config("support@example.com", "aaa111")
         ticket = self._create_ticket(config)
 
-        self._run_reply(ticket, content="See [the docs](https://example.com/docs).\nSecond line\n\nNew paragraph")
+        self._run_reply(
+            ticket,
+            content="See [the docs](https://posthog.com/docs).\nThen [verify](https://attacker.example/phish)\n\nNew paragraph",
+        )
 
         message = message_from_bytes(mock_send_mime.call_args.args[1])
         html_part = next(part for part in message.walk() if part.get_content_type() == "text/html")
         payload = html_part.get_payload(decode=True)
         assert isinstance(payload, bytes)
         html = payload.decode()
-        assert '<a href="https://example.com/docs"' in html and ">the docs</a>" in html
+        assert '<a href="https://posthog.com/docs"' in html and ">the docs</a>" in html
+        assert "attacker.example" not in html
         assert "<br" in html
         assert html.count("<p>") == 2
 

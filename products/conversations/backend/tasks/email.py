@@ -10,12 +10,11 @@ from django.db.models.fields.json import JSONField
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-import nh3
 import structlog
 from celery import shared_task
-from markdown_it import MarkdownIt
 
 from posthog.comment.formatting import rich_content_to_html, rich_content_to_markdown
+from posthog.helpers.email_formatting import render_ai_email_html
 from posthog.models.comment import Comment as CommentModel
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -30,9 +29,6 @@ from products.conversations.backend.mailgun import (
 from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
 
 logger = structlog.get_logger(__name__)
-
-# Agent and API replies store markdown with no rich_content; render it so links and line breaks survive.
-_MARKDOWN_RENDERER = MarkdownIt("commonmark", {"breaks": True, "html": False})
 
 
 # Outbound email outbox tuning. Durability lives in the Postgres outbox row, not
@@ -192,7 +188,9 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         txt_body = rich_content_to_markdown(comment.rich_content, include_images=False)
     else:
         txt_body = comment.content or ""
-        html_body = nh3.clean(_MARKDOWN_RENDERER.render(txt_body))
+        # Content-only replies come from the API, MCP, and AI agents, so the text may be model-written.
+        # Render the markdown, but drop links to origins outside the allowlist.
+        html_body = render_ai_email_html(txt_body)
 
     subject = ticket.email_subject or "Your support request"
     is_reply = latest_mapping is not None
