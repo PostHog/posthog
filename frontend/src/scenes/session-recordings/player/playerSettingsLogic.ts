@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { AutoplayDirection, ReplayTabs, SessionRecordingSidebarStacking } from '~/types'
 
 export type WatchPanelSection = 'overview' | 'observations' | 'debug'
-const WATCH_PANEL_OPEN_BY_DEFAULT: WatchPanelSection[] = ['observations', 'debug']
+const WATCH_PANEL_OPEN_BY_DEFAULT: WatchPanelSection[] = ['observations']
 export type WatchPanelLayout = Record<string, number>
 export type WatchDebugDock = 'bottom' | 'right'
 
@@ -337,7 +337,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setWatchPanelOpenSections: (_, { sections }) => sections,
-                openWatchPanelSection: (state, { section }) => (state.includes(section) ? state : [...state, section]),
+                openWatchPanelSection: (_, { section }) => [section],
             },
         ],
         watchPanelFocusRequest: [
