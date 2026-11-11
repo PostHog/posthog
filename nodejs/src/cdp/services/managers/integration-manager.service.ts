@@ -19,7 +19,8 @@ const integrationDecryptFailures = new Counter({
 
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationSourceRecord>
-    private preloaded = new AsyncLocalStorage<Record<IntegrationReference, IntegrationSourceRecord | null>>()
+    private preloaded = new AsyncLocalStorage<PreloadedRecords>()
+    private openScopes = new Set<PreloadedRecords>()
 
     constructor(
         private pubSub: PubSub,
@@ -62,8 +63,15 @@ export class IntegrationManagerService {
     }
 
     public async withPreloaded<T>(ids: IntegrationIdInput[], run: () => Promise<T>): Promise<T> {
-        const records = await this.lazyLoader.getMany(toReferences(ids), { flush: true })
-        return await this.preloaded.run(records, run)
+        const scope: PreloadedRecords = new Map(
+            Object.entries(await this.lazyLoader.getMany(toReferences(ids), { flush: true }))
+        )
+        this.openScopes.add(scope)
+        try {
+            return await this.preloaded.run(scope, run)
+        } finally {
+            this.openScopes.delete(scope)
+        }
     }
 
     private async getRecords(
@@ -73,8 +81,9 @@ export class IntegrationManagerService {
         const preloaded = this.preloaded.getStore()
         const toLoad: IntegrationReference[] = []
         for (const reference of references) {
-            if (preloaded && reference in preloaded && !isExpired(preloaded[reference])) {
-                records[reference] = preloaded[reference]
+            const record = preloaded?.get(reference)
+            if (record !== undefined && !isExpired(record)) {
+                records[reference] = record
             } else {
                 toLoad.push(reference)
             }
@@ -86,7 +95,13 @@ export class IntegrationManagerService {
     }
 
     private onIntegrationsReloaded(integrationIds: IntegrationIdInput[]): void {
-        this.lazyLoader.markForRefresh(toReferences(integrationIds))
+        const references = toReferences(integrationIds)
+        this.lazyLoader.markForRefresh(references)
+        for (const scope of this.openScopes) {
+            for (const reference of references) {
+                scope.delete(reference)
+            }
+        }
     }
 
     private async loadIntegrations(
@@ -119,6 +134,8 @@ export class IntegrationManagerService {
         })
     }
 }
+
+type PreloadedRecords = Map<IntegrationReference, IntegrationSourceRecord | null>
 
 function isExpired(record: IntegrationSourceRecord | null): boolean {
     return record?.expiresAt !== undefined && record.expiresAt <= Date.now()

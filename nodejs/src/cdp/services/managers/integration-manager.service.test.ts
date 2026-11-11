@@ -144,6 +144,18 @@ describe('IntegrationManagerService', () => {
             await expect(served).rejects.toThrow('connection refused')
         })
 
+        it('serves the reloaded integration inside a preload scope after a reload message', async () => {
+            const rotated = createIntegration({ id: 5, team_id: 1, config: { rotated: true } })
+
+            const served = await manager.withPreloaded([5], async () => {
+                source.records['5'] = { integration: rotated, decryptFailures: [] }
+                manager['onIntegrationsReloaded']([5])
+                return await manager.get(5)
+            })
+
+            expect(served).toBe(rotated)
+        })
+
         it('reloads an id from a reload message, given as a number', async () => {
             await manager.get(5)
             manager['onIntegrationsReloaded']([5])
