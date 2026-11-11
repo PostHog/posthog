@@ -15,6 +15,7 @@ import {
     RequestInfo,
     RequestInit,
     Response,
+    buildConnector,
     request,
     errors as undiciErrors,
     fetch as undiciFetch,
@@ -376,39 +377,55 @@ const connectionRateLimitedCounter = new Counter({
 // One line per address and minute names the addresses over the limit without flooding the logs.
 const connectionRateLimitLogged = new LRUCache<string, true>({ max: 1_000, ttl: 60_000 })
 
+// The IPv4 address that the NAT gateway translates for this answer. An IPv4-mapped IPv6 address opens an IPv4
+// connection, so it counts as its IPv4 address. A native IPv6 address does not go through the gateway and returns null.
+function natAddress({ address, family }: LookupAddress): string | null {
+    if (family === 4) {
+        return address
+    }
+    if (!ipaddr.IPv6.isValid(address)) {
+        return null
+    }
+    const parsed = ipaddr.IPv6.parse(address)
+    return parsed.isIPv4MappedAddress() ? parsed.toIPv4Address().toString() : null
+}
+
 // A new connection resolves its hostname once and a kept-alive request resolves nothing, so this sees each new
-// connection exactly once. The NAT gateway translates only IPv4, so IPv6 addresses are not limited and stay available
-// for the socket's fallback between address families. Of the IPv4 addresses, only the one that took a token stays, so
-// the socket cannot fall back to an IPv4 address that took none.
+// connection once. The first address with a token pays for the connection. When the limit is enforced, an address
+// with no token left is removed, so the socket cannot fall back to it. Addresses that still have a token stay as
+// fallbacks. In count-only mode every address stays, so the result is the same as with no limit.
 function admitNewConnection(hostname: string, addresses: LookupAddress[]): LookupAddress[] {
-    const ipv4 = addresses.filter(({ family }) => family === 4)
-    if (!connectionRateLimiter || ipv4.length === 0) {
+    const natAddresses = addresses.map(natAddress)
+    const limited = natAddresses.filter((address): address is string => address !== null)
+    if (!connectionRateLimiter || limited.length === 0) {
         return addresses
     }
-    const admitted = ipv4.find(({ address }) => connectionRateLimiter.tryTake(address))
-    if (admitted) {
-        return addresses.filter((entry) => entry.family !== 4 || entry === admitted)
-    }
+    const admitted = limited.find((address) => connectionRateLimiter.tryTake(address))
     const enforced = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
-    const address = ipv4[0].address
-    connectionRateLimitedCounter.inc({ enforced: String(enforced) })
-    if (!connectionRateLimitLogged.has(address)) {
-        connectionRateLimitLogged.set(address, true)
-        logger.warn('[request] New connections to a destination IP address are over the limit', {
-            hostname,
-            address,
-            enforced,
-            ...fetchAttribution.getStore(),
-        })
+    if (!admitted) {
+        const address = limited[0]
+        connectionRateLimitedCounter.inc({ enforced: String(enforced) })
+        if (!connectionRateLimitLogged.has(address)) {
+            connectionRateLimitLogged.set(address, true)
+            logger.warn('[request] New connections to a destination IP address are over the limit', {
+                hostname,
+                address,
+                enforced,
+                ...fetchAttribution.getStore(),
+            })
+        }
     }
     if (!enforced) {
         return addresses
     }
-    const ipv6 = addresses.filter(({ family }) => family !== 4)
-    if (ipv6.length === 0) {
-        throw new ConnectionRateLimitError(address)
+    const kept = addresses.filter((_, index) => {
+        const address = natAddresses[index]
+        return address === null || address === admitted || connectionRateLimiter.hasToken(address)
+    })
+    if (kept.length === 0) {
+        throw new ConnectionRateLimitError(limited[0])
     }
-    return ipv6
+    return kept
 }
 
 export const httpStaticLookup: net.LookupFunction = async (hostname, _options, cb) => {
@@ -526,11 +543,31 @@ function makeSecureDispatcher({
         keepAliveTimeout: keepAliveTimeoutMs,
         connections,
         allowH2,
-        connect: {
-            lookup: httpStaticLookup,
-            timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-        },
+        connect: admittingConnector(allowH2),
     })
+}
+
+// undici builds this same connector from an options object. A function lets the limit see connections to an IP
+// address in the URL: Node does not call the lookup function for those, so httpStaticLookup never sees them.
+function admittingConnector(allowH2: boolean): buildConnector.connector {
+    const connect = buildConnector({
+        allowH2,
+        lookup: httpStaticLookup,
+        timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+    })
+    return (options, callback) => {
+        const literal = options.hostname.replace(/^\[(.*)\]$/, '$1')
+        const family = net.isIP(literal)
+        if (family !== 0) {
+            try {
+                admitNewConnection(literal, [{ address: literal, family }])
+            } catch (error) {
+                callback(error as Error, null)
+                return
+            }
+        }
+        connect(options, callback)
+    }
 }
 
 const sharedSecureAgent = makeSecureDispatcher({ useProxy: false, allowH2: false })
