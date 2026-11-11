@@ -8,7 +8,7 @@ from typing import Any
 from unittest.mock import patch
 
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 import jwt
 import requests
@@ -65,7 +65,10 @@ class _DropFirstAnswer:
         return answer
 
 
-class TestServiceBackend(SimpleTestCase):
+class TestServiceBackend(TestCase):
+    # Not a SimpleTestCase: an SDK delete runs the delete hooks of the products in a transaction of the
+    # Django database, because the rows that refer to an integration stay there. See `lifecycle.py`.
+
     def setUp(self) -> None:
         super().setUp()
         self.fake = FakeBackend()
