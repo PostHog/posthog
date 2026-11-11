@@ -18,12 +18,14 @@ __all__ = [
     "deprovision_for_staff",
     "get_duckgres_server_summary",
     "get_view_translation_summary",
+    "is_control_plane_configured",
     "onboard_team_for_staff",
     "organization_id_for_duckgres_server",
     "preview_provision_for_staff",
     "provision_for_staff",
     "retry_view_translation_for_staff",
     "start_view_translation_for_staff",
+    "start_trino_compile_check",
 ]
 
 
@@ -72,3 +74,16 @@ def retry_view_translation_for_staff(
     organization_id: UUID, job_id: UUID, saved_query_ids: list[UUID], *, actor_user_id: int
 ) -> StaffActionOutcome:
     return ViewTranslationStaff.retry(organization_id, job_id, saved_query_ids, actor_user_id)
+
+
+def is_control_plane_configured() -> bool:
+    from products.managed_warehouse.backend import trino_compile_check_run  # noqa: PLC0415 — heavy Trino compiler
+
+    return trino_compile_check_run.is_control_plane_configured()
+
+
+def start_trino_compile_check(team_id: int, *, explain: bool, limit: int | None = None) -> str:
+    """Enqueue a background Trino compile check for the team and return its run id."""
+    from products.managed_warehouse.backend import trino_compile_check_run  # noqa: PLC0415 — heavy Trino compiler
+
+    return trino_compile_check_run.start_trino_compile_check(team_id, explain=explain, limit=limit)
