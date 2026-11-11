@@ -109,6 +109,22 @@ describe('personsSceneLogic', () => {
         })
     })
 
+    it.each<{ search: string; url: string; searchParams?: Record<string, string> }>([
+        // The shape navigateToHref pushes, which keeps the search as text.
+        { search: 'acme', url: urls.persons(), searchParams: { search: 'acme' } },
+        { search: '001234', url: urls.persons(), searchParams: { search: '001234' } },
+        // A reload or a pasted link, where the router reads `0` as a number.
+        { search: '0', url: `${urls.persons()}?search=0` },
+    ])('fills the search from a search param of $search in the URL', async ({ search, url, searchParams }) => {
+        router.actions.push(url, searchParams)
+
+        await expectLogic(logic).toMatchValues({
+            query: expect.objectContaining({
+                source: { ...PEOPLE_LIST_DEFAULT_QUERY.source, search },
+            }),
+        })
+    })
+
     describe('boolean reducers', () => {
         it.each([
             { action: 'setShowDisplayNameNudge', field: 'showDisplayNameNudge' },

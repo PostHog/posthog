@@ -23,6 +23,7 @@ import { ReportGithubConnection } from './ReportGithubConnection'
 interface ImplementButtonProps {
     report: SignalReport
     surface?: 'detail_pane' | 'triage_mode'
+    position?: 'body' | 'header'
     implementationDisabledReason?: string | null
     reportTaskToOpen?: ReportTaskEntry | null
     openChoicesFromLink?: boolean
@@ -32,6 +33,7 @@ interface ImplementButtonProps {
 export function ImplementButton({
     report,
     surface = 'detail_pane',
+    position = 'body',
     implementationDisabledReason,
     reportTaskToOpen,
     openChoicesFromLink = false,
@@ -77,6 +79,15 @@ export function ImplementButton({
         implementationDisabledReason
     const repositoryMissing = repositoryRequired && !selectedRepository
 
+    const captureButtonClick = (buttonAction: 'implement' | 'view_task'): void => {
+        captureInboxReportAction({
+            report,
+            actionType: 'implementation_button_clicked',
+            surface,
+            extra: { button_action: buttonAction, button_position: position },
+        })
+    }
+
     const submit = (note: string): void => {
         if (isCreatingPr || isDiscussing || implementationDisabledReason) {
             return
@@ -85,6 +96,7 @@ export function ImplementButton({
             lemonToast.error(createPrDisabledReason)
             return
         }
+        captureButtonClick('implement')
         if (repairNeeded) {
             setChoicesOpen(false)
             setConnectionOpen(true)
@@ -133,6 +145,7 @@ export function ImplementButton({
                 to={urls.taskDetail(task.id)}
                 onClick={(event) => {
                     event.preventDefault()
+                    captureButtonClick('view_task')
                     openReportTask(report, task.id, run.id)
                 }}
                 tooltip="Open this task in the PostHog AI sidebar"

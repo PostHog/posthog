@@ -12,7 +12,6 @@ import { CITimelineRow, CI_TIMELINE_COLUMNS, CI_TIMELINE_ROW_HEIGHT_PX, CI_TIMEL
 
 const MAX_TICKS = 8
 
-/** Failing rows start expanded so the first view shows what broke. */
 export function CITimeline({ timeline }: { timeline: TimelineData }): JSX.Element {
     // Only what the person toggled is stored, so rows that arrive later still open by the failing rule.
     const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map())

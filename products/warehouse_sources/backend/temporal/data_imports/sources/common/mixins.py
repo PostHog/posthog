@@ -787,9 +787,10 @@ def _check_direct_host(config, team_id: int | None, source_type: str | None = No
     this module resolves the host once, validates that answer with `check_resolved_addresses`,
     and dials exactly those addresses through libpq's `host`/`hostaddr` pair. The MySQL client
     resolves the host itself, validates the answer with `check_resolved_addresses`, and dials
-    it on a socket it opens, so the hostname still reaches TLS. The MSSQL client hands the
-    hostname to its driver, whose single `server` argument is both the dial target and the
-    login server name, so for MSSQL this check is the only one.
+    it on a socket it opens, so the hostname still reaches TLS. The MSSQL client dials the addresses
+    `resolve_safe_host` approves. Its driver's single `server` argument is both the dial target
+    and the login server name, so an Azure SQL host, whose gateway routes on that name, keeps the
+    hostname, and for those hosts this check is the only one.
 
     A `team_id` of None fails closed. It changes nothing for a customer team, whose result is the
     same either way; it only costs the internal-host exemption on entry points that don't carry a

@@ -2299,6 +2299,19 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
     logger.info(f"Sent HogFunctions digest email to {emails_sent} members for team {team_id}")
 
 
+# On a quiet day, a few transient failures in a few dozen runs give a failure rate far above the user's
+# threshold, so the digest skips a function unless one of these minimums makes its failure rate meaningful.
+HOG_FUNCTIONS_DIGEST_MIN_TOTAL_RUNS = 100
+HOG_FUNCTIONS_DIGEST_MIN_FAILURES = 10
+
+
+def _has_enough_runs_for_hog_functions_digest(succeeded: int, failed: int) -> bool:
+    # A function with no successful run in the window is fully broken, not noisy, so it alerts at any volume.
+    if succeeded == 0:
+        return failed > 0
+    return succeeded + failed >= HOG_FUNCTIONS_DIGEST_MIN_TOTAL_RUNS or failed >= HOG_FUNCTIONS_DIGEST_MIN_FAILURES
+
+
 @shared_task(ignore_result=True)
 def send_hog_functions_daily_digest() -> None:
     """
@@ -2478,8 +2491,9 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
             last_editors[hog_function_id] = None
             last_edit_dates[hog_function_id] = None
 
-    # Build function metrics. Only include functions with at least one failure; per-user threshold
-    # (data_pipeline_error_threshold) then filters which functions each user sees in send_hog_functions_digest_email.
+    # Build function metrics. Only include functions with at least one failure and enough runs for a meaningful
+    # failure rate; per-user threshold (data_pipeline_error_threshold) then filters which functions each user sees
+    # in send_hog_functions_digest_email.
     function_metrics = []
     for hog_function in hog_functions:
         hog_function_id = str(hog_function["id"])
@@ -2488,6 +2502,9 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
         metrics = metrics_by_function[hog_function_id]
         if metrics["failed"] <= 0:
+            continue
+
+        if not _has_enough_runs_for_hog_functions_digest(metrics["succeeded"], metrics["failed"]):
             continue
 
         total_runs = metrics["succeeded"] + metrics["failed"]
