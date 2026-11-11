@@ -29,9 +29,10 @@ class TestApiKeySearchTool(BaseTest):
         self.user.save()
 
     def _search(self, key: str):
-        response = self.client.post(SEARCH_URL, data={"key": key})
-        # The result page must never show the key that staff searched for.
+        response = self.client.post(SEARCH_URL, data={"key": key}, follow=True)
+        # Neither the result page nor its URL may show the key that staff searched for.
         assert key.strip().encode() not in response.content
+        assert all(key.strip() not in url for url, _ in response.redirect_chain)
         return response
 
     def _create_personal_api_key(self, token: str, mode: str = "sha256", iterations: int | None = None):

@@ -98,4 +98,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "staff": "Identifier of the associated staff member.",
         },
     },
+    "membership_categories": {
+        "description": "Categories that group the business's membership products.",
+        "docs_url": "https://docs.goteamup.com/api-reference/endpoints/membership-categories-list",
+        "columns": {
+            "id": "Unique membership category identifier.",
+            "name": "Membership category name.",
+            "order": "Display order of the category.",
+            "memberships_count": "Number of memberships in the category.",
+        },
+    },
+    "offering_types": {
+        "description": "Class, course, and appointment types that the business offers.",
+        "docs_url": "https://docs.goteamup.com/api-reference/endpoints/offering-types-list",
+        "columns": {
+            "id": "Unique offering type identifier.",
+            "name": "Offering type name.",
+            "schedule_type": "How the offering type is scheduled.",
+            "status": "Whether the offering type is active or archived.",
+            "category": "Identifier of the offering type's category.",
+            "allows_dropins": "Whether customers can attend as a drop-in.",
+            "dropin_price": "Drop-in price for the offering type.",
+            "cancellation_notice_interval": "Cancellation notice period, in minutes.",
+            "registrations_open_interval": "How long before the start registration opens, in minutes.",
+            "registrations_close_interval": "How long before the start registration closes, in minutes.",
+            "waitlist_max": "Maximum number of customers on the waitlist.",
+        },
+    },
+    "lead_sources": {
+        "description": "CRM lead sources that record how customers found the business.",
+        "docs_url": "https://docs.goteamup.com/api-reference/endpoints/crm-lead-sources-list",
+        "columns": {
+            "id": "Unique lead source identifier.",
+            "name": "Lead source name.",
+            "slug": "URL-safe slug derived from the lead source name.",
+            "archived": "Whether the lead source is archived and hidden from new selections.",
+        },
+    },
+    "payment_subscriptions": {
+        "description": "Recurring billing records that charge customers for membership payment plans.",
+        "docs_url": "https://docs.goteamup.com/api-reference/endpoints/payment-subscriptions-list",
+        "columns": {
+            "id": "Unique payment subscription identifier.",
+            "plan": "Identifier of the membership payment plan.",
+            "payment_method": "Identifier of the payment method that the subscription charges.",
+            "start_date": "Date when the subscription starts.",
+            "end_date": "Date when the subscription ends, if set.",
+            "retry_count": "Number of payment retries.",
+        },
+    },
 }

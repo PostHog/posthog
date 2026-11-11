@@ -181,7 +181,7 @@ services:
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
             OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
@@ -257,7 +257,7 @@ services:
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
             OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
         depends_on:
             - db
             - redis7
@@ -617,7 +617,7 @@ services:
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
             OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+            OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
         depends_on:
             - db
             - redis7
