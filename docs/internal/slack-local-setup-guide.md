@@ -188,6 +188,10 @@ The Home tab also keeps the Talk to the team invitation and the task list with i
 Use sample tasks and an interview invitation when you preview the full Home tab. Admin previews must also include workspace activity.
 Task statuses use small image icons and text labels. Images are served from PostHog's versioned
 `slack_app/home/v1/` static assets. Their source licenses are included with the assets.
+The frontend build copies these assets from `products/slack_app/backend/static/` into `frontend/dist/`
+for release to the public static host. Django's `collectstatic` alone does not publish them to that host.
+These release assets are shared UI images. Generated charts and interactive pages use task artifacts
+or chart exports, with their own access checks.
 The public `SITE_URL` must serve these files so Slack can load them. A local preview must use a public tunnel
 or serve the same files to its browser.
 Admin settings and workspace activity appear above Tasks. Activity uses native Slack tables for status,
