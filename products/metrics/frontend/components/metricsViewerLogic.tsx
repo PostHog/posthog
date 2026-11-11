@@ -594,13 +594,13 @@ export interface metricsViewerLogicValues {
     rangeFunction: MetricRangeFunction | null
     reduce: MetricsReducer
     refreshCount: number
-    statSparkline: boolean
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     selectedMetricType: OtelMetricTypeEnumApi | null
     selectedServices: string[]
     seriesCapReached: boolean
+    statSparkline: boolean
     viewerClauses: MetricsViewerClause[]
     yAxisSettings: MetricsYAxisSettings
 }
@@ -829,11 +829,11 @@ export interface metricsViewerLogicActions {
     setReduce: (reduce: MetricsReducer) => {
         reduce: MetricsReducer
     }
-    setStatSparkline: (statSparkline: boolean) => {
-        statSparkline: boolean
-    }
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
+    }
+    setStatSparkline: (statSparkline: boolean) => {
+        statSparkline: boolean
     }
     setYAxisSetting: (
         key: keyof MetricsYAxisSettings,
