@@ -21,6 +21,8 @@ export type MeasurementDefinition = Definition & {
 
 const SAMPLE_INTERVAL_MS = 5000
 const SCRAPE_TIMEOUT_MS = 2000
+const BASELINE_WITHIN_MS = 10_000
+const BASELINE_RETRY_MS = 500
 
 const byRole = (samples: readonly MetricSample[]): Map<string, MetricSample[]> =>
     Map.groupBy(
@@ -115,12 +117,17 @@ export function sampleOf(role: string, at: number, text: string): MetricSample |
 
 export type Sampler = { sampledFrom: number; stop(): Promise<MetricSample[]> }
 
-export async function startSampler(targets: { role: string; metricsUrl: string }[]): Promise<Sampler> {
+type Target = { role: string; metricsUrl: string }
+
+export async function startSampler(
+    targets: Target[],
+    { baselineWithinMs = BASELINE_WITHIN_MS } = {}
+): Promise<Sampler> {
     const samples: MetricSample[] = []
     const stopped = new AbortController()
-    const scrapeAll = async (): Promise<void> => {
+    const scrape = async (some: Target[]): Promise<void> => {
         await Promise.all(
-            targets.map(async ({ role, metricsUrl }) => {
+            some.map(async ({ role, metricsUrl }) => {
                 const at = Date.now()
                 const text = await internalFetch(metricsUrl, { timeoutMs: SCRAPE_TIMEOUT_MS })
                     .then((response) => (response.status === 200 ? response.text() : ''))
@@ -132,8 +139,22 @@ export async function startSampler(targets: { role: string; metricsUrl: string }
             })
         )
     }
+    const scrapeAll = (): Promise<void> => scrape(targets)
     const sampledFrom = Date.now()
-    await scrapeAll()
+    let missing = targets
+    for (;;) {
+        await scrape(missing)
+        missing = targets.filter(({ role }) => !samples.some((sample) => sample.role === role))
+        if (missing.length === 0) {
+            break
+        }
+        if (Date.now() + BASELINE_RETRY_MS > sampledFrom + baselineWithinMs) {
+            throw new Error(
+                `No metrics baseline from ${missing.map(({ role }) => role).join(', ')} within ${baselineWithinMs} ms`
+            )
+        }
+        await sleep(BASELINE_RETRY_MS)
+    }
     const sampling = (async () => {
         while (!stopped.signal.aborted) {
             await sleep(SAMPLE_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)

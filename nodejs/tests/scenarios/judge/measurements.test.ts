@@ -87,17 +87,14 @@ describe('measurements', () => {
         ])
     })
 
-    it('samples the process metrics a role serves at start and at stop, skipping a role that does not answer', async () => {
+    it('samples the process metrics a role serves at start and at stop', async () => {
         const registry = new Registry()
         collectDefaultMetrics({ register: registry })
         const server = http.createServer(async (_req, res) => res.end(await registry.metrics()))
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const { port } = server.address() as AddressInfo
         try {
-            const sampler = await startSampler([
-                { role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` },
-                { role: 'cdp-api', metricsUrl: 'http://127.0.0.1:1/_metrics' },
-            ])
+            const sampler = await startSampler([{ role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` }])
             const samples = await sampler.stop()
 
             expect(samples.map(({ role }) => role)).toEqual([ROLE, ROLE])
@@ -115,33 +112,51 @@ describe('measurements', () => {
         }
     })
 
-    it('takes the baseline before it hands back, so work done right after start counts', async () => {
-        let cpuSeconds = 10
-        const server = http.createServer((_req, res) =>
-            res.end(
-                [
-                    'process_start_time_seconds 1700000000',
-                    `process_cpu_seconds_total ${cpuSeconds}`,
-                    'process_resident_memory_bytes 100',
-                ].join('\n')
-            )
-        )
-        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-        const { port } = server.address() as AddressInfo
-        try {
-            const sampler = await startSampler([{ role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` }])
-            cpuSeconds = 15
-            const samples = await sampler.stop()
-
-            expect(
-                measure(
-                    [{ name: 'role_cpu_seconds', params: {} }],
-                    evidence({ samples, sampledFrom: sampler.sampledFrom })
+    it.each<[string, number]>([
+        ['a role that answers at once', 0],
+        ['a role whose first scrape failed', 1],
+    ])(
+        'takes the baseline of %s before it hands back, so work done right after start counts',
+        async (_story, failures) => {
+            let cpuSeconds = 10
+            let failing = failures
+            const server = http.createServer((_req, res) => {
+                if (failing > 0) {
+                    failing -= 1
+                    res.writeHead(503).end()
+                    return
+                }
+                res.end(
+                    [
+                        'process_start_time_seconds 1700000000',
+                        `process_cpu_seconds_total ${cpuSeconds}`,
+                        'process_resident_memory_bytes 100',
+                    ].join('\n')
                 )
-            ).toEqual([{ name: 'role_cpu_seconds', key: ROLE, value: 5, unit: 's' }])
-        } finally {
-            server.closeAllConnections()
-            await new Promise<void>((resolve) => server.close(() => resolve()))
+            })
+            await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+            const { port } = server.address() as AddressInfo
+            try {
+                const sampler = await startSampler([{ role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` }])
+                cpuSeconds = 15
+                const samples = await sampler.stop()
+
+                expect(
+                    measure(
+                        [{ name: 'role_cpu_seconds', params: {} }],
+                        evidence({ samples, sampledFrom: sampler.sampledFrom })
+                    )
+                ).toEqual([{ name: 'role_cpu_seconds', key: ROLE, value: 5, unit: 's' }])
+            } finally {
+                server.closeAllConnections()
+                await new Promise<void>((resolve) => server.close(() => resolve()))
+            }
         }
+    )
+
+    it('refuses to start without a baseline from every role, naming the roles that never answered', async () => {
+        await expect(
+            startSampler([{ role: 'cdp-api', metricsUrl: 'http://127.0.0.1:1/_metrics' }], { baselineWithinMs: 1200 })
+        ).rejects.toThrow('No metrics baseline from cdp-api within 1200 ms')
     })
 })
