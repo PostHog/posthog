@@ -545,7 +545,7 @@ describe('WorkflowsScene', () => {
         it('lists a bounded number of folders in the Folders menu, and finds a far folder by typing', async () => {
             const teams = Array.from({ length: 300 }, (_, index) => `Team-${String(index).padStart(3, '0')}`)
             files = [...files, ...teams.map((path) => ({ id: path, path, type: 'folder' }))]
-            renderScene('in:Billing')
+            await renderFolder('Billing', 'Welcome series')
             await waitFor(() => expect(workflowFoldersLogic.values.folderPaths).toContain('Team-299'))
             const menuItems = (): string[] =>
                 Array.from(document.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent ?? '')
