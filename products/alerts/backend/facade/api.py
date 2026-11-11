@@ -117,7 +117,7 @@ def insight_ids_with_enabled_alerts(*, team_id: int, insight_ids: Collection[int
         AlertConfiguration.objects.filter(team_id=team_id, insight_id__in=insight_ids, enabled=True).values_list(
             "insight_id", flat=True
         )
-    ) | {insight_id for insight_id in _native_enabled_insight_ids(team_ids=[team_id]) if insight_id in wanted}
+    ) | _native_enabled_insight_ids(team_ids=[team_id], insight_ids=wanted)
 
 
 def enabled_alert_insight_ids(*, team_ids: Collection[int]) -> set[int]:
@@ -131,11 +131,14 @@ def enabled_alert_insight_ids(*, team_ids: Collection[int]) -> set[int]:
     ) | _native_enabled_insight_ids(team_ids=team_ids)
 
 
-def _native_enabled_insight_ids(*, team_ids: Collection[int], created_by_id: int | None = None) -> set[int]:
+def _native_enabled_insight_ids(*, team_ids: Collection[int], insight_ids: Collection[int] | None = None) -> set[int]:
     return {
         insight_id
         for configuration in enabled_native_configurations(
-            team_ids=team_ids, source_kind=SourceKind.INSIGHT, created_by_id=created_by_id
+            team_ids=team_ids,
+            source_kind=SourceKind.INSIGHT,
+            source_config_key=None if insight_ids is None else "insight_id",
+            values=() if insight_ids is None else insight_ids,
         )
         if isinstance(insight_id := configuration.source_config.get("insight_id"), int)
     }
@@ -323,7 +326,7 @@ def list_enabled_alerts(team: Team, user: User, *, limit: int) -> list[contracts
                 _EnabledCandidate(
                     created_at=configuration.created_at, id=configuration.id, name=configuration.name, insight=insight
                 )
-                for configuration, insight in _native_enabled_alerts(team_id=team.id)
+                for configuration, insight in _native_enabled_alerts(team_id=team.id, limit=ENABLED_ALERT_CANDIDATES)
             ),
         ],
         key=lambda candidate: candidate.created_at,
@@ -352,12 +355,12 @@ class _EnabledCandidate:
 
 
 def _native_enabled_alerts(
-    *, team_id: int, created_by_id: int | None = None
+    *, team_id: int, limit: int, created_by_id: int | None = None
 ) -> list[tuple[EnabledNativeConfiguration, Insight]]:
-    """The team's enabled insight alerts with no insight row, newest first, each with its insight.
-    An alert whose insight is gone or deleted is left out, as a row's is."""
+    """The team's newest `limit` enabled insight alerts with no insight row, newest first, each with its
+    insight. An alert whose insight is gone or deleted is left out, as a row's is."""
     configurations = enabled_native_configurations(
-        team_ids=[team_id], source_kind=SourceKind.INSIGHT, created_by_id=created_by_id
+        team_ids=[team_id], source_kind=SourceKind.INSIGHT, created_by_id=created_by_id, limit=limit
     )
     insight_ids = {
         insight_id
@@ -391,7 +394,9 @@ def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> l
     )
     native = [
         (configuration.created_at, insight.short_id)
-        for configuration, insight in _native_enabled_alerts(team_id=team_id, created_by_id=user_id)
+        for configuration, insight in _native_enabled_alerts(
+            team_id=team_id, created_by_id=user_id, limit=limit * WATCHED_ROWS_PER_INSIGHT
+        )
     ]
     newest_first = sorted([*rows, *native], key=lambda row: row[0], reverse=True)
     return list(dict.fromkeys(short_id for _, short_id in newest_first))[:limit]

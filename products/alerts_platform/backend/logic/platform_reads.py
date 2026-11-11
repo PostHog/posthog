@@ -4,12 +4,14 @@ Separate from `platform_lifecycle`, which serves the source adapters. These serv
 outside the product, so they return views rather than rows and never change one.
 """
 
+import operator
 from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
+from functools import reduce
 from typing import Any
 from uuid import UUID
 
-from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
+from django.db.models import Case, Exists, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
 from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
@@ -184,11 +186,18 @@ def native_configuration_matches(
 
 
 def enabled_native_configurations(
-    *, team_ids: Collection[int], source_kind: str, created_by_id: int | None = None
+    *,
+    team_ids: Collection[int],
+    source_kind: str,
+    created_by_id: int | None = None,
+    source_config_key: str | None = None,
+    values: Collection[Any] = (),
+    limit: int | None = None,
 ) -> tuple[EnabledNativeConfiguration, ...]:
     """The enabled configurations of a kind with no source row in these teams, newest first. With
-    `created_by_id`, only the ones that user created."""
-    if not team_ids:
+    `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
+    `source_config[key]` is one of `values`. With `limit`, at most that many."""
+    if not team_ids or (source_config_key is not None and not values):
         return ()
     # The caller names the teams, as a source's readers of its own rows across teams do.
     rows = PlatformAlertConfiguration.objects.unscoped().filter(
@@ -196,6 +205,13 @@ def enabled_native_configurations(
     )
     if created_by_id is not None:
         rows = rows.filter(created_by_id=created_by_id)
+    if source_config_key is not None:
+        rows = rows.filter(
+            reduce(operator.or_, (Q(source_config__contains={source_config_key: value}) for value in values))
+        )
+    ordered = rows.order_by("-created_at", "-id").values_list(
+        "id", "team_id", "name", "created_at", "created_by_id", "source_config"
+    )
     return tuple(
         EnabledNativeConfiguration(
             id=row_id,
@@ -205,9 +221,9 @@ def enabled_native_configurations(
             created_by_id=row_created_by_id,
             source_config=source_config,
         )
-        for row_id, team_id, name, created_at, row_created_by_id, source_config in rows.order_by(
-            "-created_at", "-id"
-        ).values_list("id", "team_id", "name", "created_at", "created_by_id", "source_config")
+        for row_id, team_id, name, created_at, row_created_by_id, source_config in (
+            ordered if limit is None else ordered[:limit]
+        )
     )
 
 

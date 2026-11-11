@@ -238,12 +238,24 @@ def native_configuration_matches(
 
 
 def enabled_native_configurations(
-    *, team_ids: Collection[int], source_kind: SourceKind, created_by_id: int | None = None
+    *,
+    team_ids: Collection[int],
+    source_kind: SourceKind,
+    created_by_id: int | None = None,
+    source_config_key: str | None = None,
+    values: Collection[Any] = (),
+    limit: int | None = None,
 ) -> tuple[EnabledNativeConfiguration, ...]:
     """The enabled alerts of a kind with no source row in these teams, newest first. With
-    `created_by_id`, only the ones that user created."""
+    `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
+    `source_config[key]` is one of `values`. With `limit`, at most that many."""
     return platform_reads.enabled_native_configurations(
-        team_ids=team_ids, source_kind=source_kind.value, created_by_id=created_by_id
+        team_ids=team_ids,
+        source_kind=source_kind.value,
+        created_by_id=created_by_id,
+        source_config_key=source_config_key,
+        values=values,
+        limit=limit,
     )
 
 
