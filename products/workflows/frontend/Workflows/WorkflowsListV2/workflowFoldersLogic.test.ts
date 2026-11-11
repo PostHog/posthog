@@ -44,13 +44,6 @@ describe('workflowFoldersLogic', () => {
             { id: 'cards', path: 'Billing/Cards', type: 'folder' },
             { id: 'empty', path: 'Empty', type: 'folder' },
             { id: 'dashboards', path: 'Reports', type: 'folder' },
-            {
-                id: 'report',
-                path: 'Reports/Overview',
-                type: 'insight',
-                ref: 'synthetic-report',
-                meta: { type: 'SQL' },
-            },
             { id: 'unfiled', path: 'Unfiled', type: 'folder' },
             { id: 'cohorts', path: 'Unfiled/Cohorts', type: 'folder' },
             { id: 'direct', path: 'Billing/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id },
@@ -64,12 +57,7 @@ describe('workflowFoldersLogic', () => {
                 team_id: MOCK_TEAM_ID + 1,
             },
         ]
-        return [
-            200,
-            paginated(
-                entries.filter((entry) => (type?.startsWith('-') ? entry.type === 'insight' : entry.type === type))
-            ),
-        ]
+        return [200, paginated(entries.filter((entry) => entry.type === type))]
     }
 
     beforeEach(() => {
@@ -79,6 +67,10 @@ describe('workflowFoldersLogic', () => {
                 '/api/projects/:team_id/hog_flows/summaries/': () => [200, paginated(FIXTURE_WORKFLOWS)],
                 '/api/projects/:team_id/hog_flows/metrics/global/': () => [200, []],
                 '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
+                '/api/projects/:team_id/file_system/folder_counts/': () => [
+                    200,
+                    { results: [{ folder: 'Reports', count: 1 }] },
+                ],
                 '/api/projects/:team_id/file_system/': projectFiles,
             },
         })
@@ -251,6 +243,26 @@ describe('workflowFoldersLogic', () => {
         addProjectFiles(files.map((file) => ({ ...file, type: 'hog_flow', ref: FIXTURE_WORKFLOWS[3].id })))
         logic.actions.openFolder(folder)
         expect(logic.values.folderRows.map((row) => row.id)).toEqual(shown)
+    })
+
+    it("asks only for workflow files and folders, and counts other products' files per folder", async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const searches = new Set<string | null>()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    searches.add(new URL(request.url).searchParams.get('search'))
+                    return projectFiles({ request })
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+
+        expect(searches).toEqual(new Set(['type:folder', 'type:hog_flow', 'type:message_template']))
+        expect(logic.values.folderPaths).not.toContain('Reports')
+        logic.actions.openFolder('Reports')
+        expect(logic.values.otherProductFileCount).toBe(1)
     })
 
     it('hides empty folders inside a branch that only holds other products', async () => {
@@ -532,6 +544,7 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).not.toContain('Reports')
         useMocks({
             get: {
+                '/api/projects/:team_id/file_system/folder_counts/': () => [200, { results: [] }],
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const type = new URL(request.url).searchParams.get('search')
                     if (type === 'type:folder') {
@@ -610,29 +623,24 @@ describe('workflowFoldersLogic', () => {
         expect(removals).toBe(1)
     })
 
-    it("keeps the metadata of other products' files it writes into the shared tree", async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        const report = projectTreeDataLogic.values.folders['Reports']?.find((entry) => entry.id === 'report')
-        expect(report?.meta).toEqual({ type: 'SQL' })
-    })
-
     it("paints the folders before other products' files load", async () => {
         logic.unmount()
         let releaseOtherFiles!: () => void
         const otherFilesHeld = new Promise<void>((resolve) => (releaseOtherFiles = resolve))
         useMocks({
             get: {
-                '/api/projects/:team_id/file_system/': async ({ request }) => {
-                    const search = new URL(request.url).searchParams.get('search') ?? ''
-                    if (search.startsWith('-')) {
-                        await otherFilesHeld
-                        return [200, paginated([{ id: 'dashboards', path: 'Reports', type: 'folder' }])]
-                    }
-                    return [
-                        200,
-                        paginated(search === 'type:folder' ? [{ id: 'billing', path: 'Billing', type: 'folder' }] : []),
-                    ]
+                '/api/projects/:team_id/file_system/folder_counts/': async () => {
+                    await otherFilesHeld
+                    return [200, { results: [{ folder: 'Billing', count: 2 }] }]
                 },
+                '/api/projects/:team_id/file_system/': ({ request }) => [
+                    200,
+                    paginated(
+                        new URL(request.url).searchParams.get('search') === 'type:folder'
+                            ? [{ id: 'billing', path: 'Billing', type: 'folder' }]
+                            : []
+                    ),
+                ],
             },
         })
         initKeaTests()
@@ -642,9 +650,9 @@ describe('workflowFoldersLogic', () => {
 
         await waitFor(() => expect(logic.values.browserReady).toBe(true))
         expect(logic.values.folderPaths).toContain('Billing')
-        expect(logic.values.otherFilesReady).toBe(false)
+        expect(logic.values.otherFileCounts).toBeNull()
         releaseOtherFiles()
-        await waitFor(() => expect(logic.values.otherFilesReady).toBe(true))
+        await waitFor(() => expect(logic.values.otherFileCounts).toEqual({ Billing: 2 }))
     })
 
     it.each([
@@ -656,10 +664,8 @@ describe('workflowFoldersLogic', () => {
         const folderScansHeld = new Promise<void>((resolve) => (releaseFolderScans = resolve))
         useMocks({
             get: {
-                '/api/projects/:team_id/file_system/': async ({ request }) => {
-                    if ((new URL(request.url).searchParams.get('search') ?? '').startsWith('-')) {
-                        return [500, { detail: 'Unavailable' }]
-                    }
+                '/api/projects/:team_id/file_system/folder_counts/': () => [500, { detail: 'Unavailable' }],
+                '/api/projects/:team_id/file_system/': async () => {
                     await folderScansHeld
                     return folderScansSucceed ? [200, paginated([])] : [500, { detail: 'Unavailable' }]
                 },
@@ -669,7 +675,12 @@ describe('workflowFoldersLogic', () => {
         releaseFolderScans()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.browserLoadFailed).toBe(blocksContents)
-        useMocks({ get: { '/api/projects/:team_id/file_system/': () => [200, paginated([])] } })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': () => [200, paginated([])],
+                '/api/projects/:team_id/file_system/folder_counts/': () => [200, { results: [] }],
+            },
+        })
         await expectLogic(logic, () =>
             blocksContents ? logic.actions.loadBrowser() : logic.actions.loadOtherFiles()
         ).toFinishAllListeners()
