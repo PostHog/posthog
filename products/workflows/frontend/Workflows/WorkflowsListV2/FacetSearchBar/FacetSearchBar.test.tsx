@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
 import { initKeaTests } from '~/test/init'
@@ -257,12 +258,13 @@ describe('FacetSearchBar', () => {
         expect(shown('query')).toEqual('')
     })
 
-    it('keeps focus in the input when the popover chrome is pressed', () => {
+    it('keeps focus in the input and the popover open when the popover chrome is pressed', async () => {
+        const user = userEvent.setup()
         setup()
-        clickInput()
-        const hints = document.querySelector('[data-attr="facet-search-bar-hints"]')!
-        // fireEvent returns false when the handler prevented the default, which is what keeps the focus.
-        expect(fireEvent.mouseDown(hints)).toBe(false)
+        await user.click(input())
+        await user.click(document.querySelector('[data-attr="facet-search-bar-hints"]')!)
+        expect(input()).toHaveFocus()
+        expect(listbox()).not.toBeNull()
     })
 
     it('shows the no-values message as text, not as an option', () => {
