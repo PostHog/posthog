@@ -51,7 +51,8 @@ class CleanStreak:
     default_branch_runs: int
     # Rows other than `unchanged`, whatever their quarantine, approval or toleration state
     hard_rows: int
-    unchanged_at_window_start: bool
+    # Rows of the story in the window's default-branch runs. With no hard row, every one is `unchanged`.
+    default_branch_renders: int
     # The finishing run's own result and baseline for the story, empty when it did not render it
     finishing_result: str
     finishing_baseline_hash: str
@@ -63,7 +64,10 @@ def is_clean(streak: CleanStreak) -> bool:
     # A quarantine opened inside the window has not been watched for the whole window.
     if streak.quarantined_at >= streak.window_started_at:
         return False
-    if streak.hard_rows > 0 or not streak.unchanged_at_window_start:
+    if streak.hard_rows > 0:
+        return False
+    # A story absent from some default-branch runs was not watched in those runs.
+    if streak.default_branch_renders < streak.default_branch_runs:
         return False
     return streak.finishing_result == SnapshotResult.UNCHANGED and bool(streak.finishing_baseline_hash)
 
@@ -82,10 +86,13 @@ def may_release(run: Run) -> bool:
 
 @frozen
 class _Window:
-    first_run_id: UUID
     first_run_sha: str
     started_at: datetime
-    default_branch_runs: int
+    default_branch_run_ids: tuple[UUID, ...]
+
+    @property
+    def default_branch_runs(self) -> int:
+        return len(self.default_branch_run_ids)
 
 
 def _window(run: Run, default_branch: str) -> _Window | None:
@@ -106,9 +113,11 @@ def _window(run: Run, default_branch: str) -> _Window | None:
     )
     if len(newest) < AUTO_LIFT_CLEAN_RUNS:
         return None
-    first_run_id, first_run_sha, started_at = newest[-1]
+    _, first_run_sha, started_at = newest[-1]
     return _Window(
-        first_run_id=first_run_id, first_run_sha=first_run_sha, started_at=started_at, default_branch_runs=len(newest)
+        first_run_sha=first_run_sha,
+        started_at=started_at,
+        default_branch_run_ids=tuple(run_id for run_id, _, _ in newest),
     )
 
 
@@ -130,6 +139,16 @@ def _hard_rows(run: Run, run_ids: list[UUID], identifiers: list[str]) -> dict[st
     return dict(
         RunSnapshot.objects.using(WRITER_DB)
         .filter(run_id__in=run_ids, team_id=run.team_id, result__in=_HARD_RESULTS, identifier__in=identifiers)
+        .values("identifier")
+        .annotate(count=Count("*"))
+        .values_list("identifier", "count")
+    )
+
+
+def _render_counts(run: Run, run_ids: tuple[UUID, ...], identifiers: list[str]) -> dict[str, int]:
+    return dict(
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run_id__in=list(run_ids), team_id=run.team_id, identifier__in=identifiers)
         .values("identifier")
         .annotate(count=Count("*"))
         .values_list("identifier", "count")
@@ -163,7 +182,7 @@ def _clean_streaks(
         auto_quarantine.trusted_runs_since(run, default_branch, window.started_at).values_list("id", flat=True)
     )
     hard_rows = _hard_rows(run, run_ids, identifiers)
-    at_window_start = _renders(run, window.first_run_id, identifiers)
+    default_branch_renders = _render_counts(run, window.default_branch_run_ids, identifiers)
     finishing = _renders(run, run.id, identifiers)
     streaks: dict[str, CleanStreak] = {}
     for identifier, quarantined_at in quarantined.items():
@@ -173,7 +192,7 @@ def _clean_streaks(
             window_started_at=window.started_at,
             default_branch_runs=window.default_branch_runs,
             hard_rows=hard_rows.get(identifier, 0),
-            unchanged_at_window_start=at_window_start.get(identifier, _NOT_RENDERED).result == SnapshotResult.UNCHANGED,
+            default_branch_renders=default_branch_renders.get(identifier, 0),
             finishing_result=finishing_render.result,
             finishing_baseline_hash=finishing_render.baseline_hash,
         )
@@ -224,6 +243,11 @@ def _capture_clean(
         logger.warning("visual_review.quarantine_clean_capture_failed", run_id=str(run.id), exc_info=True)
 
 
+def _is_on_default_branch(repo: Repo, commit_sha: str) -> bool:
+    head_sha = auto_quarantine.default_branch_head(repo)
+    return head_sha is not None and github_api.commit_contains(repo, commit_sha, head_sha)
+
+
 def release_clean_quarantines(run_id: UUID) -> None:
     """Lift, or in preview report, every active quarantine that its clean window covers."""
     run = Run.objects.using(WRITER_DB).select_related("repo").get(id=run_id)
@@ -245,11 +269,27 @@ def release_clean_quarantines(run_id: UUID) -> None:
     window = _window(run, run.branch)
     if window is None:
         return
+    clean = {
+        identifier: streak
+        for identifier, streak in _clean_streaks(run, run.branch, window, quarantined).items()
+        if is_clean(streak)
+    }
+    if not clean:
+        return
+    # The branch name and commit come from the client, and the lift writes the commit as
+    # `lifted_at_sha`. An off-branch commit there would keep the quarantine on every real
+    # default-branch run, so GitHub must confirm the commit is on the default branch.
+    if not _is_on_default_branch(repo, run.commit_sha):
+        logger.warning(
+            "visual_review.auto_lift_commit_not_on_default_branch",
+            repo_id=str(repo.id),
+            run_id=str(run.id),
+            clean_quarantines=len(clean),
+        )
+        return
     reason = lift_reason(window.first_run_sha)
     with ph_scoped_capture() as capture_ph_event:
-        for identifier, streak in _clean_streaks(run, run.branch, window, quarantined).items():
-            if not is_clean(streak):
-                continue
+        for identifier, streak in clean.items():
             applied = mode == AutoQuarantineMode.ON
             if not applied and not auto_quarantine.first_report(
                 "quarantine_clean", repo, run.run_type, identifier, _REPORT_SECONDS

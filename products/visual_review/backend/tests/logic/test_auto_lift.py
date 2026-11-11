@@ -27,7 +27,7 @@ def _streak(**overrides) -> CleanStreak:
         "window_started_at": _WINDOW_START,
         "default_branch_runs": AUTO_LIFT_CLEAN_RUNS,
         "hard_rows": 0,
-        "unchanged_at_window_start": True,
+        "default_branch_renders": AUTO_LIFT_CLEAN_RUNS,
         "finishing_result": SnapshotResult.UNCHANGED,
         "finishing_baseline_hash": "base",
     }
@@ -44,7 +44,11 @@ class TestIsClean:
             # tolerated change blocks the same way.
             ("refuses_one_hard_row", _streak(hard_rows=1), False),
             ("refuses_a_quarantine_younger_than_the_window", _streak(quarantined_at=_WINDOW_START), False),
-            ("refuses_a_story_not_rendered_at_window_start", _streak(unchanged_at_window_start=False), False),
+            (
+                "refuses_a_story_absent_from_some_default_branch_runs",
+                _streak(default_branch_renders=AUTO_LIFT_CLEAN_RUNS - 1),
+                False,
+            ),
             ("refuses_a_finishing_change", _streak(finishing_result=SnapshotResult.CHANGED), False),
             ("refuses_a_finishing_run_without_the_story", _streak(finishing_result=""), False),
             ("refuses_a_finishing_run_without_baseline", _streak(finishing_baseline_hash=""), False),
@@ -97,13 +101,17 @@ def _quarantine(repo: Repo, hours_ago: int) -> QuarantinedIdentifier:
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestReleaseCleanQuarantines:
     @pytest.fixture(autouse=True)
-    def github(self):
+    def commit_contains(self):
         # A window of three default-branch runs keeps the fixture small; the rule itself is covered above.
         with (
             patch("products.visual_review.backend.logic.github_api.default_branch_name", return_value="master"),
+            patch("products.visual_review.backend.logic.github_api.default_branch_head_sha", return_value="h" * 40),
+            patch(
+                "products.visual_review.backend.logic.github_api.commit_contains", return_value=True
+            ) as commit_contains,
             patch("products.visual_review.backend.logic.auto_lift.AUTO_LIFT_CLEAN_RUNS", 3),
         ):
-            yield
+            yield commit_contains
 
     @pytest.fixture
     def capture(self):
@@ -142,12 +150,18 @@ class TestReleaseCleanQuarantines:
             )
 
     @pytest.mark.parametrize(
-        "queue_result,quarantined_hours_ago",
-        [(SnapshotResult.CHANGED, 72), (SnapshotResult.UNCHANGED, 36)],
+        "queue_result,quarantined_hours_ago,on_default_branch",
+        [
+            (SnapshotResult.CHANGED, 72, True),
+            (SnapshotResult.UNCHANGED, 36, True),
+            # The client names the default branch, but GitHub does not find the commit on it.
+            (SnapshotResult.UNCHANGED, 72, False),
+        ],
     )
-    def test_a_hard_row_or_a_quarantine_inside_the_window_keeps_it(
-        self, repo, capture, queue_result, quarantined_hours_ago
+    def test_a_hard_row_a_quarantine_inside_the_window_or_an_off_branch_commit_keeps_it(
+        self, repo, capture, commit_contains, queue_result, quarantined_hours_ago, on_default_branch
     ):
+        commit_contains.return_value = on_default_branch
         entry = _quarantine(repo, hours_ago=quarantined_hours_ago)
         finishing = self._window(repo, queue_result=queue_result)
 
