@@ -194,8 +194,9 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'keyword_gap',
         subject: 'funnel analysis tool',
-        action: 'Add it as a keyword in a Search campaign',
-        reason: 'Ranks #24.0 organically with 3,800 impressions a month. Its words already convert in your ads.',
+        campaign: 'Search - Product',
+        action: 'Add as a keyword in Google Ads',
+        reason: "3800 organic impressions at position 24.0, not bought. It ranks on https://example.com/funnels, which this campaign's ads link to",
         impact: 420,
         impactDirection: 'invest',
         impactType: 'estimated',

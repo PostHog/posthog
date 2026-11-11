@@ -39291,7 +39291,7 @@
             "additionalProperties": false,
             "properties": {
                 "adTable": {
-                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "description": "Google Ads ad table, used to read the ad copy and landing pages of each ad group.",
                     "type": "string"
                 },
                 "campaignConversionActionTable": {

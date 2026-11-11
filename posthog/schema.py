@@ -7119,7 +7119,7 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     )
     adTable: str | None = Field(
         default=None,
-        description="Google Ads ad table, used to read the ad copy of each ad group.",
+        description=("Google Ads ad table, used to read the ad copy and landing pages of each ad group."),
     )
     campaignConversionActionTable: str | None = Field(
         default=None,

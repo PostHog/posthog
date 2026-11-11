@@ -544,20 +544,23 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             return []
         rows = self._select(
             """
-            SELECT toString(ad_group_id), {headlines}, {descriptions}, {plain}
+            SELECT toString(ad_group_id), {headlines}, {descriptions}, toString(campaign_id), {final_urls}, {plain}
             FROM {table}
             WHERE ad_group_ad_status = 'ENABLED'
             """,
             source.adTable,
             headlines=self._field(source.adTable, "ad_group_ad_ad_responsive_search_ad_headlines"),
             descriptions=self._field(source.adTable, "ad_group_ad_ad_responsive_search_ad_descriptions"),
+            final_urls=self._field(source.adTable, "ad_group_ad_ad_final_urls"),
             # Expanded text ads still serve next to responsive ones, so their text is part of the ad group's copy too.
             plain=ast.Array(exprs=[self._field(source.adTable, field) for field in PLAIN_AD_TEXT_FIELDS]),
         )
         return [
             Ad(
                 ad_group_id=row[0],
-                texts=(*_asset_texts(row[1]), *_asset_texts(row[2]), *(text for text in row[3] if text)),
+                texts=(*_asset_texts(row[1]), *_asset_texts(row[2]), *(text for text in row[5] if text)),
+                campaign_id=row[3],
+                final_urls=_json_strings(row[4]),
             )
             for row in rows
             if row[0]
@@ -676,6 +679,14 @@ def _asset_texts(value: str | None) -> tuple[str, ...]:
     except (ValueError, TypeError):
         return ()
     return tuple(text for asset in parsed if isinstance(asset, dict) and (text := asset.get("text")))
+
+
+def _json_strings(value: str | None) -> tuple[str, ...]:
+    try:
+        parsed = json.loads(value) if value else []
+    except ValueError:
+        return ()
+    return tuple(item for item in parsed if isinstance(item, str) and item) if isinstance(parsed, list) else ()
 
 
 def _parse_reasons(value: str | None) -> tuple[str, ...]:

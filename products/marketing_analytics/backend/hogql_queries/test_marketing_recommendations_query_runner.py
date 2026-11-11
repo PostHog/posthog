@@ -116,7 +116,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         assert [(page.query, page.page) for page in pages] == [("funnel analysis", "https://example.com/funnels")]
 
-    def test_compares_wasted_searches_with_the_enabled_ad_copy_of_their_ad_group(self) -> None:
+    def test_reads_the_enabled_ads_of_each_ad_group(self) -> None:
         campaigns = self._table(
             "campaign",
             {
@@ -160,9 +160,11 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         )
         ad_columns = {
             "ad_group_id": "Int64",
+            "campaign_id": "Int64",
             "ad_group_ad_status": "String",
             "ad_group_ad_ad_responsive_search_ad_headlines": "String",
             "ad_group_ad_ad_responsive_search_ad_descriptions": "String",
+            "ad_group_ad_ad_final_urls": "String",
             "ad_group_ad_ad_expanded_text_ad_headline_part1": "String",
         }
         # The sync stores each text asset as a JSON message inside a JSON list. The paused ad does not show.
@@ -170,28 +172,31 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "ad",
             ad_columns,
             ",".join(ad_columns) + "\n"
-            '11,ENABLED,"[""{\\""text\\"": \\""Product analytics\\""}""]","[]",\n'
-            '11,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]",\n'
-            "11,ENABLED,[],[],Patient records made simple\n",
+            '11,1,ENABLED,"[""{\\""text\\"": \\""Product analytics\\""}""]","[]","[""https://example.com/product""]",\n'
+            '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",\n'
+            "11,1,ENABLED,[],[],[],Patient records made simple\n",
         )
-
-        response = MarketingAnalyticsRecommendationsQueryRunner(
+        source = MarketingAnalyticsRecommendationsSource(
+            sourceType="GoogleAds",
+            campaignTable=campaigns,
+            campaignStatsTable=stats,
+            searchTermTable=terms,
+            adTable=ads,
+        )
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
             query=MarketingAnalyticsRecommendationsQuery(
-                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
-                sources=[
-                    MarketingAnalyticsRecommendationsSource(
-                        sourceType="GoogleAds",
-                        campaignTable=campaigns,
-                        campaignStatsTable=stats,
-                        searchTermTable=terms,
-                        adTable=ads,
-                    )
-                ],
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"), sources=[source]
             ),
             team=self.team,
             user=self.user,
-        ).calculate()
+        )
 
+        response = runner.calculate()
+
+        assert [(ad.campaign_id, ad.final_urls) for ad in runner._ads(source)] == [
+            ("1", ("https://example.com/product",)),
+            ("1", ()),
+        ]
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
         assert [rec.subject for rec in wasted] == ["dentist crm", "analytics pricing", "patient records"]
         assert wasted[0].reason.endswith("None of the main words in this search appear in the ads that showed on it.")

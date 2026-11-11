@@ -2,7 +2,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import tldextract
 
@@ -190,7 +190,9 @@ class KeywordTracking:
 @frozen
 class Ad:
     ad_group_id: str
+    campaign_id: str
     texts: tuple[str, ...]
+    final_urls: tuple[str, ...]
 
 
 @frozen
@@ -291,6 +293,12 @@ def _word_stems(text: str) -> frozenset[str]:
     )
 
 
+def _page_key(url: str) -> str:
+    # Search Console and ad final URLs spell the same page differently, such as with or without www or a final slash.
+    parts = urlsplit(url.lower())
+    return parts.netloc.removeprefix("www.") + parts.path.rstrip("/")
+
+
 def brands_from_site_urls(site_urls: Iterable[str]) -> frozenset[str]:
     return frozenset(brand for url in site_urls if (brand := _site_brand(url)))
 
@@ -337,6 +345,7 @@ class _Recommender:
             if current is None or keyword_row.cost > current.cost:
                 self.top_keyword[keyword_row.term] = keyword_row
             self.keyword_stems[keyword_row.term] |= _word_stems(keyword_row.keyword)
+        self.keywords = {keyword_row.keyword.lower() for keyword_row in inputs.term_keywords}
         self.copy_stems: dict[str, set[str]] = defaultdict(set)
         self.keyword_insertion_groups: set[str] = set()
         for ad in inputs.ads:
@@ -971,19 +980,34 @@ class _Recommender:
             for campaign in self.campaigns.values()
         )
         channel = "SEARCH" if has_search else "PERFORMANCE_MAX"
+        landing_campaigns = self._landing_campaigns()
         impressions = sorted(query.impressions for query in self.organic.values())
         threshold = impressions[int(len(impressions) * 0.95)] if impressions else 0
         recommendations = []
         for query in self.organic.values():
-            if query.query in self.terms or query.position <= 10 or query.impressions < threshold:
+            if (
+                query.query in self.terms
+                or query.query in self.keywords
+                or query.position <= 10
+                or query.impressions < threshold
+            ):
                 continue
             if self._is_brand_query(query.query, query, 0) or self._mentions(query.query, competitors):
                 continue
+            page = self.ranking_page.get(query.query)
+            landing_campaign = landing_campaigns.get(_page_key(page)) if page else None
             words = [word for word in query.query.split() if _is_meaningful(word)]
             matched = [word for word in words if word in vocabulary]
-            if not words or len(matched) < len(words):
+            # A page the ads link to also ranks for loosely related queries, so one word has to convert already.
+            if not matched or (landing_campaign is None and len(matched) < len(words)):
                 continue
-            campaign = self._campaign_for_words(matched, vocabulary, channel)
+            campaign = landing_campaign or self._campaign_for_words(matched, vocabulary, channel)
+            if landing_campaign:
+                evidence = f"It ranks on {page}, which this campaign's ads link to"
+                ad_group = f"the ad group whose ads link to {page}"
+            else:
+                evidence = "Its words all appear in paid searches that convert at or below their CPA benchmark"
+                ad_group = "an ad group of the campaign"
             if has_search:
                 steps: tuple[Step, ...] = (
                     self._open_campaign(
@@ -992,7 +1016,7 @@ class _Recommender:
                         "or create one.",
                     ),
                     Step(
-                        text="Open Keywords and add this one to an ad group of the campaign. The quotes make it "
+                        text=f"Open Keywords and add this one to {ad_group}. The quotes make it "
                         "phrase match, so it also matches longer searches that contain it.",
                         copyValue=f'"{query.query}"',
                         url=ADS_KEYWORDS_URL,
@@ -1015,7 +1039,7 @@ class _Recommender:
                     query.query,
                     "Add as a keyword in Google Ads" if has_search else "Add as a search theme in Performance Max",
                     f"{query.impressions:.0f} organic impressions at position {query.position:.1f}, not bought. "
-                    "Its words all appear in paid searches that convert at or below their CPA benchmark",
+                    + evidence,
                     query.impressions * TOP3_CTR * average_cpc * self.per_month,
                     "invest",
                     "estimated",
@@ -1025,6 +1049,37 @@ class _Recommender:
                 )
             )
         return recommendations
+
+    def _landing_campaigns(self) -> dict[str, CampaignStats]:
+        # Only Search ad groups take keywords, and a brand campaign is the wrong home for a non-brand query.
+        campaigns: dict[str, CampaignStats] = {}
+        for ad in self.inputs.ads:
+            campaign = self.campaigns.get(ad.campaign_id)
+            if (
+                campaign is None
+                or campaign.channel_type != "SEARCH"
+                or campaign.primary_status in INACTIVE_STATUSES
+                or self._is_brand_campaign(campaign, self.brand_spend)
+                or self._over_review_bar(campaign)
+            ):
+                continue
+            for url in ad.final_urls:
+                key = _page_key(url)
+                # Ads that link to the homepage would make almost every query that ranks there look relevant.
+                if "/" not in key:
+                    continue
+                current = campaigns.get(key)
+                if current is None or campaign.cost > current.cost:
+                    campaigns[key] = campaign
+        return campaigns
+
+    def _over_review_bar(self, campaign: CampaignStats) -> bool:
+        # The same bar review_campaign uses, so a campaign it tells you to fix never gets new keywords.
+        benchmark = self._campaign_benchmark(campaign)
+        if benchmark is None:
+            return False
+        cpa = self._compared_cpa(campaign, benchmark)
+        return cpa is None or cpa >= REVIEW_CPA_MULTIPLE * benchmark.cpa
 
     def _campaign_for_words(
         self, words: list[str], vocabulary: dict[str, dict[str, float]], channel: str

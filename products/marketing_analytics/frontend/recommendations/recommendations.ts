@@ -33,7 +33,8 @@ export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommen
     policy_limited: 'Google limits some ads in these campaigns for policy reasons, so they show less often.',
     brand_overlap: 'You pay for brand searches where your site already ranks in the top 3 organically.',
     content_gap: 'Searches that convert cheaply in ads, where your site ranks below position 10 or not at all.',
-    keyword_gap: 'Popular organic searches you do not bid on, made of words that already convert in your ads.',
+    keyword_gap:
+        'Popular organic searches you do not bid on. Their words already convert in your ads, or they rank on a page your ads link to.',
     spend_without_conversions: 'Search terms that cost at least twice the benchmark CPA and never converted.',
     striking_distance: 'Searches where your site ranks between positions 5 and 20. The top 3 gets most of the clicks.',
     keyword_tracking:
@@ -189,8 +190,9 @@ const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] 
     },
     {
         table: 'ad',
-        purpose: 'see which search terms that waste spend have nothing to do with your ad copy.',
-        rules: ['spend_without_conversions'],
+        purpose:
+            'find search terms that waste spend and do not match your ad copy, and organic searches that rank on pages your ads link to.',
+        rules: ['spend_without_conversions', 'keyword_gap'],
     },
     {
         table: 'campaign_impression_share_stats',
