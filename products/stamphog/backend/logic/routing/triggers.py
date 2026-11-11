@@ -336,11 +336,13 @@ def _fallback_repo_config(team_id: int, repo_config_id: str) -> StamphogRepoConf
     return repo_config
 
 
-def _upgrades_pinned(at_head: dict[str, Any], outcome: str) -> bool:
+def _upgrades_pinned(at_head: dict[str, Any], outcome: str, *, silent: bool) -> bool:
     # A re-review of the same head, after a base retarget or a manual request, can withdraw the
     # approval. Its non-approval still owes the full routing that the pinned-only routing left out.
+    # A silent WAIT counts as one, because nothing reviews the head again after it.
     return (
-        outcome not in (ReviewVerdict.APPROVED, ReviewVerdict.WAIT)
+        outcome != ReviewVerdict.APPROVED
+        and not _reviews_again(outcome, silent=silent)
         and at_head.get("status") == STATUS_DONE
         and at_head.get("scope") == SCOPE_PINNED
     )
@@ -364,7 +366,11 @@ def _verdict_step(
     if record is not None and record.get(FULL_ROUTED_HEAD):
         return None
     at_head = record if record is not None and record.get("head_sha") == head_sha else None
-    if at_head is not None and at_head.get("status") != STATUS_WAITING and not _upgrades_pinned(at_head, outcome):
+    if (
+        at_head is not None
+        and at_head.get("status") != STATUS_WAITING
+        and not _upgrades_pinned(at_head, outcome, silent=silent)
+    ):
         # Another task already routed or claimed this head.
         return None
     wait = _reviews_again(outcome, silent=silent)
@@ -376,8 +382,11 @@ def _verdict_step(
         return None
     if _head_sha(pr) != head_sha:
         # In label mode a push to an unlabeled pull request supersedes no run, so a run of the old head can
-        # still end here. Its verdict, an approval too, says nothing about the live head.
-        if at_head is None or at_head.get("status") != STATUS_WAITING:
+        # still end here. Its verdict, an approval too, says nothing about the live head. The record waits on
+        # the old head, or on the live head when the opening event read the pull request after the push.
+        if record is None or record.get("status") != STATUS_WAITING:
+            return None
+        if record.get("head_sha") not in (head_sha, _head_sha(pr)):
             return None
         return _full_step_on_live_head(pr, state, trigger=verdict_trigger(outcome), review_path=review_path)
     return _Step(
