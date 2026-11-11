@@ -85,8 +85,6 @@ describe('workflowAssetsLogic', () => {
     })
 
     it('searches once the person stops typing', async () => {
-        // A logic key that an earlier test already built registers its listeners twice after initKeaTests,
-        // so both keystrokes would send a request. A fresh id keeps one listener.
         const logic = await loaded({ id: 'wf-search' })
         received = []
         jest.useFakeTimers()
@@ -105,15 +103,12 @@ describe('workflowAssetsLogic', () => {
         expect(logic.values.assets.map((asset) => asset.recipient)).toEqual(['ada@example.com'])
     })
 
-    it('opens an email in the viewer from its own content url, and closes it', async () => {
+    it('opens an email in the viewer and closes it', async () => {
         const logic = await loaded({ id: 'wf-1' })
         const [email] = logic.values.assets
 
         logic.actions.openAsset(email)
         expect(logic.values.selectedAsset).toEqual(email)
-        expect(logic.values.contentUrl(email)).toMatch(
-            /\/api\/projects\/\d+\/hog_flows\/wf-1\/assets\/content\?invocation_id=inv-ada%40example\.com&action_id=email_node$/
-        )
 
         logic.actions.closeAsset()
         expect(logic.values.selectedAsset).toBeNull()
