@@ -92,7 +92,7 @@ from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
-from posthog.permissions import scopes_caller_lacks
+from posthog.permissions import get_authenticator_scoped_team_ids, scopes_caller_lacks
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -569,6 +569,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self, entry_type: Optional[str], ref: Optional[str], shortcut: Optional[bool], team_id: int
     ) -> None:
         if entry_type in WORKFLOW_FILE_SYSTEM_TYPES and ref and not shortcut:
+            scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
+            if scoped_team_ids and team_id not in scoped_team_ids:
+                raise PermissionDenied(
+                    "This API key doesn't cover this environment. Use a key scoped to it to change workflow files here."
+                )
             self._ensure_can_delete_objects([(entry_type, ref, team_id)])
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
@@ -1474,19 +1479,23 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.type == "folder" and is_path_under(new_path, instance.path):
             return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
-        moving_files = FileSystem.objects.filter(pk=instance.pk)
-        if instance.type == "folder":
-            moving_files = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-        self._ensure_can_change_workflow_files(moving_files)
-
-        self._assure_parent_folders(new_path, cast(User, request.user))
-
         if instance.type == "folder":
             with transaction.atomic():
-                qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-                qs = self._scope_by_project_and_environment(qs)
-                qs = self._filter_by_access_control(qs)
-                for file in qs:
+                # Lock and authorize the exact rows this move saves, so a row filed into the folder
+                # after the check is never moved without passing it.
+                visible = self._filter_by_access_control(
+                    self._scope_by_project_and_environment(
+                        FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+                    )
+                )
+                children = list(
+                    FileSystem.objects.select_for_update()
+                    .filter(pk__in=list(visible.values_list("pk", flat=True)))
+                    .order_by("path")
+                )
+                self._ensure_can_change_workflow_files(FileSystem.objects.filter(pk__in=[c.pk for c in children]))
+                self._assure_parent_folders(new_path, cast(User, request.user))
+                for file in children:
                     old_child_path = file.path
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
@@ -1508,6 +1517,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     instance.save()
 
         else:
+            self._ensure_can_change_workflow_files(FileSystem.objects.filter(pk=instance.pk))
+            self._assure_parent_folders(new_path, cast(User, request.user))
             instance.path = new_path
             instance.depth = len(split_path(instance.path))
             instance.save()

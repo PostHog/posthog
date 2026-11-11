@@ -174,6 +174,47 @@ class TestWorkflowFolders(APIBaseTest):
             sorted(row["path"] for row in rows if not row["shortcut"]), sorted([entry["path"], "Copies/Shared email"])
         )
 
+    def test_a_folder_move_leaves_template_files_that_arrive_after_its_access_check(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Late email", "type": "email"}, format="json"
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).delete()
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="viewer", organization_member_id=membership.id
+        )
+        self.client.force_login(viewer)
+        late_rows: list[FileSystem] = []
+        filing_started = Event()
+
+        def file_late_template(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
+            result = execute(sql, params, many, context)
+            if not filing_started.is_set() and sql.startswith('INSERT INTO "posthog_filesystem"'):
+                filing_started.set()
+                late_rows.append(
+                    FileSystem.objects.create(
+                        team=self.team, path="Inbox/Late email", depth=2, type="message_template", ref=template_id
+                    )
+                )
+            return result
+
+        with connection.execute_wrapper(file_late_template):
+            moved = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/{folder.id}/move/",
+                {"new_path": "Archive/Inbox"},
+                format="json",
+            )
+
+        self.assertEqual(moved.status_code, 200, moved.content)
+        late_rows[0].refresh_from_db()
+        self.assertEqual(late_rows[0].path, "Inbox/Late email")
+
     @parameterized.expand(
         [
             ("template_too_deep", "messaging_templates", "/".join(["Level"] * 51)),
@@ -355,14 +396,15 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("list", "get", "file_system/?type=message_template", 200),
-            ("starred", "get", "file_system_shortcut/", 200),
-            ("delete", "delete", "file_system/{file_id}/", 404),
-            ("move", "post", "file_system/{file_id}/move/", 404),
+            ("list", "get", "file_system/?type=message_template", None, 200),
+            ("starred", "get", "file_system_shortcut/", None, 200),
+            ("delete", "delete", "file_system/{file_id}/", None, 404),
+            ("move", "post", "file_system/{file_id}/move/", {"new_path": "Moved/Sibling email"}, 404),
+            ("retype", "patch", "file_system/{folder_id}/", {"type": "message_template", "ref": "{template_id}"}, 403),
         ]
     )
     def test_a_key_scoped_to_one_environment_reaches_only_its_own_template_files(
-        self, _name: str, method: str, path: str, expected_status: int
+        self, _name: str, method: str, path: str, payload: dict | None, expected_status: int
     ) -> None:
         sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
         template_id = self.client.post(
@@ -375,6 +417,7 @@ class TestWorkflowFolders(APIBaseTest):
         FileSystemShortcut.objects.create(
             team=sibling_team, user=self.user, path="Sibling email", type="message_template", ref=template_id
         )
+        folder = FileSystem.objects.create(team=sibling_team, path="Sibling folder", depth=1, type="folder")
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Scoped key",
@@ -386,8 +429,8 @@ class TestWorkflowFolders(APIBaseTest):
         self.client.logout()
 
         response = getattr(self.client, method)(
-            f"/api/projects/{self.team.id}/{path.format(file_id=file.id)}",
-            {"new_path": "Moved/Sibling email"} if method == "post" else None,
+            f"/api/projects/{self.team.id}/{path.format(file_id=file.id, folder_id=folder.id)}",
+            {key: value.format(template_id=template_id) for key, value in payload.items()} if payload else None,
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
@@ -396,6 +439,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertNotIn(template_id, response.content.decode())
         file.refresh_from_db()
         self.assertEqual(file.path, original_path)
+        self.assertEqual(FileSystem.objects.filter(team=sibling_team, type="message_template").count(), 1)
         self.client.force_login(self.user)
         stored = self.client.get(f"/api/projects/{sibling_team.id}/messaging_templates/{template_id}/")
         self.assertEqual(stored.status_code, 200, stored.content)
