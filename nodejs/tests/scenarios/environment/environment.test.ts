@@ -609,6 +609,7 @@ describe('scenario environment', () => {
         let portHolder: http.Server | undefined
         let unspawnable: Role | undefined
         let losesItsPort: Role | undefined
+        let takesPortOnExit: Role | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
         const healthOf = async (role: Role): Promise<number> =>
@@ -653,9 +654,16 @@ describe('scenario environment', () => {
                     void holdPort(losesItsPort!)
                     losesItsPort = undefined
                 }
+                const mode = options.env?.PLUGIN_SERVER_MODE
                 const role = realSpawn(process.execPath, ['-e', stubRole], options)
+                role.once('exit', () => {
+                    if (takesPortOnExit !== undefined && mode === takesPortOnExit) {
+                        void holdPort(takesPortOnExit)
+                        takesPortOnExit = undefined
+                    }
+                })
                 stubRolePids.add(role.pid!)
-                roleChildren.set(options.env?.PLUGIN_SERVER_MODE as Role, role)
+                roleChildren.set(mode as Role, role)
                 return role
             }) as unknown as typeof childProcess.spawn)
             process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
@@ -668,6 +676,7 @@ describe('scenario environment', () => {
             portHolder = undefined
             unspawnable = undefined
             losesItsPort = undefined
+            takesPortOnExit = undefined
             roleChildren.clear()
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
@@ -825,7 +834,7 @@ describe('scenario environment', () => {
             stubTheReset()
             environment = createEnvironment()
             await environment.up()
-            jest.spyOn(stack, 'deleteUnfinishedJobs').mockImplementation(() => holdPort('cdp-processed-events'))
+            takesPortOnExit = 'cdp-processed-events'
 
             await expect(environment.reset({})).rejects.toMatchObject({
                 exitCode: 2,
