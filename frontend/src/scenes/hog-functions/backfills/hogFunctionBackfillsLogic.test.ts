@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { render, screen } from '@testing-library/react'
 import { expectLogic, partial } from 'kea-test-utils'
 import { createElement } from 'react'
@@ -5,6 +7,7 @@ import { ToastContainer } from 'react-toastify'
 
 import api from 'lib/api'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
 
@@ -30,11 +33,6 @@ jest.mock('lib/api', () => {
         },
     }
 })
-
-jest.mock('products/cdp/frontend/generated/api', () => ({
-    ...jest.requireActual('products/cdp/frontend/generated/api'),
-    hogFunctionsRetrieve: (_projectId: string, id: string) => jest.requireMock('lib/api').default.hogFunctions.get(id),
-}))
 
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntent: jest.fn().mockResolvedValue(null),
@@ -107,6 +105,13 @@ describe('hogFunctionBackfillsLogic', () => {
             .mockResolvedValueOnce(makeHogFunction())
             .mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
         mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: makeHogFunction({
+                    batch_export_id: MOCK_BATCH_EXPORT_ID,
+                }),
+            },
+        })
 
         logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
         logic.mount()
