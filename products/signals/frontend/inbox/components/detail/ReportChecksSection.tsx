@@ -4,9 +4,11 @@ import { useState } from 'react'
 import { IconTarget } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
+import { canMonitorReport } from '../../utils/reportActions'
 import { DetailSection } from './DetailSection'
 import { checkObservationsByCheck } from './reportCheckObservations'
 import {
@@ -16,6 +18,7 @@ import {
     splitReportCheckRows,
 } from './reportCheckPresentation'
 import { ReportCheckRow } from './ReportCheckRow'
+import { ReportStartMonitoringPrompt } from './ReportStartMonitoringPrompt'
 
 /**
  * What is still watching this report, and what the checks that already ran decided. A check is the
@@ -27,10 +30,10 @@ import { ReportCheckRow } from './ReportCheckRow'
  * rail does not grow an empty section on the reports that carry none.
  */
 export function ReportChecksSection({ report }: { report: SignalReport }): JSX.Element | null {
-    const { reportChecks, reportChecksLoading, reportArtefacts, cancellingCheckIds } = useValues(
+    const { reportChecks, reportChecksLoading, reportArtefacts, cancellingCheckIds, reportStateSaving } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
-    const { cancelReportCheck } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { cancelReportCheck, changeReportState } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
     const { openReportCheckMetricSuggestion } = useActions(inboxTaskKickoffLogic)
     const { aiConsentDisabledReason, metricCheckReplacementDisabledReason, isCreatingPr, isDiscussing } =
         useValues(inboxTaskKickoffLogic)
@@ -64,6 +67,15 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
             }
         >
             <div className="flex flex-col gap-1.5">
+                {canMonitorReport(report, reportChecks.length > 0) && (
+                    <ReportStartMonitoringPrompt
+                        loading={reportStateSaving}
+                        onStart={() => {
+                            captureInboxReportAction({ report, actionType: 'monitor', surface: 'detail_pane' })
+                            changeReportState('monitoring')
+                        }}
+                    />
+                )}
                 {(showRetired ? rows : visible).map((row) => (
                     <ReportCheckRow
                         key={row.check.id}
