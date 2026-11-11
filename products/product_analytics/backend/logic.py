@@ -100,8 +100,9 @@ def expire_agent_insight_reads() -> None:
 
 
 def _delete_in_batches(reads: QuerySet[InsightAgentRead]) -> None:
-    while batch := list(reads.values_list("id", flat=True)[:AGENT_READ_DELETE_BATCH]):
-        reads.filter(id__in=batch).delete()
+    writer = reads.using(router.db_for_write(InsightAgentRead))
+    while batch := list(writer.values_list("id", flat=True)[:AGENT_READ_DELETE_BATCH]):
+        writer.filter(id__in=batch).delete()
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:
