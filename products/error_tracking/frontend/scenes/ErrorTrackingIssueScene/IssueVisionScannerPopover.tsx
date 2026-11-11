@@ -1,15 +1,31 @@
 import { IconSparkles } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Button } from 'lib/ui/quill'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
-import { QuickScannerPopover } from 'products/replay_vision/frontend/replay_scanners/components/QuickScannerPopover'
+import {
+    QuickScannerPopover,
+    QuickScannerTriggerShown,
+} from 'products/replay_vision/frontend/replay_scanners/components/QuickScannerPopover'
 import type { QuickScannerLogicProps } from 'products/replay_vision/frontend/replay_scanners/quickScannerLogic'
+import { getReplayVisionEditDisabledReason } from 'products/replay_vision/frontend/utils/accessControl'
 
 import { issueVisionScannerPrefill } from '../../utils'
 
 export type IssueVisionScannerPlacement = 'header' | 'recording_tab'
+
+/** Hidden from people who could not create the scanner, rather than shown with a disabled Start. */
+export function useIssueVisionScannerEnabled(): boolean {
+    const flagEnabled = useFeatureFlag('VISION_ENTRYPOINT_ERROR_TRACKING')
+    return flagEnabled && !getReplayVisionEditDisabledReason()
+}
+
+/** Pinned: the `placement` on the replay_vision_upsell_* events and the scanner's `entry_point`. */
+export function issueVisionScannerEntryPoint(placement: IssueVisionScannerPlacement): string {
+    return `error_tracking_${placement}`
+}
 
 export function issueVisionScannerLogicProps(
     issueId: string,
@@ -18,8 +34,9 @@ export function issueVisionScannerLogicProps(
 ): QuickScannerLogicProps {
     return {
         key: `error_tracking:${issueId}:${placement}`,
-        // Pinned: the `placement` on the replay_vision_upsell_* events and the scanner's `entry_point`.
-        entryPoint: `error_tracking_${placement}`,
+        entryPoint: issueVisionScannerEntryPoint(placement),
+        // The header is on the page whichever trigger asked for consent, so it can finish the creation.
+        resumeScope: `error_tracking:${issueId}`,
         prefill: issueVisionScannerPrefill(issueId, issueName),
         productIntent: {
             from: ProductKey.ERROR_TRACKING,
@@ -68,19 +85,21 @@ export function IssueRecordingTabVisionButton({
     return (
         <IssueVisionScannerPopover issueId={issueId} issueName={issueName} placement="recording_tab">
             {({ toggle }) => (
-                <Button
-                    variant="default"
-                    size="sm"
-                    onClick={toggle}
-                    data-attr="error-tracking-recording-tab-scan-with-vision"
-                >
-                    <IconSparkles className="text-ai" />
-                    {/* The full label does not fit beside "Open in session replay" in the narrowest pane. */}
-                    <span className="hidden @xl/recording-tab:inline">
-                        Have AI watch every new session with this error
-                    </span>
-                    <span className="@xl/recording-tab:hidden">Watch with AI</span>
-                </Button>
+                <QuickScannerTriggerShown entryPoint={issueVisionScannerEntryPoint('recording_tab')}>
+                    <Button
+                        variant="default"
+                        size="sm"
+                        onClick={toggle}
+                        data-attr="error-tracking-recording-tab-scan-with-vision"
+                    >
+                        <IconSparkles className="text-ai" />
+                        {/* The full label does not fit beside "Open in session replay" in the narrowest pane. */}
+                        <span className="hidden @xl/recording-tab:inline">
+                            Have AI watch every new session with this error
+                        </span>
+                        <span className="@xl/recording-tab:hidden">Watch with AI</span>
+                    </Button>
+                </QuickScannerTriggerShown>
             )}
         </IssueVisionScannerPopover>
     )

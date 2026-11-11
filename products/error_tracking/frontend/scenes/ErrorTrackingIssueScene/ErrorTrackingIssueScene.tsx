@@ -30,6 +30,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { reportQuickScannerShown } from 'products/replay_vision/frontend/replay_scanners/quickScannerLogic'
 import { messageAudienceAccessDisabledReason } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
@@ -58,7 +59,12 @@ import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { IssueSummary } from './IssueSummary'
-import { IssueRecordingTabVisionButton, IssueVisionScannerPopover } from './IssueVisionScannerPopover'
+import {
+    IssueRecordingTabVisionButton,
+    IssueVisionScannerPopover,
+    issueVisionScannerEntryPoint,
+    useIssueVisionScannerEnabled,
+} from './IssueVisionScannerPopover'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -83,6 +89,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     const hasSceneMenuBar = useFeatureFlag('SCENE_MENU_BAR')
+    const visionScannerEnabled = useIssueVisionScannerEnabled()
     const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
     // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
     const [emailInOverflow, setEmailInOverflow] = useState(true)
@@ -170,7 +177,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         disabled={issue.status != 'active'}
                                                     />
                                                 </ButtonGroup>
-                                                {issue.name ? (
+                                                {issue.name && visionScannerEnabled ? (
                                                     <IssueVisionScannerPopover
                                                         issueId={issueId}
                                                         issueName={issue.name}
@@ -189,6 +196,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                 <DropdownMenu
                                                                     onOpenChange={(open) => {
                                                                         if (open) {
+                                                                            reportQuickScannerShown(
+                                                                                issueVisionScannerEntryPoint('header')
+                                                                            )
                                                                             setEmailInOverflow(
                                                                                 !isDisplayed(inlineEmailMenuRef.current)
                                                                             )
@@ -246,7 +256,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 <IssueEmailMenu
                                                     issueId={issue.id}
                                                     issueName={issue.name}
-                                                    collapseWhenNarrow={!!issue.name}
+                                                    collapseWhenNarrow={!!issue.name && visionScannerEnabled}
                                                     wrapperRef={inlineEmailMenuRef}
                                                 />
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
@@ -328,6 +338,7 @@ const RightHandColumn = ({
     const detailEvent = selectedEvent ?? initialEvent
     const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
     const issueName = issue?.name
+    const visionScannerEnabled = useIssueVisionScannerEnabled()
     const renderRecordingActions = useCallback(
         () => (issueName ? <IssueRecordingTabVisionButton issueId={issueId} issueName={issueName} /> : null),
         [issueId, issueName]
@@ -361,7 +372,7 @@ const RightHandColumn = ({
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
                     onShowOnlyWithRecording={showOnlyWithRecording}
-                    renderRecordingActions={renderRecordingActions}
+                    renderRecordingActions={visionScannerEnabled ? renderRecordingActions : undefined}
                     eventMarkerColor={
                         detailEvent
                             ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)

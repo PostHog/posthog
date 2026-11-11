@@ -185,11 +185,23 @@ function issueVisionScannerPrompt(issueName: string): string {
     ].join('\n')
 }
 
+// The scanner name is unique per team and at most 255 characters, and the popover has no name field.
+const MAX_SCANNER_ISSUE_NAME_LENGTH = 200
+
+/** Unique per issue, so two issues that share an error name each get a scanner. */
+function issueVisionScannerName(issueId: string, issueName: string): string {
+    const name =
+        issueName.length > MAX_SCANNER_ISSUE_NAME_LENGTH
+            ? `${issueName.slice(0, MAX_SCANNER_ISSUE_NAME_LENGTH)}…`
+            : issueName
+    return `Error tracking: ${name} (${issueId.slice(0, 8)})`
+}
+
 /** The "watch this error's recordings" cross-sell: a Replay vision scanner set up to watch sessions
  * that hit this issue and summarize what users experienced around the error. */
 export function issueVisionScannerPrefill(issueId: string, issueName: string): QuickScannerPrefill {
     return {
-        name: `Error tracking: ${issueName}`,
+        name: issueVisionScannerName(issueId, issueName),
         description: 'Summarizes what users experienced in sessions that hit this error.',
         scanner_type: 'summarizer',
         scanner_config: { prompt: issueVisionScannerPrompt(issueName), length: 'medium' },

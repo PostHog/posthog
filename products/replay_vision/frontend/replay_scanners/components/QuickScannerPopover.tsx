@@ -10,12 +10,10 @@ import { pluralize } from 'lib/utils/strings'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
-import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
-
 import type { EstimateResponseApi } from '../../generated/api.schemas'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCredits } from '../../utils/credits'
-import { type QuickScannerLogicProps, quickScannerLogic } from '../quickScannerLogic'
+import { type QuickScannerLogicProps, REPLAY_VISION_UPSELL_SHOWN, quickScannerLogic } from '../quickScannerLogic'
 import { ScannerSpendChoiceFields } from './ScannerSpendChoiceFields'
 
 export interface QuickScannerPopoverProps {
@@ -46,35 +44,44 @@ export function QuickScannerPopover({
     const referenceRef = useRef<HTMLSpanElement>(null)
 
     return (
-        <PostHogCaptureOnViewed
-            // Pinned: shared with the other Replay vision upsells, so one funnel compares every placement.
-            name="replay_vision_upsell_shown"
-            properties={{ placement: logicProps.entryPoint }}
-        >
-            <Popover
-                visible={popoverOpen}
-                // Otherwise a press on the trigger closes the popover and the trigger's own toggle reopens it.
-                onClickOutside={(event) => {
-                    if (!referenceRef.current?.contains(event.target as Node)) {
-                        setPopoverOpen(false)
-                    }
-                }}
-                overlay={
-                    <QuickScannerPopoverContent
-                        logicProps={logicProps}
-                        title={title}
-                        recordingsLabel={recordingsLabel}
-                        output={output}
-                    />
+        <Popover
+            visible={popoverOpen}
+            // Otherwise a press on the trigger closes the popover and the trigger's own toggle reopens it.
+            onClickOutside={(event) => {
+                if (!referenceRef.current?.contains(event.target as Node)) {
+                    setPopoverOpen(false)
                 }
-                placement="bottom-end"
-                fallbackPlacements={['top-end']}
-                showArrow
-            >
-                <span ref={referenceRef} className="inline-flex">
-                    {children({ open: popoverOpen, toggle: () => setPopoverOpen(!popoverOpen) })}
-                </span>
-            </Popover>
+            }}
+            overlay={
+                <QuickScannerPopoverContent
+                    logicProps={logicProps}
+                    title={title}
+                    recordingsLabel={recordingsLabel}
+                    output={output}
+                />
+            }
+            placement="bottom-end"
+            fallbackPlacements={['top-end']}
+            showArrow
+        >
+            <span ref={referenceRef} className="inline-flex">
+                {children({ open: popoverOpen, toggle: () => setPopoverOpen(!popoverOpen) })}
+            </span>
+        </Popover>
+    )
+}
+
+/** Reports the trigger as shown once it is on screen, for a trigger that renders with its page. */
+export function QuickScannerTriggerShown({
+    entryPoint,
+    children,
+}: {
+    entryPoint: string
+    children: JSX.Element
+}): JSX.Element {
+    return (
+        <PostHogCaptureOnViewed name={REPLAY_VISION_UPSELL_SHOWN} properties={{ placement: entryPoint }}>
+            {children}
         </PostHogCaptureOnViewed>
     )
 }
@@ -98,9 +105,16 @@ export function QuickScannerPopoverContent({
         createdScannerLoading,
         createError,
     } = useValues(logic)
-    const { setCreditCap, setBudget, createScanner, requestConsent, cancelConsent, setPopoverOpen, reportOpenScanner } =
-        useActions(logic)
-    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const {
+        setCreditCap,
+        setBudget,
+        startWatching,
+        rememberConsentIntent,
+        approveConsent,
+        cancelConsent,
+        setPopoverOpen,
+        reportOpenScanner,
+    } = useActions(logic)
 
     if (createdScanner) {
         return (
@@ -164,7 +178,7 @@ export function QuickScannerPopoverContent({
                 dataAttrPrefix={`${logicProps.entryPoint}-quick-scanner`}
             />
 
-            {createError ? <LemonBanner type="error">Couldn't create the scanner. Try again.</LemonBanner> : null}
+            {createError ? <LemonBanner type="error">{createError}</LemonBanner> : null}
 
             <div className="flex justify-end">
                 <AIConsentPopoverWrapper
@@ -174,7 +188,8 @@ export function QuickScannerPopoverContent({
                     hideTrainingDisclaimer
                     pendingRedirectUrl={window.location.pathname + window.location.search}
                     hidden={!consentRequested}
-                    onApprove={createScanner}
+                    onBeforeApprove={rememberConsentIntent}
+                    onApprove={approveConsent}
                     onDismiss={cancelConsent}
                 >
                     <LemonButton
@@ -185,7 +200,7 @@ export function QuickScannerPopoverContent({
                         sideIcon={null}
                         loading={createdScannerLoading}
                         disabledReason={getReplayVisionEditDisabledReason() ?? startDisabledReason}
-                        onClick={() => (dataProcessingAccepted ? createScanner() : requestConsent())}
+                        onClick={startWatching}
                         data-attr={`${logicProps.entryPoint}-quick-scanner-start`}
                     >
                         Start watching

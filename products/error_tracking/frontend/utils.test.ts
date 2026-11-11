@@ -280,7 +280,7 @@ describe('issueVisionScannerPrefill', () => {
         const prefill = issueVisionScannerPrefill('issue-uuid', 'TypeError: x is not a function')
 
         expect(prefill).toMatchObject({
-            name: 'Error tracking: TypeError: x is not a function',
+            name: 'Error tracking: TypeError: x is not a function (issue-uu)',
             scanner_type: 'summarizer',
             sampling_rate: 1.0,
         })
@@ -302,6 +302,16 @@ describe('issueVisionScannerPrefill', () => {
                 }),
             ],
         })
+    })
+})
+
+describe('issueVisionScannerPrefill name', () => {
+    // The create API rejects a name over 255 characters, and the popover has no field to fix it.
+    it('stays within the name limit for a long error name', () => {
+        const prefill = issueVisionScannerPrefill('0199aaaa-bbbb', 'x'.repeat(1000))
+
+        expect(prefill.name.length).toBeLessThanOrEqual(255)
+        expect(prefill.name).toMatch(/\(0199aaaa\)$/)
     })
 })
 
