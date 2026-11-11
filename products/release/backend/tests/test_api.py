@@ -220,6 +220,18 @@ class TestReleaseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [option["name"] for option in response.json()] == ["Launch email"]
 
+    @parameterized.expand([("generated_name", False, "Release of a restricted flag"), ("renamed", True, "Checkout")])
+    def test_generated_names_follow_the_flag_access(self, _name: str, renamed: bool, expected: str) -> None:
+        flag_id = self._flag("secret-launch")
+        self.client.post(self._url("import_all/"))
+        release_id = self.client.get(self._url()).json()["results"][0]["id"]
+        if renamed:
+            self.client.patch(self._url(f"{release_id}/"), {"name": "Checkout"}, format="json")
+        self._restrict_as_admin(f"feature_flags/{flag_id}")
+        self.client.force_login(self._create_user("member@example.com"))
+
+        assert self.client.get(self._url()).json()["results"][0]["name"] == expected
+
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(
             self._url("00000000-0000-0000-0000-000000000000/"), {"name": "Renamed"}, format="json"

@@ -38,6 +38,19 @@ def _visible(
     return access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True, resource=resource)
 
 
+def _survey_flag_ids(project_id: int, flag_ids: list[int]) -> set[int]:
+    fields = ("targeting_flag_id", "internal_targeting_flag_id", "internal_response_sampling_flag_id")
+    matches = Q()
+    for field in fields:
+        matches |= Q(**{f"{field}__in": flag_ids})
+    rows = Survey.objects.filter(team__project_id=project_id).filter(matches).values_list(*fields)
+    return {flag_id for row in rows for flag_id in row if flag_id in flag_ids}
+
+
+def release_flag_creator_id(*, flag_id: int, team_id: int) -> int | None:
+    return FeatureFlag.objects.filter(id=flag_id, team_id=team_id).values_list("created_by_id", flat=True).first()
+
+
 def list_release_import_flags(
     *,
     team_id: int,
@@ -68,10 +81,13 @@ def list_release_import_flags(
     candidates = FeatureFlag.objects.filter(team_id=team_id, deleted=False, archived=False, active=True)
     if flag_ids is not None:
         candidates = candidates.filter(id__in=flag_ids)
+        survey_flag_ids = _survey_flag_ids(project_id, flag_ids)
+    else:
+        survey_flag_ids = Survey.get_internal_flag_ids(project_id=project_id)
     flags = (
         _visible(
             candidates.exclude(is_remote_configuration=True).exclude(
-                Q(id__in=Survey.get_internal_flag_ids(project_id=project_id)) | Q(id__in=tour_flag_ids)
+                Q(id__in=survey_flag_ids) | Q(id__in=tour_flag_ids)
             ),
             access_control,
         )

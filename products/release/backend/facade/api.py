@@ -30,6 +30,9 @@ UnknownBroadcastsError = contracts.UnknownBroadcastsError
 ImportFlag = contracts.ImportFlag
 
 
+RESTRICTED_NAME = "Release of a restricted flag"
+
+
 FlagVisibilityLookup = Callable[[list[int]], contracts.FlagVisibility]
 BroadcastVisibilityLookup = Callable[[list[UUID]], contracts.BroadcastVisibility]
 
@@ -59,13 +62,14 @@ def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
 
 
 def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
+    has_hidden_flags = any(flag_id in hidden.flags for flag_id in obj.feature_flag_ids)
     return contracts.ReleaseDTO(
         id=obj.id,
-        name=obj.name,
+        name=RESTRICTED_NAME if obj.auto_named and has_hidden_flags else obj.name,
         description=obj.description,
         owner=contracts.ReleaseOwnerDTO(id=obj.owner.id, first_name=obj.owner.first_name) if obj.owner else None,
         feature_flag_ids=[flag_id for flag_id in obj.feature_flag_ids if flag_id not in hidden.flags],
-        has_hidden_flags=any(flag_id in hidden.flags for flag_id in obj.feature_flag_ids),
+        has_hidden_flags=has_hidden_flags,
         broadcast_ids=[broadcast_id for broadcast_id in obj.broadcast_ids if broadcast_id not in hidden.broadcasts],
         broadcasts=[
             hidden.summaries[broadcast_id]

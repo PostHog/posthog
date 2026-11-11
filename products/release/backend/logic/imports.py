@@ -10,7 +10,7 @@ from django.db import connection, transaction
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
-from products.feature_flags.backend.facade.release_candidates import list_release_import_flags
+from products.feature_flags.backend.facade.release_candidates import list_release_import_flags, release_flag_creator_id
 
 from ..facade.contracts import ImportCandidateDTO, ImportFlag, ImportReason
 from ..models import Release
@@ -40,7 +40,7 @@ def create_unlinked_releases(team_id: int, releases: list[tuple[str, list[int]]]
         for name, flag_ids in releases:
             unlinked = [flag_id for flag_id in dict.fromkeys(flag_ids) if flag_id not in linked]
             if unlinked:
-                rows.append(Release(team_id=team_id, name=name, feature_flag_ids=unlinked))
+                rows.append(Release(team_id=team_id, name=name, feature_flag_ids=unlinked, auto_named=True))
                 linked.update(unlinked)
         created = Release.objects.bulk_create(rows)
     return list(
@@ -128,13 +128,8 @@ def create_release_for_new_flag(flag_id: int, team_id: int, releases_enabled: Ca
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return
-    flags = list_release_import_flags(
-        team_id=team_id, project_id=team.project_id, access_control=None, flag_ids=[flag_id]
-    )
-    if not flags:
-        return
-    flag = flags[0]
-    creator = User.objects.filter(id=flag.created_by_id).first() if flag.created_by_id else None
+    creator_id = release_flag_creator_id(flag_id=flag_id, team_id=team_id)
+    creator = User.objects.filter(id=creator_id).first() if creator_id else None
     enabled = releases_enabled(
         team_id=team.id,
         team_uuid=team.uuid,
@@ -142,6 +137,11 @@ def create_release_for_new_flag(flag_id: int, team_id: int, releases_enabled: Ca
         distinct_id=str(creator.distinct_id) if creator else str(team.uuid),
         email=creator.email if creator and not creator.anonymize_data else None,
     )
-    if enabled:
+    if not enabled:
+        return
+    flags = list_release_import_flags(
+        team_id=team_id, project_id=team.project_id, access_control=None, flag_ids=[flag_id]
+    )
+    if flags:
         with team_scope(team_id):
-            create_unlinked_releases(team_id, [(humanize(flag.key), [flag.id])])
+            create_unlinked_releases(team_id, [(humanize(flags[0].key), [flags[0].id])])
