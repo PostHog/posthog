@@ -1,8 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { DndContext, useDndContext } from '@dnd-kit/core'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -129,20 +128,17 @@ describe('WorkflowsScene', () => {
         await waitFor(() =>
             expect(document.querySelector('[data-attr="workflows-automation-empty-state-guided-setup"]')).not.toBeNull()
         )
-        await userEvent
-            .setup()
-            .click(
-                document.querySelector<HTMLElement>(
-                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
-                )!
-            )
+        fireEvent.click(
+            document.querySelector<HTMLElement>(
+                '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+            )!
+        )
         expect(document.querySelector('input[data-attr="workflows-new-folder-name"]')).not.toBeNull()
     })
 
     it('filters the list and writes pills to the URL', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
-        const user = userEvent.setup()
         render(
             <Provider>
                 <DndContext>
@@ -155,11 +151,13 @@ describe('WorkflowsScene', () => {
 
         const input = document.querySelector<HTMLInputElement>('input[data-attr="workflows-search"]')
         expect(input).not.toBeNull()
-        await user.click(input!)
-        await user.keyboard('sta')
-        await user.keyboard('{Tab}')
+        input!.focus()
+        fireEvent.click(input!)
+        fireEvent.change(input!, { target: { value: 'sta' } })
+        fireEvent.keyDown(input!, { key: 'Tab' })
         expect(input).toHaveValue('status:')
-        await user.keyboard('{ArrowDown}{Enter}')
+        fireEvent.keyDown(input!, { key: 'ArrowDown' })
+        fireEvent.keyDown(input!, { key: 'Enter' })
 
         await waitFor(() => expect(shownRowNames()).toEqual(['Welcome series']))
         expect(router.values.searchParams.q).toEqual('in:Unfiled status:active')
@@ -177,7 +175,6 @@ describe('WorkflowsScene', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         const scope = [{ facet: 'in', value: 'Unfiled', negated: false }]
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
-        const user = userEvent.setup()
         render(
             <Provider>
                 <DndContext>
@@ -187,7 +184,7 @@ describe('WorkflowsScene', () => {
         )
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
 
-        await user.click(document.querySelector('[aria-label="Next page"]')!)
+        fireEvent.click(document.querySelector('[aria-label="Next page"]')!)
         // The folder view spends one row of each page on the ".." row.
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 099 odd'))
         expect(shownRowNames()).toHaveLength(100)
@@ -203,7 +200,6 @@ describe('WorkflowsScene', () => {
         )
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
-        const user = userEvent.setup()
         render(
             <Provider>
                 <DndContext>
@@ -216,8 +212,8 @@ describe('WorkflowsScene', () => {
         const nameHeader = Array.from(
             document.querySelectorAll<HTMLElement>('[data-attr="workflows-list-v2"] .LemonTable__header-content')
         ).find((header) => header.textContent === 'Name')!
-        await user.click(nameHeader)
-        await user.click(nameHeader)
+        fireEvent.click(nameHeader)
+        fireEvent.click(nameHeader)
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 5 odd'))
 
         act(() =>
@@ -271,7 +267,6 @@ describe('WorkflowsScene', () => {
         }
         featureFlagLogic.actions.setFeatureFlags([], {})
         router.actions.push(urls.workflows(), { type: 'messaging' })
-        const user = userEvent.setup()
         render(
             <Provider>
                 <DndContext>
@@ -281,7 +276,7 @@ describe('WorkflowsScene', () => {
         )
 
         await waitFor(() => expect(document.querySelector('[data-attr="new-workflow"]')).not.toBeNull())
-        await user.click(document.querySelector('[data-attr="new-workflow"]')!)
+        fireEvent.click(document.querySelector('[data-attr="new-workflow"]')!)
         expect(workflowTemplatesLogic.values.typeFilter).toEqual('messaging')
     })
 
@@ -407,9 +402,8 @@ describe('WorkflowsScene', () => {
                     hog_flow: AccessControlLevel.Editor,
                 },
             }
-            const user = userEvent.setup()
             await renderFolder('Billing', 'Welcome series', ' kind:messaging')
-            await user.click(
+            fireEvent.click(
                 document.querySelector('[data-attr="workflows-folder-toolbar"] [data-attr="new-workflow"]')!
             )
             expect(workflowTemplatesLogic.values.typeFilter).toEqual('messaging')
@@ -437,16 +431,16 @@ describe('WorkflowsScene', () => {
         })
 
         it('lists a subfolder in the open folder after naming it inline', async () => {
-            const user = userEvent.setup()
             await renderFolder('Billing', 'Welcome series')
-            await user.click(
+            fireEvent.click(
                 document.querySelector<HTMLElement>(
                     '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
                 )!
             )
             const input = document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
             expect(input).not.toBeNull()
-            await user.type(input!, 'Invoices{Enter}')
+            fireEvent.change(input!, { target: { value: 'Invoices' } })
+            fireEvent.keyDown(input!, { key: 'Enter' })
             await waitFor(() =>
                 expect(
                     Array.from(document.querySelectorAll('[data-attr="workflows-folder-row"]')).map(
@@ -459,13 +453,11 @@ describe('WorkflowsScene', () => {
         })
 
         const draftInputAfterNewFolder = async (): Promise<HTMLInputElement | null> => {
-            await userEvent
-                .setup()
-                .click(
-                    document.querySelector<HTMLElement>(
-                        '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
-                    )!
-                )
+            fireEvent.click(
+                document.querySelector<HTMLElement>(
+                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+                )!
+            )
             return document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
         }
 
@@ -488,7 +480,7 @@ describe('WorkflowsScene', () => {
                 })),
             ]
             await renderFolder('Billing', 'Flow 000')
-            await userEvent.setup().click(document.querySelector('[aria-label="Next page"]')!)
+            fireEvent.click(document.querySelector('[aria-label="Next page"]')!)
             await waitFor(() => expect(shownRowNames()).toContain('Flow 119'))
             expect(await draftInputAfterNewFolder()).not.toBeNull()
         })

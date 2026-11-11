@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import userEvent from '@testing-library/user-event'
 import clsx from 'clsx'
 import { useState } from 'react'
+
+import { userEvent } from 'storybook/test'
 
 import { FacetDefinition, FacetSearchValue } from './facetQuery'
 import { FacetSearchBar } from './FacetSearchBar'
