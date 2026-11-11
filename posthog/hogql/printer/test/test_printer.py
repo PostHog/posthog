@@ -58,7 +58,7 @@ from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printin
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import json_dynamic_read_sql
+from posthog.hogql.test.utils import json_dynamic_presence_sql, json_dynamic_read_sql
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
@@ -3831,14 +3831,14 @@ class TestPrinter(BaseTest):
             "FROM events WHERE properties.$ai_trace_id IS NOT NULL",
             context,
         )
-        read_expr = (
-            self._json_dynamic_property_expr("$ai_trace_id")
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else expected_expr
-        )
-        self.assertIn(f"countIf(isNotNull({read_expr}))", sql)
-        self.assertIn(f"countIf(isNull({read_expr}))", sql)
-        self.assertIn(f"isNotNull({read_expr})) LIMIT", sql)
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            is_set = json_dynamic_presence_sql("events.properties", "$ai_trace_id")
+            is_not_set = json_dynamic_presence_sql("events.properties", "$ai_trace_id", present=False)
+        else:
+            is_set, is_not_set = f"isNotNull({expected_expr})", f"isNull({expected_expr})"
+        self.assertIn(f"countIf({is_set})", sql)
+        self.assertIn(f"countIf({is_not_set})", sql)
+        self.assertIn(f"{is_set}) LIMIT", sql)
 
         # Dynamic properties use JSON subcolumns under the new schema and JSON extraction under legacy.
         # `other_prop` is not in the materialized-column registry, so it stays on the JSON path.

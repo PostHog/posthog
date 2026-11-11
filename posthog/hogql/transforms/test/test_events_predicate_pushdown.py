@@ -40,7 +40,7 @@ from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.test.utils import json_dynamic_read_sql, pretty_print_in_tests
+from posthog.hogql.test.utils import json_dynamic_presence_sql, pretty_print_in_tests
 from posthog.hogql.transforms.events_predicate_pushdown import (
     EventsPredicatePushdownTransform,
     EventsSubexprHoister,
@@ -1027,7 +1027,7 @@ class _PushdownExecutionTestBase(ClickhouseTestMixin, APIBaseTest):
             assert "JSONExtractKeysAndValuesRaw" not in subquery, (
                 f"new events schema should not reconstruct JSON paths:\n{subquery}"
             )
-            assert f"isNotNull({json_dynamic_read_sql('events.properties', ['tier'])})" in subquery, (
+            assert json_dynamic_presence_sql("events.properties", "tier") in subquery, (
                 f"expected a JSON subcolumn existence check:\n{subquery}"
             )
         else:

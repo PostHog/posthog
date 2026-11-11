@@ -271,6 +271,13 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         assert "JSONStripEmptyStringsAndNulls" not in read
         has_key = ast.Call(name="JSONHas", args=[ast.Field(chain=[field], type=field_type), ast.Constant(value=key)])
         has_key_sql = print_prepared_ast(clickhouse_property_resolution(has_key, context), context, "clickhouse")
+        null_tests = ast.Tuple(
+            exprs=[
+                ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=prop, right=ast.Constant(value=None)),
+                ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=prop, right=ast.Constant(value=None)),
+            ]
+        )
+        null_tests_sql = print_prepared_ast(clickhouse_property_resolution(null_tests, context), context, "clickhouse")
         fallback_values = ["", "[5]", '{"child":""}']
         fallback = ast.Tuple(
             exprs=[
@@ -305,7 +312,7 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
                 )
             )
         rows = sync_execute(
-            f"SELECT {printed}, {read}, {fallback_sql}, {has_key_sql} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
+            f"SELECT {printed}, {read}, {fallback_sql}, {has_key_sql}, {null_tests_sql} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
             {**context.values, "documents": [json.dumps(doc) for doc, _, _ in cases], "json_type": json_type},
             settings={
                 "transform_null_in": 1,
@@ -314,7 +321,7 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
             },
         )
         assert [row[0] for row in rows] == [(eq, eq, 1 - eq, member, 1 - member, 1 - member) for _, eq, member in cases]
-        for (_, read_value, fallback_result, has_key_result), (document, _, _) in zip(rows, cases):
+        for (_, read_value, fallback_result, has_key_result, null_tests_result), (document, _, _) in zip(rows, cases):
             assert fallback_result == tuple(int(read_value == value) for value in fallback_values)
             sent = document.get(key)
             # A declared String column stores a sent "" the same as a missing key, and ClickHouse's JSON type keeps
@@ -326,3 +333,4 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
             else:
                 assert read_value == ("true" if sent is True else str(sent))
             assert has_key_result == int(read_value is not None)
+            assert null_tests_result == (int(read_value is not None), int(read_value is None))

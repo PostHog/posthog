@@ -212,6 +212,7 @@ def json_dynamic_read_sql(root: str, path: Sequence[str | int], *, as_json: bool
 
     An integer key is an array index; the read then has no sub-object branch, because a sub-object only exists
     for a plain key path, and it scrubs like a declared path, because only a declared array is indexed in place.
+    A path declared as a string reads as its own text, because it has no sub-object and never holds a container.
     """
     field = root
     for key in path:
@@ -223,8 +224,20 @@ def json_dynamic_read_sql(root: str, path: Sequence[str | int], *, as_json: bool
     declared_types = (
         PERSON_PROPERTIES_JSON_SUBCOLUMNS if root.endswith(".person_properties") else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
     )
-    declared = ".".join(str(key) for key in path) in declared_types
+    declared_type = declared_types.get(".".join(str(key) for key in path), "")
+    if declared_type in ("String", "LowCardinality(String)") and not as_json:
+        text = f"nullIf(toString({field}), '')"
+        return text if declared_type == "String" else f"CAST({text}, 'Nullable(String)')"
     escaped = ".".join(escape_clickhouse_json_path(key) for key in path if isinstance(key, str))
     return json_dynamic_read_sql_from_parts(
-        lambda: field, lambda: f"{root}.^{escaped}", as_json=as_json, declared=declared
+        lambda: field, lambda: f"{root}.^{escaped}", as_json=as_json, declared=bool(declared_type)
     )
+
+
+def json_dynamic_presence_sql(root: str, key: str, *, present: bool = True) -> str:
+    """The ClickHouse SQL the resolver prints for `IS [NOT] NULL` on an undeclared key of the native-JSON events table."""
+    path = escape_clickhouse_json_path(key)
+    sub_object = f"toJSONString({root}.^{path})"
+    if present:
+        return f"or(isNotNull({root}.{path}), notEquals({sub_object}, '{{}}'))"
+    return f"and(isNull({root}.{path}), equals({sub_object}, '{{}}'))"
