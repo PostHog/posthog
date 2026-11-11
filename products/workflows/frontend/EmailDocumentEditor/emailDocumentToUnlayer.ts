@@ -10,6 +10,13 @@ import {
 
 const DEFAULT_BLOCK_SIDES: EmailSides = { top: 8, right: 0, bottom: 8, left: 0 }
 const NO_SIDES: EmailSides = { top: 0, right: 0, bottom: 0, left: 0 }
+const ROW_VALUES: UnlayerValues = {
+    columns: false,
+    columnsBackgroundColor: '',
+    backgroundColor: '',
+    backgroundImage: { url: '' },
+    padding: '0px',
+}
 
 type UnlayerValues = Record<string, any>
 
@@ -42,6 +49,15 @@ function sidesCss(value: EmailSides): string {
     return `${number(value.top, 0)}px ${number(value.right, 0)}px ${number(value.bottom, 0)}px ${number(value.left, 0)}px`
 }
 
+function addSides(value: EmailSides, extra: EmailSides): EmailSides {
+    return {
+        top: number(value.top, 0) + extra.top,
+        right: number(value.right, 0) + extra.right,
+        bottom: number(value.bottom, 0) + extra.bottom,
+        left: number(value.left, 0) + extra.left,
+    }
+}
+
 function webLink(href: string): UnlayerValues {
     return {
         name: 'web',
@@ -50,8 +66,10 @@ function webLink(href: string): UnlayerValues {
     }
 }
 
-function imageContent(node: JSONContent, contentWidth: number): Content | null {
+function imageContent(node: JSONContent, contentWidth: number, outer: EmailSides): Content | null {
     const style = styleOf(node)
+    const padding = style.padding ?? NO_SIDES
+    const available = Math.max(1, contentWidth - number(padding.left, 0) - number(padding.right, 0))
     const src = String(node.attrs?.src ?? '')
     if (!src) {
         return null
@@ -68,13 +86,13 @@ function imageContent(node: JSONContent, contentWidth: number): Content | null {
                 autoWidth: !style.width,
                 ...(style.width
                     ? {
-                          maxWidth: `${Math.min(100, Math.round((number(style.width, contentWidth) / contentWidth) * 100))}%`,
+                          maxWidth: `${Math.min(100, Math.round((number(style.width, available) / available) * 100))}%`,
                       }
                     : {}),
             },
             altText: String(node.attrs?.alt ?? ''),
             textAlign: style.textAlign ?? 'left',
-            containerPadding: sidesCss(style.padding ?? NO_SIDES),
+            containerPadding: sidesCss(addSides(padding, outer)),
             ...(href ? { action: webLink(href) } : {}),
         },
     }
@@ -109,7 +127,7 @@ function buttonText(style: EmailBlockStyle, page: EmailPageStyle): UnlayerValues
     }
 }
 
-function buttonContent(node: JSONContent, page: EmailPageStyle): Content | null {
+function buttonContent(node: JSONContent, page: EmailPageStyle, outer: EmailSides): Content | null {
     const style = styleOf(node)
     const color = style.color ?? page.buttonTextColor
     const text = oldEditorInlineHtml(node.content, { ...page, linkColor: color })
@@ -130,12 +148,14 @@ function buttonContent(node: JSONContent, page: EmailPageStyle): Content | null 
             borderRadius: `${number(style.borderRadius, page.buttonBorderRadius)}px`,
             ...buttonBorder(style, background),
             textAlign: style.textAlign ?? 'left',
-            containerPadding: sidesCss(style.padding ?? { ...DEFAULT_BLOCK_SIDES, top: 12, bottom: 12 }),
+            containerPadding: sidesCss(
+                addSides(style.padding ?? { ...DEFAULT_BLOCK_SIDES, top: 12, bottom: 12 }, outer)
+            ),
         },
     }
 }
 
-function dividerContent(node: JSONContent): Content {
+function dividerContent(node: JSONContent, outer: EmailSides): Content {
     const style = styleOf(node)
     return {
         type: 'divider',
@@ -147,46 +167,51 @@ function dividerContent(node: JSONContent): Content {
                 borderTopColor: style.borderColor ?? '#dddddd',
             },
             textAlign: style.textAlign ?? 'center',
-            containerPadding: sidesCss(style.padding ?? DEFAULT_BLOCK_SIDES),
+            containerPadding: sidesCss(addSides(style.padding ?? DEFAULT_BLOCK_SIDES, outer)),
         },
     }
 }
 
-function textContent(node: JSONContent, page: EmailPageStyle, contentWidth: number): Content | null {
+function textContent(node: JSONContent, page: EmailPageStyle, contentWidth: number, outer: EmailSides): Content | null {
     const style = styleOf(node)
     const { kind, html } = oldEditorBlockHtml(node, page, contentWidth)
     if (kind === 'html') {
-        return html ? { type: 'html', values: { html, containerPadding: '0px' } } : null
+        return html ? { type: 'html', values: { html, containerPadding: sidesCss(outer) } } : null
     }
     return {
         type: 'text',
         values: {
             text: html,
             textAlign: style.textAlign ?? 'left',
-            containerPadding: sidesCss(style.padding ?? DEFAULT_BLOCK_SIDES),
+            containerPadding: sidesCss(addSides(style.padding ?? DEFAULT_BLOCK_SIDES, outer)),
             ...(style.backgroundColor ? { backgroundColor: style.backgroundColor } : {}),
         },
     }
 }
 
-function blockContent(node: JSONContent, page: EmailPageStyle, contentWidth: number): Content | null {
+function blockContent(
+    node: JSONContent,
+    page: EmailPageStyle,
+    contentWidth: number,
+    outer: EmailSides = NO_SIDES
+): Content | null {
     switch (node.type) {
         case 'emailImage':
-            return imageContent(node, contentWidth)
+            return imageContent(node, contentWidth, outer)
         case 'emailButton':
-            return buttonContent(node, page)
+            return buttonContent(node, page, outer)
         case 'horizontalRule':
-            return dividerContent(node)
+            return dividerContent(node, outer)
         case 'emailHtml':
             return {
                 type: 'html',
                 values: {
                     html: String(node.attrs?.html ?? ''),
-                    containerPadding: sidesCss(styleOf(node).padding ?? NO_SIDES),
+                    containerPadding: sidesCss(addSides(styleOf(node).padding ?? NO_SIDES, outer)),
                 },
             }
         default:
-            return textContent(node, page, contentWidth)
+            return textContent(node, page, contentWidth, outer)
     }
 }
 
@@ -210,7 +235,7 @@ function columnsRow(
     page: EmailPageStyle,
     contentWidth: number,
     ids: Ids,
-    rowValues: UnlayerValues
+    outer: EmailSides
 ): Record<string, any> {
     const style = styleOf(node)
     const columns = node.content ?? []
@@ -225,6 +250,11 @@ function columnsRow(
             left: index === 0 ? 0 : gap / 2,
             right: index === columns.length - 1 ? 0 : gap / 2,
         }
+        const columnOuter = {
+            ...outer,
+            left: index === 0 ? outer.left : 0,
+            right: index === columns.length - 1 ? outer.right : 0,
+        }
         const innerWidth = Math.max(1, width - number(padding.left, 0) - number(padding.right, 0))
         const contents = withoutTrailingEmptyParagraphs(child.content ?? [])
             .map((block) =>
@@ -237,13 +267,13 @@ function columnsRow(
             )
             .filter((content): content is Content => !!content)
         return column(contents, ids, {
-            padding: sidesCss(padding),
-            backgroundColor: columnStyle.backgroundColor ?? '',
+            padding: sidesCss(addSides(padding, columnOuter)),
+            backgroundColor: columnStyle.backgroundColor ?? style.backgroundColor ?? page.bodyBackgroundColor,
             border: {},
         })
     })
     return row(unlayerColumns, ratios, ids, {
-        ...rowValues,
+        ...ROW_VALUES,
         ...(style.backgroundColor ? { columnsBackgroundColor: style.backgroundColor } : {}),
     })
 }
@@ -259,23 +289,33 @@ export function emailDocumentToUnlayer(doc: JSONContent): Record<string, any> {
     const padding = page.bodyPadding
     const contentWidth = Math.max(1, page.bodyWidth - number(padding.left, 0) - number(padding.right, 0))
     const blocks = withoutTrailingEmptyParagraphs(doc.content ?? [])
-    const rowValues = (index: number): UnlayerValues => ({
-        columns: false,
-        columnsBackgroundColor: page.bodyBackgroundColor,
-        backgroundColor: '',
-        backgroundImage: { url: '' },
-        padding: `${index === 0 ? number(padding.top, 0) : 0}px ${number(padding.right, 0)}px ${
-            index === blocks.length - 1 ? number(padding.bottom, 0) : 0
-        }px ${number(padding.left, 0)}px`,
+    // The body's padding goes on the blocks next to it. Rows with padding of their own would come back to this editor
+    // as sections around each block.
+    const outer = (index: number): EmailSides => ({
+        top: index === 0 ? number(padding.top, 0) : 0,
+        right: number(padding.right, 0),
+        bottom: index === blocks.length - 1 ? number(padding.bottom, 0) : 0,
+        left: number(padding.left, 0),
     })
     const rows = blocks
         .map((block, index) => {
             if (block.type === 'emailColumns') {
-                return columnsRow(block, page, contentWidth, ids, rowValues(index))
+                return columnsRow(block, page, contentWidth, ids, outer(index))
             }
-            const content = blockContent(block, page, contentWidth)
+            const content = blockContent(block, page, contentWidth, outer(index))
             return content
-                ? row([column([content], ids, { padding: '0px', border: {} })], [1], ids, rowValues(index))
+                ? row(
+                      [
+                          column([content], ids, {
+                              padding: '0px',
+                              backgroundColor: page.bodyBackgroundColor,
+                              border: {},
+                          }),
+                      ],
+                      [1],
+                      ids,
+                      ROW_VALUES
+                  )
                 : null
         })
         .filter((built): built is Record<string, any> => !!built)

@@ -612,6 +612,17 @@ function menuBlocks(values: Record<string, any>): JSONContent[] {
     return height ? [{ type: 'emailSpacer', attrs: { height } }] : []
 }
 
+function mostCommon(values: string[]): string {
+    const counts = new Map<string, number>()
+    for (const value of values) {
+        counts.set(value, (counts.get(value) ?? 0) + 1)
+    }
+    return [...counts.entries()].reduce<[string, number]>(
+        (best, entry) => (entry[1] > best[1] ? entry : best),
+        ['', 0]
+    )[0]
+}
+
 function isRightToLeft(values: Record<string, any>): boolean {
     return values.direction === 'rtl' || /\bdir=["']?rtl/i.test(String(values.text ?? ''))
 }
@@ -796,10 +807,12 @@ export function unlayerToEmailDocument(
 
     const rowBackgrounds = new Set(rows.map((row) => row.values?.backgroundColor ?? ''))
     const sharedRowBackground = rowBackgrounds.size === 1 ? [...rowBackgrounds][0] : ''
-    const columnBackgrounds = new Set(
-        rows.flatMap((row) => (row.columns ?? []).map((column: any) => column.values?.backgroundColor ?? ''))
+    const columnBackgrounds: string[] = rows.flatMap((row) =>
+        (row.columns ?? []).map((column: any) => column.values?.backgroundColor ?? '')
     )
-    const sharedColumnBackground = columnBackgrounds.size === 1 ? [...columnBackgrounds][0] : ''
+    // When every column is colored, the most common color is the body's and only the others keep a color of their own.
+    const sharedColumnBackground =
+        new Set(columnBackgrounds).size === 1 || columnBackgrounds.every(Boolean) ? mostCommon(columnBackgrounds) : ''
 
     const page: Partial<EmailPageStyle> = {
         oldEditorStyles: true,

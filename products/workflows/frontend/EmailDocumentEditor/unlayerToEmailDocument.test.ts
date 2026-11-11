@@ -321,7 +321,7 @@ describe('unlayerToEmailDocument', () => {
         })
         const doc = {
             type: 'doc',
-            attrs: { page: { bodyWidth: 560, backgroundColor: '#eeeeee' } },
+            attrs: { page: { bodyWidth: 560, backgroundColor: '#eeeeee', bodyBackgroundColor: '#fafafa' } },
             content: [
                 { type: 'heading', attrs: { level: 1 }, content: [text('Rollback héading 🚀')] },
                 paragraph(
@@ -349,6 +349,7 @@ describe('unlayerToEmailDocument', () => {
                 { type: 'horizontalRule' },
                 {
                     type: 'emailColumns',
+                    attrs: { emailStyle: { backgroundColor: '#ffeecc' } },
                     content: [
                         { type: 'emailColumn', attrs: { ratio: 1 }, content: [paragraph(text('Left column'))] },
                         { type: 'emailColumn', attrs: { ratio: 1 }, content: [paragraph(text('Right column'))] },
@@ -359,32 +360,21 @@ describe('unlayerToEmailDocument', () => {
         }
 
         const back = unlayerToEmailDocument(emailDocumentToUnlayer(doc)).document?.doc
-        const blocks: string[] = []
-        const visit = (node: Record<string, any>): void =>
-            (node.content ?? []).forEach((child: Record<string, any>) => {
-                if (child.type === 'emailColumns' || child.type === 'emailColumn') {
-                    visit(child)
-                } else {
-                    blocks.push(child.type)
-                }
-            })
-        visit(back ?? {})
         const json = JSON.stringify(back)
 
-        // The body's top and bottom padding comes back as a spacer at each end.
-        expect(blocks).toEqual([
-            'emailSpacer',
+        expect(back?.content?.map((node) => node.type)).toEqual([
             'heading',
             'paragraph',
             'bulletList',
             'emailImage',
             'emailButton',
             'horizontalRule',
-            'paragraph',
-            'paragraph',
+            'emailColumns',
             'emailHtml',
-            'emailSpacer',
         ])
+        expect(back?.attrs?.page.bodyBackgroundColor).toEqual('#fafafa')
+        expect(back?.content?.[6].attrs?.emailStyle.backgroundColor).toEqual('#ffeecc')
+        expect(back?.content?.[0].attrs?.emailStyle.padding).toEqual({ top: 32, right: 24, bottom: 8, left: 24 })
         for (const expected of [
             'Rollback héading 🚀',
             'person.properties.name',
