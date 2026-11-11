@@ -77,6 +77,11 @@ const janitorRunsSkippedCounter = new Counter({
     help: 'Janitor runs skipped because the previous run was still going.',
 })
 
+const janitorRunsStuckCounter = new Counter({
+    name: 'cdp_cyclotron_v2_janitor_runs_stuck_total',
+    help: 'Janitor runs started beside a previous run that went on past its stuck limit, usually a query on a dead connection.',
+})
+
 const janitorRunCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_runs',
     help: 'Number of janitor cleanup runs completed',
@@ -123,6 +128,8 @@ export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
     private runInFlight: Promise<unknown> | null = null
+    private runStartedAt = 0
+    private readonly stuckRunAfterMs: number
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
 
@@ -163,6 +170,7 @@ export class CyclotronV2Janitor {
         this.stallBackoffBaseMs = backoffBaseMs > 0 ? backoffBaseMs : 0
         this.stallBackoffMaxMs = backoffMaxMs > 0 ? backoffMaxMs : 600000
         this.stallResetBatchSize = Math.max(0, config.stallResetBatchSize ?? 0)
+        this.stuckRunAfterMs = config.stuckRunAfterMs ?? 300_000
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
@@ -182,16 +190,25 @@ export class CyclotronV2Janitor {
 
     private async runUnlessRunning(): Promise<void> {
         if (this.runInFlight) {
-            janitorRunsSkippedCounter.inc()
-            return
+            const runningMs = Date.now() - this.runStartedAt
+            if (runningMs < this.stuckRunAfterMs) {
+                janitorRunsSkippedCounter.inc()
+                return
+            }
+            janitorRunsStuckCounter.inc()
+            logger.warn('CyclotronV2Janitor run is stuck, starting a new run beside it', { runningMs })
         }
-        this.runInFlight = this.runOnce().catch((err) => {
+        const run = this.runOnce().catch((err) => {
             logger.error('CyclotronV2Janitor run error', { error: String(err) })
         })
+        this.runInFlight = run
+        this.runStartedAt = Date.now()
         try {
-            await this.runInFlight
+            await run
         } finally {
-            this.runInFlight = null
+            if (this.runInFlight === run) {
+                this.runInFlight = null
+            }
         }
     }
 

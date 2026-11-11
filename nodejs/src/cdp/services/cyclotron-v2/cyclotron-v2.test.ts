@@ -3046,6 +3046,36 @@ describe('Cyclotron V2', () => {
             }
         })
 
+        it('starts a new run once the previous one has run past its stuck limit', async () => {
+            const applicationName = `janitor-stuck-${uuidv7()}`
+            const janitorQueriesRunning = async (): Promise<number> => {
+                const { rows } = await assertPool.query<{ n: number }>(
+                    `SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1 AND state = 'active'`,
+                    [applicationName]
+                )
+                return rows[0].n
+            }
+            const blocker = await assertPool.connect()
+            await blocker.query('BEGIN')
+            await blocker.query('LOCK TABLE conversion_watchers IN ACCESS EXCLUSIVE MODE')
+            const stuckBefore = await counterValue('cdp_cyclotron_v2_janitor_runs_stuck_total')
+            const janitor = createJanitor({
+                pool: { dbUrl: `${DB_URL}?application_name=${applicationName}` },
+                cleanupIntervalMs: 10,
+                stuckRunAfterMs: 200,
+            })
+            const started = janitor.start()
+            try {
+                await waitForExpect(async () => expect(await janitorQueriesRunning()).toBeGreaterThanOrEqual(2), 3000)
+                expect(await counterValue('cdp_cyclotron_v2_janitor_runs_stuck_total')).toBeGreaterThan(stuckBefore)
+            } finally {
+                await blocker.query('COMMIT')
+                blocker.release()
+                await started
+                await janitor.stop()
+            }
+        })
+
         // Backoff on the reset job's next scheduled time, keyed on
         // janitor_touch_count. The FIRST stall retries within the small jittered
         // spread (~5s), not the full base — the exponential term is shifted

@@ -225,6 +225,10 @@ const isAttachmentLoadFailure = (error: unknown): boolean =>
 const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
     invocation.queueMetadata?.attachmentLoadRetries ?? 0
 
+function pickOwnershipCheckRetryDelayMs(): number {
+    return 1_000 + Math.floor(Math.random() * 1_000)
+}
+
 function pickAttachmentLoadRetryDelayMs(retries: number): number {
     return Math.min(1_000 * retries + Math.floor(Math.random() * 1_000), 60_000)
 }
@@ -923,8 +927,13 @@ export class EmailService {
                 })
                 result.finished = false
                 result.invocation.queueParameters = params
-                result.invocation.queueMetadata = invocation.queueMetadata
-                result.invocation.queueScheduledAt = DateTime.utc()
+                result.invocation.queueMetadata = {
+                    ...invocation.queueMetadata,
+                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({
+                    milliseconds: pickOwnershipCheckRetryDelayMs(),
+                })
                 return result
             }
 

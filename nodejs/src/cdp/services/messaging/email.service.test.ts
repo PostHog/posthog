@@ -1695,6 +1695,27 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
+                it('charges it once, and waits before the retry, when the ownership check of the first try fails', async () => {
+                    const emailService = sender({ teamDailyCap: 2 })
+                    let checkFails = true
+                    emailService.checkJobOwnershipBeforeSend(() =>
+                        checkFails
+                            ? Promise.reject(new Error('Connection terminated unexpectedly'))
+                            : Promise.resolve(true)
+                    )
+
+                    const retried = await emailService.executeSendEmail(invocation)
+                    checkFails = false
+                    expect(retried.finished).toBe(false)
+                    expect(retried.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+                    await untilDue(retried.invocation.queueScheduledAt!)
+                    const result = await emailService.executeSendEmail(retried.invocation)
+
+                    expect(result.finished).toBe(true)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                    expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
+                })
+
                 it('keeps a retry that pacing denies queued with its budget paid, and sends it once pacing lets it', async () => {
                     const emailService = sender({ teamDailyCap: 2 })
                     invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 30, period: 'minute' } }
