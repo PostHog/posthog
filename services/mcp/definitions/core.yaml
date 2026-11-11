@@ -76,10 +76,10 @@ tools:
         title: Move a project tree entry
         description: >
             Move a project tree entry, such as an insight, dashboard, notebook or folder, to a new path. This is the
-            same move as dragging an item in the folder sidebar. Get the entry `id` from file-system-list.
-            `new_path` is the full new path including the item's own name, such as `Experiments/Q4/Weekly signups`;
-            to keep the name, reuse the last segment of the entry's current `path`. Missing parent folders are
-            created. Moving a folder moves everything inside it.
+            same move as dragging an item in the folder sidebar. Get the entry `id` from file-system-list. `new_path` is
+            the full new path including the item's own name, such as `Experiments/Q4/Weekly signups`; to keep the name,
+            reuse the last segment of the entry's current `path`. Missing parent folders are created. Moving a folder
+            moves everything inside it.
         response:
             include:
                 - id
