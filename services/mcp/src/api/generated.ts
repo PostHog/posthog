@@ -95017,6 +95017,11 @@ export namespace Schemas {
     }
 
     /**
+     * The condition the check was evaluated against, as it was then, so its value reads in that condition's unit. Empty for a change.
+     */
+    export type PlatformAlertEventCondition = { [key: string]: unknown };
+
+    /**
      * * `check` - Check
      * * `enable` - Enable
      * * `disable` - Disable
@@ -95077,6 +95082,10 @@ export namespace Schemas {
          * @nullable
          */
       error_message: string | null;
+      /** Key of the group a check moved, as the grouping_key of the alert's instances. Empty for a change, or for an alert that does not group. */
+      grouping_key: string;
+      /** The condition the check was evaluated against, as it was then, so its value reads in that condition's unit. Empty for a change. */
+      condition: PlatformAlertEventCondition;
     }
 
     export interface PlatformAlertGroupSnooze {

@@ -446,6 +446,31 @@ def control_changes_by_public_id(
     return platform_alert_events.control_changes(team_id, platform_id, kinds=kinds, limit=limit)
 
 
+def alert_list_history(
+    *, team_id: int, configuration_ids: Collection[UUID], since: datetime, until: datetime
+) -> tuple[dict[UUID, PlatformLastCheck], dict[UUID, PlatformAlertHistory], dict[UUID, PlatformControlHistory]]:
+    """What an alert list shows of each configuration's checks, keyed by configuration id: its newest
+    check, its state changes in `[since, until)` across every group, and its control-plane changes."""
+    return (
+        platform_alert_events.last_checks(team_id, configuration_ids, all_groups=True),
+        platform_alert_events.history(team_id, configuration_ids, since=since, until=until, all_groups=True),
+        platform_alert_events.control_history(team_id, configuration_ids, since=since, until=until),
+    )
+
+
+def alert_events(
+    *, team_id: int, configuration_id: UUID, since: datetime, limit: int
+) -> tuple[PlatformCheckEventPage, PlatformControlChangePage]:
+    """A configuration's checks across every group that moved its state or failed since `since`, and
+    its control-plane changes since then, each newest first."""
+    return (
+        platform_alert_events.notable_checks(team_id, configuration_id, since=since, limit=limit, all_groups=True),
+        platform_alert_events.control_changes(
+            team_id, configuration_id, kinds=tuple(ControlChangeKind), limit=limit, since=since
+        ),
+    )
+
+
 def control_history_by_public_id(
     *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
 ) -> dict[UUID, PlatformControlHistory]:

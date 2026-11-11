@@ -437,6 +437,8 @@ class PlatformStateChange:
     occurred_at: datetime
     previous_state: PlatformAlertState
     state: PlatformAlertState
+    # The group whose state moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen
@@ -498,6 +500,8 @@ class PlatformCheckEvent:
     condition: dict[str, Any]
     query_duration_ms: int | None
     error_message: str | None
+    # The group the check moved. Empty for an alert that does not group.
+    grouping_key: str = ""
 
 
 @frozen

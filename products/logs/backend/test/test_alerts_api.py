@@ -2517,6 +2517,8 @@ class TestLogsAlertAPI(APIBaseTest):
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
             return self.client.post(f"/api/projects/{team_id or self.team.id}/platform_alerts/", body, format="json")
 
+    # The response's 24-hour state bar ends at the request's time, so the create and the read share one clock.
+    @time_machine.travel("2026-01-01T23:00:00Z", tick=False)
     def test_the_platform_api_creates_both_rows_with_every_default_stored(self) -> None:
         response = self._create_on_the_platform(
             {
