@@ -147,7 +147,10 @@ export function loadDatabaseConfig(): DatabaseConfig | undefined {
     const migrateUrl = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
     if (migrateUrl) {
         try {
-            database.migrateUser = decodeURIComponent(new URL(migrateUrl).username) || undefined
+            const migrateUser = decodeURIComponent(new URL(migrateUrl).username)
+            if (migrateUser) {
+                database.migrateUser = migrateUser
+            }
         } catch {
             throw new Error('CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL is not a valid URL')
         }
