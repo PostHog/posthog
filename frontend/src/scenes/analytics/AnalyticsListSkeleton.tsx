@@ -14,7 +14,7 @@ const COLUMN_LABELS: Record<string, string> = {
 export function AnalyticsListSkeleton({ columns }: { columns: AnalyticsListColumns }): JSX.Element {
     return (
         <div aria-busy aria-label="Loading analytics">
-            <Table fullWidth size="sm" className="**:data-expand:min-w-64 **:data-expand:max-w-0">
+            <Table fullWidth size="sm" className="**:data-expand:min-w-54 **:data-expand:max-w-0">
                 <TableHeader>
                     <TableRow>
                         <TableHead>

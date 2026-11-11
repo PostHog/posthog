@@ -352,7 +352,8 @@ export function analyticsListColumns({
     return [
         {
             id: 'name',
-            minSize: 256,
+            // With the 40px checkbox column, the leading pair needs 256px, so narrow scenes don't scroll sideways.
+            minSize: 216,
             header: 'Title',
             meta: { expand: true },
             enableSorting: false,
