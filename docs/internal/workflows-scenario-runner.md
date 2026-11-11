@@ -17,7 +17,7 @@ pnpm --filter=@posthog/nodejs scenarios run smoke
 ```
 
 - A card is an id, resolved to `nodejs/tests/scenarios/cards/<id>.yaml`, or a path to a YAML file.
-- Several cards run one after the other on one stack: `scenarios run smoke email-worker-killed`.
+- Several cards run one after the other on one stack: `scenarios run <card> <card>...`. Every card must load before any runs.
 - `--profile <file>` runs the cards with a profile from outside the repository instead of the shipped `synthetic` profile.
 
 For each card the runner prints its status and reason, its evidence directory, and whether the scorecard was recorded.
@@ -171,6 +171,7 @@ The first slice is local only, on real time.
 ### First cards
 
 Each card is drawn from a failure class on the delivery path.
+`smoke` ships with the runner; each other card lands with the valves and traffic kinds it uses, and only cards in `cards/` can run.
 
 | Card                     | Traffic                                               | Valves                                                            | Invariants                                                                | Failure class                                |
 | ------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------- |
@@ -431,7 +432,7 @@ export interface Runner {
 - **Order.** `run` calls `reset`, `seed`, `Judge.open`, then `drive` and `Valves.start` together, `Valves.releaseAll`, `converge`, `check` and `measure`, writes the evidence, and publishes the scorecard.
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
 - **Status rules.**
-  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, the generator offered less than `minOffered` of its target load or could not offer a unit its traffic kind requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
+  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, the intake accepted fewer than `minOffered` of the target units before the drive ended, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a `role.kill` causing it, even if every delivery later arrives.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back, or when the scorecard files could not be written.
@@ -560,8 +561,8 @@ export function drive(
 - **Seed.** Each card seeds its own teams, so checks scope by team, and one verified email integration per team, which every send needs. Each traffic kind builds its flow with `FixtureHogFlowBuilder`; `insertHogFlow` writes it, skipping Django's validation, so the seed compiles each step's inputs with `compileHog` as Django would. Email steps read the recipient from event properties, because the hogflow worker resolves the person again from storage, and a missing person does not stop the flow.
 - **Intakes.** Events go to the topic the events consumer reads. Transactional sends go to cdp-api's template route.
 - **Pacing.** Each traffic kind offers `ratePerSecond` units for the drive's duration, from its profile entry. Sampling uses the card's `seed`, so two runs of one card offer the same sequence of units.
-- **No retries.** Every call, its answer and its expected deliveries are recorded, refusals included. A call that gets no answer is recorded as a transport error and still counts as offered.
-- **Load.** `offeredUnits / targetUnits` is the share the generator offered on schedule, whatever the intake answered. A broken intake does not make a run `invalid`; a generator that cannot keep up does.
+- **No retries.** Every call, its answer and its expected deliveries are recorded, refusals included. A call that gets no answer is recorded as a transport error.
+- **Load.** `offeredUnits` counts the units the intake accepted before the drive ended. A refusal, a transport error, or an answer after the drive's end does not count, so a generator that falls behind and an intake that refuses or stalls enough units both make the run `invalid`.
 - **Waits.** A traffic kind that needs an earlier delivery first reads the edge's truth with a bound. When the bound passes, the unit is recorded as not offered and the run is `invalid`.
 
 ### Judge
@@ -678,7 +679,7 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 | `ended_at`        | string          | ISO 8601 time the run ended, also the event's timestamp                                              |
 | `duration_s`      | number          | Seconds from start to end                                                                            |
 | `units_target`    | number or null  | Units the profile asked for                                                                          |
-| `units_offered`   | number or null  | Units the generator offered on schedule                                                              |
+| `units_offered`   | number or null  | Units the intake accepted before the drive ended                                                     |
 | `converged`       | boolean or null | Whether the stack converged within `convergeWithin`                                                  |
 | `unfinished_jobs` | number or null  | Jobs still unfinished when convergence ended                                                         |
 | `valve_timeline`  | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error |
