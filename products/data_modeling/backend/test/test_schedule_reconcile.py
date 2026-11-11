@@ -935,27 +935,30 @@ class TestMaybeReconcileDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("self_hosted_never_loads_definitions", False, False, None, True),
-            ("cloud_with_the_sdk_disabled", True, True, None, True),
-            ("cloud_with_definitions_that_failed_to_load", True, False, None, False),
-            ("cloud_with_empty_definitions", True, False, [], False),
-            ("cloud_after_the_flag_was_deleted", True, False, [{"key": "other-flag"}], True),
-            ("cloud_with_a_flag_it_could_not_evaluate", True, False, [{"key": REFRESH_FLOOR_FLAG}], True),
+            ("self_hosted_never_loads_definitions", False, False, None, True, False),
+            ("cloud_with_the_sdk_disabled", True, True, None, True, False),
+            ("cloud_with_definitions_that_failed_to_load", True, False, None, False, False),
+            ("cloud_with_empty_definitions", True, False, [], False, False),
+            ("cloud_after_the_flag_was_deleted", True, False, [{"key": "other-flag"}], True, False),
+            ("cloud_with_a_flag_it_could_not_evaluate", True, False, [{"key": REFRESH_FLOOR_FLAG}], True, True),
         ]
     )
     def test_no_flag_result_only_refuses_when_definitions_failed_to_load(
-        self, _name, cloud, disabled, definitions, evaluated
+        self, _name, cloud, disabled, definitions, evaluated, reported
     ):
         with (
             mock.patch(FLAG_RESULT, return_value=None),
             mock.patch(f"{REFRESH_FLOOR}.run_mode", return_value=mock.Mock(is_deployed_cloud=cloud)),
             mock.patch(f"{REFRESH_FLOOR}.posthoganalytics.disabled", disabled),
             mock.patch(f"{REFRESH_FLOOR}.posthoganalytics.feature_flag_definitions", return_value=definitions),
+            mock.patch(f"{REFRESH_FLOOR}._reported_floor_errors", set()),
+            mock.patch(f"{REFRESH_FLOOR}.capture_exception") as capture,
         ):
             reading = read_organization_plan_refresh_floor(self.organization)
 
         self.assertIsNone(reading.floor)
         self.assertEqual(reading.evaluated, evaluated)
+        self.assertEqual(capture.called, reported)
 
     @parameterized.expand(
         [

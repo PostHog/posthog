@@ -9,7 +9,8 @@ than the floor. With `clamp_existing` false only new and
 changed cadences are held to the floor, and views already set faster keep running at their setting.
 With it true the scheduler also runs those views at the floor, and an endpoint keeps serving such a
 view's table for the floor's interval, because the table cannot refresh sooner. A view's saved cadence
-is never rewritten in either case, so turning the flag off restores every schedule.
+is never rewritten in either case, so turning the flag off restores every schedule. A flag change reaches a
+view's running schedule only when its DAG is reconciled again.
 """
 
 import json
@@ -54,6 +55,11 @@ class InvalidRefreshFloor(ValueError):
     pass
 
 
+class RefreshFloorFlagInconclusive(Exception):
+    def __init__(self) -> None:
+        super().__init__(f"{REFRESH_FLOOR_FLAG} has conditions a local read can't evaluate, so no floor applies")
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class PlanRefreshFloorReading:
     floor: PlanRefreshFloor | None
@@ -85,7 +91,7 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
             send_feature_flag_events=False,
         )
         if result is None:
-            return PlanRefreshFloorReading(floor=None, evaluated=_no_result_means_no_floor())
+            return PlanRefreshFloorReading(floor=None, evaluated=_no_result_means_no_floor(organization_id))
         if not result.enabled:
             return PlanRefreshFloorReading(floor=None, evaluated=True)
         min_interval = _plan_min_interval(organization)
@@ -98,17 +104,23 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
     except InvalidRefreshFloor as error:
         # The flag payload and the billing feature limit are both set by hand, and neither is checked against
         # the cadences a view can run at. Report a value the code cannot use, so the person who set it hears
-        # about it. Every graph build reads the floor, so each bad value is reported once per process.
-        if str(error) not in _reported_floor_errors:
-            _reported_floor_errors.add(str(error))
-            capture_exception(error, {"flag": REFRESH_FLOOR_FLAG, "organization_id": organization_id})
+        # about it.
+        _report_once(error, organization_id)
         return PlanRefreshFloorReading(floor=None, evaluated=False)
     except Exception:
         logger.warning("refresh_floor_flag_evaluation_failed", organization_id=organization_id, exc_info=True)
         return PlanRefreshFloorReading(floor=None, evaluated=False)
 
 
-def _no_result_means_no_floor() -> bool:
+def _report_once(error: Exception, organization_id: str) -> None:
+    """Every graph build reads the floor, so report each distinct problem once per process."""
+    if str(error) in _reported_floor_errors:
+        return
+    _reported_floor_errors.add(str(error))
+    capture_exception(error, {"flag": REFRESH_FLOOR_FLAG, "organization_id": organization_id})
+
+
+def _no_result_means_no_floor(organization_id: str) -> bool:
     """Tell an instance with no floor from a failed read, because the SDK returns no result for both.
 
     On deployed cloud, a process with the SDK enabled but no definitions failed to load them, so a
@@ -117,7 +129,8 @@ def _no_result_means_no_floor() -> bool:
 
     With definitions loaded, no result means the flag was deleted or its conditions need data this
     read does not send. That reads as no floor, so that one flag edit cannot block saves and
-    reconciles for every organization until someone edits it again.
+    reconciles for every organization until someone edits it again. It is reported, because it turns
+    the floor off everywhere.
     """
     if not run_mode().is_deployed_cloud or posthoganalytics.disabled:
         return True
@@ -125,7 +138,7 @@ def _no_result_means_no_floor() -> bool:
     if not definitions:
         return False
     if any(flag.get("key") == REFRESH_FLOOR_FLAG for flag in definitions):
-        logger.warning("refresh_floor_flag_inconclusive", flag=REFRESH_FLOOR_FLAG)
+        _report_once(RefreshFloorFlagInconclusive(), organization_id)
     return True
 
 
