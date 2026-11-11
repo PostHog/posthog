@@ -547,23 +547,30 @@ class TestBillingManager(BaseTest):
 
     @parameterized.expand(
         [
-            ("limit_lowered", 60, [_refresh_interval(15)], True),
-            ("first_limit_queues_nothing", None, [_refresh_interval(30)], False),
-            ("feature_revoked", 30, [{"key": "alerts", "name": "Alerts"}], True),
-            ("other_feature_changed", 30, [_refresh_interval(30), {"key": "alerts", "name": "Alerts"}], False),
-            ("partial_response_keeps_the_features", 30, [], False),
+            ("limit_lowered", 60, [_refresh_interval(15)], False, True),
+            ("first_limit_queues_nothing", None, [_refresh_interval(30)], False, False),
+            ("limit_granted_while_the_flag_clamps", None, [_refresh_interval(30)], True, True),
+            ("feature_revoked", 30, [{"key": "alerts", "name": "Alerts"}], False, True),
+            ("other_feature_changed", 30, [_refresh_interval(30), {"key": "alerts", "name": "Alerts"}], False, False),
+            ("partial_response_keeps_the_features", 30, [], False, False),
         ]
     )
     def test_update_org_details_reconciles_refresh_schedules_when_the_refresh_interval_changes(
-        self, _name: str, stored_limit: int | None, features: list[dict], expect_reconcile: bool
+        self, _name: str, stored_limit: int | None, features: list[dict], clamping: bool, expect_reconcile: bool
     ) -> None:
         organization = self.organization
         organization.available_product_features = [] if stored_limit is None else [_refresh_interval(stored_limit)]
         organization.save()
         delay_path = "products.data_modeling.backend.tasks.reconcile_organization_schedules.reconcile_organization_schedules.delay"
+        flag_path = "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result"
+        flag = MagicMock(enabled=True, payload={"clamp_existing": True}) if clamping else None
         status = cast(BillingStatus, {"customer": {"available_product_features": features}})
 
-        with patch(delay_path) as delay, self.captureOnCommitCallbacks(execute=True):
+        with (
+            patch(delay_path) as delay,
+            patch(flag_path, return_value=flag),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             BillingManager(license=None).update_org_details(organization, status)
         assert delay.call_args_list == ([call(str(organization.id))] if expect_reconcile else [])
 
