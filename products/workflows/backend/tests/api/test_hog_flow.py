@@ -5248,6 +5248,16 @@ class TestHogFlowAPI(APIBaseTest):
                 {"type": "AND", "values": [{"type": "AND", "values": [{"type": "person", "operator": "exact"}]}]},
                 "An audience filter is incomplete. Finish it or remove it.",
             ),
+            (
+                "emptied_multi_select",
+                [{"key": "email", "type": "person", "value": [], "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "emptied_negated_multi_select_in_group",
+                {"type": "AND", "values": [{"key": "plan", "type": "person", "value": [], "operator": "is_not"}]},
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
         ]
     )
     def test_hog_flow_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
@@ -5259,6 +5269,17 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert message in response.json().get("detail", "")
+
+    @parameterized.expand([("is_set",), ("is_not_set",)])
+    def test_hog_flow_user_blast_radius_counts_a_valueless_operator_with_an_empty_value(self, operator):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": [{"key": "email", "type": "person", "value": [], "operator": operator}]}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert "affected" in response.json()
 
     @parameterized.expand(
         [
