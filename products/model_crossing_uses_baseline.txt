@@ -534,7 +534,6 @@ product_analytics.Insight posthog.caching.calculate_results isinstance 1
 product_analytics.Insight posthog.caching.warming instance-single 1
 product_analytics.Insight posthog.helpers.dashboard_templates write(create) 2
 product_analytics.Insight posthog.management.commands.backfill_insights_query_metadata instance-many(filter) 1
-product_analytics.Insight posthog.management.commands.backfill_insights_query_metadata write(bulk_update) 1
 product_analytics.Insight posthog.management.commands.migrate_retention_show_mean instance-many(filter) 1
 product_analytics.Insight posthog.middleware instance-many(filter) 1
 product_analytics.Insight posthog.models.file_system.unfiled_file_saver in-collection 1
