@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from email.utils import parseaddr
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, NoReturn, Protocol
 from uuid import UUID
 
 from django.db import connection, transaction
@@ -846,23 +846,18 @@ def _queue(
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is None and response.status_code == 400:
             refusal = PIPELINE_REFUSALS["invalid_request"]
-        if refusal is None or refusal[0] is InvalidRequest:
-            logger.error(
-                "transactional_email_queue_rejected",
-                team_id=team_id,
-                hog_flow_id=str(hog_flow_id),
-                status_code=response.status_code,
-                refusal_code=refusal_code,
-            )
-        if refusal is None:
-            raise DeliveryUnavailable()
-        error_class, message = refusal
-        if "{setup_url}" in message:
+        if refusal is not None and "{setup_url}" in refusal[1]:
             setup_url = sandbox_warning.setup_url if sandbox_warning else sending_domain_setup(team_id).setup_url
-            message = message.format(setup_url=setup_url)
-        error = error_class(message)
-        error.attachment_bytes = _attachment_bytes(answer)
-        raise error
+            refusal = (refusal[0], refusal[1].format(setup_url=setup_url))
+        raise_refusal(
+            refusal,
+            log_event="transactional_email_queue_rejected",
+            team_id=team_id,
+            hog_flow_id=hog_flow_id,
+            status_code=response.status_code,
+            refusal_code=refusal_code,
+            attachment_bytes=_attachment_bytes(answer),
+        )
 
     sent_from_sandbox = answer.get("sender_kind") == SANDBOX_SENDER_KIND
     replayed = bool(answer.get("replayed", False))
@@ -874,6 +869,42 @@ def _queue(
         attachment_bytes=_attachment_bytes(answer),
         warnings=(sandbox_warning,) if sandbox_warning and sent_from_sandbox else (),
     )
+
+
+def raise_refusal(
+    refusal: tuple[type[TransactionalEmailError], str] | None,
+    *,
+    log_event: str,
+    team_id: int,
+    hog_flow_id: UUID,
+    status_code: int,
+    refusal_code: str | None,
+    attachment_bytes: int | None = None,
+) -> NoReturn:
+    """Raise the error for a send the CDP service did not queue. An unknown refusal is retryable."""
+    if refusal is None or refusal[0] is InvalidRequest:
+        logger.error(
+            log_event,
+            team_id=team_id,
+            hog_flow_id=str(hog_flow_id),
+            status_code=status_code,
+            refusal_code=refusal_code,
+        )
+    if refusal is None:
+        raise DeliveryUnavailable()
+    error_class, message = refusal
+    error = error_class(message)
+    error.attachment_bytes = attachment_bytes
+    raise error
+
+
+def queued_send(response: requests.Response) -> QueuedEmail:
+    answer = _answer(response)
+    return QueuedEmail(message_id=str(answer["invocation_id"]), replayed=bool(answer.get("replayed", False)))
+
+
+def refusal_code_of(response: requests.Response) -> str | None:
+    return _refusal_code(_answer(response))
 
 
 def _attachment_refusal(refusal_code: str | None, answer: dict[str, Any]) -> TransactionalEmailError | None:

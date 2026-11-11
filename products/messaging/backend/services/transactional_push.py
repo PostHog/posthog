@@ -26,6 +26,9 @@ from products.messaging.backend.services.transactional_email import (
     IDEMPOTENCY_KEY_PATTERN,
     TransactionalTemplate,
     check_sendable,
+    queued_send,
+    raise_refusal,
+    refusal_code_of,
 )
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 
@@ -79,22 +82,17 @@ def send_transactional_push(
         logger.exception("transactional_push_queue_failed", team_id=team.id, hog_flow_id=str(hog_flow_id))
         raise DeliveryUnavailable() from e
     if response.status_code != 202:
-        refusal_code = _refusal_code(response)
+        refusal_code = refusal_code_of(response)
         refusal = PUSH_REFUSALS.get(refusal_code or "")
-        if refusal is None or refusal[0] is InvalidRequest:
-            logger.error(
-                "transactional_push_queue_rejected",
-                team_id=team.id,
-                hog_flow_id=str(hog_flow_id),
-                status_code=response.status_code,
-                refusal_code=refusal_code,
-            )
-        if refusal is None:
-            raise DeliveryUnavailable()
-        error_class, message = refusal
-        raise error_class(message)
-    body = response.json()
-    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+        raise_refusal(
+            refusal,
+            log_event="transactional_push_queue_rejected",
+            team_id=team.id,
+            hog_flow_id=hog_flow_id,
+            status_code=response.status_code,
+            refusal_code=refusal_code,
+        )
+    return queued_send(response)
 
 
 def _transactional_push_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
@@ -116,12 +114,3 @@ def _transactional_push_workflow_id(team_id: int, template: TransactionalTemplat
     if workflow.status != "active":
         raise TransactionalPushPaused("This push notification's workflow isn't active. Turn it back on to send.")
     return template.transactional_hog_flow_id
-
-
-def _refusal_code(response: Any) -> str | None:
-    try:
-        body = response.json()
-    except ValueError:
-        return None
-    code = body.get("error") if isinstance(body, dict) else None
-    return code if isinstance(code, str) else None
