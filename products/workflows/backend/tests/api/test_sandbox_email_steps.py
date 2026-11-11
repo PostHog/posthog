@@ -15,6 +15,8 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
+from common.hogvm.python.execute import execute_bytecode
+
 SANDBOX_STEP_ID = "action_email_sandbox_1"
 OWN_EMAIL_STEP_ID = "action_function_email_1"
 
@@ -63,6 +65,24 @@ def _sandbox_step(subject: str = "Hello") -> dict[str, Any]:
             },
         },
     }
+
+
+def _hog_sandbox_step(subject: str = "Hello", text: str = "Hello from our workflow.") -> dict[str, Any]:
+    step = _sandbox_step(subject)
+    email = step["config"]["inputs"]["email"]
+    email["templating"] = "hog"
+    email["value"].update(to={"email": "{person.properties.email}", "name": ""}, text=text)
+    return step
+
+
+def _stored_email(flow_id: str) -> dict[str, Any]:
+    return HogFlow.objects.get(id=flow_id).actions[1]["config"]["inputs"]["email"]
+
+
+def _render(compiled: Any, globals: dict[str, Any]) -> Any:
+    if isinstance(compiled, dict):
+        return {key: _render(field, globals) for key, field in compiled.items()}
+    return execute_bytecode(compiled, globals).result
 
 
 def _own_email_step(sender_id: int) -> dict[str, Any]:
@@ -130,9 +150,26 @@ class TestSandboxEmailSteps(APIBaseTest):
             flow = HogFlow.objects.get(id=response.json()["id"])
             assert flow.status == status
             assert flow.actions[1]["type"] == "email_sandbox"
-            assert "bytecode" not in flow.actions[1]["config"]["inputs"]["email"]
         else:
             assert "sandbox sender isn't available" in response.json()["detail"]
+
+    def test_a_saved_hog_step_sends_its_own_template_not_client_bytecode(self) -> None:
+        with _flag(True), _runtime(True):
+            forged_source = self.client.post(
+                self._url(), _flow(_hog_sandbox_step(subject="Forged", text="Forged text")), format="json"
+            )
+            forged_email = _stored_email(forged_source.json()["id"])
+            step = _hog_sandbox_step()
+            step["config"]["inputs"]["email"].update(
+                {key: forged_email[key] for key in ("bytecode", "input_deps", "bytecode_contract")}
+            )
+            response = self.client.post(self._url(), _flow(step, status="active"), format="json")
+
+        assert response.status_code == 201, response.json()
+        rendered = _render(
+            _stored_email(response.json()["id"])["bytecode"], {"person": {"properties": {"email": "ada@example.com"}}}
+        )
+        assert (rendered["subject"], rendered["text"]) == ("Hello", "Hello from our workflow.")
 
     def _try_to_run(self, path: str):
         if path == "create_active":

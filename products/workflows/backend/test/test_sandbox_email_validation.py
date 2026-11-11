@@ -74,15 +74,29 @@ _RENDERED_DEFAULTS = {
 
 
 class TestSandboxEmailActionValidation(SimpleTestCase):
-    def test_accepts_a_liquid_step_and_drops_client_bytecode(self) -> None:
-        action = _action()
-        action["config"]["inputs"]["email"]["bytecode"] = ["_H", 1, 32, "forged"]
+    def test_a_liquid_step_keeps_its_template_for_the_worker(self) -> None:
+        cleaned = _validate(_action())
 
-        cleaned = _validate(action)
-
-        email = cleaned["config"]["inputs"]["email"]
-        assert email == {"templating": "liquid", "value": _action()["config"]["inputs"]["email"]["value"]}
+        assert cleaned["config"]["inputs"]["email"]["value"] == _action()["config"]["inputs"]["email"]["value"]
         assert cleaned["config"]["message_category_type"] == "marketing"
+
+    def test_a_forged_client_bytecode_never_reaches_the_rendered_email(self) -> None:
+        recipient = {"email": "{person.properties.email}", "name": ""}
+        forged_step = _action(to=recipient, subject="Forged", text="Forged text")
+        forged_step["config"]["inputs"]["email"]["templating"] = "hog"
+        forged = _validate(forged_step)["config"]["inputs"]["email"]
+        action = _action(to=recipient)
+        action["config"]["inputs"]["email"].update(
+            templating="hog",
+            bytecode=forged["bytecode"],
+            input_deps=forged["input_deps"],
+            bytecode_contract=forged["bytecode_contract"],
+        )
+
+        email = _validate(action)["config"]["inputs"]["email"]
+
+        rendered = _render(email["bytecode"], {"person": {"properties": {"email": "ada@example.com"}}})
+        assert (rendered["subject"], rendered["text"]) == ("Hello", "Hello from our workflow.")
 
     @parameterized.expand(
         [
