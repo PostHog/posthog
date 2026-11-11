@@ -7,6 +7,7 @@ from posthog.schema import (
     AccountActivityMatrixColumn,
     AccountActivityMatrixQuery,
     AccountAgentActivityQuery,
+    AccountTopPagesQuery,
     BookActivityFirstsQuery,
     BookActivityMatrixQuery,
     BookActivityPeopleQuery,
@@ -31,6 +32,7 @@ class ActivityQueryRunner(AnalyticsQueryRunner[AR], Generic[AR]):
     query: (
         AccountActivityMatrixQuery
         | AccountAgentActivityQuery
+        | AccountTopPagesQuery
         | BookActivityMatrixQuery
         | BookActivityPeopleQuery
         | BookActivityFirstsQuery

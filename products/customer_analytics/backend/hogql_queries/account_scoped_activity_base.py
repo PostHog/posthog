@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 from functools import cached_property
 from typing import Generic
 
-from posthog.schema import AccountActivityMatrixColumn, AccountAgentActivityQuery
+from posthog.schema import AccountActivityMatrixColumn, AccountAgentActivityQuery, AccountTopPagesQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -26,7 +26,7 @@ MAX_WEEKS = 26
 class AccountScopedActivityQueryRunner(ActivityQueryRunner[AR], Generic[AR]):
     """One account's events over whole weeks, behind the same access checks as the account activity matrix."""
 
-    query: AccountAgentActivityQuery
+    query: AccountAgentActivityQuery | AccountTopPagesQuery
 
     def validate_query_runner_access(self, user: User) -> bool:
         get_account_activity_account(team=self.team, user=user, account_id=self.query.accountId)

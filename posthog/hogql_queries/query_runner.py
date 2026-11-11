@@ -43,6 +43,7 @@ from posthog.schema import (
     AccountAgentActivityQuery,
     AccountsQuery,
     AccountsTableQuery,
+    AccountTopPagesQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BookActivityFirstsQuery,
@@ -714,6 +715,7 @@ RunnableQueryNode = Union[
     AccountsTableQuery,
     AccountActivityMatrixQuery,
     AccountAgentActivityQuery,
+    AccountTopPagesQuery,
     BookActivityMatrixQuery,
     BookActivityPeopleQuery,
     BookActivityFirstsQuery,
@@ -1782,6 +1784,18 @@ def get_query_runner(
         from products.customer_analytics.backend.facade.queries import AccountAgentActivityQueryRunner
 
         return AccountAgentActivityQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountTopPagesQuery":
+        from products.customer_analytics.backend.facade.queries import AccountTopPagesQueryRunner
+
+        return AccountTopPagesQueryRunner(
             query=query,
             team=team,
             timings=timings,

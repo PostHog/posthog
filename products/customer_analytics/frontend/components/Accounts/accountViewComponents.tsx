@@ -26,6 +26,7 @@ import { AccountSessionReplays } from './AccountSessionReplays'
 import { getAccountSqlQuery, getAccountSqlQueryConfigError } from './accountSqlQuery'
 import { AccountSqlQueryTile } from './AccountSqlQueryTile'
 import { AccountSqlQueryTileConfiguration } from './AccountSqlQueryTileConfiguration'
+import { AccountTopPagesWidget } from './AccountTopPagesWidget'
 import { AccountUsersTable } from './AccountUsersTable'
 import type {
     AccountViewTileConfig,
@@ -55,6 +56,7 @@ export type AccountViewComponentKind =
     | 'dot_matrix'
     | 'sql_query'
     | 'agent_activity'
+    | 'top_pages'
 
 interface AccountViewComponentBase {
     tagName: string
@@ -80,7 +82,7 @@ export interface AccountSystemTabDefinition extends AccountViewComponentBase {
 export type AccountViewComponentDefinition =
     | AccountSystemTabDefinition
     | (AccountViewComponentBase & {
-          kind: 'properties' | 'session_replays' | 'dot_matrix' | 'sql_query' | 'agent_activity'
+          kind: 'properties' | 'session_replays' | 'dot_matrix' | 'sql_query' | 'agent_activity' | 'top_pages'
           systemTabId?: never
       })
 
@@ -188,6 +190,13 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
         label: 'Agent activity',
         featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_PRODUCT_USAGE,
         Component: (props) => <AccountAgentActivityWidget accountId={props.accountId} {...getTileLogicProps(props)} />,
+    },
+    {
+        kind: 'top_pages',
+        tagName: 'TopPages',
+        label: 'Top pages',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_PRODUCT_USAGE,
+        Component: (props) => <AccountTopPagesWidget accountId={props.accountId} {...getTileLogicProps(props)} />,
     },
     {
         kind: 'notes',

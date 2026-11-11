@@ -361,11 +361,6 @@ def product_expr() -> ast.Expr:
     )
     duration = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", "$prev_pageview_duration"])])
     play_time = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", "play_time_ms"])])
-    page_product: list[ast.Expr] = []
-    for product in POSTHOG_PRODUCTS:
-        if product.sections:
-            page_product.extend([in_values(section, product.sections), ast.Constant(value=product.key)])
-    page_product.append(ast.Constant(value=""))
     branches: list[ast.Expr] = [
         ast.And(
             exprs=[
@@ -373,7 +368,7 @@ def product_expr() -> ast.Expr:
                 _between(duration, ENGAGED_SECONDS, ENGAGED_MAX_SECONDS),
             ]
         ),
-        ast.Call(name="multiIf", args=page_product),
+        section_product_expr(section),
         ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -395,6 +390,16 @@ def product_expr() -> ast.Expr:
     for product in POSTHOG_PRODUCTS:
         if product.actions:
             branches.extend([in_values(ast.Field(chain=["event"]), product.actions), ast.Constant(value=product.key)])
+    branches.append(ast.Constant(value=""))
+    return ast.Call(name="multiIf", args=branches)
+
+
+def section_product_expr(section: ast.Expr) -> ast.Expr:
+    """The product that owns a page section, such as `insights`, or an empty string."""
+    branches: list[ast.Expr] = []
+    for product in POSTHOG_PRODUCTS:
+        if product.sections:
+            branches.extend([in_values(section, product.sections), ast.Constant(value=product.key)])
     branches.append(ast.Constant(value=""))
     return ast.Call(name="multiIf", args=branches)
 

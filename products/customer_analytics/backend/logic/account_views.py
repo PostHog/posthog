@@ -44,6 +44,7 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "DotMatrix": "Dot matrix",
     "SqlQuery": "SQL query",
     "AgentActivity": "Agent activity",
+    "TopPages": "Top pages",
 }
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
