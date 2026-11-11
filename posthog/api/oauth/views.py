@@ -110,6 +110,7 @@ from posthog.models.oauth import (
     revoke_oauth_session,
     revoke_oauth_token_family,
 )
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
     clamp_scopes_to_ceiling,
@@ -1964,6 +1965,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             scopes = downgrade_scopes_to_read_only(scopes)
 
         if serializer.validated_data["allow"] and requests_ema_issuer(scopes):
+            if not TimeSensitiveActionPermission().has_permission(request, self):
+                raise PermissionDenied(
+                    detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code
+                )
             try:
                 validate_ema_grant(
                     request.user,

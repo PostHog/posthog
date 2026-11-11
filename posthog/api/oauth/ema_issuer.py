@@ -55,7 +55,7 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig
+from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, lock_id_jag_issuer
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAccessLevel
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -191,7 +191,12 @@ def validate_ema_grant(
 
 def _normalize_issuer(value: str) -> str:
     issuer = value.rstrip("/")
-    parts = urlsplit(issuer)
+    try:
+        parts = urlsplit(issuer)
+        # `urlsplit` checks the port only when it is read.
+        parts.port  # noqa: B018
+    except ValueError:
+        raise EmaSetupError("invalid_request", "ema_issuer is not a valid URL.")
     if (
         parts.scheme != "https"
         or not parts.hostname
@@ -243,7 +248,8 @@ def register_ema_issuer(access_token: OAuthAccessToken, raw_issuer: str) -> EmaR
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 [f"ema-registration:{organization.id}:{application.pk}"],
             )
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"ema-issuer:{issuer}"])
+
+        lock_id_jag_issuer(issuer)
 
         own_config = (
             IdentityProviderConfig.objects.select_for_update()

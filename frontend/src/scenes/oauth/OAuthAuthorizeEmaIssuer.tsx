@@ -10,9 +10,25 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 
-import type { OAuthEmaIssuerConsent } from '~/types'
+import type { OAuthEmaIssuerConsent, OAuthEmaIssuerConsentOrganization } from '~/types'
 
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
+
+function submitDisabledReason(
+    organization: OAuthEmaIssuerConsentOrganization | null,
+    isCanceling: boolean
+): string | undefined {
+    if (!organization) {
+        return 'Select an organization'
+    }
+    return organization.disabled_reason ?? (isCanceling ? 'Processing...' : undefined)
+}
+
+function verifiedDomainsLabel(organization: OAuthEmaIssuerConsentOrganization | null): string {
+    return organization?.verified_domains.length
+        ? organization.verified_domains.join(', ')
+        : "this organization's verified domains"
+}
 
 export function OAuthAuthorizeEmaIssuer({ consent }: { consent: OAuthEmaIssuerConsent }): JSX.Element {
     const { appName, oauthApplication, oauthAuthorization, isOauthAuthorizationSubmitting, isCanceling, user } =
@@ -88,12 +104,8 @@ export function OAuthAuthorizeEmaIssuer({ consent }: { consent: OAuthEmaIssuerCo
                                     <li>
                                         PostHog will trust {appName} to say who a person is. Anyone {appName} vouches
                                         for with an email at{' '}
-                                        <strong>
-                                            {selectedOrganization?.verified_domains.length
-                                                ? selectedOrganization.verified_domains.join(', ')
-                                                : "this organization's verified domains"}
-                                        </strong>{' '}
-                                        can use PostHog as the member with that email, with that member's access.
+                                        <strong>{verifiedDomainsLabel(selectedOrganization)}</strong> can use PostHog as
+                                        the member with that email, with that member's access.
                                     </li>
                                     <li>Members won't be asked to approve each connection.</li>
                                     <li>
@@ -130,12 +142,7 @@ export function OAuthAuthorizeEmaIssuer({ consent }: { consent: OAuthEmaIssuerCo
                             htmlType="submit"
                             data-attr="oauth-ema-issuer-submit"
                             loading={isOauthAuthorizationSubmitting}
-                            disabledReason={
-                                !selectedOrganization
-                                    ? 'Select an organization'
-                                    : (selectedOrganization.disabled_reason ??
-                                      (isCanceling ? 'Processing...' : undefined))
-                            }
+                            disabledReason={submitDisabledReason(selectedOrganization, isCanceling)}
                             onClick={() => submitOauthAuthorization()}
                         >
                             Trust {appName}

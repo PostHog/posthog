@@ -2,7 +2,7 @@ import uuid
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import connection, models
 
 import structlog
 
@@ -69,6 +69,14 @@ def oidc_configured_q() -> models.Q:
         | models.Q(oidc_client_id="")
         | models.Q(oidc_client_id__isnull=True)
     ) & models.Q(oidc_credentials__has_key="client_secret")
+
+
+def lock_id_jag_issuer(issuer: str) -> None:
+    """Holds a transaction-scoped lock for `issuer`, so two writes that trust it can't both pass an in-use check."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"id-jag-issuer:{(issuer or '').rstrip('/')}"]
+        )
 
 
 class IdentityProviderConfigQuerySet(models.QuerySet["IdentityProviderConfig"]):

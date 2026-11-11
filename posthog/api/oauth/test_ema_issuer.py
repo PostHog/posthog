@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import cast
 from urllib.parse import parse_qs, quote, urlparse
 
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
@@ -210,11 +211,20 @@ class TestEmaIssuerSetup(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.json())
         self.assertEqual(response.json()["error"], expected_error)
 
+    def test_consent_needs_a_recent_sign_in(self):
+        with time_machine.travel(timezone.now() + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            response = self.client.post("/oauth/authorize/", self._consent(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+
     @parameterized.expand(
         [
             ("issuer_in_another_organization", "taken", status.HTTP_409_CONFLICT, "issuer_in_use"),
             ("demoted_after_consent", "demoted", status.HTTP_403_FORBIDDEN, "access_denied"),
-            ("issuer_not_https", "http_issuer", status.HTTP_400_BAD_REQUEST, "invalid_request"),
+            ("issuer_not_https", "http://identity.example.com/issuers/first", 400, "invalid_request"),
+            ("issuer_not_a_url", "https://[invalid", 400, "invalid_request"),
+            ("issuer_port_out_of_range", "https://identity.example.com:70000/issuers/first", 400, "invalid_request"),
             ("token_without_scope", "other_scope", status.HTTP_403_FORBIDDEN, "insufficient_scope"),
         ]
     )
@@ -227,8 +237,8 @@ class TestEmaIssuerSetup(APIBaseTest):
         elif case == "demoted":
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-        elif case == "http_issuer":
-            issuer = "http://identity.example.com/issuers/first"
+        elif case.startswith("http"):
+            issuer = case
 
         response = self._put_issuer(token, issuer)
 

@@ -619,6 +619,18 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(response.json()["code"], "issuer_in_use")
 
+        saml_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="saml",
+            id_jag_issuer_url="https://identity.example.com/issuers/1",
+        )
+        rescoped = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{saml_config.id}/", {"config_scope": "xaa"}
+        )
+
+        self.assertEqual(rescoped.status_code, status.HTTP_400_BAD_REQUEST, rescoped.json())
+        self.assertEqual(rescoped.json()["code"], "issuer_in_use")
+
     def test_can_delete_a_config_once_no_domain_uses_it(self):
         self._make_admin()
         config = IdentityProviderConfig.objects.create(organization=self.organization, config_scope="saml")

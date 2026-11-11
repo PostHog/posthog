@@ -31,6 +31,7 @@ from posthog.models.identity_provider_config import (
     ConfigScope,
     DomainScope,
     IdentityProviderConfig,
+    lock_id_jag_issuer,
     oidc_configured_q,
     saml_configured_q,
 )
@@ -214,20 +215,34 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
         return normalized
 
     def validate_id_jag_issuer_url(self, value: str | None) -> str | None:
-        normalized = self._validate_id_jag_url(value)
-        if normalized:
-            managed = IdentityProviderConfig.objects.with_id_jag_issuer(normalized).filter(
-                id_jag_registered_by_application__isnull=False
+        return self._validate_id_jag_url(value)
+
+    def _effective_id_jag_issuer(self, data: dict[str, Any]) -> str | None:
+        if "id_jag_issuer_url" in data:
+            return data["id_jag_issuer_url"]
+        return getattr(self.instance, "id_jag_issuer_url", None)
+
+    def _check_issuer_not_client_managed(self, issuer: str | None) -> None:
+        """A hand-entered configuration can't trust an issuer that a client registered through EMA setup."""
+        if not issuer:
+            return
+        managed = IdentityProviderConfig.objects.with_id_jag_issuer(issuer).filter(
+            id_jag_registered_by_application__isnull=False
+        )
+        if self.instance is not None:
+            managed = managed.exclude(pk=self.instance.pk)
+        if managed.exists():
+            raise serializers.ValidationError(
+                {"id_jag_issuer_url": "An application already manages this issuer through enterprise-managed auth."},
+                code="issuer_in_use",
             )
-            if self.instance is not None:
-                managed = managed.exclude(pk=self.instance.pk)
-            managed_elsewhere = managed.exists()
-            if managed_elsewhere:
-                raise serializers.ValidationError(
-                    "An application already manages this issuer through enterprise-managed auth.",
-                    code="issuer_in_use",
-                )
-        return normalized
+
+    def _lock_and_check_issuer(self, validated_data: dict[str, Any]) -> None:
+        # EMA registration takes the same lock, so the two can't both pass the in-use check.
+        issuer = self._effective_id_jag_issuer(validated_data)
+        if issuer:
+            lock_id_jag_issuer(issuer)
+            self._check_issuer_not_client_managed(issuer)
 
     def validate_oidc_issuer_url(self, value: str) -> str:
         normalized = value.strip()
@@ -247,6 +262,7 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         organization: Organization = self.context["view"].organization
+        self._check_issuer_not_client_managed(self._effective_id_jag_issuer(attrs))
 
         if any(attrs.get(field) for field in ("oidc_issuer_url", "oidc_client_id", "oidc_client_secret")):
             if not organization.is_feature_available(AvailableFeature.OIDC):
@@ -358,6 +374,7 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> IdentityProviderConfig:
+        self._lock_and_check_issuer(validated_data)
         validated_data["organization"] = self.context["view"].organization
         self._merge_oidc_client_secret(validated_data)
         scim_enabled = validated_data.pop("scim_enabled", None)
@@ -374,6 +391,7 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance: IdentityProviderConfig, validated_data: dict[str, Any]) -> IdentityProviderConfig:
+        self._lock_and_check_issuer(validated_data)
         self._merge_oidc_client_secret(validated_data)
         scim_enabled = validated_data.pop("scim_enabled", None)
         organization_domains = validated_data.pop("organization_domains", None)
