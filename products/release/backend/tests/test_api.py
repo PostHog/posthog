@@ -5,7 +5,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, User
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.release.backend.models import Release
 from products.workflows.backend.facade.testing import create_workflow_for_test
@@ -177,6 +178,24 @@ class TestReleaseAPI(APIBaseTest):
         assert member_view["broadcast_ids"] == [visible_id]
         assert [broadcast["name"] for broadcast in member_view["broadcasts"]] == ["Launch email"]
         assert [str(broadcast_id) for broadcast_id in stored] == [hidden_id]
+
+    @parameterized.expand(
+        [
+            ("flags_only", ["feature_flag:read"], False),
+            ("flags_and_workflows", ["feature_flag:read", "hog_flow:read"], True),
+        ]
+    )
+    def test_broadcasts_follow_the_workflow_scope(self, _name: str, scopes: list[str], shown: bool) -> None:
+        broadcast_id = create_workflow_for_test(team_id=self.team.id, name="Launch email").id
+        self.client.post(self._url(), {"name": "Dark mode", "broadcast_ids": [broadcast_id]}, format="json")
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+
+        release = self.client.get(self._url(), HTTP_AUTHORIZATION=f"Bearer {token}").json()["results"][0]
+
+        assert release["broadcast_ids"] == ([str(broadcast_id)] if shown else [])
+        assert [broadcast["name"] for broadcast in release["broadcasts"]] == (["Launch email"] if shown else [])
 
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(

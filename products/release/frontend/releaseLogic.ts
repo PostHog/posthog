@@ -111,9 +111,14 @@ interface ReleaseLogicActions {
     ) => { flags: string[]; variants: Record<string, string | boolean> }
     loadReleases: () => void
     loadReleasesFailure: (error: string) => { error: string }
-    setReleaseLocally: (update: { id: string; changes: PatchedUpdateReleaseApi }) => {
+    setReleaseLocally: (update: {
         id: string
         changes: PatchedUpdateReleaseApi
+        broadcasts?: LinkedBroadcastDTOApi[]
+    }) => {
+        id: string
+        changes: PatchedUpdateReleaseApi
+        broadcasts?: LinkedBroadcastDTOApi[]
     }
     loadFlags: () => void
     loadFlagsSuccess: (flags: FeatureFlagApi[]) => { flags: FeatureFlagApi[] }
@@ -312,7 +317,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     breakpoint()
                     return releases
                 },
-                setReleaseLocally: ({ id, changes }) =>
+                setReleaseLocally: ({ id, changes, broadcasts }) =>
                     values.releases.map((release) =>
                         release.id === id
                             ? {
@@ -321,6 +326,12 @@ export const releaseLogic = kea<releaseLogicType>([
                                   description: changes.description ?? release.description,
                                   feature_flag_ids: changes.feature_flag_ids ?? release.feature_flag_ids,
                                   broadcast_ids: changes.broadcast_ids ?? release.broadcast_ids,
+                                  broadcasts:
+                                      broadcasts ??
+                                      release.broadcasts.filter(
+                                          (broadcast) =>
+                                              !changes.broadcast_ids || changes.broadcast_ids.includes(broadcast.id)
+                                      ),
                               }
                             : release
                     ),
@@ -806,7 +817,9 @@ export const releaseLogic = kea<releaseLogicType>([
                                 name: saved.name,
                                 description: saved.description,
                                 feature_flag_ids: saved.feature_flag_ids,
+                                broadcast_ids: saved.broadcast_ids,
                             },
+                            broadcasts: [...saved.broadcasts],
                         })
                     }
                     if (successMessage) {

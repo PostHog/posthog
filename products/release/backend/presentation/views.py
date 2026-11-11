@@ -18,6 +18,8 @@ from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
+from posthog.permissions import get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
 from products.workflows.backend.facade.api import (
@@ -68,6 +70,10 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         requested = {str(broadcast_id): broadcast_id for broadcast_id in broadcast_ids}
         if not requested:
             return contracts.BroadcastVisibility(existing=frozenset(), visible=frozenset(), linkable=frozenset())
+        if not self._can_read_workflows():
+            return contracts.BroadcastVisibility(
+                existing=frozenset(requested.values()), visible=frozenset(), linkable=frozenset()
+            )
         access = get_workflow_view_access(
             team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=requested.keys()
         )
@@ -86,6 +92,10 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 names,
             ),
         )
+
+    def _can_read_workflows(self) -> bool:
+        held = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
+        return held is None or not scopes_not_covered(held, ["hog_flow:read"])
 
     def _broadcast_summaries(
         self, shown: dict[str, UUID], names: dict[str, WorkflowSummary]

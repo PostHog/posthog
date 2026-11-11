@@ -2,8 +2,7 @@ from collections.abc import Collection, Iterable, Iterator
 from typing import Any
 from uuid import UUID
 
-from django.db.models import F, QuerySet, Window
-from django.db.models.functions import RowNumber
+from django.db.models import F, QuerySet
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
@@ -279,15 +278,17 @@ def get_workflow_summaries(*, team_id: int, workflow_ids: Iterable[str]) -> list
 def get_recent_batch_jobs(
     *, team_id: int, workflow_ids: Iterable[str], limit: int
 ) -> dict[str, list[SendCalendarBatchJob]]:
-    rows = (
-        HogFlowBatchJob.objects.filter(team_id=team_id, hog_flow_id__in=list(workflow_ids))
-        .annotate(position=Window(RowNumber(), partition_by=[F("hog_flow_id")], order_by=F("created_at").desc()))
-        .filter(position__lte=limit)
-        .order_by("hog_flow_id", "-created_at")
-        .values("id", "hog_flow_id", "status", "created_at")
-    )
+    queries = [
+        HogFlowBatchJob.objects.filter(team_id=team_id, hog_flow_id=workflow_id)
+        .order_by("-created_at")
+        .values("id", "hog_flow_id", "status", "created_at")[:limit]
+        for workflow_id in dict.fromkeys(workflow_ids)
+    ]
+    if not queries:
+        return {}
+    rows = queries[0].union(*queries[1:], all=True) if len(queries) > 1 else queries[0]
     jobs: dict[str, list[SendCalendarBatchJob]] = {}
-    for row in rows:
+    for row in sorted(rows, key=lambda item: item["created_at"], reverse=True):
         jobs.setdefault(str(row["hog_flow_id"]), []).append(
             SendCalendarBatchJob(id=row["id"], status=row["status"], created_at=row["created_at"])
         )
