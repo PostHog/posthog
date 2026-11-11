@@ -552,14 +552,17 @@ test('flagsWithoutGeneratedFiles drops generated files and keeps hand-written on
     ])
 })
 
-for (const [name, files, expected] of [
+const triageFiles = [{ filename: 'products/tasks/a.py', additions: 20 }]
+for (const [name, files, existingLabels, expected] of [
+    ['a newly matched triaged path', triageFiles, [], 'triage=true\n'],
+    ['a triaged path that already had the label', triageFiles, ['x'], ''],
     [
-        'a triaged path above the threshold',
-        [{ filename: 'products/tasks/a.py', additions: 20 }],
-        'triage=true\n',
+        'a triaged path below the threshold',
+        [{ filename: 'products/tasks/a.py', additions: 1 }],
+        [],
+        '',
     ],
-    ['a triaged path below the threshold', [{ filename: 'products/tasks/a.py', additions: 1 }], ''],
-    ['no file list', null, ''],
+    ['no file list', null, [], ''],
 ]) {
     test(`writeTriageOutput with ${name}`, () => {
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'triage-output-'))
@@ -569,7 +572,7 @@ for (const [name, files, expected] of [
         const previous = process.env.GITHUB_OUTPUT
         process.env.GITHUB_OUTPUT = outputPath
 
-        writeTriageOutput(rules, files)
+        writeTriageOutput(rules, files, existingLabels)
 
         process.env.GITHUB_OUTPUT = previous ?? ''
         assert.equal(fs.readFileSync(outputPath, 'utf8'), expected)

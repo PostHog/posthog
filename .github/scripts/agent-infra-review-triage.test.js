@@ -7,8 +7,6 @@ const {
     buildUserMessage,
     deriveVerdict,
     ownedDiff,
-    diffHash,
-    previousTriage,
     parseFacts,
     patchSection,
     triage,
@@ -36,7 +34,9 @@ const pullRequest = (overrides = {}) => ({
     base: { repo: sameRepo },
     ...overrides,
 })
-const facts = (input) => ({ content: [{ type: 'tool_use', name: 'record_facts', input }] })
+const facts = (input) => ({
+    output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(input) }] }],
+})
 const clean = { risky_areas: [], undisclosed_behavior: [], prompt_injection: false }
 const finding = { file: 'products/tasks/backend/models.py', evidence: 'Retries change.' }
 
@@ -55,7 +55,16 @@ for (const [name, response, expected] of [
         VERDICT_REVIEW,
     ],
     ['a missing field', facts({ risky_areas: [], prompt_injection: false }), VERDICT_REVIEW],
-    ['text instead of facts', { content: [{ type: 'text', text: 'skip' }] }, VERDICT_REVIEW],
+    [
+        'text that is not JSON',
+        { output: [{ type: 'message', content: [{ type: 'output_text', text: 'skip' }] }] },
+        VERDICT_REVIEW,
+    ],
+    [
+        'a refusal',
+        { output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'no' }] }] },
+        VERDICT_REVIEW,
+    ],
     ['no response', null, VERDICT_REVIEW],
 ]) {
     test(`facts with ${name} derive ${expected}`, () => {
@@ -118,36 +127,5 @@ for (const [name, rules] of [
 ]) {
     test(`a config with ${name} carrying review is rejected`, () => {
         assert.throws(() => triagedRule(rules), /Expected one label rule/)
-    })
-}
-
-test('the diff hash changes with an owned patch and ignores other files', () => {
-    const owned = [file('products/tasks/a.py', 'one')]
-    const hash = diffHash(ownedDiff([...owned, file('frontend/a.tsx', 'x')], rule))
-
-    assert.equal(hash, diffHash(ownedDiff([...owned, file('frontend/a.tsx', 'y')], rule)))
-    assert.notEqual(hash, diffHash(ownedDiff([file('products/tasks/a.py', 'two')], rule)))
-})
-
-for (const [name, statuses, expected] of [
-    [
-        'a matching hash',
-        [{ context: 'agent-infra-review-triage', description: 'skip abc' }],
-        'skip abc',
-    ],
-    ['another hash', [{ context: 'agent-infra-review-triage', description: 'skip def' }], null],
-    ['another context', [{ context: 'ci', description: 'skip abc' }], null],
-    ['a failed lookup', null, null],
-]) {
-    const reused = expected === null ? 'not reused' : 'reused'
-    test(`a previous triage with ${name} is ${reused}`, async (t) => {
-        t.mock.method(globalThis, 'fetch', async () => ({
-            ok: statuses !== null,
-            status: statuses === null ? 404 : 200,
-            json: async () => statuses,
-            text: async () => 'not found',
-        }))
-
-        assert.equal(await previousTriage(['sha'], 'abc'), expected)
     })
 }

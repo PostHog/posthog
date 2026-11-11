@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
 
@@ -16,15 +15,13 @@ const RUBRIC_PATH = path.join(__dirname, '..', 'agent-infra-review-triage.md')
 
 const GATEWAY_URL_DEFAULT = 'https://ai-gateway.us.posthog.com'
 const GATEWAY_PRODUCT = 'agent_infra_triage'
-const GATEWAY_TOKEN_CAP_USD = '1'
-const GATEWAY_TOKEN_TTL_SECONDS = 600
-const MODEL = 'claude-sonnet-5-5'
-const MODEL_TOKENS_MAX = 4_000
+const GATEWAY_TOKEN_CAP_USD = '5'
+const GATEWAY_TOKEN_TTL_SECONDS = 3_600
+const MODEL = 'gpt-6.1-sol'
+const MODEL_EFFORT = 'low'
 
 const HTTP_TIMEOUT_MS = 10_000
 const MODEL_TIMEOUT_MS = 120_000
-const STATUS_CONTEXT = 'agent-infra-review-triage'
-const DIFF_HASH_CHARS = 16
 
 const TITLE_CHARS_MAX = 300
 const AUTHOR_CHARS_MAX = 50
@@ -61,16 +58,19 @@ const FINDING_PROPERTIES = {
     evidence: { type: 'string', description: 'One sentence naming the behavior.' },
 }
 
-const FACTS_TOOL = {
-    name: 'record_facts',
-    description: 'Record the facts the policy asks for, with evidence from the diff.',
-    input_schema: {
+const FACTS_FORMAT = {
+    type: 'json_schema',
+    name: 'agent_infra_facts',
+    strict: true,
+    schema: {
         type: 'object',
+        additionalProperties: false,
         properties: {
             risky_areas: {
                 type: 'array',
                 items: {
                     type: 'object',
+                    additionalProperties: false,
                     properties: {
                         area: { type: 'string', enum: RISKY_AREAS },
                         ...FINDING_PROPERTIES,
@@ -82,6 +82,7 @@ const FACTS_TOOL = {
                 type: 'array',
                 items: {
                     type: 'object',
+                    additionalProperties: false,
                     properties: FINDING_PROPERTIES,
                     required: ['file', 'evidence'],
                 },
@@ -194,11 +195,24 @@ function parseRiskyArea(item) {
     return { area: item.area, ...finding }
 }
 
+function outputText(response) {
+    const contents = (response?.output ?? [])
+        .filter((item) => item?.type === 'message')
+        .flatMap((item) => item.content ?? [])
+    return contents.find((content) => content?.type === 'output_text')?.text ?? null
+}
+
 function parseFacts(response) {
-    const block = (response?.content ?? []).find(
-        (item) => item?.type === 'tool_use' && item?.name === FACTS_TOOL.name
-    )
-    const input = block?.input
+    const text = outputText(response)
+    if (text === null) {
+        return null
+    }
+    let input
+    try {
+        input = JSON.parse(text)
+    } catch {
+        return null
+    }
     if (!Array.isArray(input?.risky_areas) || !Array.isArray(input?.undisclosed_behavior)) {
         return null
     }
@@ -262,31 +276,6 @@ async function github(resource) {
     return response.json()
 }
 
-function diffHash(diff) {
-    const hash = crypto.createHash('sha256')
-    for (const file of diff.handWritten) {
-        hash.update(`${file.filename}\0${file.patch ?? ''}\0`)
-    }
-    return hash.digest('hex').slice(0, DIFF_HASH_CHARS)
-}
-
-async function previousTriage(commitShas, hash) {
-    for (const sha of commitShas) {
-        try {
-            const statuses = await github(`commits/${sha}/statuses?per_page=100`)
-            const status = statuses.find((candidate) => candidate.context === STATUS_CONTEXT)
-            if (status?.description?.endsWith(hash)) {
-                return status.description
-            }
-        } catch (error) {
-            console.warn(
-                `⚠️  Could not read the triage status of ${sha}: ${error?.message ?? error}`
-            )
-        }
-    }
-    return null
-}
-
 async function gatewayToken(gatewayUrl) {
     const { AI_GATEWAY_TOKEN, AI_GATEWAY_MINT_KEY } = process.env
     if (AI_GATEWAY_TOKEN) {
@@ -319,20 +308,19 @@ async function gatewayToken(gatewayUrl) {
 }
 
 async function requestFacts({ gatewayUrl, token, rubric, userMessage }) {
-    const response = await fetch(`${gatewayUrl}/v1/messages`, {
+    const response = await fetch(`${gatewayUrl}/v1/responses`, {
         method: 'POST',
         headers: {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
-            'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
             model: MODEL,
-            max_tokens: MODEL_TOKENS_MAX,
-            system: rubric,
-            tools: [FACTS_TOOL],
-            tool_choice: { type: 'auto' },
-            messages: [{ role: 'user', content: userMessage }],
+            instructions: rubric,
+            input: [{ role: 'user', content: userMessage }],
+            reasoning: { effort: MODEL_EFFORT },
+            text: { format: FACTS_FORMAT },
+            store: false,
         }),
         signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
     })
@@ -354,7 +342,7 @@ async function askModel({ pullRequest, files, diff }) {
         })
         const facts = parseFacts(response)
         if (facts === null) {
-            console.warn(`⚠️  No usable facts; stop_reason ${response?.stop_reason ?? 'unknown'}`)
+            console.warn(`⚠️  No usable facts; status ${response?.status ?? 'unknown'}`)
         }
         return deriveVerdict(facts)
     } catch (error) {
@@ -426,26 +414,8 @@ async function main() {
         report(pullRequest.number, skip('No agent-infra paths changed above the size threshold.'))
         return
     }
-    const diff = ownedDiff(files, rule)
-    const hash = diffHash(diff)
-    const commitShas = [pullRequest.head?.sha, event?.before].filter(Boolean)
-    const previous = await previousTriage(commitShas, hash)
-    if (previous !== null) {
-        report(
-            pullRequest.number,
-            skip('The agent-infra diff is unchanged since the last triage.'),
-            {
-                status: previous,
-            }
-        )
-        return
-    }
-    const result = await triage({ pullRequest, files, diff })
-    report(pullRequest.number, result, {
-        status: `${result.verdict} ${hash}`,
-        team: rule.review.team,
-        label: rule.review.label,
-    })
+    const result = await triage({ pullRequest, files, diff: ownedDiff(files, rule) })
+    report(pullRequest.number, result, { team: rule.review.team, label: rule.review.label })
 }
 
 if (require.main === module) {
@@ -461,8 +431,6 @@ module.exports = {
     buildUserMessage,
     deriveVerdict,
     ownedDiff,
-    diffHash,
-    previousTriage,
     parseFacts,
     patchSection,
     triage,

@@ -383,9 +383,15 @@ function flagsLowHangingFruitLabel(author, labels, files) {
 // End of the feature flags team section.
 // ---------------------------------------------------------------------------
 
-function writeTriageOutput(rules, files) {
+function writeTriageOutput(rules, files, existingLabels) {
     const triaged =
-        files !== null && rules.some((rule) => rule.review && pathRuleMatches(rule, files))
+        files !== null &&
+        rules.some(
+            (rule) =>
+                rule.review &&
+                pathRuleMatches(rule, files) &&
+                (rule.labels || []).some((label) => !existingLabels.includes(label))
+        )
     if (triaged && process.env.GITHUB_OUTPUT) {
         fs.appendFileSync(process.env.GITHUB_OUTPUT, 'triage=true\n')
     }
@@ -415,7 +421,7 @@ async function main() {
         }
         console.info(`PR title: ${PR_TITLE || '(empty)'}`)
         await addLabels(labels)
-        writeTriageOutput(rules, files)
+        writeTriageOutput(rules, files, JSON.parse(process.env.PR_LABELS || '[]'))
         if (files && files.length < PR_FILES_API_LIMIT) {
             const events = await fetchAllPages(`issues/${PR_NUMBER}/events`)
             await removeLabels(staleLabels(events ?? [], labels, rules))

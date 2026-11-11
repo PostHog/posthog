@@ -83,21 +83,19 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   PR_TITLE: ${{ github.event.pull_request.title }}
                   PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+                  PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
               run: node .github/scripts/label-pr-from-title.js
 
     review-triage:
         needs: assign-labels
-        if: >-
-            ${{ needs.assign-labels.outputs.triage == 'true'
-            && github.event.pull_request.draft == false }}
+        if: ${{ needs.assign-labels.outputs.triage == 'true' }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
             issues: write
             pull-requests: write
-            statuses: write
 
         steps:
             - name: Checkout master branch
@@ -147,14 +145,3 @@ jobs:
               run: |
                   gh api --method POST "repos/$REPOSITORY/issues/$PR_NUMBER/labels" \
                       -f "labels[]=$LABEL" > /dev/null
-
-            - name: Record the triage on the head commit
-              if: ${{ steps.triage.outputs.status != '' }}
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha }}
-                  DESCRIPTION: ${{ steps.triage.outputs.status }}
-              run: |
-                  gh api --method POST "repos/$REPOSITORY/statuses/$SHA" -f state=success \
-                      -f context=agent-infra-review-triage -f "description=$DESCRIPTION" > /dev/null
