@@ -4,6 +4,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { isProductionEnv } from '../db/role-guard'
+
 /** Where the pod's service account credentials are projected. */
 export const SERVICE_ACCOUNT_DIR = '/var/run/secrets/kubernetes.io/serviceaccount'
 
@@ -14,7 +16,6 @@ const SECRET_SOURCES: readonly SecretSourceKind[] = ['directory', 'kubernetes']
 export type KmsProviderKind = 'aws' | 'local'
 
 const KMS_PROVIDERS: readonly KmsProviderKind[] = ['aws', 'local']
-const LOCAL_KMS_REFUSED_ENVS: readonly string[] = ['prod-us', 'prod-eu']
 
 /** Wraps the per-record data keys with an AWS KMS key. */
 export interface AwsKmsConfig {
@@ -85,7 +86,7 @@ export interface Config {
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
 
-    /** Unset until CREDENTIALS_SERVICE_KMS_PROVIDER is set: no route needs a KMS yet. */
+    /** Set when CREDENTIALS_SERVICE_KMS_PROVIDER is set. The integration routes need it. */
     kms?: KmsConfig
 
     /**
@@ -231,7 +232,7 @@ function kmsFromEnv(env: string): KmsConfig | undefined {
 
     if (provider === 'local') {
         // The local keys sit in plain config, so they must never protect cloud customer data.
-        if (LOCAL_KMS_REFUSED_ENVS.includes(env) || env.startsWith('prod')) {
+        if (isProductionEnv(env)) {
             throw new Error(`CREDENTIALS_SERVICE_KMS_PROVIDER=local is not allowed in ${env}`)
         }
         return { provider, keys: localKmsKeysFromEnv() }
