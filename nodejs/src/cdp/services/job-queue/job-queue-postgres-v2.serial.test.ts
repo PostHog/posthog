@@ -350,8 +350,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         }
     )
 
-    // The held write takes the team's email sequence number first, so it waits on the
-    // sequence lock; the failing one belongs to another team and waits on its own job row.
     it.each([
         {
             write: 'result',
