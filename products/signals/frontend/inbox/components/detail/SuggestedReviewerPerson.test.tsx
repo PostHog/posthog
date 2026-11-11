@@ -87,11 +87,7 @@ describe('Suggested reviewer presentation', () => {
         const reason = screen.getByText('Recently changed the affected transport.')
         const reviewer = screen.getByText('Maya Rivera')
         expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        const addButton = screen.getByText('Add Reviewer')
-        expect(addButton).toBeVisible()
-        expect(
-            screen.getByText('Quinn Foster').compareDocumentPosition(addButton) & Node.DOCUMENT_POSITION_FOLLOWING
-        ).toBeTruthy()
+        expect(screen.getByLabelText('Add reviewer')).toBeVisible()
 
         // The row shows no buttons. The name opens the reviewer's menu, and the picked reason travels with the removal.
         const row = screen.getByLabelText('Actions for Maya Rivera')

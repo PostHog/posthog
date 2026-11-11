@@ -4,7 +4,6 @@ import { memo } from 'react'
 import { IconEye, IconHide, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { derivePrState, prCiGlyphStatus } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
@@ -36,6 +35,7 @@ import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
 import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
+import { ReportCardTimes } from './ReportCardTimes'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -139,7 +139,7 @@ function ReportCardRaw({
     rankingPill?: boolean
     /** The list is in the user's personal order. The card then shows the report's tier and the reason for its place. */
     personalSort?: boolean
-    /** The time the card shows. Match it to the active time sort, so the list reads in order. */
+    /** The time the card shows first. Match it to the active time sort, so the list reads in order. */
     timestampField?: 'created_at' | 'updated_at'
     /** Hide the user's own claim marker, for views where every card is theirs. */
     hideOwnClaim?: boolean
@@ -157,8 +157,6 @@ function ReportCardRaw({
     const isReady = report.status === 'ready'
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
-    const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
-    const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
     // The impact column carries its own flag: its figures come from live queries, so it rolls out
     // per team as the metric quality is verified.
     const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
@@ -301,11 +299,7 @@ function ReportCardRaw({
                     {!showImpactColumn && (
                         <span className="ml-auto flex shrink-0 items-center gap-2">
                             {claimAvatar}
-                            <TZLabel
-                                time={cardTime}
-                                className="shrink-0 text-xs text-tertiary tabular-nums"
-                                title={cardTimeTitle}
-                            />
+                            <ReportCardTimes report={report} sortField={timestampField} stacked={false} />
                         </span>
                     )}
                 </div>
@@ -326,11 +320,7 @@ function ReportCardRaw({
                     <ReportCardImpactMetric metrics={report.metrics} />
                     <span className="ml-auto flex shrink-0 items-center gap-2 @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0">
                         {claimAvatar}
-                        <TZLabel
-                            time={cardTime}
-                            className="shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums"
-                            title={cardTimeTitle}
-                        />
+                        <ReportCardTimes report={report} sortField={timestampField} stacked />
                     </span>
                 </div>
             ) : null}

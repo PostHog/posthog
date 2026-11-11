@@ -614,6 +614,17 @@ export const PullRequest: Story = {
     ),
 }
 
+// The scene width a docked side panel leaves on a laptop: the rail stacks under the report.
+export const PullRequestNarrow: Story = {
+    ...PullRequest,
+    parameters: { testOptions: { viewport: { width: 520, height: 1200 } } },
+}
+
+export const ReportReadyToImplementPhone: Story = {
+    ...ReportReadyToImplement,
+    parameters: { testOptions: { viewport: { width: 390, height: 1200 } } },
+}
+
 export const PullRequestStack: Story = {
     render: () => (
         <Frame>

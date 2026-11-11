@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 
@@ -211,6 +211,8 @@ describe('ReportExpectedImpact', () => {
         )
         renderMeasurements([check])
         render(<ReportChecksSection report={report} />)
+        // Follow-up checks starts collapsed.
+        fireEvent.click(screen.getByText('Follow-up checks'))
         expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
         expect(screen.queryByText('Suggest a better metric')).not.toBeInTheDocument()
         expect(screen.getByText('Cancel this check')).toBeInTheDocument()

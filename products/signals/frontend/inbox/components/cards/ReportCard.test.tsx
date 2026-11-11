@@ -400,23 +400,48 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['the update time by default', true, undefined, '2026-07-01T10:00:00Z', 'Last updated'],
-        ['the creation time under a created sort', true, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
-        ['the update time under an updated sort', false, 'updated_at', '2026-07-01T10:00:00Z', 'Last updated'],
-        ['the creation time without the impact column', false, 'created_at', '2026-06-11T10:00:00Z', 'Created'],
-    ] as const)('shows %s', (_name, impactColumn, timestampField, time, title) => {
+        [
+            'both times, the update first, by default',
+            true,
+            undefined,
+            '2026-07-01T10:00:00Z',
+            ['2026-07-01T10:00:00Z', '2026-06-11T10:00:00Z'],
+        ],
+        [
+            'both times, the creation first, under a created sort',
+            true,
+            'created_at',
+            '2026-07-01T10:00:00Z',
+            ['2026-06-11T10:00:00Z', '2026-07-01T10:00:00Z'],
+        ],
+        [
+            'both times without the impact column',
+            false,
+            'updated_at',
+            '2026-07-01T10:00:00Z',
+            ['2026-07-01T10:00:00Z', '2026-06-11T10:00:00Z'],
+        ],
+        [
+            'only the creation time when the update is the same day',
+            true,
+            undefined,
+            '2026-06-11T18:00:00Z',
+            ['2026-06-11T10:00:00Z'],
+        ],
+    ] as const)('shows %s', (_name, impactColumn, timestampField, updatedAt, times) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableImpactColumn(impactColumn)
         const { container } = render(
             <ReportCard
-                report={makeReport('r-2', { metrics: [], updated_at: '2026-07-01T10:00:00Z' })}
+                report={makeReport('r-2', { metrics: [], updated_at: updatedAt })}
                 timestampField={timestampField}
             />
         )
 
-        expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
-        expect(screen.getByText(time)).toHaveAttribute('title', title)
+        const shown = container.querySelector('[data-attr="report-card-times"]')!.querySelectorAll('[title]')
+        expect(Array.from(shown).map((label) => label.textContent)).toEqual(times)
+        expect(screen.getByText('2026-06-11T10:00:00Z')).toHaveAttribute('title', 'Created')
     })
 
     it('uses the primary snapshot when there is no affected-user snapshot', () => {

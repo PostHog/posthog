@@ -1,51 +1,97 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 
-import { IconInfo, IconPeople } from '@posthog/icons'
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconInfo, IconPeople } from '@posthog/icons'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
 import { DetailSection } from './DetailSection'
+import { getReviewerDisplayName } from './reviewerDisplay'
 import { ReviewerClaim } from './SuggestedReviewerClaimControls'
 import { SuggestedReviewersList } from './SuggestedReviewersList'
 
+/**
+ * The reviewers as a row of avatars. The full list, with each reason, the claim controls and the remove
+ * menu, opens in a dropdown, so the section stays one line high near the top of the rail.
+ */
 export function SuggestedReviewersSectionView({
     reviewers,
     disabled,
     onRemove,
     addControl,
     claim,
+    defaultOpen = false,
 }: {
     reviewers: EnrichedReviewer[]
     disabled: boolean
     onRemove: (reviewers: EnrichedReviewer[], removal?: ReviewerRemoval) => void
     addControl: ReactNode
     claim?: ReviewerClaim
+    defaultOpen?: boolean
 }): JSX.Element {
+    const [open, setOpen] = useState(defaultOpen)
+    const people = reviewers.map((reviewer) => {
+        const name = getReviewerDisplayName(reviewer)
+        return { email: reviewer.user?.email ?? reviewer.github_login ?? name, name }
+    })
+
     return (
         <DetailSection
             icon={<IconPeople />}
             title="Suggested reviewers"
-            collapsible
             afterTitle={
                 <Tooltip title="PostHog uses these suggestions to route the report. Add reviewers on the pull request to request a GitHub review.">
-                    {/* The header is the collapse toggle, so a click on the icon must not collapse the section. */}
-                    <span
-                        className="flex cursor-help items-center text-sm text-tertiary"
-                        onClick={(e) => e.stopPropagation()}
-                    >
+                    <span className="flex cursor-help items-center text-sm text-tertiary">
                         <IconInfo />
                     </span>
                 </Tooltip>
             }
         >
-            {reviewers.length === 0 ? (
-                <p className="m-0 text-xs text-tertiary">No suggested reviewers yet.</p>
-            ) : (
-                <SuggestedReviewersList reviewers={reviewers} disabled={disabled} onRemove={onRemove} claim={claim} />
-            )}
-            <div className="mt-3 flex items-center justify-end gap-2">
-                {disabled && <Spinner className="size-3" />}
-                {addControl}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                {reviewers.length === 0 ? (
+                    <p className="m-0 text-xs text-tertiary">No suggested reviewers yet.</p>
+                ) : (
+                    <LemonDropdown
+                        visible={open}
+                        onClickOutside={() => setOpen(false)}
+                        closeOnClickInside={false}
+                        placement="bottom-start"
+                        overlay={
+                            // The rail is ~26rem wide; on a phone the dropdown keeps a margin on each side.
+                            <div className="w-[min(26rem,calc(100vw-2rem))] p-1">
+                                <SuggestedReviewersList
+                                    reviewers={reviewers}
+                                    disabled={disabled}
+                                    onRemove={onRemove}
+                                    claim={claim}
+                                />
+                            </div>
+                        }
+                    >
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            onClick={() => setOpen((visible) => !visible)}
+                            sideIcon={<IconChevronDown />}
+                            aria-expanded={open}
+                            className="-ml-2"
+                            data-attr="inbox-report-suggested-reviewers-toggle"
+                        >
+                            <span className="flex items-center gap-2">
+                                <ProfileBubbles people={people} limit={5} />
+                                <span className="text-xs text-secondary">
+                                    {reviewers.length} {reviewers.length === 1 ? 'reviewer' : 'reviewers'}
+                                </span>
+                            </span>
+                        </LemonButton>
+                    </LemonDropdown>
+                )}
+                <div className="flex items-center gap-2">
+                    {disabled && <Spinner className="size-3" />}
+                    {addControl}
+                </div>
             </div>
         </DetailSection>
     )

@@ -1,10 +1,17 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, RenderResult, screen, within } from '@testing-library/react'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../../types'
 import { ReportStatusSection } from './ReportStatusSection'
+
+// The section starts collapsed, so most cases open it before they read the rows.
+function renderOpen(ui: JSX.Element): RenderResult {
+    const result = render(ui)
+    fireEvent.click(result.container.querySelector('[aria-expanded]') as HTMLElement)
+    return result
+}
 
 describe('ReportStatusSection', () => {
     afterEach(cleanup)
@@ -80,7 +87,7 @@ describe('ReportStatusSection', () => {
             },
         })
 
-        render(<ReportStatusSection report={report} />)
+        renderOpen(<ReportStatusSection report={report} />)
 
         expect(screen.getByText('Report status')).toBeInTheDocument()
         expect(screen.getByText('Ready')).toBeInTheDocument()
@@ -99,7 +106,7 @@ describe('ReportStatusSection', () => {
     })
 
     it.each(['user', 'task', 'system'] as const)('hides %s claims', (kind) => {
-        const { container } = render(
+        const { container } = renderOpen(
             <ReportStatusSection
                 report={makeReport({
                     assignee: {
@@ -118,14 +125,43 @@ describe('ReportStatusSection', () => {
         expect(container).not.toHaveTextContent('In progress by')
     })
 
+    it('shows a one-line summary while collapsed, and no link row for the pull request the header shows', () => {
+        const report = makeReport({
+            status: SignalReportStatus.READY,
+            priority: 'P1',
+            pull_requests: [
+                {
+                    id: 'pr-1',
+                    url: 'https://github.com/example/app/pull/42',
+                    state: 'open',
+                    merged: false,
+                    review_decision: null,
+                    merged_at: null,
+                    claim_id: null,
+                    attached_at: null,
+                    attached_by: null,
+                },
+            ],
+        })
+        const { container } = render(<ReportStatusSection report={report} pullRequestInHeader />)
+
+        expect(screen.getByText('Ready · P1 · PR open')).toBeInTheDocument()
+        expect(container).not.toHaveTextContent('Report status')
+
+        fireEvent.click(container.querySelector('[aria-expanded]') as HTMLElement)
+
+        expect(container).not.toHaveTextContent('example/app#42')
+        expect(within(container).getByText('Open')).toBeInTheDocument()
+    })
+
     it('hides pull request rows when the report has no pull request', () => {
-        const { container } = render(<ReportStatusSection report={makeReport({ pull_requests: [] })} />)
+        const { container } = renderOpen(<ReportStatusSection report={makeReport({ pull_requests: [] })} />)
 
         expect(container).not.toHaveTextContent('Pull request')
     })
 
     it('hides the review row when GitHub has no review decision', () => {
-        const { container } = render(
+        const { container } = renderOpen(
             <ReportStatusSection
                 report={makeReport({
                     pull_requests: [
@@ -151,7 +187,7 @@ describe('ReportStatusSection', () => {
     })
 
     it('hides the merged time row when GitHub has no merge time', () => {
-        const { container } = render(
+        const { container } = renderOpen(
             <ReportStatusSection
                 report={makeReport({
                     pull_requests: [

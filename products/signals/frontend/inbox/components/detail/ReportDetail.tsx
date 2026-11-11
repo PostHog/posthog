@@ -8,6 +8,7 @@ import {
     IconExternal,
     IconSearch,
     IconSidebarClose,
+    IconPullRequest,
     IconSidebarOpen,
     IconTrends,
 } from '@posthog/icons'
@@ -33,7 +34,6 @@ import { SignalReport, SignalReportStatus } from '../../types'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { reportPullRequests } from '../../utils/reportPullRequests'
-import { parseReportSummary } from '../../utils/reportSummary'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -300,9 +300,6 @@ export function InboxDetailFrame({
                 onChoicesOpenedFromLink={() => setLinkImplementReportId(null)}
             />
         ) : null
-    const summaryHasSolution = parseReportSummary(report.summary).sections.some(
-        (section) => section.kind === 'solution'
-    )
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
@@ -398,7 +395,6 @@ export function InboxDetailFrame({
                         <ReportSummaryBody
                             summary={report.summary}
                             chartPlacements={chartPlacements}
-                            implementButton={implementButton}
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
@@ -480,8 +476,18 @@ export function InboxDetailFrame({
                             report={currentReport ?? report}
                             onPriorityChange={updatePriority}
                             prioritySaving={prioritySaving}
+                            pullRequestInHeader={!!primaryAction}
+                            onToggleCollapsed={captureSectionToggle('status')}
                         />
-                        {isMonitoring && <ReportChecksSection report={report} />}
+                        {/* The pull request picker (when present), then the reviewers, one line each. */}
+                        {children}
+                        <SuggestedReviewersSection report={report} />
+                        {isMonitoring && (
+                            <ReportChecksSection
+                                report={report}
+                                onToggleCollapsed={captureSectionToggle('follow_up_checks')}
+                            />
+                        )}
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -515,7 +521,7 @@ export function InboxDetailFrame({
                                                 size="small"
                                                 onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
                                             >
-                                                {evidenceExpanded ? 'Show less' : 'Show more'}
+                                                {evidenceExpanded ? 'Show less' : `+${signals.length - 2} more`}
                                             </LemonButton>
                                         )}
                                         {report.source_suggestion && (
@@ -528,15 +534,17 @@ export function InboxDetailFrame({
                                 )}
                             </DetailSection>
                         )}
-                        {/* The pull request picker (when present), then reviewers, runs, and activity. */}
-                        {children}
-                        <SuggestedReviewersSection report={report} />
                         <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
                             <ReportSpendSection reportId={report.id} />
                         </FlaggedFeature>
                         <ReportTasksSection report={report} />
-                        {!isMonitoring && <ReportChecksSection report={report} />}
-                        <ReportActivitySection report={report} />
+                        {!isMonitoring && (
+                            <ReportChecksSection
+                                report={report}
+                                onToggleCollapsed={captureSectionToggle('follow_up_checks')}
+                            />
+                        )}
+                        <ReportActivitySection report={report} onToggleCollapsed={captureSectionToggle('activity')} />
                         {asideFooter}
                     </aside>
                 )}
@@ -612,9 +620,9 @@ export function InboxDetailFrame({
                     </LemonButton>
                     {railToggleButton}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                     {primaryAction}
-                    {!summaryHasSolution && implementButton}
+                    {implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
@@ -622,7 +630,8 @@ export function InboxDetailFrame({
                         {reportActions.map((action) => (
                             <LemonButton
                                 key={action.key}
-                                type={action.primary ? 'primary' : 'secondary'}
+                                // One primary per toolbar: Resolve leads only when there is no PR to review or fix to start.
+                                type={action.primary && !primaryAction && !implementButton ? 'primary' : 'secondary'}
                                 size="small"
                                 icon={action.icon}
                                 loading={action.loading}
@@ -660,7 +669,7 @@ function prFilesUrl(prUrl: string): string {
     return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
 }
 
-/** The "Open in GitHub" button, shared by the page header and the summary's pull request note. */
+/** The "Open in GitHub" button in the page header, next to Review pull request. */
 function OpenPullRequestButton({
     report,
     prUrl,
@@ -672,7 +681,7 @@ function OpenPullRequestButton({
 }): JSX.Element {
     return (
         <LemonButton
-            type="primary"
+            type="secondary"
             size="small"
             sideIcon={<IconExternal />}
             to={prFilesUrl(prUrl)}
@@ -693,7 +702,7 @@ function OpenPullRequestButton({
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
-    const { selectPullRequest } = useActions(logic)
+    const { selectPullRequest, setDetailTab } = useActions(logic)
 
     const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -745,7 +754,27 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                 ) : undefined
             }
             primaryAction={
-                prRef && prUrl ? <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} /> : undefined
+                prRef && prUrl ? (
+                    <>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconPullRequest />}
+                            onClick={() => {
+                                captureInboxReportAction({
+                                    report,
+                                    actionType: 'review_pull_request',
+                                    surface: 'detail_pane',
+                                })
+                                setDetailTab('files')
+                            }}
+                            data-attr="inbox-report-review-pull-request"
+                        >
+                            Review pull request
+                        </LemonButton>
+                        <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} />
+                    </>
+                ) : undefined
             }
             pullRequestNote={
                 prRef && prUrl ? (
@@ -756,7 +785,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                                 {prRef.repoSlug}#{prRef.number}
                             </span>
                         </span>
-                        <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} />
                         <TrackerIssueNote report={report} />
                     </div>
                 ) : hasTrackerNote ? (

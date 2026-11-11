@@ -4,7 +4,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { formatReportMetricParts, reportMetricWindowLabel } from '../../utils/reportMetrics'
+import { formatReportMetricParts, reportMetricDetailUnit, reportMetricWindowLabel } from '../../utils/reportMetrics'
 
 export interface ReportSupportingMetricLiveState {
     value: number | null
@@ -24,6 +24,7 @@ export function ReportSupportingMetric({
     const snapshotParts = formatReportMetricParts(metric, metric.value)
     const parts = liveParts ?? snapshotParts
     const usingSnapshot = !liveParts && !!snapshotParts
+    const unit = parts ? reportMetricDetailUnit(metric, parts) : null
     const windowLabel = reportMetricWindowLabel(metric.query) ?? 'Current window'
 
     return (
@@ -36,10 +37,10 @@ export function ReportSupportingMetric({
                 {parts ? (
                     <>
                         {parts.value}
-                        {parts.unit ? (
+                        {unit ? (
                             <>
                                 {' '}
-                                <span className="text-xs font-normal text-secondary">{parts.unit}</span>
+                                <span className="text-xs font-normal text-secondary">{unit}</span>
                             </>
                         ) : null}
                     </>

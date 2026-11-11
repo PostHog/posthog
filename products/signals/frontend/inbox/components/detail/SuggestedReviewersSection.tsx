@@ -63,11 +63,11 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                         size="small"
                         type="secondary"
                         icon={<IconPlus />}
+                        tooltip="Add reviewer"
+                        aria-label="Add reviewer"
                         disabledReason={isUpdatingReviewers ? 'Updating…' : undefined}
                         onClick={() => setAddOpen((open) => !open)}
-                    >
-                        Add Reviewer
-                    </LemonButton>
+                    />
                 </LemonDropdown>
             }
         />

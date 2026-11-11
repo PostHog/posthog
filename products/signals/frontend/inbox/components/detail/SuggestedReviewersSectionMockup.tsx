@@ -17,11 +17,17 @@ export function SuggestedReviewersSectionMockup({
         <SuggestedReviewersSectionView
             reviewers={suggestions}
             disabled={false}
+            defaultOpen
             onRemove={onRemove}
             addControl={
-                <LemonButton size="small" type="secondary" icon={<IconPlus />} onClick={onAdd}>
-                    Add Reviewer
-                </LemonButton>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconPlus />}
+                    tooltip="Add reviewer"
+                    aria-label="Add reviewer"
+                    onClick={onAdd}
+                />
             }
         />
     )

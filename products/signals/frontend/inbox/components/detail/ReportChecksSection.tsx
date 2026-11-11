@@ -26,7 +26,15 @@ import { ReportCheckRow } from './ReportCheckRow'
  * where a finished check's explanation lives. Hidden entirely when the report has no checks, so the
  * rail does not grow an empty section on the reports that carry none.
  */
-export function ReportChecksSection({ report }: { report: SignalReport }): JSX.Element | null {
+const CHECKS_PURPOSE = 'Checks that test whether the fix had the expected effect.'
+
+export function ReportChecksSection({
+    report,
+    onToggleCollapsed,
+}: {
+    report: SignalReport
+    onToggleCollapsed?: (collapsed: boolean) => void
+}): JSX.Element | null {
     const { reportChecks, reportChecksLoading, reportArtefacts, cancellingCheckIds } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
@@ -38,7 +46,7 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
 
     if (reportChecksLoading && !reportChecks) {
         return (
-            <DetailSection icon={<IconTarget />} title="Follow-up checks" collapsible>
+            <DetailSection icon={<IconTarget />} title="Follow-up checks" collapsible defaultCollapsed>
                 <LemonSkeleton className="h-12 w-full" />
             </DetailSection>
         )
@@ -57,6 +65,9 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
             icon={<IconTarget />}
             title="Follow-up checks"
             collapsible
+            defaultCollapsed
+            onToggleCollapsed={onToggleCollapsed}
+            summary={<p className="m-0 text-xs text-tertiary">{CHECKS_PURPOSE}</p>}
             meta={
                 <span className="text-xs text-tertiary tabular-nums">
                     {reportChecksMeta(reportChecks, report.status)}

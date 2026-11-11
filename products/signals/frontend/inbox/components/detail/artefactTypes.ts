@@ -352,6 +352,29 @@ export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): 
     )
 }
 
+/**
+ * Entries that record how an agent worked rather than what happened to the report: its assessments,
+ * the code and signals it read, and the measurements a check took. The log hides them until asked.
+ * The API returns every entry, so agents that read the log still get all of it.
+ */
+const INTERNAL_ACTIVITY_TYPES: ReadonlySet<string> = new Set([
+    'priority_judgment',
+    'actionability_judgment',
+    'safety_judgment',
+    'signal_finding',
+    'code_reference',
+    'line_reference',
+    'repo_selection',
+    'ranking_score',
+    'check_observation',
+    'check_scheduled',
+    'autostart_skip',
+])
+
+export function isInternalActivity(artefact: SignalReportArtefact): boolean {
+    return artefact.actor_kind !== 'user' && INTERNAL_ACTIVITY_TYPES.has(artefact.type)
+}
+
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────
 
 /** Human label for each artefact type as it reads in the activity log header. */

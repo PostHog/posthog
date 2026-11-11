@@ -16,6 +16,7 @@ import {
     reportMetricFilterCount,
     reportMetricRowParts,
     reportMetricSeriesPoints,
+    reportMetricDetailUnit,
     reportMetricUnitWord,
     reportMetricWindowLabel,
     type ReportMetricInsightQuery,
@@ -213,6 +214,17 @@ describe('reportMetrics', () => {
         ['a whitespace-only unit', { kind: 'affected_users', unit: '  ', value_format: 'count' } as const, 'users'],
     ])('names the row unit from %s', (_name, metric, expected) => {
         expect(reportMetricUnitWord(metric)).toBe(expected)
+    })
+
+    test.each([
+        ['a count with no unit', { kind: 'affected_users', unit: null, value_format: 'count' } as const, 'users'],
+        ['an authored unit', { kind: 'occurrences', unit: 'clicks', value_format: 'count' } as const, 'clicks'],
+        ['a duration in seconds', { kind: 'duration', unit: 's', value_format: 'duration' } as const, null],
+        ['a currency code', { kind: 'revenue', unit: 'USD', value_format: 'currency' } as const, null],
+        ['a custom metric with no unit', { kind: 'custom', unit: null, value_format: 'number' } as const, null],
+    ])('names the detail unit for %s', (_name, metric, expected) => {
+        const parts = formatReportMetricParts(metric, 1240)
+        expect(parts && reportMetricDetailUnit(metric, parts)).toBe(expected)
     })
 
     test.each([

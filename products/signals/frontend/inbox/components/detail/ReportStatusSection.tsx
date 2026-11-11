@@ -52,23 +52,57 @@ function externalClaimLabel(report: SignalReport): string | null {
     return claimant ? `${fullNameOrEmail(claimant)} (via ${agent})` : agent
 }
 
+/** The one line the collapsed Status header shows, for example "Ready · P1 · PR open". */
+export function reportStatusSummary(report: SignalReport): string {
+    const primaryPullRequest = reportPullRequests(report)[0]
+    return [
+        STATUS_LABELS[report.status] ?? report.status,
+        report.priority,
+        primaryPullRequest && primaryPullRequest.state !== 'unknown'
+            ? `PR ${PULL_REQUEST_STATES[primaryPullRequest.state].toLowerCase()}`
+            : null,
+    ]
+        .filter(Boolean)
+        .join(' · ')
+}
+
 export function ReportStatusSection({
     report,
     rightSlot,
     onPriorityChange,
     prioritySaving = false,
+    pullRequestInHeader = false,
+    onToggleCollapsed,
 }: {
     report: SignalReport
     rightSlot?: ReactNode
     onPriorityChange?: (priority: ReportPriorityApi) => void
     prioritySaving?: boolean
+    /** The page header already links the pull request, so a single one needs no link row here. */
+    pullRequestInHeader?: boolean
+    onToggleCollapsed?: (collapsed: boolean) => void
 }): JSX.Element {
     const externalClaim = externalClaimLabel(report)
     const pullRequests = reportPullRequests(report)
     const trackerUrl = safeHttpUrl(report.tracker_issue_url ?? '')
+    const showPullRequestLinks = !pullRequestInHeader || pullRequests.length > 1
 
     return (
-        <DetailSection icon={<IconInfo />} title="Status" rightSlot={rightSlot} collapsible>
+        <DetailSection
+            icon={<IconInfo />}
+            title="Status"
+            rightSlot={rightSlot}
+            collapsible
+            defaultCollapsed
+            onToggleCollapsed={onToggleCollapsed}
+            meta={(open) =>
+                open ? null : (
+                    <span className="truncate text-xs text-tertiary" data-attr="inbox-report-status-summary">
+                        {reportStatusSummary(report)}
+                    </span>
+                )
+            }
+        >
             <dl className="m-0 flex flex-col gap-2">
                 <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
                 {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
@@ -125,16 +159,18 @@ export function ReportStatusSection({
                                     : 'contents [&>div:first-child]:border-t [&>div:first-child]:border-primary [&>div:first-child]:pt-3'
                             }
                         >
-                            <StatusRow label="Pull request">
-                                {prRef && prUrl ? (
-                                    <Link to={prUrl} target="_blank">
-                                        {prRef.repoSlug}#{prRef.number}
-                                    </Link>
-                                ) : (
-                                    <span className="text-tertiary">Unavailable</span>
-                                )}
-                            </StatusRow>
-                            <StatusRow label="Status">
+                            {showPullRequestLinks && (
+                                <StatusRow label="Pull request">
+                                    {prRef && prUrl ? (
+                                        <Link to={prUrl} target="_blank">
+                                            {prRef.repoSlug}#{prRef.number}
+                                        </Link>
+                                    ) : (
+                                        <span className="text-tertiary">Unavailable</span>
+                                    )}
+                                </StatusRow>
+                            )}
+                            <StatusRow label={showPullRequestLinks ? 'Status' : 'Pull request'}>
                                 {PULL_REQUEST_STATES[pullRequest.state] ?? PULL_REQUEST_STATES.unknown}
                             </StatusRow>
                             {isOpen && pullRequest.review_decision && (
