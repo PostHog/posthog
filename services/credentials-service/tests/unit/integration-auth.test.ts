@@ -200,7 +200,6 @@ describe('integration policy', () => {
             'delete',
             'revoke',
             'oauth_exchange',
-            'read_by_external_id',
             'write_by_external_id',
             'delete_by_external_id',
             'delete_owner',
@@ -210,6 +209,19 @@ describe('integration policy', () => {
                 expect(policy.ops.filter((op) => webOnly.includes(op))).toEqual([])
             }
         }
+    })
+
+    it('gives read_by_external_id to web and to the tasks worker for the Slack kinds only', () => {
+        const holders = Object.entries(POLICY)
+            .filter(([, policy]) => policy.ops.includes('read_by_external_id'))
+            .map(([deployment]) => deployment)
+
+        expect(holders.sort()).toEqual([WEB, TASKS])
+        expect(POLICY[TASKS]!.opKinds).toEqual({ read_by_external_id: ['slack', 'slack-posthog-code'] })
+    })
+
+    it.each(['temporal-worker-max-ai', 'temporal-worker-wizard'])('gives %s no refresh', (deployment) => {
+        expect(POLICY[deployment]!.ops).toEqual(['read', 'resolve', 'mint'])
     })
 
     it('gives any kind only to the deployments whose code can touch any kind', () => {
@@ -247,6 +259,9 @@ describe('integration policy', () => {
                     ops: [...policy.ops].sort().join(','),
                     kinds: policy.kinds === ALL_KINDS ? ALL_KINDS : policy.kinds.join(','),
                     sourceRows: policy.sourceRows === true,
+                    opKinds: Object.fromEntries(
+                        Object.entries(policy.opKinds ?? {}).map(([op, k]) => [op, k.join(',')])
+                    ),
                 },
             ])
         )
@@ -254,201 +269,243 @@ describe('integration policy', () => {
           {
             "cdp-api": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-api-batch-exports": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-api-push": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-api-warehouse-webhooks": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-api-webhooks": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-cyclotron-worker-batch-resolve": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-cyclotron-worker-email": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-cyclotron-worker-hog-kafka": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-cyclotron-worker-hogflows-pg": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-cyclotron-worker-hogoverflow-kafka": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-data-warehouse-events-consumer": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-events-consumer": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-internal-events-consumer": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-legacy-events-consumer": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "cdp-realtime-only-events-consumer": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-ai-main": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-ai-overflow": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-analytics-async": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-analytics-historical": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-analytics-main": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-analytics-overflow": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-analytics-team2": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-analytics-turbo": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-clientwarnings-main": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-errortracking-main": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-errortracking-overflow": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "ingestion-heatmaps-main": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "resolve",
               "sourceRows": false,
             },
             "posthog-admin-django": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "list_across_teams,read,refresh,resolve,write",
               "sourceRows": false,
             },
             "posthog-integrations-reverse-sync": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "reverse_sync",
               "sourceRows": false,
             },
             "posthog-query-django": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "read",
               "sourceRows": false,
             },
             "posthog-web-django": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "delete,delete_by_external_id,delete_owner,list_across_teams,mint,oauth_exchange,read,read_by_external_id,refresh,resolve,revoke,write,write_by_external_id",
               "sourceRows": false,
             },
             "posthog-worker-django": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "list_across_teams,read,refresh,resolve,write",
               "sourceRows": false,
             },
             "temporal-worker-batch-exports": {
               "kinds": "aws-redshift,aws-s3,azure-blob,databricks,google-cloud-service-account,postgresql,s3-compatible,snowflake",
+              "opKinds": {},
               "ops": "read,refresh,resolve",
               "sourceRows": false,
             },
             "temporal-worker-data-warehouse": {
               "kinds": "apple-ads,aws-redshift,aws-s3,azure-blob,bing-ads,databricks,github,google-ads,google-analytics,google-cloud-service-account,google-search-console,google-sheets,helpscout,hubspot,instagram,intercom,linear,linkedin-ads,meta-ads,pardot,pinterest-ads,postgresql,reddit-ads,resend,s3-compatible,salesforce,snapchat,snowflake,stripe,tiktok-ads,twitter-ads,youtube-analytics",
+              "opKinds": {},
               "ops": "list_across_teams,read,refresh,resolve,write",
               "sourceRows": true,
             },
             "temporal-worker-general-purpose": {
               "kinds": "*",
+              "opKinds": {},
               "ops": "list_across_teams,read,refresh,resolve,write",
               "sourceRows": false,
             },
             "temporal-worker-max-ai": {
               "kinds": "github",
-              "ops": "mint,read,refresh,resolve",
+              "opKinds": {},
+              "ops": "mint,read,resolve",
               "sourceRows": false,
             },
             "temporal-worker-tasks-agent": {
               "kinds": "github,slack,slack-posthog-code",
-              "ops": "mint,read,refresh,resolve",
+              "opKinds": {
+                "read_by_external_id": "slack,slack-posthog-code",
+              },
+              "ops": "mint,read,read_by_external_id,refresh,resolve",
               "sourceRows": false,
             },
             "temporal-worker-video-export": {
               "kinds": "github,gitlab,google-calendar,jira,linear,slack",
+              "opKinds": {},
               "ops": "mint,read,refresh,resolve",
               "sourceRows": false,
             },
             "temporal-worker-wizard": {
               "kinds": "github",
-              "ops": "mint,read,refresh,resolve",
+              "opKinds": {},
+              "ops": "mint,read,resolve",
               "sourceRows": false,
             },
             "warehouse-sources-load": {
               "kinds": "apple-ads,aws-redshift,aws-s3,azure-blob,bing-ads,databricks,github,google-ads,google-analytics,google-cloud-service-account,google-search-console,google-sheets,helpscout,hubspot,instagram,intercom,linear,linkedin-ads,meta-ads,pardot,pinterest-ads,postgresql,reddit-ads,resend,s3-compatible,salesforce,snapchat,snowflake,stripe,tiktok-ads,twitter-ads,youtube-analytics",
+              "opKinds": {},
               "ops": "list_across_teams,read,refresh,resolve,write",
               "sourceRows": true,
             },
@@ -754,7 +811,11 @@ describe('integration authorization', () => {
             'read_by_external_id',
         ],
         ['celery minting', { deployment: CELERY, claims: { ops: ['mint'], refs: ['12'] } }, 'mint'],
-        ['web reading the changes feed', { deployment: WEB, claims: { ops: ['reverse_sync'] } }, 'reverse_sync'],
+        [
+            'web reading the changes feed',
+            { deployment: WEB, omit: ['owner'], claims: { ops: ['reverse_sync'] } },
+            'reverse_sync',
+        ],
         [
             'the reverse-sync deployment reading one team',
             { deployment: REVERSE_SYNC, claims: { ops: ['read'] } },
@@ -783,8 +844,36 @@ describe('integration authorization', () => {
     })
 
     it('lets the reverse-sync deployment read the changes feed', async () => {
-        const g = await grant({ deployment: REVERSE_SYNC, claims: { ops: ['reverse_sync'] } })
+        const g = await grant({ deployment: REVERSE_SYNC, omit: ['owner'], claims: { ops: ['reverse_sync'] } })
         expect(g.authorize('reverse_sync').op).toBe('reverse_sync')
+    })
+
+    it('forbids a reverse_sync token that carries an owner', async () => {
+        await expect(grant({ deployment: REVERSE_SYNC, claims: { ops: ['reverse_sync'] } })).rejects.toBeDefined()
+    })
+
+    it.each([
+        ['slack', null],
+        ['slack-posthog-code', null],
+        ['github', 'forbidden_kind'],
+        ['hubspot', 'forbidden_kind'],
+    ])('lets the tasks worker read_by_external_id for kind %s: %s', async (kind, code) => {
+        const g = await grant({ deployment: TASKS, omit: ['owner'], claims: { ops: ['read_by_external_id'] } })
+        if (code) {
+            expect(await codeFor(() => g.authorize('read_by_external_id', { kind }))).toBe(code)
+        } else {
+            expect(g.authorize('read_by_external_id', { kind }).kinds).toEqual(['slack', 'slack-posthog-code'])
+        }
+    })
+
+    it('keeps the token kinds inside the op kinds for the tasks worker', async () => {
+        const g = await grant({
+            deployment: TASKS,
+            omit: ['owner'],
+            claims: { ops: ['read_by_external_id'], kinds: ['github', 'slack'] },
+        })
+        expect(g.authorize('read_by_external_id', { kind: 'slack' }).kinds).toEqual(['slack'])
+        expect(await codeFor(() => g.authorize('read_by_external_id', { kind: 'github' }))).toBe('forbidden_kind')
     })
 
     it.each([
