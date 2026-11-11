@@ -612,6 +612,29 @@ def unsupported_row_filter_reason(*, is_direct_query: bool, is_cdc: bool) -> str
     return None
 
 
+def live_query_unavailable_reason(
+    *,
+    source_serves_live_queries: bool,
+    has_row_filters: bool,
+    has_masked_columns: bool,
+    has_column_metadata: bool,
+) -> str | None:
+    """Why a table can't be made queryable live without syncing it, or None when it can.
+
+    A live query reads the upstream table directly, so it can't apply the row filters or masks a
+    sync would. The live table is built from the stored column metadata, so it needs some.
+    """
+    if not source_serves_live_queries:
+        return "Live queries are only available on synced sources that have live queries turned on."
+    if has_row_filters:
+        return "Tables with row filters can't be queried live, because a live query reads every row."
+    if has_masked_columns:
+        return "Tables with masked columns can't be queried live, because a live query reads the original values."
+    if not has_column_metadata:
+        return 'This table has no column information yet. Run "Pull new schemas" on the source, then try again.'
+    return None
+
+
 def _apply_primary_key_columns(
     data: dict[str, Any],
     payload: dict[str, Any],
@@ -1165,6 +1188,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "table",
             "table_id",
             "should_sync",
+            "live_query_enabled",
             "last_synced_at",
             "latest_error",
             "incremental",
@@ -1528,6 +1552,21 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Each scheduled run of such a table would bill the same rows again.
         if validated_data.get("should_sync") is True and source_syncs_on_demand(instance.source.source_type):
             raise ValidationError({"should_sync": ON_DEMAND_SYNC_ERROR})
+
+        if validated_data.get("live_query_enabled") is True and not instance.live_query_enabled:
+            source = instance.source
+            metadata = instance.schema_metadata
+            if reason := live_query_unavailable_reason(
+                source_serves_live_queries=(
+                    source.access_method == ExternalDataSource.AccessMethod.WAREHOUSE
+                    and source.direct_query_enabled
+                    and source.direct_engine is not None
+                ),
+                has_row_filters=bool(validated_data.get("row_filters", instance.row_filters)),
+                has_masked_columns=bool(validated_data.get("masked_columns", instance.masked_columns)),
+                has_column_metadata=isinstance(metadata, dict) and bool(metadata.get("columns")),
+            ):
+                raise ValidationError({"live_query_enabled": reason})
 
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).

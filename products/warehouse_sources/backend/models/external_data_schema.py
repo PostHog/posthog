@@ -310,6 +310,13 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     source = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     should_sync = models.BooleanField(default=True)
+    # db_default because pods on the previous release insert rows without this column while a deploy runs.
+    live_query_enabled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether this table is queryable live on a synced source with live queries on, without syncing it. "
+        "Synced tables are always queryable live.",
+    )
     auto_disabled_at = models.DateTimeField(
         null=True,
         blank=True,
