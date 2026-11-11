@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scenario_seeder import (
+    seed_flat_wau,
     seed_health_check_mix,
     seed_mcp_tool_shipped,
     seed_org_grain_metric,
@@ -64,8 +65,6 @@ from products.posthog_ai.eval_harness.scorers import SourcesConsulted
 
 # The spike is 8 to 10 days old, so "last week" alone could point to a window without it.
 _SPIKE_PROMPT = "Check the spike in WAU over the last two weeks, what caused it?"
-# The base Hedgebox data can rise over two weeks, so the control case asks about one week only.
-_NO_SPIKE_PROMPT = "Check the spike in WAU last week, what caused it?"
 
 # A query that measures active users over time, typed or SQL.
 _ACTIVE_USERS_MEASURE = (
@@ -122,7 +121,7 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
                         "Confirm in the data that weekly active users rose sharply about 8 to 10 days ago. "
                         f"Cite the project annotation '{CAMPAIGN_ANNOTATION_CONTENT}' as a lead, then verify it: "
                         f"the new users arrived on the /mariustechtips/ landing page from YouTube with "
-                        f"utm_source={CAMPAIGN_UTM_SOURCE}, signed up, and logged in again on later days."
+                        f"utm_source={CAMPAIGN_UTM_SOURCE}, most signed up, and many logged in again on later days."
                     )
                 },
             },
@@ -145,16 +144,18 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
         ),
         SandboxedEvalCase(
             name="verify_no_spike",
-            prompt=_NO_SPIKE_PROMPT,
+            prompt=_SPIKE_PROMPT,
             expected={
                 "claim_measured": {"patterns": [_ACTIVE_USERS_MEASURE]},
                 "analysis_diligence": {
                     "expected_behavior": (
-                        "Measure weekly active users over recent weeks and report that there is no spike last "
-                        "week. Do not invent a cause for a change that the data does not show."
+                        "Measure weekly active users over recent weeks and report that there is no spike: WAU "
+                        "stays within a few percent from week to week. Do not invent a cause for a change that "
+                        "the data does not show."
                     )
                 },
             },
+            setup=seed_flat_wau,
         ),
         SandboxedEvalCase(
             name="anomaly_top_sales_reps",

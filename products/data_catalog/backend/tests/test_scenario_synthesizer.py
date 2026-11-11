@@ -38,15 +38,33 @@ def test_planted_people_carry_the_pack_token_and_a_reserved_domain() -> None:
 
 def test_wau_spikes_stay_inside_their_window() -> None:
     campaign = pack.build_wau_spike()
-    signups = {event.distinct_id for event in campaign.events if event.event == "signed_up"}
-    assert len(signups) == pack.WAU_SPIKE_PERSON_COUNT
-    assert {event.days_ago for event in campaign.events} == set(pack.WAU_SPIKE_DAYS_AGO)
+    landings = [event for event in campaign.events if event.properties.get("utm_source") == pack.CAMPAIGN_UTM_SOURCE]
+    assert {event.days_ago for event in landings} == set(pack.WAU_SPIKE_DAYS_AGO)
+    assert len({event.distinct_id for event in landings}) == pack.WAU_SPIKE_PERSON_COUNT
+    assert min(event.days_ago for event in campaign.events) >= pack.WAU_SPIKE_LAST_RETURN_DAYS_AGO
+    # Campaign users without the web SDK properties read as scripted accounts, not as campaign traffic.
+    assert all(event.properties["$lib"] == "web" for event in campaign.events)
 
     bots = pack.build_wau_bot_spike()
     assert {event.days_ago for event in bots.events} <= set(pack.WAU_SPIKE_DAYS_AGO)
     assert len({event.distinct_id for event in bots.events}) == pack.WAU_BOT_DISTINCT_ID_COUNT
     assert {event.event for event in bots.events} == {"$pageview"}
     assert {event.properties["$browser"] for event in bots.events} == {pack.WAU_BOT_BROWSER}
+
+
+def test_flat_wau_holds_weekly_actives_level_on_a_growing_base() -> None:
+    days = 100
+    daily_active: list[set[str]] = [
+        {f"user-{index}" for index in range(1_100 - 9 * day) if (index + day) % 3 == 0} for day in range(days)
+    ]
+    needle = pack.build_flat_wau(daily_active, latest_minute=600)
+    for event in needle.events:
+        daily_active[event.days_ago].add(event.distinct_id)
+    weekly = pack.rolling_weekly_actives(daily_active)
+    # The first week of data has windows that reach past its start, so only full windows count.
+    changes = [abs(weekly[day] / weekly[day + 7] - 1) for day in range(days - 14)]
+    assert max(changes) <= 0.02
+    assert all(event.minute_of_day < 600 for event in needle.events if event.days_ago == 0)
 
 
 def test_share_dau_has_the_same_sharers_every_day() -> None:

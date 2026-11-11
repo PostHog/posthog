@@ -55,6 +55,7 @@ from products.data_catalog.evals.scenario_synthesizer import (
     FlagNeedle,
     TableNeedle,
     build_account_health,
+    build_flat_wau,
     build_mcp_tool_shipped,
     build_revenue_rep_outlier,
     build_share_dau,
@@ -73,6 +74,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "seed_churn_risk_sources",
+    "seed_flat_wau",
     "seed_health_check_mix",
     "seed_mcp_tool_shipped",
     "seed_org_grain_metric",
@@ -210,6 +212,27 @@ def table_aliases(table: TableNeedle) -> list[str]:
     return [table.table_name, f"postgres.{table.schema_name}"]
 
 
+def _plant_flat_wau(team: Team, user: User, now: datetime) -> dict[str, Any]:
+    """Hold weekly active users level, so the only WAU change in a case is the one the case plants."""
+    response = execute_hogql_query(
+        "SELECT person_id, groupUniqArray(dateDiff('day', toDate(timestamp), today())) FROM events "
+        "GROUP BY person_id LIMIT 50000",
+        team=team,
+        user=user,
+    )
+    rows = response.results or []
+    if not rows:
+        raise RuntimeError("The Hedgebox master data has no events to hold level.")
+    daily_active: list[set[str]] = [set() for _ in range(max(max(days) for _, days in rows) + 1)]
+    for person_id, days in rows:
+        for day in days:
+            if day >= 0:
+                daily_active[day].add(str(person_id))
+    needle = build_flat_wau(daily_active, now.hour * 60 + now.minute)
+    _plant_needle(team, needle, now)
+    return {"members": len(needle.persons), "events": len(needle.events)}
+
+
 def _plant_wau_spike(team: Team, user: User, now: datetime) -> dict[str, Any]:
     needle = build_wau_spike()
     _plant_needle(team, needle, now)
@@ -300,16 +323,27 @@ def _plant_share_drop_flag(team: Team, user: User, now: datetime) -> dict[str, A
     }
 
 
+def seed_flat_wau(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    return {"flat_wau": _plant_flat_wau(team, user, timezone.now())}
+
+
 def seed_wau_spike_with_annotation(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team, user = _team_and_user(context)
-    return {"wau_spike": _plant_wau_spike(team, user, timezone.now())}
+    now = timezone.now()
+    return {"flat_wau": _plant_flat_wau(team, user, now), "wau_spike": _plant_wau_spike(team, user, now)}
 
 
 def seed_wau_bot_spike(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, _ = _team_and_user(context)
+    team, user = _team_and_user(context)
+    now = timezone.now()
+    flat = _plant_flat_wau(team, user, now)
     needle = build_wau_bot_spike()
-    events = _plant_needle(team, needle, timezone.now())
-    return {"wau_bot_spike": {"distinct_ids": len(needle.persons), "pageviews": events, "browser": WAU_BOT_BROWSER}}
+    events = _plant_needle(team, needle, now)
+    return {
+        "flat_wau": flat,
+        "wau_bot_spike": {"distinct_ids": len(needle.persons), "pageviews": events, "browser": WAU_BOT_BROWSER},
+    }
 
 
 def seed_upload_double_count(context: CustomPromptSandboxContext) -> dict[str, Any]:

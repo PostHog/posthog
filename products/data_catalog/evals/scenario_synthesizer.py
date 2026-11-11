@@ -12,7 +12,10 @@ two calls return equal packs. Every name, email, and message here is invented.
 
 from __future__ import annotations
 
+import uuid
 import random
+from collections import deque
+from collections.abc import Collection, Sequence
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -22,7 +25,7 @@ PACK_EMAIL_DOMAIN = "example.com"
 PACK_SEED = 20261029
 
 # WAU_SPIKE: a sponsored video sends new users to the Hedgebox campaign landing page.
-WAU_SPIKE_PERSON_COUNT = 120
+WAU_SPIKE_PERSON_COUNT = 200
 WAU_SPIKE_DAYS_AGO = (10, 9, 8)
 CAMPAIGN_PATH = "/mariustechtips/"
 CAMPAIGN_URL = f"https://hedgebox.net{CAMPAIGN_PATH}"
@@ -31,6 +34,19 @@ CAMPAIGN_REFERRING_DOMAIN = "www.youtube.com"
 CAMPAIGN_UTM_SOURCE = "mariustechtips"
 CAMPAIGN_ANNOTATION_CONTENT = "Marius Tech Tips sponsorship went live"
 CAMPAIGN_ANNOTATION_DAYS_AGO = WAU_SPIKE_DAYS_AGO[0]
+WAU_SPIKE_ARRIVAL_WEIGHTS = (0.7, 0.2, 0.1)
+WAU_SPIKE_SIGNUP_SHARE = 0.85
+WAU_SPIKE_RETURN_RATE = 0.5
+WAU_SPIKE_RETURN_DECAY = 0.75
+WAU_SPIKE_LAST_RETURN_DAYS_AGO = 3
+
+# FLAT_WAU: steady members who hold weekly active users near one level over the whole history.
+# Hedgebox grows every week, so without them any WAU question finds a real rise.
+FLAT_WAU_WEEKLY_JITTER = 0.006
+"""The planned level moves by at most twice this from one week to the next."""
+FLAT_WAU_EXTRA_DAY_RATE = 0.13
+"""With the one weekly visit, this gives about 1.9 active days a week, as Hedgebox users have."""
+FLAT_WAU_PATHS = ("/", "/files/", "/files/", "/account/settings/")
 
 # WAU_BOT_SPIKE: a headless crawler that never logs in. It needs many distinct ids, because a WAU
 # count dedupes by user and a few busy ids would not move it.
@@ -317,6 +333,50 @@ class AccountHealth:
     """Accounts whose ``churn_health`` is above ``CHURN_HEALTH_THRESHOLD``."""
 
 
+_WEB_CLIENTS = (
+    ("Chrome", "Mac OS X", "Desktop"),
+    ("Chrome", "Windows", "Desktop"),
+    ("Safari", "iOS", "Mobile"),
+    ("Chrome", "Android", "Mobile"),
+    ("Firefox", "Linux", "Desktop"),
+    ("Microsoft Edge", "Windows", "Desktop"),
+    ("Safari", "Mac OS X", "Desktop"),
+)
+_WEB_COUNTRIES = ("US", "US", "US", "GB", "DE", "CA", "FR", "IN", "BR", "AU")
+_WEB_LIB_VERSION = "1.298.0"
+
+
+def _uuid(rng: random.Random) -> str:
+    return str(uuid.UUID(int=rng.getrandbits(128), version=4))
+
+
+def _web_client(rng: random.Random) -> dict[str, Any]:
+    """The properties the web SDK sends from one device, so planted users look like Hedgebox users."""
+    browser, os, device_type = rng.choice(_WEB_CLIENTS)
+    return {
+        "$lib": "web",
+        "$lib_version": _WEB_LIB_VERSION,
+        "$host": "hedgebox.net",
+        "$browser": browser,
+        "$os": os,
+        "$device_type": device_type,
+        "$geoip_country_code": rng.choice(_WEB_COUNTRIES),
+        "$browser_language": "en-US",
+        "$device_id": _uuid(rng),
+    }
+
+
+def _web_event(client: dict[str, Any], pathname: str, session_id: str, **extra: Any) -> dict[str, Any]:
+    return {
+        **client,
+        "$current_url": f"https://hedgebox.net{pathname}",
+        "$pathname": pathname,
+        "$session_id": session_id,
+        "$referrer": "$direct",
+        **extra,
+    }
+
+
 def _person(prefix: str, index: int) -> PlantedPerson:
     first = _FIRST_NAMES[index % len(_FIRST_NAMES)]
     last = _LAST_NAMES[(index // len(_FIRST_NAMES)) % len(_LAST_NAMES)]
@@ -325,56 +385,112 @@ def _person(prefix: str, index: int) -> PlantedPerson:
 
 
 def build_wau_spike() -> EventNeedle:
+    rng = random.Random(PACK_SEED + 5)
     persons = tuple(_person("campaign", index) for index in range(WAU_SPIKE_PERSON_COUNT))
     landing = {
-        "$current_url": CAMPAIGN_URL,
-        "$pathname": CAMPAIGN_PATH,
+        "$current_url": f"{CAMPAIGN_URL}?utm_source={CAMPAIGN_UTM_SOURCE}",
         "$referrer": CAMPAIGN_REFERRER,
         "$referring_domain": CAMPAIGN_REFERRING_DOMAIN,
         "utm_source": CAMPAIGN_UTM_SOURCE,
     }
-    files = {"$current_url": "https://hedgebox.net/files/", "$pathname": "/files/"}
-    first_day, *later_days = WAU_SPIKE_DAYS_AGO
     events: list[PlantedEvent] = []
-    for index, person in enumerate(persons):
-        minute = 60 + (index * 7) % 1200
-        events += [
+
+    def add(event: str, person: PlantedPerson, days_ago: int, minute: int, properties: dict[str, Any]) -> None:
+        events.append(
             PlantedEvent(
-                event="$pageview",
+                event=event,
                 distinct_id=person.distinct_id,
-                days_ago=first_day,
+                days_ago=days_ago,
                 minute_of_day=minute,
-                properties=landing,
-            ),
-            PlantedEvent(
-                event="signed_up",
-                distinct_id=person.distinct_id,
-                days_ago=first_day,
-                minute_of_day=minute + 2,
-                properties={"from_invite": False},
-            ),
-            PlantedEvent(
-                event="logged_in",
-                distinct_id=person.distinct_id,
-                days_ago=first_day,
-                minute_of_day=minute + 3,
-                properties={},
-            ),
-        ]
-        for day in later_days:
-            events += [
-                PlantedEvent(
-                    event="logged_in", distinct_id=person.distinct_id, days_ago=day, minute_of_day=minute, properties={}
-                ),
+                properties=properties,
+            )
+        )
+
+    for person in persons:
+        client = _web_client(rng)
+        arrival = rng.choices(WAU_SPIKE_DAYS_AGO, weights=WAU_SPIKE_ARRIVAL_WEIGHTS)[0]
+        # Most viewers watch the video in the evening, so arrivals peak late in the day.
+        minute = min(1400, int(rng.triangular(240, 1440, 1140)))
+        session = _uuid(rng)
+        add("$pageview", person, arrival, minute, _web_event(client, CAMPAIGN_PATH, session, **landing))
+        if rng.random() >= WAU_SPIKE_SIGNUP_SHARE:
+            continue
+        signup_minute = minute + rng.randint(1, 12)
+        add("signed_up", person, arrival, signup_minute, _web_event(client, "/signup/", session, from_invite=False))
+        add("logged_in", person, arrival, signup_minute + 1, _web_event(client, "/files/", session))
+        for day in range(arrival - 1, WAU_SPIKE_LAST_RETURN_DAYS_AGO - 1, -1):
+            if rng.random() >= WAU_SPIKE_RETURN_RATE * WAU_SPIKE_RETURN_DECAY ** (arrival - 1 - day):
+                continue
+            minute = rng.randrange(360, 1380)
+            session = _uuid(rng)
+            add("logged_in", person, day, minute, _web_event(client, "/login/", session))
+            add("$pageview", person, day, minute + 1, _web_event(client, "/files/", session))
+            if rng.random() < 0.3:
+                upload = _web_event(
+                    client, "/files/", session, file_type="image/png", file_size_b=rng.randrange(10**5, 10**7)
+                )
+                add(UPLOAD_EVENT, person, day, minute + 3, upload)
+    return EventNeedle(name="wau_spike", persons=persons, events=tuple(events))
+
+
+def rolling_weekly_actives(daily_active: Sequence[Collection[str]]) -> list[int]:
+    """Users active in the 7 days that end ``index`` days ago, as PostHog's weekly active math counts them."""
+    return [len(set().union(*daily_active[day : day + 7])) for day in range(len(daily_active))]
+
+
+def _flat_wau_targets(organic: Sequence[int], rng: random.Random) -> list[int]:
+    knots = [rng.uniform(-FLAT_WAU_WEEKLY_JITTER, FLAT_WAU_WEEKLY_JITTER) for _ in range(len(organic) // 7 + 2)]
+    jitter = [knots[day // 7] + (knots[day // 7 + 1] - knots[day // 7]) * (day % 7) / 7 for day in range(len(organic))]
+    level = max(count / (1 + jitter[day]) for day, count in enumerate(organic))
+    return [max(count, round(level * (1 + jitter[day]))) for day, count in enumerate(organic)]
+
+
+def build_flat_wau(daily_active: Sequence[Collection[str]], latest_minute: int) -> EventNeedle:
+    """Plant members whose weekly visits fill the gap between the organic WAU and a level line.
+
+    ``daily_active[day]`` holds the users active ``day`` days ago. Each member is active once in
+    every 7 days from the first day to the last day, so a member counts in exactly the windows that
+    overlap that range. A member starts when the gap grows and stops when the gap shrinks.
+    """
+    rng = random.Random(PACK_SEED + 6)
+    organic = rolling_weekly_actives(daily_active)
+    if not organic:
+        return EventNeedle(name="flat_wau", persons=(), events=())
+    gap = [target - count for target, count in zip(_flat_wau_targets(organic, rng), organic)]
+    # Per member: the first (oldest) active day and the last active day, both as days ago.
+    spans: list[list[int]] = []
+    live: deque[int] = deque()
+    oldest = len(organic) - 1
+    for day in range(oldest, -1, -1):
+        # A member whose last day is ``day + 7`` leaves this window. It must have started 7 days earlier, or
+        # its single weekly visit could fall inside this window.
+        while len(live) > gap[day] and day < oldest and spans[live[0]][0] >= day + 7:
+            spans[live.popleft()][1] = day + 7
+        while len(live) < gap[day]:
+            live.append(len(spans))
+            spans.append([day, 0])
+    for index in live:
+        spans[index][1] = spans[index][0] % 7
+
+    persons = tuple(_person("member", index) for index in range(len(spans)))
+    events: list[PlantedEvent] = []
+    for person, (first, last) in zip(persons, spans):
+        client = _web_client(rng)
+        weekly = set(range(first, last - 1, -7)) | {last}
+        extra = {day for day in range(max(last, 1), first) if rng.random() < FLAT_WAU_EXTRA_DAY_RATE}
+        for day in sorted(weekly | extra, reverse=True):
+            minute = rng.randrange(max(1, latest_minute)) if day == 0 else rng.randrange(1440)
+            properties = _web_event(client, rng.choice(FLAT_WAU_PATHS), _uuid(rng))
+            events.append(
                 PlantedEvent(
                     event="$pageview",
                     distinct_id=person.distinct_id,
                     days_ago=day,
-                    minute_of_day=minute + 1,
-                    properties=files,
-                ),
-            ]
-    return EventNeedle(name="wau_spike", persons=persons, events=tuple(events))
+                    minute_of_day=minute,
+                    properties=properties,
+                )
+            )
+    return EventNeedle(name="flat_wau", persons=persons, events=tuple(events))
 
 
 def build_wau_bot_spike() -> EventNeedle:
