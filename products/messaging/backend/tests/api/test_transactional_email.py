@@ -1054,6 +1054,26 @@ class TestTransactionalEmail(APIBaseTest):
         assert "members of your organization" in warning["message"]
         assert setup_url in warning["agent_action"]
 
+    @parameterized.expand([("the_default_sender", True, 1), ("the_oldest_without_a_default", False, 0)])
+    def test_the_sandbox_warning_links_the_unverified_sender_to_verify(
+        self, mock_post, _flag, _capture, _name, newer_is_default, linked
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        senders = [
+            Integration.objects.create(team=self.team, kind="email", integration_id=address, config={"verified": False})
+            for address in ("hello@example.org", "news@example.org")
+        ]
+        if newer_is_default:
+            TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=senders[1].id)
+        mock_post.return_value = MagicMock(
+            status_code=202, json=lambda: {"invocation_id": "invocation-1", "sender_kind": "email_sandbox"}
+        )
+
+        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [warning["setup_url"] for warning in response.json()["warnings"]] == [self._setup_url(senders[linked])]
+
     def test_a_sandbox_send_the_pipeline_accepted_keeps_its_message_id_when_the_database_fails_after(
         self, mock_post, _flag, _capture
     ):

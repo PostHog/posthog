@@ -723,8 +723,6 @@ class TransactionalEmailContent:
 
 @frozen
 class SendingDomainSetup:
-    """Where a team verifies a sending domain: the page of its unverified sender, or a new one."""
-
     setup_url: str
     unverified_sender_id: int | None
 
