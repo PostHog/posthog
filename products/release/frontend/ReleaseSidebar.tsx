@@ -20,7 +20,7 @@ import { STAGE_TONE } from './releaseUtils'
 const SECTION_LIMIT = 10
 
 export function ReleaseSidebar(): JSX.Element {
-    const { rows, decisionRows, flagCount, experimentCount, earlyAccessFeatures } = useValues(releaseLogic)
+    const { rows, decisionRows, flagCount, experimentCount, earlyAccessCount } = useValues(releaseLogic)
     const { setDecisionOnly } = useActions(releaseLogic)
     const { location } = useValues(router)
     const [query, setQuery] = useState('')
@@ -53,7 +53,7 @@ export function ReleaseSidebar(): JSX.Element {
             label: 'Early access features',
             to: urls.earlyAccessFeatures(),
             type: 'early_access_feature',
-            count: earlyAccessFeatures.length,
+            count: earlyAccessCount,
             prefix: '/early_access_features',
         },
     ].filter((product) => matches(product.label))

@@ -9,7 +9,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-import { earlyAccessFeatureList } from 'products/early_access_features/frontend/generated/api'
+import {
+    earlyAccessFeatureList,
+    earlyAccessFeatureRetrieve,
+} from 'products/early_access_features/frontend/generated/api'
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import { experimentsList } from 'products/experiments/frontend/generated/api'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
@@ -38,6 +41,7 @@ interface ReleaseLogicValues {
     experimentsLoading: boolean
     experimentCount: number
     earlyAccessFeatures: EarlyAccessFeatureApi[]
+    earlyAccessCount: number
     scheduledChanges: ScheduledChangeApi[]
     search: string
     stageFilter: ReleaseStage | null
@@ -77,6 +81,7 @@ interface ReleaseLogicActions {
     loadExperimentsFailure: (error: string) => { error: string }
     loadExperimentCount: () => void
     loadEarlyAccessFeatures: () => void
+    loadEarlyAccessCount: () => void
     loadEarlyAccessFeaturesSuccess: (earlyAccessFeatures: EarlyAccessFeatureApi[]) => {
         earlyAccessFeatures: EarlyAccessFeatureApi[]
     }
@@ -273,10 +278,35 @@ export const releaseLogic = kea<releaseLogicType>([
         earlyAccessFeatures: [
             [] as EarlyAccessFeatureApi[],
             {
-                loadEarlyAccessFeatures: async () =>
-                    allPages((offset) =>
-                        earlyAccessFeatureList(String(values.currentProjectId), { limit: PAGE_SIZE, offset })
-                    ),
+                loadEarlyAccessFeatures: async (_, breakpoint) => {
+                    const projectId = String(values.currentProjectId)
+                    const ids = [
+                        ...new Set(
+                            values.flags.flatMap((flag) =>
+                                ((flag.features as unknown as { id: string }[] | undefined) ?? []).map(
+                                    (item) => item.id
+                                )
+                            )
+                        ),
+                    ]
+                    const results = await inBatches(ids, (id) => earlyAccessFeatureRetrieve(projectId, id), breakpoint)
+                    const features: EarlyAccessFeatureApi[] = []
+                    for (const result of results) {
+                        if (result.status === 'fulfilled') {
+                            features.push(result.value)
+                        } else if ((result.reason as { status?: number })?.status !== 404) {
+                            throw result.reason
+                        }
+                    }
+                    return features
+                },
+            },
+        ],
+        earlyAccessCount: [
+            0,
+            {
+                loadEarlyAccessCount: async () =>
+                    (await earlyAccessFeatureList(String(values.currentProjectId), { limit: 1 })).count ?? 0,
             },
         ],
         scheduledChanges: [
@@ -413,7 +443,7 @@ export const releaseLogic = kea<releaseLogicType>([
             actions.loadReleases()
             actions.loadFlagCount()
             actions.loadExperimentCount()
-            actions.loadEarlyAccessFeatures()
+            actions.loadEarlyAccessCount()
         },
         createRelease: async ({ name, description }) => {
             try {
@@ -485,6 +515,9 @@ export const releaseLogic = kea<releaseLogicType>([
                     feature_flag_ids: release.feature_flag_ids.filter((item) => item !== flagId),
                 })
             }
+        },
+        loadFlagsSuccess: () => {
+            actions.loadEarlyAccessFeatures()
         },
         loadReleasesSuccess: () => {
             actions.loadFlags()

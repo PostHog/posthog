@@ -31,7 +31,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { releaseLogic } from './releaseLogic'
-import { ReleaseFlagAudience, ReleaseRow, isExperimentRunning } from './releaseUtils'
+import { ReleaseFlagAudience, ReleaseRow, isEnrollingEarlyAccess, isExperimentRunning } from './releaseUtils'
 
 function emptyVariantWarning(row: ReleaseRow, audience: ReleaseFlagAudience): string | null {
     const running = row.experiments.find(
@@ -151,7 +151,7 @@ function AudienceRow({ row, audience }: { row: ReleaseRow; audience: ReleaseFlag
 }
 
 export function ReleaseAudienceCard({ row }: { row: ReleaseRow }): JSX.Element {
-    const openEarlyAccess = row.earlyAccess.find((item) => item.stage !== 'general-availability')
+    const openEarlyAccess = row.earlyAccess.find(isEnrollingEarlyAccess)
 
     return (
         <Card data-attr="release-flags">

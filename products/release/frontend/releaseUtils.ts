@@ -109,6 +109,7 @@ interface FlagFilters {
     groups?: FlagGroup[]
     multivariate?: { variants?: { key: string; rollout_percentage: number }[] } | null
     early_exit?: boolean
+    feature_enrollment?: boolean
     holdout?: { exclusion_percentage?: number } | null
 }
 
@@ -170,6 +171,11 @@ export const isExperimentRunning = (experiment: ExperimentBasicApi): boolean =>
 
 const isV1 = (flag: FeatureFlagApi): boolean => !flag.filters || isV1FeatureFlagConfig(flag.filters as never)
 
+const holdoutPercent = (flag: FeatureFlagApi): number => flagFilters(flag).holdout?.exclusion_percentage ?? 0
+
+const canWidenRollout = (flag: FeatureFlagApi): boolean =>
+    isV1(flag) && !flagFilters(flag).feature_enrollment && !isFullyRolledOut(flag)
+
 const isOpenGroup = (group: FlagGroup): boolean => !group.properties?.length
 
 function isFullyRolledOut(flag: FeatureFlagApi): boolean {
@@ -177,7 +183,7 @@ function isFullyRolledOut(flag: FeatureFlagApi): boolean {
         return false
     }
     const filters = flagFilters(flag)
-    if ((filters.holdout?.exclusion_percentage ?? 0) > 0) {
+    if (filters.feature_enrollment || holdoutPercent(flag) > 0) {
         return false
     }
     const groups = filters.groups ?? []
@@ -221,6 +227,9 @@ export const REVIEW_AFTER_DAYS = 14
 
 const ENROLLING_EARLY_ACCESS_STAGES = new Set(['alpha', 'beta'])
 
+export const isEnrollingEarlyAccess = (item: EarlyAccessFeatureApi): boolean =>
+    ENROLLING_EARLY_ACCESS_STAGES.has(item.stage)
+
 const EARLY_ACCESS_NEXT: Record<string, string> = {
     draft: 'Launch early access',
     concept: 'Open the beta',
@@ -237,6 +246,19 @@ const CONCLUSION_LABEL: Record<string, string> = {
 }
 
 function flagAudienceRow(flag: FeatureFlagApi, optIn = false): ReleaseFlagAudience {
+    const audience = conditionAudience(flag, optIn)
+    const holdout = holdoutPercent(flag)
+    if (!holdout) {
+        return audience
+    }
+    return {
+        ...audience,
+        percent: audience.percent === null ? null : Math.round(audience.percent * (100 - holdout)) / 100,
+        summary: `${audience.summary}, except a ${holdout}% holdout`,
+    }
+}
+
+function conditionAudience(flag: FeatureFlagApi, optIn: boolean): ReleaseFlagAudience {
     if (!isV1(flag)) {
         return { flag, percent: null, who: 'Rules decide', summary: 'The flag rules decide who gets it', variants: [] }
     }
@@ -353,7 +375,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     const done = experiments.filter(isExperimentDone)
     const running = experiments.filter(isExperimentRunning)
     const paused = experiments.filter(isExperimentPaused)
-    const openEarlyAccess = earlyAccess.find((item) => ENROLLING_EARLY_ACCESS_STAGES.has(item.stage))
+    const openEarlyAccess = earlyAccess.find(isEnrollingEarlyAccess)
     const prelaunchEarlyAccess = openEarlyAccess
         ? undefined
         : earlyAccess.find((item) => item.stage === 'draft' || item.stage === 'concept')
@@ -385,12 +407,10 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     const firstStart = current?.start_date
     const runningDays = firstStart ? today.diff(dayjs(firstStart), 'day') + 1 : 0
     const lastDone = [...done].sort((a, b) => (b.end_date ?? '').localeCompare(a.end_date ?? ''))[0]
-    const optInKeys = new Set(
-        earlyAccess
-            .filter((item) => ENROLLING_EARLY_ACCESS_STAGES.has(item.stage))
-            .map((item) => item.feature_flag?.key)
+    const optInKeys = new Set(earlyAccess.filter(isEnrollingEarlyAccess).map((item) => item.feature_flag?.key))
+    const audiences = flags.map((flag) =>
+        flagAudienceRow(flag, optInKeys.has(flag.key) || !!flagFilters(flag).feature_enrollment)
     )
-    const audiences = flags.map((flag) => flagAudienceRow(flag, optInKeys.has(flag.key)))
     const mainAudience = audiences[0]
 
     let status = 'No feature flag yet'
@@ -488,8 +508,8 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             label: 'Open early access',
             to: urls.earlyAccessFeature(prelaunchEarlyAccess.id),
         }
-    } else if (!finished && !openEarlyAccess && flags.some((flag) => !isFullyRolledOut(flag) && isV1(flag))) {
-        const flag = flags.find((item) => !isFullyRolledOut(item) && isV1(item)) ?? flags[0]
+    } else if (!finished && !openEarlyAccess && flags.some(canWidenRollout)) {
+        const flag = flags.find(canWidenRollout) ?? flags[0]
         nextStep = {
             title: lastDone ? 'Roll out the winner' : 'Roll out to more users',
             detail: lastDone
@@ -566,7 +586,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             key: `ea-${item.id}`,
             date: item.created_at,
             kind: 'early_access' as const,
-            title: `${ENROLLING_EARLY_ACCESS_STAGES.has(item.stage) || item.stage === 'general-availability' ? 'Early access opened' : 'Early access created'}: ${item.name}`,
+            title: `${isEnrollingEarlyAccess(item) || item.stage === 'general-availability' ? 'Early access opened' : 'Early access created'}: ${item.name}`,
             detail: `Now in ${item.stage}`,
             href: urls.earlyAccessFeature(item.id),
         })),
@@ -704,7 +724,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         nextStep,
         needsDecision: !flags.length || !!nextStep?.urgent,
         runningDays,
-        nextDate: events.find((event) => event.upcoming)?.date.slice(0, 10) ?? null,
+        nextDate: events.find((event) => event.upcoming)?.date ?? null,
         spans,
     }
 }
