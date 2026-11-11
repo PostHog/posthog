@@ -144,7 +144,14 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
         title: 'Created by',
         key: 'created_by',
         dataIndex: 'created_by',
-        render: (_: any, key: T) => (key.created_by ? formatCreatedBy(key.created_by) : 'Unknown'),
+        render: (_: any, key: T) =>
+            key.created_by ? (
+                <Tooltip title={key.created_by.email}>
+                    <span>{formatCreatedBy(key.created_by)}</span>
+                </Tooltip>
+            ) : (
+                'Unknown'
+            ),
     }
 
     const lastUsedColumn: LemonTableColumn<T, any> = {
