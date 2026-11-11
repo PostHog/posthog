@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -45,7 +46,7 @@ class RecordingSink:
 
 
 @pytest.fixture
-def sink():
+def sink() -> Iterator[RecordingSink]:
     recording_sink = RecordingSink()
     with patch("products.workflows.backend.github_workflow_events.produce_internal_event", recording_sink):
         yield recording_sink
@@ -84,6 +85,7 @@ def test_emits_once_per_connected_project(sink, integration) -> None:
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", ISSUE_EVENT, "delivery-1")
 
+    assert set(sink.events_by_team) == {integration.team_id, second_team.pk}
     (first_event,) = sink.events_by_team[integration.team_id]
     (second_event,) = sink.events_by_team[second_team.pk]
     # Same delivery, different projects: the uuids have to differ or the second project's run would
