@@ -11,7 +11,6 @@ import { QuillSummarizeRecordingBar } from 'products/replay_vision/frontend/comp
 import { useVisionSurfaceShown } from 'products/replay_vision/frontend/utils/useVisionSurfaceShown'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { DebugModeBanner } from './DebugModeBanner'
 import { RecordingCommentsList } from './RecordingCommentsList'
 import { RecordingTitleBlock } from './RecordingTitleBlock'
 import { WatchPanelSections } from './WatchPanelSections'
@@ -51,7 +50,6 @@ export function WatchPanel(): JSX.Element | null {
             className="flex flex-col gap-3 px-1 pt-2 pb-1.5 text-foreground isolate h-full min-h-0 overflow-y-auto [&>*]:shrink-0"
             data-attr="watch-panel"
         >
-            <DebugModeBanner />
             <RecordingTitleBlock actions={actions} trailingActions={toggle} />
             {vision && dataProcessingAccepted ? (
                 <WatchPanelSectionsWithObservations sessionId={sessionRecordingId} debug={debugDocked} />

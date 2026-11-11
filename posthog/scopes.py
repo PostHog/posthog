@@ -98,7 +98,7 @@ APIScopeObject = Literal[
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
-    "mcp_registry",
+    "mcp_registry",  # Endpoints are gone; kept advertised until OAuth clients stop requesting it.
     "messaging_preference",
     "metrics",
     "notebook",
@@ -263,7 +263,7 @@ SCOPE_OBJECTS_OMITTED_FROM_PICKERS: dict[APIScopeObject, str] = {
     # Pending removal. No endpoint enforces these, so they do nothing when granted.
     # Remove them from `APIScopeObject` once no personal API key or OAuth grant references them.
     "batch_import": "Pending removal: no endpoint enforces it (its viewset is INTERNAL).",
-    "mcp_registry": "Behind a feature flag.",
+    "mcp_registry": "Retired: no endpoint enforces it; kept for OAuth clients that still request it.",
     "external_data_schema": "Pending removal: covered by external_data_source; no viewset uses it.",
     "vision_action": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
     "link": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",

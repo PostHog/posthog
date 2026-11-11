@@ -1126,12 +1126,13 @@ tools:
         description: >
             The report channel's edit half: change an existing inbox report in place instead of authoring a
             near-duplicate. Rewrite its `title` or `summary`, append a note or evidence, replace its reviewers,
-            repository, charts, metrics, prompts, or tags, add links, or update its actionability or priority. Can
-            target ANY of the project's inbox reports, not just scout-authored ones, and the edit is attributed to this
-            scout. Use it to rescue a report that surfaced routed to no one or against the wrong codebase, or to record
-            a judgment that new evidence changed. When part of an edit does not apply, the response's `warnings` names
-            the field and says why, and the rest of the edit lands. NOT idempotent: a retried `append_note` appends a
-            second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.
+            repository, charts, metrics, prompts, or tags, add links, link the pull requests that fix it (the report
+            then resolves when they merge), or update its actionability or priority. Can target ANY of the project's
+            inbox reports, not just scout-authored ones, and the edit is attributed to this scout. Use it to rescue a
+            report that surfaced routed to no one or against the wrong codebase, or to record a judgment that new
+            evidence changed. When part of an edit does not apply, the response's `warnings` names the field and says
+            why, and the rest of the edit lands. NOT idempotent: a retried `append_note` appends a second note. Opt-in:
+            only available to scouts that list `edit_report` in their skill's `allowed_tools`.
     scout-emit-report:
         operation: signals_scout_emit_report
         enabled: true
