@@ -6662,6 +6662,10 @@ snapshots:
         hash: v1.k794b7964.58e1c24a162fa9e4fa4c8040adc4a298d0d4275a27aa96f7e4a9e84a2cd5e6b8.9JDfMApDsxe7KaTt42TDrSuqjvHOURRf64Bp3lWHCNc
     products-alerts-insight-alerts-modal--with-alerts--light:
         hash: v1.k794b7964.683e144ddf1b8e0c71b4e5bc29de9bc0d6217c3f14ab1019b2318076159ba6ef.OBRafURjok_FlQXeZMMvJ-zlmrUdK-zX8eHMsyQNakM
+    products-alerts-platform-state-timeline--states--dark:
+        hash: v1.k794b7964.05459509425efaf66778f0f21e164fc0a0ddef9cc01d48710a5de64f4b0bc6af.Tno2nyoCnErMwTs7S8RptcXQJlPDLoTgGyge1BeTFLY
+    products-alerts-platform-state-timeline--states--light:
+        hash: v1.k794b7964.ae87450931b3c583299afb08310088e855a8ddb59ac3b0ae9e0d11ddfe361296.7by2YUsh-P0SFuE7_yohcCyYkv3K1S6EquKQVq4YSk8
     products-alerts-shared-components--advanced-options--dark:
         hash: v1.k794b7964.3e55fa3a531d4b4f54ad6ea4679723bbac806e94a02edc0dd38e58b8bedf1285.avRzgZ_I6aR1-LlDLhiKIy4RgMi_UJZjHnXi94wcnwY
     products-alerts-shared-components--advanced-options--light:
