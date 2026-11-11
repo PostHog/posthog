@@ -73,9 +73,11 @@ function doneInstructions(run: SetupRun, events: EventsContext | undefined): str
 
     const { mcp } = run.context
     const tellMcp =
-        finishedForAgent && mcp && !mcp.configured
-            ? `Also tell the user they can connect PostHog's MCP server with \`${mcp.command}\`.`
-            : ''
+        !finishedForAgent || !mcp || mcp.configured
+            ? ''
+            : mcp.foreign
+              ? `Also tell the user that the \`posthog\` MCP server in \`${mcp.foreign.path}\` points at another server, and that \`${mcp.command}\` replaces it with PostHog's.`
+              : `Also tell the user they can connect PostHog's MCP server with \`${mcp.command}\`.`
 
     return [CONNECTED, events?.count === 0 ? NO_EVENTS : '', finishedForAgent ? TELL_USER : '', tellMcp]
         .filter(Boolean)

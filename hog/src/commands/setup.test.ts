@@ -28,6 +28,10 @@ const START = Date.UTC(2026, 0, 1)
 const AGENT = { CLAUDECODE: '1' }
 const TOKEN = 'phc_example_project_token'
 
+function mcpJson(url: string): string {
+    return JSON.stringify({ mcpServers: { posthog: { type: 'http', url } } })
+}
+
 function statePath(folder: string): string {
     return `/home/test/.posthog/setup/${createHash('sha256').update(folder).digest('hex')}.json`
 }
@@ -290,6 +294,7 @@ describe('hog setup', () => {
             agent: 'claude-code',
             configured: false,
             command: 'hog mcp add --agent claude-code',
+            foreign: null,
         })
         const polls = reviewed.requests.filter((request) => request.url.endsWith('/query'))
         expect(polls.length).toBeGreaterThan(1)
@@ -366,17 +371,24 @@ describe('hog setup', () => {
         expect(finished.stdout).toContain("Connect PostHog's MCP server to your agent with hog mcp add --agent <name>")
     })
 
-    test.each<[string, Record<string, string>, boolean]>([
-        ['in the project', { '/work/.mcp.json': '{"mcpServers": {"posthog": {"type": "http", "url": "x"}}}' }, true],
+    test.each<[string, Record<string, string>, boolean, { path: string } | null]>([
+        ['in the project', { '/work/.mcp.json': mcpJson('https://mcp.posthog.com/mcp') }, true, null],
         [
             'for the user',
-            { '/home/test/.claude.json': '{"mcpServers": {"posthog": {"type": "http", "url": "x"}}}' },
+            { '/home/test/.claude.json': mcpJson('https://mcp.posthog.com/mcp?features=flags') },
             true,
+            null,
         ],
-        ['nowhere', { '/work/.mcp.json': '{"mcpServers": {"other": {"command": "x"}}}' }, false],
+        ['nowhere', { '/work/.mcp.json': '{"mcpServers": {"other": {"command": "x"}}}' }, false, null],
+        [
+            'pointing at another server',
+            { '/work/.mcp.json': mcpJson('https://mcp.example.com/mcp') },
+            false,
+            { path: '/work/.mcp.json' },
+        ],
     ])(
         'the agent learns whether Claude Code has the MCP server %s, and nothing is written',
-        async (_name, files, configured) => {
+        async (_name, files, configured, foreign) => {
             const machine = world({ ...files })
             await machine.run(['setup', 'next', ...ONE_PRODUCT])
             await machine.run(['setup', 'next'])
@@ -389,9 +401,15 @@ describe('hog setup', () => {
 
             expect(finished.json()).toMatchObject({
                 status: 'connected',
-                context: { mcp: { agent: 'claude-code', configured } },
+                context: { mcp: { agent: 'claude-code', configured, foreign } },
             })
-            expect((finished.json() as any).next.instructions.includes('hog mcp add')).toBe(!configured)
+            const instructions: string = (finished.json() as any).next.instructions
+            expect(instructions.includes('hog mcp add')).toBe(!configured)
+            expect(
+                instructions.includes(
+                    'the `posthog` MCP server in `/work/.mcp.json` points at another server, and that `hog mcp add --agent claude-code --force` replaces it'
+                )
+            ).toBe(foreign !== null)
             for (const [path, contents] of Object.entries(files)) {
                 expect(machine.files[path]).toBe(contents)
             }

@@ -5,6 +5,8 @@ import type { Env } from '@/core/runtime'
 import { runHog, type FakeRuntimeOptions, type HogRun } from '@/testing'
 
 const URL = 'https://mcp.posthog.com/mcp'
+const WIZARD_URL = 'https://mcp.posthog.com/mcp?features=flags,insights'
+const FOREIGN_URL = 'https://mcp.example.com/mcp'
 const HOME = '/home/test'
 const REPOSITORY = { '/work/.git/HEAD': 'ref: refs/heads/main\n' }
 const OTHER = { command: 'other-server' }
@@ -101,12 +103,12 @@ describe('hog mcp add', () => {
 
     test.each<[string, Record<string, string>, string[], string, 'already_added' | 'replaced' | 'added', string]>([
         [
-            'an entry in the file is kept',
-            { [`${HOME}/.cursor/mcp.json`]: '{"mcpServers": {"posthog": {"url": "https://old.example.com"}}}' },
+            "an entry in the file with the Wizard's URL is kept",
+            { [`${HOME}/.cursor/mcp.json`]: `{"mcpServers": {"posthog": {"url": "${WIZARD_URL}"}}}` },
             ['--agent', 'cursor'],
             `${HOME}/.cursor/mcp.json`,
             'already_added',
-            'https://old.example.com',
+            WIZARD_URL,
         ],
         [
             'an entry in the file is replaced with --force',
@@ -118,11 +120,11 @@ describe('hog mcp add', () => {
         ],
         [
             "the Wizard's quoted Codex section is kept",
-            { [`${HOME}/.codex/config.toml`]: '[mcp_servers."posthog"]\nurl = "https://old.example.com"\n' },
+            { [`${HOME}/.codex/config.toml`]: `[mcp_servers."posthog"]\nurl = "${WIZARD_URL}"\n` },
             ['--agent', 'codex'],
             `${HOME}/.codex/config.toml`,
             'already_added',
-            'https://old.example.com',
+            WIZARD_URL,
         ],
         [
             "the Wizard's quoted Codex section is updated in place with --force",
@@ -135,24 +137,36 @@ describe('hog mcp add', () => {
         [
             'a Codex header with spaces, single quotes and a comment is kept',
             {
-                [`${HOME}/.codex/config.toml`]:
-                    '  [ mcp_servers . \'posthog\' ] # PostHog\nurl = "https://old.example.com"\n',
+                [`${HOME}/.codex/config.toml`]: `  [ mcp_servers . 'posthog' ] # PostHog\nurl = "${URL}"\n`,
             },
             ['--agent', 'codex'],
             `${HOME}/.codex/config.toml`,
             'already_added',
-            'https://old.example.com',
+            URL,
         ],
         [
             "the Wizard's user entry for Claude Code counts",
-            {
-                [`${HOME}/.claude.json`]:
-                    '{"mcpServers": {"posthog": {"type": "http", "url": "https://old.example.com"}}}',
-            },
+            { [`${HOME}/.claude.json`]: `{"mcpServers": {"posthog": {"type": "http", "url": "${WIZARD_URL}"}}}` },
             ['--agent', 'claude-code'],
             `${HOME}/.claude.json`,
             'already_added',
-            'https://old.example.com',
+            WIZARD_URL,
+        ],
+        [
+            "a user entry for Claude Code that points at another server doesn't count",
+            { [`${HOME}/.claude.json`]: `{"mcpServers": {"posthog": {"type": "http", "url": "${FOREIGN_URL}"}}}` },
+            ['--agent', 'claude-code'],
+            '/work/.mcp.json',
+            'added',
+            URL,
+        ],
+        [
+            'a project entry that points at another server is replaced with --force',
+            { '/work/.mcp.json': `{"mcpServers": {"posthog": {"type": "http", "url": "${FOREIGN_URL}"}}}` },
+            ['--agent', 'claude-code', '--force'],
+            '/work/.mcp.json',
+            'replaced',
+            URL,
         ],
         [
             "--force adds the project entry next to the Wizard's user entry",
@@ -172,6 +186,65 @@ describe('hog mcp add', () => {
         expect(result.json()).toMatchObject({ added: [{ path, status }] })
         expect(result.files[path]?.match(/https:\/\/[^"]+/g)).toEqual([url])
     })
+
+    test.each<[string, string, string, string, NodeJS.Platform, string | null]>([
+        [
+            'a project entry for another URL',
+            'claude-code',
+            '/work/.mcp.json',
+            `{"mcpServers": {"posthog": {"type": "http", "url": "${FOREIGN_URL}"}}}`,
+            'linux',
+            FOREIGN_URL,
+        ],
+        [
+            "a host that starts with PostHog's",
+            'cursor',
+            `${HOME}/.cursor/mcp.json`,
+            '{"mcpServers": {"posthog": {"url": "https://mcp.posthog.com.example.com/mcp"}}}',
+            'linux',
+            'https://mcp.posthog.com.example.com/mcp',
+        ],
+        [
+            'a Codex section for another URL',
+            'codex',
+            `${HOME}/.codex/config.toml`,
+            `[mcp_servers.posthog]\nurl = "${FOREIGN_URL}" # ${URL}\n`,
+            'linux',
+            FOREIGN_URL,
+        ],
+        [
+            'an mcp-remote entry for another URL',
+            'claude-desktop',
+            `${HOME}/Library/Application Support/Claude/claude_desktop_config.json`,
+            `{"mcpServers": {"posthog": {"command": "npx", "args": ["-y", "mcp-remote@0.16.5", "${FOREIGN_URL}"]}}}`,
+            'darwin',
+            FOREIGN_URL,
+        ],
+        [
+            'an mcp-remote entry that npx installs from another package',
+            'claude-desktop',
+            `${HOME}/Library/Application Support/Claude/claude_desktop_config.json`,
+            `{"mcpServers": {"posthog": {"command": "npx", "args": ["-y", "-p", "example-bridge", "mcp-remote", "${URL}"]}}}`,
+            'darwin',
+            null,
+        ],
+    ])(
+        '%s is refused without --force, and the file stays as it was',
+        async (_name, agent, path, before, platform, url) => {
+            const result = await mcp(['--agent', agent], {}, { platform, files: { [path]: before } })
+
+            expect(result.exitCode).toBe(1)
+            expect(result.error()).toMatchObject({
+                code: 'mcp_foreign_server',
+                message: expect.stringContaining(path),
+                hint: expect.stringContaining('--force'),
+            })
+            if (url !== null) {
+                expect(result.error().message).toContain(`points at ${url},`)
+            }
+            expect(result.files[path]).toBe(before)
+        }
+    )
 
     test.each<[string, string, string]>([
         [
@@ -216,6 +289,7 @@ describe('hog mcp add', () => {
                 'url = "https://mcp.example.com/mcp"',
                 'bearer_token_env_var = "EXAMPLE_TOKEN"',
                 'env_http_headers = { "X-Team" = "TEAM_ID" }',
+                'http_headers_helper = ["example-helper", "--print-headers"]',
                 '',
                 '[mcp_servers.posthog.http_headers]',
                 'Authorization = "Bearer example-not-a-secret"',

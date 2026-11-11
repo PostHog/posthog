@@ -13,7 +13,7 @@ import { regionOf, type RegionId } from '@/posthog/host'
 import { chooseLogin } from '@/posthog/login/choose'
 import { readSettings } from '@/posthog/settings'
 
-import { hasCodexServer, withCodexServer } from './codex-toml'
+import { codexServer, withCodexServer, type CodexServer } from './codex-toml'
 
 // The clients the Wizard writes a config file for, with the same paths, formats and entries, so a
 // server either tool added counts as added in the other.
@@ -28,6 +28,9 @@ const MCP_URLS: Record<RegionId, string> = {
     us: 'https://mcp.posthog.com/mcp',
     eu: 'https://mcp.posthog.com/mcp',
 }
+
+// By origin, so the Wizard's URLs with a path or query, like `?features=...`, count too.
+const POSTHOG_ORIGINS = new Set(Object.values(MCP_URLS).map((url) => new URL(url).origin))
 
 export interface Where {
     runtime: Runtime
@@ -263,13 +266,56 @@ function serversAt(config: Record<string, unknown>, keys: readonly string[]): Re
 // Codex gives a server 10 seconds to start, which a remote OAuth handshake can take longer than.
 const CODEX_STARTUP_TIMEOUT_SEC = 30
 
-function hasServer(jsonc: Jsonc, client: McpClient, path: string, text: string | undefined): boolean {
+const ServerFields = z.object({
+    url: z.string().optional(),
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+})
+
+const MCP_REMOTE_PACKAGE = /^mcp-remote(@\S+)?$/
+
+interface ServerEntry {
+    url: string | undefined
+    posthog: boolean
+}
+
+// A server with a command runs that command, whatever its `url` says. It reaches a URL only through
+// mcp-remote, and only when npx gets no flag but `-y` that could make another package supply it.
+function connectsTo(server: CodexServer): string | undefined {
+    if (server.command === undefined) {
+        return server.url
+    }
+
+    const bridge = server.args.findIndex((arg) => MCP_REMOTE_PACKAGE.test(arg))
+    const flags = server.args.slice(0, Math.max(bridge, 0))
+    return server.command === 'npx' && bridge >= 0 && flags.every((flag) => flag === '-y' || flag === '--yes')
+        ? server.args[bridge + 1]
+        : undefined
+}
+
+function serverEntry(server: CodexServer): ServerEntry {
+    const url = connectsTo(server)
+    const origin = url === undefined ? undefined : URL.parse(url)?.origin
+    return { url, posthog: origin !== undefined && POSTHOG_ORIGINS.has(origin) }
+}
+
+function jsonServerEntry(servers: Record<string, unknown> | undefined): ServerEntry | undefined {
+    if (servers === undefined || !Object.hasOwn(servers, SERVER_NAME)) {
+        return undefined
+    }
+
+    const fields = ServerFields.safeParse(servers[SERVER_NAME]).data
+    return serverEntry({ ...fields, args: fields?.args ?? [] })
+}
+
+function findServer(jsonc: Jsonc, client: McpClient, path: string, text: string | undefined): ServerEntry | undefined {
     if (text === undefined) {
-        return false
+        return undefined
     }
 
     if (client.format.kind === 'codex-toml') {
-        return hasCodexServer(text, SERVER_NAME)
+        const server = codexServer(text, SERVER_NAME)
+        return server && serverEntry(server)
     }
 
     const config = readJsonConfig(jsonc, path, text)
@@ -278,7 +324,20 @@ function hasServer(jsonc: Jsonc, client: McpClient, path: string, text: string |
         throw invalidConfig(path, `has a "${serversKey}" value that isn't an object.`)
     }
 
-    return Object.hasOwn(serversAt(config, [serversKey]) ?? {}, SERVER_NAME)
+    return jsonServerEntry(serversAt(config, [serversKey]))
+}
+
+function foreignServer(path: string, url: string | undefined): HogError {
+    const file = escapeControls(path)
+    return new HogError(
+        'mcp_foreign_server',
+        url === undefined
+            ? `The "${SERVER_NAME}" MCP server in ${file} doesn't connect to PostHog's MCP server.`
+            : `The "${SERVER_NAME}" MCP server in ${file} points at ${escapeControls(url)}, not PostHog's MCP server.`,
+        "Pass `--force` to replace it with PostHog's MCP server.",
+        undefined,
+        { path, url: url ?? null }
+    )
 }
 
 // jsonc-parser reads the last of two equal keys, and its edits change the first, so a forced
@@ -326,13 +385,14 @@ async function readOptional(runtime: Runtime, path: string): Promise<string | un
     return (await runtime.exists(path)) ? runtime.readFile(path) : undefined
 }
 
-// Only a lookup, so a file another tool keeps that hog can't read counts as having no entry.
+// Only a lookup, so a file another tool keeps that hog can't read, or an entry there that connects
+// to another server, counts as having no entry.
 async function findElsewhere(jsonc: Jsonc, client: McpClient, where: Where): Promise<string | undefined> {
     for (const { path, keys } of client.elsewhere?.(where) ?? []) {
         const servers = await readOptional(where.runtime, path)
             .then((text) => (text === undefined ? undefined : serversAt(readJsonConfig(jsonc, path, text), keys)))
             .catch(() => undefined)
-        if (servers !== undefined && Object.hasOwn(servers, SERVER_NAME)) {
+        if (jsonServerEntry(servers)?.posthog) {
             return path
         }
     }
@@ -391,10 +451,14 @@ export async function addServer(plan: PlannedAdd, where: Where, url: string, for
 
     const target = await writeTarget(runtime, file, root)
     const before = await readOptional(runtime, target)
-    const present = hasServer(jsonc, client, file.path, before)
+    const existing = findServer(jsonc, client, file.path, before)
 
     if (!force) {
-        const found = present ? file.path : await findElsewhere(jsonc, client, where)
+        if (existing && !existing.posthog) {
+            throw foreignServer(file.path, existing.url)
+        }
+
+        const found = existing ? file.path : await findElsewhere(jsonc, client, where)
         if (found !== undefined) {
             return { agent, path: found, status: 'already_added' }
         }
@@ -403,23 +467,26 @@ export async function addServer(plan: PlannedAdd, where: Where, url: string, for
     const after = withServer(jsonc, client, file.path, before ?? '', url)
     await (before === undefined ? runtime.writeFile(target, after) : runtime.replaceFile(target, after))
 
-    return { agent, path: file.path, status: present ? 'replaced' : 'added' }
+    return { agent, path: file.path, status: existing ? 'replaced' : 'added' }
 }
 
-export async function hasMcpServer(agent: McpAgent, where: Where): Promise<boolean> {
+export type McpServerCheck = { status: 'configured' | 'missing' } | { status: 'foreign'; path: string }
+
+export async function checkMcpServer(agent: McpAgent, where: Where): Promise<McpServerCheck> {
     const client = MCP_CLIENTS[agent]
     const jsonc = await loadJsonc()
 
     try {
         const { path } = await client.file(where)
-        if (hasServer(jsonc, client, path, await readOptional(where.runtime, path))) {
-            return true
+        const existing = findServer(jsonc, client, path, await readOptional(where.runtime, path))
+        if (existing) {
+            return existing.posthog ? { status: 'configured' } : { status: 'foreign', path }
         }
     } catch {
-        return false
+        return { status: 'missing' }
     }
 
-    return (await findElsewhere(jsonc, client, where)) !== undefined
+    return { status: (await findElsewhere(jsonc, client, where)) === undefined ? 'missing' : 'configured' }
 }
 
 export const McpAgentName = z.enum(MCP_AGENTS, {

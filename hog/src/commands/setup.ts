@@ -98,7 +98,11 @@ function printContext(out: Output, result: SetupResult): void {
               ]
             : [],
         finished && mcp && !mcp.configured
-            ? [`Connect PostHog's MCP server to your agent with ${out.style(mcp.command, 'bold')}`]
+            ? [
+                  mcp.foreign
+                      ? `The posthog MCP server in ${escapeControls(mcp.foreign.path)} points at another server. Run ${out.style(mcp.command, 'bold')} to replace it with PostHog's.`
+                      : `Connect PostHog's MCP server to your agent with ${out.style(mcp.command, 'bold')}`,
+              ]
             : [],
         result.status === 'connected'
             ? agentsMd.map((file) => out.style(`The PostHog section is in ${escapeControls(file.path)}`, 'dim'))

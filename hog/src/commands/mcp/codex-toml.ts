@@ -28,6 +28,7 @@ const REPLACED_FIELDS = new Set([
     'bearer_token_env_var',
     'http_headers',
     'env_http_headers',
+    'http_headers_helper',
 ])
 
 const BARE_KEY = /[A-Za-z0-9_-]+/y
@@ -220,9 +221,66 @@ function fullKey(statement: Statement): string[] {
     return [...statement.table, ...statement.key]
 }
 
-export function hasCodexServer(text: string, name: string): boolean {
+// The strings in a value, in order. hog doesn't unescape multi-line strings, so one counts as an
+// empty string: it never reads as PostHog's URL, and the strings after it keep their places.
+function stringsIn(value: string): string[] {
+    const strings: string[] = []
+    let i = 0
+    while (i < value.length) {
+        const char = value[i]
+        if (char === '#') {
+            const newline = value.indexOf('\n', i)
+            i = newline === -1 ? value.length : newline + 1
+        } else if (value.startsWith('"""', i) || value.startsWith("'''", i)) {
+            const close = closeOf(value, i + 3, value.slice(i, i + 3))
+            if (close === undefined) {
+                break
+            }
+
+            strings.push('')
+            i = close
+        } else if (char === '"' || char === "'") {
+            const part = readKeyPart(value, i)
+            if (!part) {
+                break
+            }
+
+            strings.push(part.value)
+            i = part.next
+        } else {
+            i += 1
+        }
+    }
+
+    return strings
+}
+
+export interface CodexServer {
+    url?: string
+    command?: string
+    args: string[]
+}
+
+export function codexServer(text: string, name: string): CodexServer | undefined {
     const server = ['mcp_servers', name]
-    return statements(text).some((statement) => startsWith(fullKey(statement), server))
+    const all = statements(text)
+    if (!all.some((statement) => startsWith(fullKey(statement), server))) {
+        return undefined
+    }
+
+    const value = (key: string): string => {
+        const pair = all.find((statement) => statement.kind === 'pair' && sameKey(fullKey(statement), [...server, key]))
+        const source = pair ? text.slice(pair.start, pair.end) : ''
+        return source.slice((readKey(source, 0)?.next ?? source.length) + 1).trimStart()
+    }
+
+    const scalar = (key: string): string | undefined => {
+        const found = value(key)
+        return found.startsWith('"') || found.startsWith("'") ? stringsIn(found)[0] : undefined
+    }
+
+    const args = value('args')
+    return { url: scalar('url'), command: scalar('command'), args: args.startsWith('[') ? stringsIn(args) : [] }
 }
 
 /**

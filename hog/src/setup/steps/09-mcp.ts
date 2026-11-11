@@ -1,4 +1,4 @@
-import { detectedMcpAgent, hasMcpServer, MCP_CLIENTS, whereFor } from '@/commands/mcp/clients'
+import { checkMcpServer, detectedMcpAgent, MCP_CLIENTS, whereFor, type McpServerCheck } from '@/commands/mcp/clients'
 import { findGitRoot } from '@/core/paths'
 
 import type { McpContext } from '../result'
@@ -8,12 +8,23 @@ async function mcpContext(run: SetupRun): Promise<McpContext> {
     const { runtime, mode } = run.ctx
     const agent = detectedMcpAgent(mode.agent, runtime.env)
     if (agent === undefined) {
-        return { agent: null, configured: false, command: 'hog mcp add --agent <name>' }
+        return { agent: null, configured: false, command: 'hog mcp add --agent <name>', foreign: null }
     }
 
     const root = (await findGitRoot(runtime))?.root ?? runtime.cwd()
-    const configured = await hasMcpServer(agent, whereFor(runtime, root)).catch(() => false)
-    return { agent, configured, command: `hog mcp add --agent ${agent}` }
+    const check = await checkMcpServer(agent, whereFor(runtime, root)).catch(
+        (): McpServerCheck => ({ status: 'missing' })
+    )
+    if (check.status === 'foreign') {
+        return {
+            agent,
+            configured: false,
+            command: `hog mcp add --agent ${agent} --force`,
+            foreign: { path: check.path },
+        }
+    }
+
+    return { agent, configured: check.status === 'configured', command: `hog mcp add --agent ${agent}`, foreign: null }
 }
 
 // Only reads, so it never stops and records nothing. It counts as done once the setup is, so a connected

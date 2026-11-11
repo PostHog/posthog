@@ -49,6 +49,7 @@ export interface McpContext {
     agent: McpAgent | null
     configured: boolean
     command: string
+    foreign: { path: string } | null
 }
 
 export interface SetupContext {

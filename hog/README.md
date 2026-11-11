@@ -161,7 +161,8 @@ Commands in the skill text read `hog learn ...`. Project skills are only availab
 - The entry is the server URL, `https://mcp.posthog.com/mcp`, and never a key. The agent logs in to PostHog with OAuth the first time it connects.
 - The server serves PostHog Cloud, so a self-hosted host stops the command.
 - The agent running hog gets the server. `--agent <name>` overrides it and can repeat.
-- Other servers and comments in the file are kept. An agent that already has a `posthog` entry keeps it, unless you pass `--force`. For Claude Code, an entry `claude mcp add` put in `~/.claude.json` counts too.
+- Other servers and comments in the file are kept. An agent that already has a `posthog` entry for PostHog's MCP server keeps it, unless you pass `--force`. For Claude Code, such an entry `claude mcp add` put in `~/.claude.json` counts too.
+- A `posthog` entry that connects to another server stops the command with `mcp_foreign_server`, and hog writes nothing. `--force` replaces it.
 - Agents get `{ added: [{ agent, path, status }] }`, where `status` is `added`, `replaced` or `already_added`.
 
 ## Global options
