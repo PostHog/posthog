@@ -1638,6 +1638,32 @@ describe('workflowsSavedViewsLogic', () => {
         }
     })
 
+    it.each([
+        ['the plain list', {}, false],
+        ['the All view', { view: 'all' }, false],
+        ['a saved view link', { view: VIEW_ID }, true],
+    ])('holds the list for saved views on %s only while they load', async (_name, link, held) => {
+        let release: () => void = () => {}
+        const pending = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/workflow_views/': async () => {
+                    await pending
+                    return [200, paginated(storedViews)]
+                },
+            },
+        })
+        router.actions.push(urls.workflows(), link)
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        expect(logic.values.viewsResolving).toBe(held)
+        release()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        expect(logic.values.viewsResolving).toBe(false)
+    })
+
     it('lets a viewer select shared views but prevents all shared writes', async () => {
         window.POSTHOG_APP_CONTEXT!.resource_access_control!.hog_flow = AccessControlLevel.Viewer
         useMocks({

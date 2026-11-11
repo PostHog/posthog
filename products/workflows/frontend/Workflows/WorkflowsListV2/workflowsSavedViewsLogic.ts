@@ -104,6 +104,7 @@ export interface workflowsSavedViewsLogicValues {
     viewFiles: WorkflowFolderFileRow[]
     viewFilters: FacetFilter[]
     views: WorkflowSavedView[]
+    viewsResolving: boolean
     writeDisabledReason: string | undefined
 }
 
@@ -241,6 +242,12 @@ export interface workflowsSavedViewsLogicMeta {
         ) => FacetFilter[]
         enabled: (featureFlags: FeatureFlagsSet, receivedFeatureFlags: boolean) => boolean
         available: (enabled: boolean, savedViews: WorkflowViewApi[] | null) => boolean
+        viewsResolving: (
+            enabled: boolean,
+            savedViews: WorkflowViewApi[] | null,
+            savedViewsLoadFailed: boolean,
+            searchParams: Record<string, any>
+        ) => boolean
         writeDisabledReason: (currentTeamId: number | null, user: UserType | null) => string | undefined
         views: (savedViews: WorkflowViewApi[] | null) => WorkflowSavedView[]
         activeView: (views: WorkflowSavedView[], activeViewId: string) => WorkflowSavedView
@@ -265,7 +272,7 @@ export interface workflowsSavedViewsLogicMeta {
         viewCounts: (
             views: WorkflowSavedView[],
             viewFiles: WorkflowFolderFileRow[],
-            facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
+            facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[], // workflowsListV2Logic
             matchesText: MatchesText<WorkflowListRow>,
             serverSearch: ServerSearchResult | null,
             metricsLoaded: boolean,
@@ -484,6 +491,18 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         available: [
             (s) => [s.enabled, s.savedViews],
             (enabled: boolean, savedViews: WorkflowViewApi[] | null): boolean => enabled && savedViews !== null,
+        ],
+        // Only a link that names a saved view has state to apply once the views load. The plain list shows
+        // its rows at once, so a slow or failing views request never hides them.
+        viewsResolving: [
+            (s) => [s.enabled, s.savedViews, s.savedViewsLoadFailed, router.selectors.searchParams],
+            (
+                enabled: boolean,
+                savedViews: WorkflowViewApi[] | null,
+                loadFailed: boolean,
+                searchParams: Record<string, any>
+            ): boolean =>
+                enabled && savedViews === null && !loadFailed && !!searchParams.view && searchParams.view !== 'all',
         ],
         writeDisabledReason: [
             (s) => [s.currentTeamId, s.user],
