@@ -38,17 +38,19 @@ export function RecommendationResolutionButtons({
     }
 
     return (
-        <div className="flex items-center justify-end gap-1 whitespace-nowrap">
-            <LemonButton
-                size="xsmall"
-                type="tertiary"
-                loading={loading}
-                tooltip="Mark that you made this change. It stays hidden for everyone in this project until someone restores it."
-                onClick={() => resolveRecommendation(recommendation, 'applied')}
-                data-attr="marketing-recommendations-mark-applied"
-            >
-                Mark as applied
-            </LemonButton>
+        <div className="flex flex-col items-end gap-0.5 whitespace-nowrap">
+            {recommendation.impactDirection !== 'keep' && (
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    loading={loading}
+                    tooltip="Mark that you made this change. It stays hidden for everyone in this project until someone restores it."
+                    onClick={() => resolveRecommendation(recommendation, 'applied')}
+                    data-attr="marketing-recommendations-mark-applied"
+                >
+                    Mark as applied
+                </LemonButton>
+            )}
             <LemonButton
                 size="xsmall"
                 type="tertiary"
