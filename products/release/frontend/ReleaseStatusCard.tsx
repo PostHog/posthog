@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
 import {
@@ -25,6 +25,7 @@ import { releaseLogic } from './releaseLogic'
 import { REVIEW_AFTER_DAYS, ReleaseRow } from './releaseUtils'
 
 export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
+    const { canEditReleases } = useValues(releaseLogic)
     const { openSchedule } = useActions(releaseLogic)
     const step = row.nextStep
 
@@ -59,7 +60,7 @@ export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
                             <ItemDescription>{step.detail}</ItemDescription>
                         </ItemContent>
                         <ItemActions className="flex-wrap">
-                            {!row.flags.length && (
+                            {!row.flags.length && canEditReleases && (
                                 <>
                                     <div className="w-56">
                                         <ReleaseLinkFlagCombobox row={row} placeholder="Find a flag" />

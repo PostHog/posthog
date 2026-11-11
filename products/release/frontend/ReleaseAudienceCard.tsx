@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -56,6 +56,7 @@ function emptyVariantWarning(row: ReleaseRow, audience: ReleaseFlagAudience): st
 }
 
 function AudienceRow({ row, audience }: { row: ReleaseRow; audience: ReleaseFlagAudience }): JSX.Element {
+    const { canEditReleases } = useValues(releaseLogic)
     const { openSchedule, unlinkFlag } = useActions(releaseLogic)
     const { flag } = audience
     const warning = emptyVariantWarning(row, audience)
@@ -102,13 +103,15 @@ function AudienceRow({ row, audience }: { row: ReleaseRow; audience: ReleaseFlag
                             <DropdownMenuItem onClick={() => router.actions.push(urls.featureFlag(flag.id))}>
                                 Edit release conditions
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                                variant="destructive"
-                                onClick={() => unlinkFlag(row.id, flag.id)}
-                                data-attr="release-flag-unlink"
-                            >
-                                Remove from the release
-                            </DropdownMenuItem>
+                            {canEditReleases && (
+                                <DropdownMenuItem
+                                    variant="destructive"
+                                    onClick={() => unlinkFlag(row.id, flag.id)}
+                                    data-attr="release-flag-unlink"
+                                >
+                                    Remove from the release
+                                </DropdownMenuItem>
+                            )}
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>

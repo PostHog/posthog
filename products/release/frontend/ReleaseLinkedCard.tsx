@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
@@ -83,6 +83,7 @@ const LINKED_LIMIT = 8
 
 export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
     const [visible, setVisible] = useState(LINKED_LIMIT)
+    const { canEditReleases } = useValues(releaseLogic)
     const { updateRelease } = useActions(releaseLogic)
     const items: LinkedObject[] = [
         ...row.flags.map((flag) => ({
@@ -146,17 +147,19 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                                     : 'Remove them, or link the flags that replaced them.'}
                             </ItemDescription>
                         </ItemContent>
-                        <ItemActions>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                    updateRelease(row.id, { feature_flag_ids: row.flags.map((flag) => flag.id) })
-                                }
-                            >
-                                Remove
-                            </Button>
-                        </ItemActions>
+                        {canEditReleases && (
+                            <ItemActions>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                        updateRelease(row.id, { feature_flag_ids: row.flags.map((flag) => flag.id) })
+                                    }
+                                >
+                                    Remove
+                                </Button>
+                            </ItemActions>
+                        )}
                     </Item>
                 )}
                 {items.length > 0 ? (
@@ -177,7 +180,9 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                     onChange={setVisible}
                     dataAttr="release-linked"
                 />
-                {row.flags.length > 0 && <ReleaseLinkFlagCombobox row={row} placeholder="Link another flag" />}
+                {row.flags.length > 0 && canEditReleases && (
+                    <ReleaseLinkFlagCombobox row={row} placeholder="Link another flag" />
+                )}
             </CardContent>
         </Card>
     )

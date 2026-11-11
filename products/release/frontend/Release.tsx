@@ -60,7 +60,7 @@ function ReleaseSkeleton(): JSX.Element {
 }
 
 export function Release({ id }: ReleaseSceneProps): JSX.Element {
-    const { rows, dataLoading, loadFailed } = useValues(releaseLogic)
+    const { rows, dataLoading, loadFailed, canEditReleases } = useValues(releaseLogic)
     const { updateRelease } = useActions(releaseLogic)
     const row = rows.find((item) => item.id === id)
 
@@ -103,7 +103,7 @@ export function Release({ id }: ReleaseSceneProps): JSX.Element {
                 name={row.name}
                 description={row.description}
                 resourceType={{ type: 'release', forceIcon: <IconFlag /> }}
-                canEdit
+                canEdit={canEditReleases}
                 renameDebounceMs={800}
                 onNameChange={(name) => updateRelease(row.id, { name })}
                 onDescriptionChange={(description) => updateRelease(row.id, { description })}

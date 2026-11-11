@@ -70,9 +70,11 @@ def update(
 ) -> contracts.ReleaseDTO:
     if "feature_flag_ids" in changes:
         linked = list(logic.get_release(team_id, release_id).feature_flag_ids)
-        _check_flags([flag_id for flag_id in changes["feature_flag_ids"] if flag_id not in linked], flag_visibility)
+        linked_set = set(linked)
+        submitted = set(changes["feature_flag_ids"])
+        _check_flags(sorted(submitted - linked_set), flag_visibility)
         hidden = flag_visibility(linked).hidden
-        kept = [flag_id for flag_id in linked if flag_id in hidden and flag_id not in changes["feature_flag_ids"]]
+        kept = [flag_id for flag_id in linked if flag_id in hidden and flag_id not in submitted]
         changes = {**changes, "feature_flag_ids": [*changes["feature_flag_ids"], *kept]}
     return _visible_dto(logic.update_release(team_id, release_id, changes), flag_visibility)
 

@@ -35,9 +35,16 @@ type StageOption = ReleaseStage | 'all'
 type StepOption = 'all' | 'decision'
 
 export function NewReleaseButton(): JSX.Element {
+    const { canEditReleases } = useValues(releaseLogic)
     const { setNewReleaseOpen } = useActions(releaseLogic)
     return (
-        <Button variant="primary" data-attr="release-new" onClick={() => setNewReleaseOpen(true)}>
+        <Button
+            variant="primary"
+            data-attr="release-new"
+            disabled={!canEditReleases}
+            title={canEditReleases ? undefined : 'You need editor access to feature flags to create a release.'}
+            onClick={() => setNewReleaseOpen(true)}
+        >
             <IconPlus />
             New release
         </Button>

@@ -400,6 +400,8 @@ export interface ReleaseIndex {
     earlyAccessByFlagKey: Map<string, EarlyAccessFeatureApi[]>
     changesByFlagId: Map<string, ScheduledChangeApi[]>
     complete: boolean
+    resolvedFlagIds: Set<number>
+    unknownFlagIds: Set<number>
 }
 
 function groupBy<T>(items: T[], key: (item: T) => string | undefined): Map<string, T[]> {
@@ -423,14 +425,16 @@ export function buildReleaseIndex(
     experiments: ExperimentBasicApi[],
     earlyAccess: EarlyAccessFeatureApi[],
     scheduled: ScheduledChangeApi[],
-    complete: boolean
+    status: { complete: boolean; resolvedFlagIds: number[]; unknownFlagIds: number[] }
 ): ReleaseIndex {
     return {
         flagsById: new Map(flags.filter((flag) => !flag.deleted).map((flag) => [flag.id, flag])),
         experimentsByFlagKey: groupBy(experiments, (experiment) => experiment.feature_flag_key),
         earlyAccessByFlagKey: groupBy(earlyAccess, (item) => item.feature_flag?.key),
         changesByFlagId: groupBy(scheduled, (change) => String(change.record_id)),
-        complete,
+        complete: status.complete,
+        resolvedFlagIds: new Set(status.resolvedFlagIds),
+        unknownFlagIds: new Set(status.unknownFlagIds),
     }
 }
 
@@ -439,7 +443,12 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     const flags = release.feature_flag_ids
         .map((id) => index.flagsById.get(id))
         .filter((flag): flag is FeatureFlagApi => !!flag)
-    const missingFlagIds = release.feature_flag_ids.filter((id) => !index.flagsById.has(id))
+    const unloadedFlagIds = release.feature_flag_ids.filter((id) => !index.flagsById.has(id))
+    const missingFlagIds = unloadedFlagIds.filter((id) => index.resolvedFlagIds.has(id))
+    const complete =
+        index.complete &&
+        missingFlagIds.length === unloadedFlagIds.length &&
+        !flags.some((flag) => index.unknownFlagIds.has(flag.id))
     const flagById = new Map(flags.map((flag) => [String(flag.id), flag]))
     const experiments = flags
         .flatMap((flag) => index.experimentsByFlagKey.get(flag.key) ?? [])
@@ -460,12 +469,12 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     const prelaunchEarlyAccess = openEarlyAccess
         ? undefined
         : earlyAccess.find((item) => item.stage === 'draft' || item.stage === 'concept')
-    const ended = flags.length > 0 && !missingFlagIds.length && flags.every((flag) => flag.archived)
+    const ended = flags.length > 0 && !unloadedFlagIds.length && flags.every((flag) => flag.archived)
     const released =
         !ended &&
-        index.complete &&
+        complete &&
         flags.length > 0 &&
-        !missingFlagIds.length &&
+        !unloadedFlagIds.length &&
         flags.every(isFullyRolledOut) &&
         !running.length &&
         !paused.length &&
@@ -545,7 +554,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             title: 'Link a feature flag',
             detail: 'Pick the flag your code checks for this change, or create one.',
         }
-    } else if (!index.complete) {
+    } else if (!complete) {
         nextStep = null
     } else if (drafts.length && !running.length) {
         nextStep = {
@@ -701,7 +710,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     }
 
     const suggestions: ReleaseSuggestion[] = []
-    if (index.complete && flags.length && !experiments.length && !finished) {
+    if (complete && flags.length && !experiments.length && !finished) {
         suggestions.push({
             key: 'experiment',
             title: 'Measure the impact',
@@ -710,7 +719,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             to: urls.experiment('new'),
         })
     }
-    if (index.complete && flags.length && !earlyAccess.length && !finished && stage === 'flag') {
+    if (complete && flags.length && !earlyAccess.length && !finished && stage === 'flag') {
         suggestions.push({
             key: 'early-access',
             title: 'Let users opt in first',

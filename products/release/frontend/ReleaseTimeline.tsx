@@ -52,14 +52,44 @@ function markersByDay(
     return [...days].map(([day, dayEvents]) => ({ day, events: dayEvents }))
 }
 
+interface PlacedSpan extends ReleaseSpan {
+    left: number
+    width: number
+}
+
+function placeSpans(spans: ReleaseSpan[], start: dayjs.Dayjs, total: number): PlacedSpan[] {
+    const end = start.add(total, 'day')
+    const x = (date: string): number => Math.max(0, Math.min(total, dayjs(date).diff(start, 'day'))) * DAY
+    const placed: PlacedSpan[] = []
+    for (const span of spans) {
+        if (dayjs(span.to).isBefore(start) || dayjs(span.from).isAfter(end)) {
+            continue
+        }
+        const left = x(span.from)
+        const width = Math.max(x(span.to) + DAY / 2 - left, span.kind === 'flag' ? 0 : DAY)
+        if (width > 0) {
+            placed.push({ ...span, left, width })
+        }
+    }
+    return placed
+}
+
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, search, stageFilter, decisionOnly } = useValues(releaseLogic)
     const today = dayjs().startOf('day')
     const start = today.subtract(BEFORE, 'day')
     const windowStart = start.format('YYYY-MM-DD')
-    const markers = useMemo(
+    const placed = useMemo(
         () =>
-            new Map(filteredRows.map((row) => [row.id, markersByDay(row.events, dayjs(windowStart), BEFORE + AFTER)])),
+            new Map(
+                filteredRows.map((row) => [
+                    row.id,
+                    {
+                        spans: placeSpans(row.spans, dayjs(windowStart), BEFORE + AFTER),
+                        markers: markersByDay(row.events, dayjs(windowStart), BEFORE + AFTER),
+                    },
+                ])
+            ),
         [filteredRows, windowStart]
     )
     const total = BEFORE + AFTER
@@ -177,21 +207,18 @@ export function ReleaseTimeline(): JSX.Element {
                             </LinkPrimitive>
                         </div>
                         <div className="relative" style={{ width: total * DAY }}>
-                            {row.spans.map((span) => {
-                                if (
-                                    dayjs(span.to).isBefore(start) ||
-                                    dayjs(span.from).isAfter(start.add(total, 'day'))
-                                ) {
-                                    return null
-                                }
-                                const left = x(span.from)
-                                const width = Math.max(x(span.to) + DAY / 2 - left, span.kind === 'flag' ? 0 : DAY)
+                            {(placed.get(row.id)?.spans ?? []).map((span) => {
                                 const look = SPAN_LOOK[span.kind]
-                                return width > 0 ? (
+                                return (
                                     <div
                                         key={span.key}
                                         className="absolute flex"
-                                        style={{ left, width, top: look.top, height: look.height }}
+                                        style={{
+                                            left: span.left,
+                                            width: span.width,
+                                            top: look.top,
+                                            height: look.height,
+                                        }}
                                     >
                                         <LinkPrimitive
                                             to={span.href}
@@ -214,9 +241,9 @@ export function ReleaseTimeline(): JSX.Element {
                                             )}
                                         </LinkPrimitive>
                                     </div>
-                                ) : null
+                                )
                             })}
-                            {(markers.get(row.id) ?? []).map(({ day, events }) => (
+                            {(placed.get(row.id)?.markers ?? []).map(({ day, events }) => (
                                 <div
                                     key={day}
                                     title={events

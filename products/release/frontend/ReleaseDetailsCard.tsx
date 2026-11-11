@@ -19,7 +19,7 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 export function ReleaseDetailsCard({ row }: { row: ReleaseRow }): JSX.Element {
-    const { user } = useValues(releaseLogic)
+    const { user, canEditReleases } = useValues(releaseLogic)
     const { updateRelease } = useActions(releaseLogic)
 
     return (
@@ -35,6 +35,10 @@ export function ReleaseDetailsCard({ row }: { row: ReleaseRow }): JSX.Element {
                                 {row.owner.first_name}
                             </Text>
                         </>
+                    ) : !canEditReleases ? (
+                        <Text size="xs" variant="muted">
+                            No owner
+                        </Text>
                     ) : (
                         <Button
                             size="sm"
