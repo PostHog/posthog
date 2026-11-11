@@ -418,7 +418,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
-    // Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
     z.object({
         ..._commonActionFields,
         type: z.literal('email_sandbox'),

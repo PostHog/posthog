@@ -55,7 +55,6 @@ ORGANIZATION_BLOCKED = "This organization can't use the sandbox sender. Verify a
 
 
 def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
-    """The team's sandbox sender, set up on the first call. Raise when the team may not use it."""
     check_sandbox_sender_available(team, user)
     return provision_sandbox_sender(team, user)
 

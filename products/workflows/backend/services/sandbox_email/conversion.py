@@ -18,7 +18,6 @@ UTM_TAGS = "utm_tags_enabled"
 
 
 def own_only_settings(action: dict[str, Any]) -> list[str]:
-    """The settings of an own-sender email step that switching it to the sandbox sender would drop."""
     config = _config(action)
     value = _value(_email(config))
     sender = _sender(value)
@@ -40,7 +39,6 @@ def own_only_settings(action: dict[str, Any]) -> list[str]:
 
 
 def to_sandbox_action(action: dict[str, Any]) -> dict[str, Any]:
-    """The same step on the sandbox sender, keeping its graph fields, category, recipient and content."""
     config = _config(action)
     email = _email(config)
     return {
@@ -54,7 +52,6 @@ def to_sandbox_action(action: dict[str, Any]) -> dict[str, Any]:
 
 
 def to_own_email_action(action: dict[str, Any], integration_id: int) -> dict[str, Any]:
-    """The same step sending from one of the project's own senders."""
     config = _config(action)
     email = _email(config)
     return {
@@ -78,7 +75,6 @@ def written_in_liquid(action: dict[str, Any]) -> bool:
 
 
 def can_default_to_sandbox(action: dict[str, Any]) -> bool:
-    """A new own-sender email step that names no sender and sets nothing the sandbox sender would drop."""
     if (
         action.get("type") != OWN_EMAIL_ACTION_TYPE
         or not valid_sandbox_action_id(action.get("id"))

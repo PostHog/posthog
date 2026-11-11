@@ -734,7 +734,7 @@ class TransactionalEmailSenderUnavailable(Exception):
 
 
 class SandboxSenderUnavailable(Exception):
-    """The team may not use the sandbox sender. The message says why, in words a user can act on."""
+    pass
 
 
 class TransactionalEmailSenderRequired(Exception):
