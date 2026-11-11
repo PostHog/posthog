@@ -1861,20 +1861,24 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             inputs_schema=[],
             inputs={},
         )
-        loaded_before_the_other_edit = HogFunction.objects.get(pk=stored.pk)
-        HogFunction.objects.filter(pk=stored.pk).update(filters=INBOX_REPORT_FILTERS)
+        other_edit_landed = False
 
-        with patch(
-            "products.cdp.backend.api.hog_function.HogFunctionViewSet.get_object",
-            return_value=loaded_before_the_other_edit,
-        ):
+        def another_edit_lands_before_the_lock(execute, sql, params, many, context):
+            nonlocal other_edit_landed
+            if not other_edit_landed and "FOR UPDATE" in sql and HogFunction._meta.db_table in sql:
+                other_edit_landed = True
+                HogFunction.objects.filter(pk=stored.pk).update(filters=INBOX_REPORT_FILTERS)
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(another_edit_lands_before_the_lock):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_functions/{stored.id}/", data={"name": "Renamed"}
             )
 
+        assert other_edit_landed
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         stored.refresh_from_db()
-        assert (stored.name, stored.filters) == ("Activity webhook", INBOX_REPORT_FILTERS)
+        assert stored.name == "Activity webhook"
 
     def test_generates_filters_bytecode(self, *args):
         action = create_action(

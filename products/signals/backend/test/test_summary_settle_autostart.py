@@ -1,6 +1,7 @@
 import uuid
 import random
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -20,7 +21,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Organization, Team
 
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
-from products.signals.backend.models import SignalTeamConfig
+from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.report_generation.research import ActionabilityChoice, Priority
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, RunAgenticReportOutput
@@ -41,10 +42,15 @@ from products.signals.backend.temporal.summary import (
     PublishReportCompletedInput,
     ReportIsCandidateInput,
     SignalReportSummaryWorkflow,
+    emit_inbox_report_ready_activity,
     implementation_buffer_seconds_activity,
     maybe_autostart_implementation_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
+from products.signals.backend.test.inbox_report_events_recorder import (
+    inbox_report_ready_events,
+    recorded_internal_events,
+)
 
 SUMMARY_MODULE_PATH = "products.signals.backend.temporal.summary"
 # The settle branch starts the inbox-notification child on VIDEO_EXPORT_TASK_QUEUE; run the worker
@@ -155,7 +161,6 @@ class _Recorder:
         # means the card ships without the PR link.
         self.autostarts_at_notification: list[int] = []
         self.autostart_inputs: list[MaybeAutostartImplementationInput] = []
-        self.ready_events: list[EmitInboxReportReadyInput] = []
 
 
 def _signal_data() -> SignalData:
@@ -185,7 +190,13 @@ class _StubInboxNotificationWorkflow:
 
 
 async def _run_summary_workflow(
-    recorder: _Recorder, *, requested_user_id: int | None = None, requested_after_run_count: int | None = None
+    recorder: _Recorder,
+    *,
+    requested_user_id: int | None = None,
+    requested_after_run_count: int | None = None,
+    team_id: int = 1,
+    report_id: str | None = None,
+    emit_ready: Callable[[EmitInboxReportReadyInput], Awaitable[None]] | None = None,
 ) -> None:
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
@@ -268,13 +279,13 @@ async def _run_summary_workflow(
 
     @activity.defn(name="emit_inbox_report_ready_activity")
     async def fake_emit_ready(input: EmitInboxReportReadyInput) -> None:
-        recorder.ready_events.append(input)
+        return None
 
     @activity.defn(name="record_notification_check_activity")
     async def fake_notification_check(input: InboxNotificationInput) -> None:
         recorder.autostarts_at_notification.append(recorder.autostarts)
 
-    report_id = str(uuid.uuid4())
+    report_id = report_id or str(uuid.uuid4())
 
     async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
         async with Worker(
@@ -298,7 +309,7 @@ async def _run_summary_workflow(
                 fake_candidate,
                 fake_autostart,
                 fake_notification_check,
-                fake_emit_ready,
+                emit_ready or fake_emit_ready,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -306,7 +317,7 @@ async def _run_summary_workflow(
                 env.client.execute_workflow(
                     SignalReportSummaryWorkflow.run,
                     SignalReportSummaryWorkflowInputs(
-                        team_id=1,
+                        team_id=team_id,
                         report_id=report_id,
                         requested_implementation_user_id=requested_user_id,
                         requested_after_run_count=requested_after_run_count,
@@ -321,7 +332,7 @@ async def _run_summary_workflow(
             if recorder.ready_result is not None:
                 await asyncio.wait_for(
                     env.client.get_workflow_handle(
-                        SignalReportInboxNotificationWorkflow.workflow_id_for(1, report_id)
+                        SignalReportInboxNotificationWorkflow.workflow_id_for(team_id, report_id)
                     ).result(),
                     timeout=30,
                 )
@@ -336,7 +347,6 @@ async def test_skipped_ready_does_not_settle():
     assert recorder.publications == 0
     assert recorder.autostarts == 0
     assert recorder.autostarts_at_notification == []
-    assert recorder.ready_events == []
 
 
 @pytest.mark.asyncio
@@ -349,7 +359,24 @@ async def test_no_buffer_autostarts_immediately_at_settle():
     assert recorder.autostarts == 1
     # The task exists before the notification looks, so its card can wait for the PR.
     assert recorder.autostarts_at_notification == [1]
-    assert [(event.team_id, event.source_products) for event in recorder.ready_events] == [(1, ["error_tracking"])]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_a_settled_report_reaches_destinations(ateam):
+    report = await SignalReport.objects.acreate(
+        team=ateam, status=SignalReport.Status.READY, title="Checkout errors", summary="Summary"
+    )
+    recorder = _Recorder(buffer_seconds=0, candidate_on_first_check=False)
+
+    with recorded_internal_events() as (sent, _):
+        await _run_summary_workflow(
+            recorder, team_id=ateam.id, report_id=str(report.id), emit_ready=emit_inbox_report_ready_activity
+        )
+
+    assert [(event["report_id"], event["source_products"]) for event in inbox_report_ready_events(sent)] == [
+        (str(report.id), ["error_tracking"])
+    ]
 
 
 @pytest.mark.asyncio
@@ -386,4 +413,3 @@ async def test_signal_during_buffer_re_researches_instead_of_implementing():
     assert recorder.autostarts == 1
     # Only the settled run notifies, so no card goes out for the summary the re-research replaced.
     assert recorder.autostarts_at_notification == [1]
-    assert len(recorder.ready_events) == 1
