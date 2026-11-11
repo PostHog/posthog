@@ -1013,7 +1013,7 @@ class _TraceSummarySerializer(serializers.Serializer):
         help_text="Spans on the critical path left out because each took under 1% of the root's duration.",
     )
     critical_path_truncated = serializers.BooleanField(
-        required=False, help_text="True when the critical path was cut at 20 entries."
+        required=False, help_text="True when the critical path was cut at summaryLimit entries (at most 20)."
     )
     repeated_spans = _TraceSummaryRepeatedSerializer(
         many=True,

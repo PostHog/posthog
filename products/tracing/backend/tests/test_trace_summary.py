@@ -135,9 +135,10 @@ class TestTraceSummary(TestCase):
     def test_limit_caps_every_list(self):
         summary = summarize_trace(_fixture_spans(), limit=1)
         self.assertEqual(
-            [len(summary[key]) for key in ("top_self_time", "repeated_spans", "errors")],
-            [1, 1, 1],
+            [len(summary[key]) for key in ("top_self_time", "repeated_spans", "errors", "critical_path")],
+            [1, 1, 1, 1],
         )
+        self.assertTrue(summary["critical_path_truncated"])
 
     def test_summary_is_compact(self):
         loop = [(f"q{i}", "root", "SELECT person", "web", 10 * i, 10, 0) for i in range(100)]

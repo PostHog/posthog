@@ -1356,7 +1356,7 @@ export interface _TraceSummaryApi {
     critical_path?: _TraceSummaryPathEntryApi[]
     /** Spans on the critical path left out because each took under 1% of the root's duration. */
     critical_path_omitted?: number
-    /** True when the critical path was cut at 20 entries. */
+    /** True when the critical path was cut at summaryLimit entries (at most 20). */
     critical_path_truncated?: boolean
     /** Service and name pairs that occur more than once, by total duration. Many fast repeats point at an N+1 pattern. */
     repeated_spans?: _TraceSummaryRepeatedApi[]

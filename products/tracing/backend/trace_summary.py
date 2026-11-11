@@ -104,7 +104,9 @@ def _critical_spans(root: dict, children_by_parent: dict[str, list[dict]]) -> li
     return path
 
 
-def _critical_path(root: dict, children_by_parent: dict[str, list[dict]]) -> tuple[list[dict], int, bool]:
+def _critical_path(
+    root: dict, children_by_parent: dict[str, list[dict]], max_entries: int
+) -> tuple[list[dict], int, bool]:
     """The critical path, with runs of same-named siblings (N+1 loops) collapsed into one entry.
 
     Entries shorter than 1% of the root are dropped (their spans counted): a slow request's path is
@@ -139,8 +141,8 @@ def _critical_path(root: dict, children_by_parent: dict[str, list[dict]]) -> tup
             entry["duration_ms"] = _ms(total)
             entry["self_ms"] = _ms(total_self)
         kept.append(entry)
-    if len(kept) > MAX_CRITICAL_PATH_ENTRIES:
-        return kept[:MAX_CRITICAL_PATH_ENTRIES], omitted, True
+    if len(kept) > max_entries:
+        return kept[:max_entries], omitted, True
     return kept, omitted, False
 
 
@@ -199,7 +201,9 @@ def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, tr
         for span in sorted(error_spans, key=lambda s: s["timestamp"])[:limit]
     ]
 
-    critical_path, critical_path_omitted, critical_path_truncated = _critical_path(root, children_by_parent)
+    critical_path, critical_path_omitted, critical_path_truncated = _critical_path(
+        root, children_by_parent, min(limit, MAX_CRITICAL_PATH_ENTRIES)
+    )
     root_service = root["service_name"]
 
     return {
