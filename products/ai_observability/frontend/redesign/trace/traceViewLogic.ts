@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import {
     aiObservabilityTracesEvaluationsRetrieve,
+    aiObservabilityTracesNodesRawRetrieve,
     aiObservabilityTracesNodesRetrieve,
     aiObservabilityTracesRetrieve,
 } from '../../generated/api'
@@ -16,11 +17,12 @@ import type {
     TraceEvaluationResultsApi,
     TraceNodeApi,
     TraceNodeDetailApi,
+    TraceNodeRawApi,
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
 import { TraceSummaryBarProps } from './components/TraceSummaryBar'
 import { encodeTraceIdSegment } from './traceIdSegment'
-import type { LoadFailure, NodeLoad, NodeLoadTrigger } from './types'
+import type { LoadFailure, NodeLoad, NodeLoadTrigger, RawLoad } from './types'
 
 export interface TraceViewLogicProps {
     traceId: string
@@ -42,6 +44,7 @@ export interface traceViewLogicValues {
     nodes: Record<string, NodeLoad>
     nodesMissedWithoutHint: Record<string, NodeLoadTrigger>
     personLabel: string | null
+    rawNodes: Record<string, RawLoad>
     sessionId: string | null
     status: TraceViewStatus
     summary: TraceSummaryBarProps | null
@@ -95,6 +98,23 @@ export interface traceViewLogicActions {
         node: TraceNodeDetailApi
         nodeId: string
     }
+    loadRawNode: (nodeId: string) => {
+        nodeId: string
+    }
+    loadRawNodeFailure: (
+        nodeId: string,
+        failure: LoadFailure
+    ) => {
+        failure: LoadFailure
+        nodeId: string
+    }
+    loadRawNodeSuccess: (
+        nodeId: string,
+        raw: TraceNodeRawApi
+    ) => {
+        nodeId: string
+        raw: TraceNodeRawApi
+    }
     loadTrace: () => any
     loadTraceFailure: (
         error: string,
@@ -123,6 +143,9 @@ export interface traceViewLogicActions {
     ) => {
         nodeId: string
         trigger: NodeLoadTrigger
+    }
+    rawNodeRequested: (nodeId: string) => {
+        nodeId: string
     }
 }
 
@@ -160,6 +183,18 @@ function toLoadFailure(error: unknown): LoadFailure {
     return error instanceof ApiError && error.status === 404 ? 'not_found' : 'failed'
 }
 
+async function readOrFailure<T>(request: Promise<T>): Promise<{ value: T } | { failure: LoadFailure }> {
+    try {
+        return { value: await request }
+    } catch (error) {
+        const failure = toLoadFailure(error)
+        if (failure === 'failed' && shouldReportApiFailure(error)) {
+            posthog.captureException(error)
+        }
+        return { failure }
+    }
+}
+
 function needsRead(current: NodeLoad | undefined, trigger: NodeLoadTrigger): boolean {
     if (!current) {
         return true
@@ -176,6 +211,10 @@ export const traceViewLogic = kea<traceViewLogicType>([
     props({} as TraceViewLogicProps),
     key((props) => props.traceId),
     actions({
+        loadRawNode: (nodeId: string) => ({ nodeId }),
+        rawNodeRequested: (nodeId: string) => ({ nodeId }),
+        loadRawNodeSuccess: (nodeId: string, raw: TraceNodeRawApi) => ({ nodeId, raw }),
+        loadRawNodeFailure: (nodeId: string, failure: LoadFailure) => ({ nodeId, failure }),
         loadNode: (nodeId: string, trigger: NodeLoadTrigger) => ({ nodeId, trigger }),
         nodeRequested: (nodeId: string, trigger: NodeLoadTrigger) => ({ nodeId, trigger }),
         nodeMissedWithoutHint: (nodeId: string, trigger: NodeLoadTrigger) => ({ nodeId, trigger }),
@@ -234,6 +273,23 @@ export const traceViewLogic = kea<traceViewLogicType>([
                     [nodeId]: { status: 'ready', node },
                 }),
                 loadNodeFailure: (state, { nodeId, failure }): Record<string, NodeLoad> => ({
+                    ...state,
+                    [nodeId]: { status: 'error', failure },
+                }),
+            },
+        ],
+        rawNodes: [
+            {} as Record<string, RawLoad>,
+            {
+                rawNodeRequested: (state, { nodeId }): Record<string, RawLoad> => ({
+                    ...state,
+                    [nodeId]: { status: 'loading' },
+                }),
+                loadRawNodeSuccess: (state, { nodeId, raw }): Record<string, RawLoad> => ({
+                    ...state,
+                    [nodeId]: { status: 'ready', raw },
+                }),
+                loadRawNodeFailure: (state, { nodeId, failure }): Record<string, RawLoad> => ({
                     ...state,
                     [nodeId]: { status: 'error', failure },
                 }),
@@ -334,20 +390,13 @@ export const traceViewLogic = kea<traceViewLogicType>([
             nodeRequested: async ({ nodeId, trigger }) => {
                 const hint = values.createdAt
                 const firstRequestedAt = (requestedAt()[nodeId] ??= performance.now())
-                const result = await aiObservabilityTracesNodesRetrieve(
-                    String(ApiConfig.getCurrentProjectId()),
-                    encodeTraceIdSegment(props.traceId),
-                    encodeTraceIdSegment(nodeId),
-                    hint ? { timestamp_hint: hint } : undefined
-                ).then(
-                    (node: TraceNodeDetailApi) => ({ node }),
-                    (error: unknown) => {
-                        const failure = toLoadFailure(error)
-                        if (failure === 'failed' && shouldReportApiFailure(error)) {
-                            posthog.captureException(error)
-                        }
-                        return { failure }
-                    }
+                const result = await readOrFailure(
+                    aiObservabilityTracesNodesRetrieve(
+                        String(ApiConfig.getCurrentProjectId()),
+                        encodeTraceIdSegment(props.traceId),
+                        encodeTraceIdSegment(nodeId),
+                        hint ? { timestamp_hint: hint } : undefined
+                    )
                 )
                 // A read can answer after the view closed, and a reopened view of the trace shares its actions.
                 if (cache.disposables.isDisposed) {
@@ -364,8 +413,33 @@ export const traceViewLogic = kea<traceViewLogicType>([
                 const waitedSince = selectedAt()[nodeId]
                 const loadMs = elapsedMs(firstRequestedAt)
                 const waitedMs = waitedSince === undefined ? null : elapsedMs(waitedSince)
-                actions.loadNodeSuccess(nodeId, result.node)
+                actions.loadNodeSuccess(nodeId, result.value)
                 posthog.capture('llma trace node loaded', { load_ms: loadMs, trigger, waited_ms: waitedMs })
+            },
+            loadRawNode: ({ nodeId }) => {
+                const status = values.rawNodes[nodeId]?.status
+                if (status !== 'loading' && status !== 'ready') {
+                    actions.rawNodeRequested(nodeId)
+                }
+            },
+            rawNodeRequested: async ({ nodeId }) => {
+                const hint = values.createdAt
+                const result = await readOrFailure(
+                    aiObservabilityTracesNodesRawRetrieve(
+                        String(ApiConfig.getCurrentProjectId()),
+                        encodeTraceIdSegment(props.traceId),
+                        encodeTraceIdSegment(nodeId),
+                        hint ? { timestamp_hint: hint } : undefined
+                    )
+                )
+                if (cache.disposables.isDisposed) {
+                    return
+                }
+                if ('failure' in result) {
+                    actions.loadRawNodeFailure(nodeId, result.failure)
+                } else {
+                    actions.loadRawNodeSuccess(nodeId, result.value)
+                }
             },
             loadNodeSuccess: ({ nodeId }) => endRead(nodeId),
             loadNodeFailure: ({ nodeId }) => endRead(nodeId),
