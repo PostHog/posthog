@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.db import OperationalError
 from django.test import override_settings
 
+from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
@@ -391,6 +392,33 @@ class TestRateGate:
 
         assert c.process_record(self._VALUE) == SENT
         assert len(heartbeats) == 2  # one per throttled poll before the grant
+
+
+class TestCommit:
+    def test_rebalance_commit_failure_is_logged_not_raised(self):
+        # Regression: a commit can fail with UNKNOWN_MEMBER_ID when a rebalance (e.g. this consumer
+        # exceeding max.poll.interval.ms while blocked in the throttle wait) already moved the
+        # partition to another group member. The new owner re-reads from the last committed offset,
+        # so this must be logged and swallowed, not crash the consumer loop.
+        consumer = MagicMock()
+        consumer.commit.side_effect = KafkaException(KafkaError(KafkaError.UNKNOWN_MEMBER_ID))
+        c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), grant_fn=lambda: True, dlq_producer=MagicMock())
+
+        with capture_logs() as logs:
+            c._commit(consumer, message=MagicMock())
+
+        [entry] = [e for e in logs if e["event"] == "person_property_update.commit_skipped_after_rebalance"]
+        assert entry["error"]
+
+    def test_unrelated_commit_failure_propagates(self):
+        # Only the known rebalance-recovery codes are safe to swallow; any other commit failure
+        # means offsets were left where they were, so it must still surface rather than be hidden.
+        consumer = MagicMock()
+        consumer.commit.side_effect = KafkaException(KafkaError(KafkaError._TIMED_OUT))
+        c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), grant_fn=lambda: True, dlq_producer=MagicMock())
+
+        with pytest.raises(KafkaException):
+            c._commit(consumer, message=MagicMock())
 
 
 class TestCurrentRate:
