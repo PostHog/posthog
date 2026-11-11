@@ -281,6 +281,19 @@ Project vectors are per-team data, so this region never copies its own day to th
 
 The reader is `score_reports` in `products/signals/backend/ranking/scorer.py`. It loads every model the manifest names through `model_store.py`, reads each report's latest vector once per rendering, builds each model's matrix with its own `FeatureSet.build_matrix`, and writes one `ranking_score` artefact per report plus one `inbox_ranking_report_scored` event per report and model. The dag and the reader decide whether a model can be scored with the same functions, in `products/signals/backend/ranking/model_contract.py`. A served model that cannot load stops the pass. Any other model that cannot load, or has no vector for a report, is a `skipped` result. No scheduled caller runs the reader yet.
 
+### Report facts at scoring time
+
+A reader call that persists scores also captures one `inbox_ranking_report_facts_recorded` event per report it scores, with `team_id`, `report_id`, `scored_at`, `embedding_inserted_at`, `manifest_version`, `facts_schema_version` and one property per fact.
+No model reads the facts yet. They let training later read the values the sweep saw, so a count that grows during the report's first day agrees on both sides.
+
+- The set: `source_products` (the sorted distinct source products of the report's live signals, a list and not one-hot columns), `title_chars`, `summary_chars`, `chart_count`, `metric_count`, `suggested_prompt_count`, `tag_count`, `user_authored`, `signal_count`, `total_weight`, `run_count`, `content_revision_count`, `corroboration_count`, and `priority`, `actionability` and `already_addressed` from the latest judgment artefacts.
+- The recorded value is the value at scoring time. The sweep rescores a report only when its vector or the served model changes, so a fact that moves later is not recorded again.
+- `products/signals/backend/ranking/report_facts.py` holds one definition per fact, and `inbox_report_state` builds its shared columns through the same functions. A test pins that the two give the same value for each shared column.
+- A null judgment value is unknown: the report has no judgment of that kind, or its latest one holds no usable value. A null `content_revision_count` or `corroboration_count` is stored as 0 on both sides, because the columns start from null until the first scout write.
+- A call reads the facts once, with one Postgres read of the reports and one ClickHouse read, both filtered to the call's team. The ClickHouse read has a time limit. A failed read logs `inbox_ranking_report_facts_unreadable` and records no facts event for that call, and the scores still persist.
+- `INBOX_RANKING_RECORD_REPORT_FACTS` (default on) turns off the read and its events. Scoring does not change.
+- Bump `FACTS_SCHEMA_VERSION` when a fact is added, removed or read another way.
+
 ### Overrides
 
 An owner can change serving without a training run or a Dagster launch, through the payload of the `inbox-ranking-overrides` feature flag in the internal PostHog project. The flag is inert by default. When the flag is off, the payload is empty, or the lookup fails, the sweep and the dag run as they do without the flag. The parser is `products/signals/backend/ranking/overrides.py`, and the sweep and the dag share it.
