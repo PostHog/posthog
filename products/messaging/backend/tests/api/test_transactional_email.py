@@ -145,7 +145,7 @@ class FakeCdpApi:
         ]
 
     def _unrecognized_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
-        issues = [
+        issues: list[dict[str, Any]] = [
             {"code": "unrecognized_keys", "keys": [key], "path": ["send"]}
             for key in send.keys() - self._accepted.keys()
         ]
