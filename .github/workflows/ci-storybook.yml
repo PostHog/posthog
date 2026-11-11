@@ -20,8 +20,8 @@ on:
         branches:
             - master
     schedule:
-        # Nightly webkit run against master. It runs before the 04:00 UTC timing refresh in
-        # ci-storybook-update-test-timing.yml, which reads its webkit JUnit artifacts.
+        # Nightly webkit and firefox run against master. It runs before the 04:00 UTC timing
+        # refresh in ci-storybook-update-test-timing.yml, which reads its JUnit artifacts.
         - cron: '27 2 * * *'
 
 concurrency:
@@ -47,9 +47,11 @@ env:
     # on GitHub-hosted runners, which are free for this public repository, so the extra shards
     # cost queue slots rather than money.
     #
-    # WEBKIT_SHARDS stays at 8: those shards run on 2-CPU Depot runners that bill per minute.
+    # WEBKIT_SHARDS and FIREFOX_SHARDS stay at 8: those shards run on 2-CPU Depot runners that
+    # bill per minute, once a night.
     CHROMIUM_SHARDS: 40
     WEBKIT_SHARDS: 8
+    FIREFOX_SHARDS: 8
 
 jobs:
     # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
@@ -232,11 +234,12 @@ jobs:
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
-            # Pull requests, merge-queue runs and master pushes run chromium. WebKit runs only in
-            # the nightly scheduled run. No story opts into webkit snapshots (see
-            # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
-            # only, and in the queue it failed more often on flakes than on real breaks. Flake
-            # verification still renders a PR's changed stories in webkit before it merges.
+            # Pull requests, merge-queue runs and master pushes run chromium. WebKit and Firefox
+            # run only in the nightly scheduled run. No story opts into snapshots outside chromium
+            # (see common/storybook/.storybook/test-runner.ts), so those browsers add
+            # render-error coverage only, and in the queue webkit failed more often on flakes than
+            # on real breaks. Flake verification still renders a PR's changed stories in webkit
+            # before it merges.
             - name: Build matrix
               id: matrix
               run: |
@@ -246,7 +249,7 @@ jobs:
                   }
 
                   if [ "${{ github.event_name }}" = "schedule" ]; then
-                    SHARDS=$(shards webkit "$WEBKIT_SHARDS")
+                    SHARDS=$(jq -cn --argjson w "$(shards webkit "$WEBKIT_SHARDS")" --argjson f "$(shards firefox "$FIREFOX_SHARDS")" '$w + $f')
                   else
                     SHARDS=$(shards chromium "$CHROMIUM_SHARDS")
                   fi
@@ -620,7 +623,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
+        runs-on: ${{ matrix.browser == 'chromium' && 'ubuntu-24.04' || 'depot-ubuntu-24.04' }}
         needs: [changes, build-storybook, vr-setup, select-stories]
         # A status function is required because select-stories is skipped on forced-full
         # PRs and master pushes. !cancelled() rather than always() so a superseded run's
@@ -640,7 +643,7 @@ jobs:
             # are tuned for runner CPU — consult #team-devex before changing.
             # PRs may use chromium shards running only affected story files.
             # Forced-full PRs, merge-queue runs and master pushes fall back to
-            # changes.outputs.matrix (full chromium); the nightly run uses it for webkit.
+            # changes.outputs.matrix (full chromium); the nightly run uses it for webkit and firefox.
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
@@ -964,7 +967,7 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
-            # chromium and webkit run the same stories, so each browser uploads under its own Trunk
+            # every browser runs the same stories, so each browser uploads under its own Trunk
             # variant — one test id for both browsers would make a browser-specific failure look
             # like a flake.
             - name: Quarantine gate

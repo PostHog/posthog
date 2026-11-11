@@ -67,7 +67,8 @@ jobs:
                   INPUT_RUN_ID: ${{ inputs.storybook_run_id }}
               run: |
                   # Master pushes run the chromium shards and the nightly scheduled run runs the
-                  # webkit shards, so the manifest is refreshed from one run of each.
+                  # webkit and firefox shards, so the manifest is refreshed from one run of each.
+                  # The nightly run is found by its webkit shards; its firefox artifacts come with it.
                   validate_run() {
                       local run_id="$1" event="$2" browser="$3" shard_pattern="$4" shard_count="$5"
                       local run_json artifact_names

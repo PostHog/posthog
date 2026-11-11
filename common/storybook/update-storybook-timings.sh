@@ -7,8 +7,8 @@ set -euo pipefail
 #   ./update-storybook-timings.sh                        # uses latest successful master run
 #   ./update-storybook-timings.sh <run-id> [<run-id>...]  # uses specific runs
 #
-# Master pushes run chromium and the nightly scheduled run runs webkit, so a full
-# refresh passes one run of each. A browser that none of the runs covers keeps the
+# Master pushes run chromium and the nightly scheduled run runs webkit and firefox,
+# so a full refresh passes one run of each. A browser that none of the runs covers keeps the
 # timings already in the manifest.
 #
 # Requires: gh CLI (authenticated), python3
@@ -100,7 +100,9 @@ with open('$OUTPUT', 'w') as f:
     json.dump(timings, f, sort_keys=True, indent=2)
     f.write('\n')
 
-chromium = sum(1 for v in timings.values() if 'chromium' in v)
-webkit = sum(1 for v in timings.values() if 'webkit' in v)
-print(f'Wrote {len(timings)} test files ({chromium} chromium, {webkit} webkit) to storybook-timings.json')
+counts = ', '.join(
+    f'{sum(1 for v in timings.values() if browser in v)} {browser}'
+    for browser in sorted({b for v in timings.values() for b in v})
+)
+print(f'Wrote {len(timings)} test files ({counts}) to storybook-timings.json')
 "

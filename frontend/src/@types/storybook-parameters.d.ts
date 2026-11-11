@@ -3,7 +3,7 @@ import type { Mocks } from '~/mocks/utils'
 
 export type ViewportWidthName = 'narrow' | 'medium' | 'wide' | 'superwide'
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
-export type SupportedBrowserName = 'chromium' | 'webkit'
+export type SupportedBrowserName = 'chromium' | 'webkit' | 'firefox'
 export type SnapshotTheme = 'light' | 'dark'
 
 declare module 'storybook/internal/types' {
