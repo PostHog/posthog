@@ -24,10 +24,9 @@ class ProjectSecretAPIKeyContext(ActivityContextBase):
     scopes: Optional[list[str]] = None
     created_by_email: Optional[str] = None
     created_by_name: Optional[str] = None
-    # $ai_credential on the key's gateway generations. The key row is the only other place that
-    # maps it back to a key, so without it here spend made before a delete or roll is unattributable.
+    # Matches $ai_credential on gateway generations, so spend stays attributable after a delete or roll.
     ai_credential: Optional[str] = None
-    # Set only when a roll replaced the hash, chaining the old $ai_credential to this key.
+    # Set only when a roll changed the hash.
     previous_ai_credential: Optional[str] = None
 
 
