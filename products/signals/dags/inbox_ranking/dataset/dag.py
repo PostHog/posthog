@@ -103,8 +103,10 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.ranking.report_facts import (
+    JUDGMENT_TYPES,
     REPORT_FACT_FIELDS,
     judgment_facts,
+    no_judgment_facts,
     report_content_annotations,
     report_row_facts,
 )
@@ -610,10 +612,7 @@ def _artefact_judgments(
         artefacts = (
             SignalReportArtefact.objects.filter(
                 report_id__in=chunk,
-                type__in=[
-                    SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                    SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-                ],
+                type__in=JUDGMENT_TYPES,
                 created_at__lt=snapshot_end,
             )
             .order_by("report_id", "type", "-created_at")
@@ -627,10 +626,7 @@ def _artefact_judgments(
             facts = judgment_facts(artefact_type, content)
             if facts is None:
                 continue
-            entry = judgments.setdefault(
-                str(report_id), {"priority": None, "actionability": None, "already_addressed": None}
-            )
-            entry.update(facts)
+            judgments.setdefault(str(report_id), no_judgment_facts()).update(facts)
     return judgments
 
 
@@ -887,11 +883,12 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     ordered_spine_ids = sorted(report_id for report_id, team_id in spine_teams.items() if team_id in consent_team_ids)
     judgments = _artefact_judgments(ordered_spine_ids, snapshot_end)
 
+    content = report_content_annotations()
     rows: list[dict[str, Any]] = []
     for spine_chunk in _chunked(ordered_spine_ids):
         for report in (
             SignalReport.objects.filter(id__in=spine_chunk)
-            .annotate(**report_content_annotations())
+            .annotate(**content)
             .values(
                 "id",
                 "team_id",
@@ -902,14 +899,13 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                 "last_run_at",
                 "updated_at",
                 *REPORT_FACT_FIELDS,
-                *report_content_annotations(),
+                *content,
             )
             .iterator(chunk_size=2000)
         ):
             report_id = str(report["id"])
             created_at = ensure_utc(report["created_at"])
             promoted_at = ensure_utc(report["promoted_at"])
-            judgment = judgments.get(report_id, {})
             rows.append(
                 {
                     "snapshot_date": snapshot_date,
@@ -927,9 +923,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                     if promoted_at
                     else None,
                     **report_row_facts(report),
-                    "priority": judgment.get("priority"),
-                    "actionability": judgment.get("actionability"),
-                    "already_addressed": judgment.get("already_addressed"),
+                    **judgments.get(report_id, no_judgment_facts()),
                     "features_observed_at": features_observed_at,
                 }
             )

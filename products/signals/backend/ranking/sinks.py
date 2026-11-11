@@ -31,9 +31,9 @@ def persist_scores(
     team_id: int,
     scores: Sequence[tuple[str, RankingScore]],
     *,
+    facts: Mapping[str, ReportFacts],
     capture: ScopedCapture | None = None,
     served_override: RankingOverrides | None = None,
-    facts: Mapping[str, ReportFacts] | None = None,
 ) -> int:
     """Write one artefact per `(report_id, score)` of the team, then capture its events.
 
@@ -74,46 +74,42 @@ def persist_scores(
     )
     with ph_scoped_capture() if capture is None else nullcontext(capture) as active_capture:
         for report_id, score in kept:
+            report_properties = {
+                "$process_person_profile": False,
+                "environment": settings.CLOUD_DEPLOYMENT,
+                "team_id": team_id,
+                "report_id": report_id,
+                "manifest_version": score.manifest_version,
+                "embedding_inserted_at": score.embedding_inserted_at.isoformat()
+                if score.embedding_inserted_at
+                else None,
+            }
             for model_key, result in score.results.items():
                 active_capture(
                     distinct_id=DISTINCT_ID,
                     event=REPORT_SCORED_EVENT,
                     properties={
-                        "$process_person_profile": False,
-                        "environment": settings.CLOUD_DEPLOYMENT,
-                        "team_id": team_id,
-                        "report_id": report_id,
+                        **report_properties,
                         "model_key": model_key,
                         "model_name": result.model_name,
                         "model_version": result.model_version,
                         "roles": result.roles,
                         "status": result.status,
                         "skip_reason": result.skip_reason,
-                        "manifest_version": score.manifest_version,
-                        "embedding_inserted_at": score.embedding_inserted_at.isoformat()
-                        if score.embedding_inserted_at
-                        else None,
                         "override_served": served_override.served if served_override else None,
                         "override_expires_at": override_expires_at,
                         **{f"p_{head}": probability for head, probability in result.scores.items()},
                         **classification_properties(result),
                     },
                 )
-            report_facts = (facts or {}).get(report_id)
+            report_facts = facts.get(report_id)
             if report_facts is not None:
                 active_capture(
                     distinct_id=DISTINCT_ID,
                     event=REPORT_FACTS_EVENT,
                     properties={
-                        "$process_person_profile": False,
-                        "environment": settings.CLOUD_DEPLOYMENT,
-                        "team_id": team_id,
-                        "report_id": report_id,
+                        **report_properties,
                         "scored_at": score.scored_at.isoformat(),
-                        "embedding_inserted_at": score.embedding_inserted_at.isoformat()
-                        if score.embedding_inserted_at
-                        else None,
-                        "manifest_version": score.manifest_version,
                         "facts_schema_version": FACTS_SCHEMA_VERSION,
                         **dataclasses.asdict(report_facts),
                     },

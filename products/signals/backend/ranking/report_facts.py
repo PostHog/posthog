@@ -21,6 +21,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.signals.backend.artefact_schemas import priority_from_judgment
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 
@@ -39,10 +40,12 @@ REPORT_FACT_FIELDS = (
     "user_authored",
 )
 
-_JUDGMENT_TYPES = (
+JUDGMENT_TYPES = (
     SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
     SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
 )
+
+_SOURCES_READ_TIMEOUT_SECONDS = 30
 
 
 @frozen
@@ -66,7 +69,7 @@ class ReportFacts:
     already_addressed: bool | None
 
 
-def json_array_length(field: str) -> Case:
+def _json_array_length(field: str) -> Case:
     """Length of a JSON list column, computed in Postgres so the list itself is never loaded.
     `jsonb_array_length` raises on a value that is not an array, so any other stored value counts as 0."""
     return Case(
@@ -82,9 +85,9 @@ def json_array_length(field: str) -> Case:
 def report_content_annotations() -> dict[str, Any]:
     """The `SignalReport` annotations that count the report's content, keyed by fact name."""
     return {
-        "chart_count": json_array_length("charts"),
-        "metric_count": json_array_length("metrics"),
-        "suggested_prompt_count": json_array_length("suggested_prompts"),
+        "chart_count": _json_array_length("charts"),
+        "metric_count": _json_array_length("metrics"),
+        "suggested_prompt_count": _json_array_length("suggested_prompts"),
         "tag_count": Coalesce(Func(F("tags"), function="cardinality"), Value(0), output_field=IntegerField()),
     }
 
@@ -121,11 +124,18 @@ def _judgment_flag(parsed: dict[str, Any], key: str) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+def no_judgment_facts() -> dict[str, Any]:
+    """The judgment facts of a report with no usable judgment."""
+    return {"priority": None, "actionability": None, "already_addressed": None}
+
+
 def judgment_facts(artefact_type: str, content: str | None) -> dict[str, Any] | None:
     """The facts a priority or actionability judgment's content holds, or None when the content is not a JSON object.
 
     `already_addressed` comes from the actionability judgment, not from `SignalReport.latest_already_addressed`.
     """
+    if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
+        return {"priority": priority_from_judgment(content)}
     try:
         parsed = json.loads(content or "")
     except ValueError:
@@ -133,8 +143,6 @@ def judgment_facts(artefact_type: str, content: str | None) -> dict[str, Any] | 
     # Legacy artefact rows can hold JSON that is not an object.
     if not isinstance(parsed, dict):
         return None
-    if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
-        return {"priority": _judgment_value(parsed, "priority")}
     return {
         "actionability": _judgment_value(parsed, "actionability"),
         "already_addressed": _judgment_flag(parsed, "already_addressed"),
@@ -152,27 +160,31 @@ def _latest_judgment(artefact_type: str) -> Subquery:
 def read_report_facts(team_id: int, report_ids: Sequence[str]) -> dict[str, ReportFacts]:
     """The current facts of the team's reports in `report_ids`, by report id.
 
-    One Postgres read gets the report rows with their latest judgments, and one ClickHouse read gets
-    the sources. A report id that is not one of the team's reports has no entry.
+    One Postgres read gets the report rows with their latest judgments, a primary key lookup gets the
+    team, and one ClickHouse read gets the sources. A report id that is not one of the team's reports
+    has no entry.
     """
+    content = report_content_annotations()
     rows = list(
         SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
-        .annotate(
-            **report_content_annotations(),
-            **{artefact_type: _latest_judgment(artefact_type) for artefact_type in _JUDGMENT_TYPES},
-        )
-        .values("id", *REPORT_FACT_FIELDS, *report_content_annotations(), *_JUDGMENT_TYPES)
+        .annotate(**content, **{artefact_type: _latest_judgment(artefact_type) for artefact_type in JUDGMENT_TYPES})
+        .values("id", *REPORT_FACT_FIELDS, *content, *JUDGMENT_TYPES)
     )
     if not rows:
         return {}
     found = [str(row["id"]) for row in rows]
     sources = fetch_source_products_for_reports(
-        Team.objects.get(id=team_id), found, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE
+        Team.objects.get(id=team_id),
+        found,
+        ch_user=ClickHouseUser.SIGNALS,
+        workload=Workload.OFFLINE,
+        # Far below the sweep's time budget, so a slow read costs the facts events and not the later teams.
+        max_execution_time=_SOURCES_READ_TIMEOUT_SECONDS,
     )
     facts: dict[str, ReportFacts] = {}
     for report_id, row in zip(found, rows):
-        judgments: dict[str, Any] = {"priority": None, "actionability": None, "already_addressed": None}
-        for artefact_type in _JUDGMENT_TYPES:
+        judgments = no_judgment_facts()
+        for artefact_type in JUDGMENT_TYPES:
             judgments |= judgment_facts(artefact_type, row[artefact_type]) or {}
         meta = sources.get(report_id)
         facts[report_id] = ReportFacts(

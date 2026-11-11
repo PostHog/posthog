@@ -290,7 +290,7 @@ No model reads the facts yet. They let training later read the values the sweep 
 - The recorded value is the value at scoring time. The sweep rescores a report only when its vector or the served model changes, so a fact that moves later is not recorded again.
 - `products/signals/backend/ranking/report_facts.py` holds one definition per fact, and `inbox_report_state` builds its shared columns through the same functions. A test pins that the two give the same value for each shared column.
 - A null judgment value is unknown: the report has no judgment of that kind, or its latest one holds no usable value. A null `content_revision_count` or `corroboration_count` is stored as 0 on both sides, because the columns start from null until the first scout write.
-- A call reads the facts once, with one Postgres read and one ClickHouse read, both filtered to the call's team. A failed read logs `inbox_ranking_report_facts_unreadable` and records no facts event for that call, and the scores still persist.
+- A call reads the facts once, with one Postgres read of the reports and one ClickHouse read, both filtered to the call's team. The ClickHouse read has a time limit. A failed read logs `inbox_ranking_report_facts_unreadable` and records no facts event for that call, and the scores still persist.
 - `INBOX_RANKING_RECORD_REPORT_FACTS` (default on) turns off the read and its events. Scoring does not change.
 - Bump `FACTS_SCHEMA_VERSION` when a fact is added, removed or read another way.
 
