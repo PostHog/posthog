@@ -743,18 +743,14 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 return
             }
             actions.setPendingAction(action)
-            // A request past its deadline is aborted and anything it does afterwards is dropped,
-            // so the queue moves on.
-            let settled = false
-            const currentRun = (): boolean => !settled && stillCurrent()
             try {
+                // A request past its deadline is aborted, so its answer never lands and the queue moves on.
                 await withTimeout(
-                    (signal) => run(currentRun, signal),
+                    (signal) => run(stillCurrent, signal),
                     SAVED_VIEWS_REQUEST_TIMEOUT_MS,
                     `workflowsSavedViewsLogic: ${action} timed out`
                 )
             } catch (error) {
-                settled = true
                 if (stillCurrent()) {
                     const failure = handleFailure(action, error, target)
                     if (failure) {
@@ -762,7 +758,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     }
                 }
             } finally {
-                settled = true
                 if (stillCurrent()) {
                     actions.setPendingAction(null)
                 }

@@ -1316,15 +1316,18 @@ describe('workflowsSavedViewsLogic', () => {
         }
     )
 
-    it('fails a stalled save after the deadline and runs the next change', async () => {
+    it('fails a stalled save after the deadline, runs the next change, and ignores the late answer', async () => {
         const toastError = jest.spyOn(lemonToast, 'error')
         let patches = 0
+        let answerLate: () => void = () => {}
+        const lateAnswer = new Promise<void>((resolve) => (answerLate = resolve))
         useMocks({
             patch: {
                 '/api/projects/:team_id/workflow_views/:id/': async ({ request }) => {
                     patches++
                     if (patches === 1) {
-                        return new Promise(() => {})
+                        await lateAnswer
+                        return [200, { ...savedView, name: 'Stale flows', version: 99 }]
                     }
                     return [200, { ...savedView, ...((await request.json()) as Partial<WorkflowViewApi>) }]
                 },
@@ -1344,12 +1347,42 @@ describe('workflowsSavedViewsLogic', () => {
                 "Couldn't update Active flows. Check your connection and try again."
             )
             await renamed
+            answerLate()
+            await jest.advanceTimersByTimeAsync(0)
         } finally {
             jest.useRealTimers()
         }
+        await expectLogic(logic).toFinishAllListeners()
         expect(patches).toBe(2)
         expect(logic.values.saving).toBe(false)
         expect(logic.values.views.find((view) => view.id === VIEW_ID)?.name).toEqual('Renamed flows')
+    })
+
+    it('aborts a stalled delete at its deadline so it cannot remove the view later', async () => {
+        const signals: AbortSignal[] = []
+        useMocks({
+            delete: {
+                '/api/projects/:team_id/workflow_views/:id/': ({ request }) => {
+                    signals.push(request.signal)
+                    return new Promise(() => {})
+                },
+            },
+        })
+        router.actions.push(urls.workflows(), { view: VIEW_ID })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        jest.useFakeTimers()
+        try {
+            const deleted = logic.asyncActions.deleteView(VIEW_ID)
+            await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
+            await deleted
+        } finally {
+            jest.useRealTimers()
+        }
+        expect(signals.map((signal) => signal.aborted)).toEqual([true])
+        expect(logic.values.saving).toBe(false)
+        expect(logic.values.views.some((view) => view.id === VIEW_ID)).toBe(true)
     })
 
     it('keeps local edits on All when the view being updated was deleted by someone else', async () => {
