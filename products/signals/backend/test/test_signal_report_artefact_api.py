@@ -465,6 +465,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         if allowed:
             assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
             assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+            assert mock_autostart.call_args.kwargs["triggering_user_id"] == self.user.id
 
     def test_put_adding_reviewer_notifies_added_reviewer_on_commit(self):
         # Manually adding a reviewer enqueues a Slack ping (after commit) for only the newly-added
@@ -2521,6 +2522,8 @@ class TestSignalReportCommitDiff(APIBaseTest):
         with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
             response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["code"] == "github_repository_inaccessible"
+        assert response.json()["remediation_url"] == f"/project/{self.team.id}/settings/project-integrations"
 
     def _mock_github(self, result: dict):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()

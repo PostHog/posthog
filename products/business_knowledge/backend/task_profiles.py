@@ -1,5 +1,4 @@
 from products.tasks.backend.facade.profiles import (
-    AccessGate,
     DrivePolicy,
     GithubAccess,
     GithubResolution,
@@ -24,7 +23,6 @@ BUSINESS_KNOWLEDGE = TaskProfile(
     read_without_channel=Read.CREATOR,
     api_visible=False,
     drive=DrivePolicy.OWNER,
-    access_gate=AccessGate.NONE,
     max_live_per_user=MAX_OPEN_RUNS_PER_OWNER,
     warm=None,
     runtimes=("acp",),

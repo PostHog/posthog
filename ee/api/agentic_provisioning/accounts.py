@@ -4,13 +4,15 @@ the browser consent detour for partners that can't skip it."""
 from __future__ import annotations
 
 import secrets
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.http import HttpRequest
 from django.utils import timezone
+
+from disposable_email_domains import blocklist as disposable_email_domains
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
@@ -39,6 +41,9 @@ from ee.api.agentic_provisioning.constants import (
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
 from ee.api.agentic_provisioning.tokens import user_can_access_team
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def partner_label(partner: OAuthApplication | None) -> str:
@@ -261,7 +266,11 @@ class PartnerOrganizationChanged(Exception):
 
 
 def get_or_create_partner_organization_team(
-    user: User, partner: OAuthApplication, approved_organization_id: str | None
+    user: User,
+    partner: OAuthApplication,
+    approved_organization_id: str | None,
+    *,
+    authorize_organization: Callable[[Organization], None],
 ) -> tuple[Team, bool]:
     """Billing works per organization, so the project of a partner that pays for its customers
     must not go in one of the user's own organizations, where the user would pay for the
@@ -279,6 +288,7 @@ def get_or_create_partner_organization_team(
         if (str(organization.id) if organization is not None else None) != approved_organization_id:
             raise PartnerOrganizationChanged
         if organization is not None:
+            authorize_organization(organization)
             team = find_partner_team(locked_user, partner, organization)
             if team is None:
                 team = Team.objects.create_with_data(initiating_user=locked_user, organization=organization)
@@ -325,6 +335,12 @@ def apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
         team.save(update_fields=["completed_snippet_onboarding"])
 
 
+def is_disposable_email(email: str) -> bool:
+    """Whether the email domain, or a parent of it, is a known disposable email provider."""
+    labels = email.rpartition("@")[2].lower().split(".")
+    return any(".".join(labels[i:]) in disposable_email_domains for i in range(len(labels) - 1))
+
+
 def handle_new_user(
     request: HttpRequest,
     request_id: str,
@@ -351,20 +367,28 @@ def handle_new_user(
         capture_provisioning_event("account_request", "access_blocked", partner=partner, region=region)
         raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
-    try:
-        evaluate_auth_attempt(
-            request,
-            email,
-            RadarAction.SIGNUP,
-            RadarAuthMethod.OTHER,
-            challenge_allowed=False,
-            call_site="agentic_provisioning",
-        )
-    except SuspiciousAttemptBlocked as blocked:
-        capture_provisioning_event("account_request", "radar_blocked", partner=partner, region=region)
-        raise ProvisioningError(
-            SuspiciousAttemptBlocked.default_code, str(blocked.detail), request_id=request_id, status=403
-        )
+    if partner.is_verified:
+        # Radar scores the request IP and user agent, which belong to the partner server, not the
+        # end user. A busy partner therefore looks like a bot. PostHog staff vouch for a verified
+        # partner, so its users get an email-only check instead.
+        if is_disposable_email(email):
+            capture_provisioning_event("account_request", "disposable_email_blocked", partner=partner, region=region)
+            raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
+    else:
+        try:
+            evaluate_auth_attempt(
+                request,
+                email,
+                RadarAction.SIGNUP,
+                RadarAuthMethod.OTHER,
+                challenge_allowed=False,
+                call_site="agentic_provisioning",
+            )
+        except SuspiciousAttemptBlocked as blocked:
+            capture_provisioning_event("account_request", "radar_blocked", partner=partner, region=region)
+            raise ProvisioningError(
+                SuspiciousAttemptBlocked.default_code, str(blocked.detail), request_id=request_id, status=403
+            )
 
     try:
         with transaction.atomic():

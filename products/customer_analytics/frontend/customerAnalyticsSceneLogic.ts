@@ -9,6 +9,8 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { TodayPeopleStaticRowKey, todayPeopleRowLabel } from '~/layout/today/todayPeopleRows'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { groupsModel } from '~/models/groupsModel'
 import {
     ActionsNode,
@@ -114,6 +116,7 @@ export interface customerAnalyticsSceneLogicValues {
     groupTypesRaw: Array<GroupType> // groupsModel
     groupsEnabled: boolean // groupsModel
     sceneKey: string | null // sceneLogic
+    peoplePaneLinksTabs: boolean // todayShellLogic
     activeTab: ActiveTab
     activeUsersInsights: InsightDefinition[]
     breadcrumbs: Breadcrumb[]
@@ -140,12 +143,15 @@ export interface customerAnalyticsSceneLogicValues {
     mauSeries: AnyEntityNode | null
     mineOnly: boolean
     paymentSeries: AnyEntityNode | null
+    sceneName: string | undefined
     selectedGroupType: number
     sessionInsights: InsightDefinition[]
     signupInsights: InsightDefinition[]
     signupPageviewSeries: AnyEntityNode | null
     signupSeries: AnyEntityNode | null
     subscriptionSeries: AnyEntityNode | null
+    todayPeopleRowKey: TodayPeopleStaticRowKey
+    todayRailTabName: string | null
     wauSeries: AnyEntityNode | null
 }
 
@@ -176,8 +182,27 @@ export interface customerAnalyticsSceneLogicActions {
 export interface customerAnalyticsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeTab: (sceneKey: string | null) => ActiveTab
+        todayPeopleRowKey: (activeTab: ActiveTab) => TodayPeopleStaticRowKey
+        todayRailTabName: (
+            peoplePaneLinksTabs: boolean,
+            todayPeopleRowKey:
+                | 'accounts'
+                | 'announcements'
+                | 'cohorts'
+                | 'configure'
+                | 'feature_requests'
+                | 'feed'
+                | 'journeys'
+                | 'notes'
+                | 'overview'
+                | 'persons'
+                | 'support'
+                | 'tasks'
+        ) => string | null
+        sceneName: (todayRailTabName: string | null, activeTab: ActiveTab) => string | undefined
+        breadcrumbs: (todayRailTabName: string | null) => Breadcrumb[]
         customerLabel: (
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
             businessType: BusinessType,
             selectedGroupType: number
         ) => {
@@ -293,6 +318,8 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             ['aggregationLabel', 'groupsEnabled', 'groupTypesRaw'],
             sceneLogic,
             ['sceneKey'],
+            todayShellLogic,
+            ['peoplePaneLinksTabs'],
         ],
     })),
     actions({
@@ -349,12 +376,28 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             (s) => [s.sceneKey],
             (sceneKey: string | null): ActiveTab => (sceneKey && SCENE_KEY_TO_TAB[sceneKey]) || 'dashboard',
         ],
+        /** The People pane row for the open tab. Under today-rail-nav those rows replace the tabs. */
+        todayPeopleRowKey: [
+            (s) => [s.activeTab],
+            (activeTab: ActiveTab): TodayPeopleStaticRowKey => (activeTab === 'dashboard' ? 'overview' : activeTab),
+        ],
+        todayRailTabName: [
+            (s) => [s.peoplePaneLinksTabs, s.todayPeopleRowKey],
+            (peoplePaneLinksTabs: boolean, rowKey: TodayPeopleStaticRowKey): string | null =>
+                todayPeopleRowLabel(peoplePaneLinksTabs, rowKey),
+        ],
+        sceneName: [
+            (s) => [s.todayRailTabName, s.activeTab],
+            (todayRailTabName: string | null, activeTab: ActiveTab): string | undefined =>
+                todayRailTabName ??
+                (activeTab === 'tasks' ? 'Tasks' : sceneConfigurations[Scene.CustomerAnalytics].name),
+        ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.todayRailTabName],
+            (todayRailTabName: string | null): Breadcrumb[] => [
                 {
                     key: Scene.CustomerAnalytics,
-                    name: sceneConfigurations[Scene.CustomerAnalytics].name,
+                    name: todayRailTabName ?? sceneConfigurations[Scene.CustomerAnalytics].name,
                     path: urls.customerAnalyticsDashboard(),
                     iconType: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                 },

@@ -4,13 +4,12 @@ import * as React from 'react'
 import {
     Button,
     cn,
-    Combobox,
-    ComboboxEmpty,
-    ComboboxInput,
-    ComboboxItem,
-    ComboboxList,
     DropdownMenuCheckboxItem,
+    DropdownMenuEmpty,
+    DropdownMenuFilterProvider,
+    DropdownMenuInput,
     DropdownMenuItem,
+    DropdownMenuList,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
     DropdownMenuSeparator,
@@ -18,10 +17,10 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
+    Skeleton,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
-    useComboboxFilteredItems,
 } from '@posthog/quill-primitives'
 
 export interface FilterOption<Value extends string = string> {
@@ -30,6 +29,11 @@ export interface FilterOption<Value extends string = string> {
     icon?: React.ReactNode
     /** A muted note after the label, such as "(you)". */
     hint?: string
+}
+
+export interface FilterMenuOpenTiming {
+    durationMs: number
+    optionCount: number
 }
 
 /** What a filter row shows for several values: the default, up to two labels, or a count, such as "3 tags". */
@@ -141,6 +145,85 @@ export function FilterRadioSubMenu<Value extends string>({
     )
 }
 
+/** The row for "all of them", the empty selection. */
+function FilterAllRow({
+    label,
+    icon,
+    checked,
+    onSelect,
+    dataAttr,
+}: {
+    label: string
+    icon?: React.ReactNode
+    checked: boolean
+    onSelect: () => void
+    dataAttr?: string
+}): React.ReactElement {
+    return (
+        <DropdownMenuCheckboxItem
+            label={label}
+            checked={checked}
+            closeOnClick={false}
+            onCheckedChange={onSelect}
+            title={label}
+            data-attr={dataAttr}
+        >
+            {icon}
+            <span className="truncate">{label}</span>
+        </DropdownMenuCheckboxItem>
+    )
+}
+
+/** Placeholder rows shaped like option rows, so the menu keeps its size while options load. */
+function FilterSkeletonRows({ count }: { count: number }): React.ReactElement {
+    return (
+        <div role="status" aria-label="Loading" className="flex flex-col gap-1 p-1">
+            {Array.from({ length: count }, (_, i) => (
+                <div key={i} className="flex h-7 items-center gap-2 px-2">
+                    <Skeleton className="size-3.5 shrink-0" />
+                    <Skeleton className="h-3 flex-1" />
+                </div>
+            ))}
+        </div>
+    )
+}
+
+function FilterOptionRows<Value extends string>({
+    options,
+    selected,
+    onChange,
+    dataAttr,
+}: {
+    options: readonly FilterOption<Value>[]
+    selected: readonly Value[]
+    onChange: (selected: Value[]) => void
+    dataAttr?: string
+}): React.ReactElement {
+    return (
+        <>
+            {options.map((option) => (
+                <DropdownMenuCheckboxItem
+                    key={option.value}
+                    label={option.label}
+                    checked={selected.includes(option.value)}
+                    closeOnClick={false}
+                    onCheckedChange={(checked) =>
+                        onChange(
+                            checked ? [...selected, option.value] : selected.filter((value) => value !== option.value)
+                        )
+                    }
+                    title={option.label}
+                    data-attr={dataAttr}
+                >
+                    {option.icon}
+                    <span className="truncate">{option.label}</span>
+                    {option.hint && <span className="ml-auto text-xs text-muted-foreground">{option.hint}</span>}
+                </DropdownMenuCheckboxItem>
+            ))}
+        </>
+    )
+}
+
 /** A filter with several choices from a short list. An empty selection means all of them. */
 export function FilterCheckboxSubMenu<Value extends string>({
     label,
@@ -171,48 +254,20 @@ export function FilterCheckboxSubMenu<Value extends string>({
             active={selected.length > 0}
             dataAttr={dataAttr}
         >
-            <DropdownMenuCheckboxItem
+            <FilterAllRow
+                label={allLabel}
+                icon={allIcon}
                 checked={selected.length === 0}
-                closeOnClick={false}
-                onCheckedChange={() => onChange([])}
-                data-attr={optionDataAttr}
-            >
-                {allIcon}
-                {allLabel}
-            </DropdownMenuCheckboxItem>
+                onSelect={() => onChange([])}
+                dataAttr={optionDataAttr}
+            />
             <DropdownMenuSeparator />
-            {options.map((option) => (
-                <DropdownMenuCheckboxItem
-                    key={option.value}
-                    checked={selected.includes(option.value)}
-                    closeOnClick={false}
-                    onCheckedChange={(checked) =>
-                        onChange(
-                            checked ? [...selected, option.value] : selected.filter((value) => value !== option.value)
-                        )
-                    }
-                    data-attr={optionDataAttr}
-                >
-                    {option.icon}
-                    {option.label}
-                </DropdownMenuCheckboxItem>
-            ))}
+            <FilterOptionRows options={options} selected={selected} onChange={onChange} dataAttr={optionDataAttr} />
         </FilterSubMenu>
     )
 }
 
-// The search field and rows sit in the menu's popup, whose own key and click handling would close the menu or steal them.
-const stopPropagation = (event: React.SyntheticEvent): void => event.stopPropagation()
-
-type SearchOption = FilterOption<string> | { value: null; label: string; icon?: undefined; hint?: undefined }
-
-// Each row is a mounted component, and opening the menu slows past a few hundred of them.
-const SEARCH_OPTION_LIMIT = 200
-
-function SearchLimitHint(): React.ReactElement | null {
-    const reachedLimit = useComboboxFilteredItems().length >= SEARCH_OPTION_LIMIT
-    return reachedLimit ? <div className="p-2 text-xs text-muted-foreground">Keep typing to see more</div> : null
-}
+const SCROLL_END_THRESHOLD_PX = 64
 
 /** A filter with several choices from a long list, such as people or tags. An empty selection means all of them. */
 export function FilterSearchSubMenu({
@@ -226,6 +281,12 @@ export function FilterSearchSubMenu({
     searchPlaceholder,
     emptyText,
     onOpen,
+    onOpened,
+    onClose,
+    onSearchChange,
+    onScrollEnd,
+    error,
+    onRetry,
     dataAttr,
     optionDataAttr,
 }: {
@@ -240,90 +301,99 @@ export function FilterSearchSubMenu({
     emptyText: string
     /** Called when the submenu opens, to load its options only once someone wants them. */
     onOpen?: () => void
+    /** Called once the open submenu has painted, with how long that took and how many options it listed. */
+    onOpened?: (timing: FilterMenuOpenTiming) => void
+    onClose?: () => void
+    /** Called as the search text changes, for a caller that searches on the server instead of filtering the options it has. */
+    onSearchChange?: (search: string) => void
+    onScrollEnd?: () => void
+    error?: string
+    onRetry?: () => void
     dataAttr?: string
     optionDataAttr?: string
 }): React.ReactElement {
-    const allOption: SearchOption = { value: null, label: allLabel }
     // Values the options do not know yet, such as a tag from the URL before the list loads, still count as picked.
     const unknown = selected.filter((value) => !options.some((option) => option.value === value))
-    const known: FilterOption[] = [...options, ...unknown.map((value) => ({ value, label: value }))]
+    const known: FilterOption[] = [...unknown.map((value) => ({ value, label: value })), ...options]
     const picked = known.filter((option) => selected.includes(option.value))
+    const handleOpenChange = (open: boolean): void => {
+        if (!open) {
+            onClose?.()
+            return
+        }
+        onOpen?.()
+        if (onOpened) {
+            const startedAt = performance.now()
+            // The first frame runs after the rows have rendered, and the second after they have painted.
+            requestAnimationFrame(() =>
+                requestAnimationFrame(() =>
+                    onOpened({ durationMs: performance.now() - startedAt, optionCount: known.length })
+                )
+            )
+        }
+    }
     return (
-        <DropdownMenuSub onOpenChange={(open) => open && onOpen?.()}>
-            <FilterSubMenuRow
-                label={label}
-                value={filterSummary(
-                    picked.map((option) => option.label),
-                    allLabel,
-                    pluralNoun
-                )}
-                active={selected.length > 0}
-                dataAttr={dataAttr}
-            />
-            {/* Flush because the list scrolls on its own, under a search field that stays put. */}
-            <DropdownMenuSubContent flush className="w-64">
-                <Combobox<SearchOption, true>
-                    multiple
-                    // The submenu is the popup, so the list is always open and a pick resets the search.
-                    inline
-                    autoHighlight
-                    limit={SEARCH_OPTION_LIMIT}
-                    items={[allOption, ...known]}
-                    itemToStringValue={(option) => option.label}
-                    isItemEqualToValue={(option, other) => option.value === other.value}
-                    value={picked.length > 0 ? picked : [allOption]}
-                    onValueChange={(next, { reason }) => {
-                        // The list counts as closed while inline, so Base UI treats Escape as a request to clear.
-                        if (reason === 'escape-key') {
-                            return
+        <DropdownMenuFilterProvider autoHighlight onValueChange={onSearchChange}>
+            <DropdownMenuSub onOpenChange={handleOpenChange}>
+                <FilterSubMenuRow
+                    label={label}
+                    value={filterSummary(
+                        picked.map((option) => option.label),
+                        allLabel,
+                        pluralNoun
+                    )}
+                    active={selected.length > 0}
+                    dataAttr={dataAttr}
+                />
+                {/* Flush because the list scrolls on its own, under a search field that stays put. */}
+                <DropdownMenuSubContent flush className="w-64">
+                    {/* Autofocus because Base UI leaves the focus on the row when hover opens the submenu, and typing would go nowhere. */}
+                    <DropdownMenuInput autoFocus placeholder={searchPlaceholder} aria-label={searchPlaceholder} />
+                    {!loading && !error && <DropdownMenuEmpty>{emptyText}</DropdownMenuEmpty>}
+                    <DropdownMenuList
+                        onScroll={
+                            onScrollEnd
+                                ? (event) => {
+                                      const list = event.currentTarget
+                                      if (
+                                          list.scrollHeight - list.scrollTop - list.clientHeight <
+                                          SCROLL_END_THRESHOLD_PX
+                                      ) {
+                                          onScrollEnd()
+                                      }
+                                  }
+                                : undefined
                         }
-                        // While nothing is picked, "all" is the ticked row, so ticking a value also carries it along.
-                        const allTicked = next.some((option) => option.value === null)
-                        onChange(
-                            allTicked && selected.length > 0
-                                ? []
-                                : next.flatMap((option) => (option.value === null ? [] : [option.value]))
-                        )
-                    }}
-                >
-                    <div className="p-1">
-                        <ComboboxInput
-                            autoFocus
-                            showTrigger={false}
-                            placeholder={searchPlaceholder}
-                            aria-label={searchPlaceholder}
-                            data-compact=""
-                            onClick={stopPropagation}
-                            onKeyDown={(event) => {
-                                if (event.key !== 'Escape') {
-                                    event.stopPropagation()
-                                }
-                            }}
+                    >
+                        <FilterAllRow
+                            label={allLabel}
+                            checked={selected.length === 0}
+                            onSelect={() => onChange([])}
+                            dataAttr={optionDataAttr}
                         />
-                    </div>
-                    <ComboboxEmpty>{emptyText}</ComboboxEmpty>
-                    <ComboboxList>
-                        {(option: SearchOption) => (
-                            <ComboboxItem
-                                key={option.value ?? 'all'}
-                                value={option}
-                                title={option.label}
-                                onClick={stopPropagation}
-                                data-attr={optionDataAttr}
-                            >
-                                {option.icon}
-                                <span className="truncate">{option.label}</span>
-                                {option.hint && (
-                                    <span className="ml-auto text-xs text-muted-foreground">{option.hint}</span>
-                                )}
-                            </ComboboxItem>
-                        )}
-                    </ComboboxList>
-                    <SearchLimitHint />
-                    {loading && <div className="p-2 text-xs text-muted-foreground">Loading…</div>}
-                </Combobox>
-            </DropdownMenuSubContent>
-        </DropdownMenuSub>
+                        <FilterOptionRows
+                            options={known}
+                            selected={selected}
+                            onChange={onChange}
+                            dataAttr={optionDataAttr}
+                        />
+                    </DropdownMenuList>
+                    {error ? (
+                        <div className="flex items-center justify-between gap-2 p-2 text-xs text-muted-foreground">
+                            {error}
+                            {onRetry && (
+                                <Button size="sm" variant="outline" onClick={onRetry}>
+                                    Try again
+                                </Button>
+                            )}
+                        </div>
+                    ) : loading ? (
+                        // A full list while the first page loads; a couple of rows under the list while more load.
+                        <FilterSkeletonRows count={options.length === 0 ? 5 : 2} />
+                    ) : null}
+                </DropdownMenuSubContent>
+            </DropdownMenuSub>
+        </DropdownMenuFilterProvider>
     )
 }
 

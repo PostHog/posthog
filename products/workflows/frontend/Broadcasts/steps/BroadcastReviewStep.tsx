@@ -86,7 +86,7 @@ export function BroadcastReviewStep(): JSX.Element {
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
     const { props } = useMountedLogic(broadcastWizardLogic)
-    const { openInWorkflowEditor, setEmail } = useActions(broadcastWizardLogic)
+    const { editEmailContent, openInWorkflowEditor, setEmail } = useActions(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const { integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -176,6 +176,11 @@ export function BroadcastReviewStep(): JSX.Element {
                         {emailSettings.utmTagsEnabled && (
                             <div className="text-xs text-secondary">Links get UTM tags.</div>
                         )}
+                        {emailSettings.skipFrequencyCap && emailSettings.messageCategoryType !== 'transactional' && (
+                            <div className="text-xs text-secondary">
+                                The frequency cap won't delay or skip this email.
+                            </div>
+                        )}
                         {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
                         <div className="@container">
                             <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
@@ -208,7 +213,7 @@ export function BroadcastReviewStep(): JSX.Element {
                                 </div>
                             </div>
                         </div>
-                        <BroadcastEmailPreview showTestButton={false} />
+                        <BroadcastEmailPreview showTestButton={false} onModifyContent={editEmailContent} />
                     </ReviewRow>
                 )}
 

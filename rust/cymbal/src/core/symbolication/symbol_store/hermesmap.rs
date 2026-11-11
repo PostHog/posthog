@@ -1,13 +1,16 @@
 use async_trait::async_trait;
 use bytes::Bytes;
-use posthog_symbol_data::{read_symbol_data_with_byte_count, HermesMap};
+use posthog_symbol_data::{read_symbol_data_with_byte_count_limited, HermesMap};
 use serde::Deserialize;
 
 use crate::{
+    core::config::ResolverConfig,
     error::{HermesError, ResolveError, UnhandledError},
     langs::hermes::HermesRef,
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbolication::symbol_store::{caching::Countable, Fetcher, ParsePermit, Parser},
+    symbolication::symbol_store::{
+        caching::Countable, record_size_limit_exceeded, Fetcher, ParsePermit, Parser,
+    },
 };
 
 pub struct ParsedHermesMap {
@@ -57,7 +60,17 @@ impl Countable for ParsedHermesMap {
     }
 }
 
-pub struct HermesMapProvider {}
+pub struct HermesMapProvider {
+    max_decompressed_bytes: usize,
+}
+
+impl HermesMapProvider {
+    pub fn new(config: &ResolverConfig) -> Self {
+        Self {
+            max_decompressed_bytes: config.symbol_set_max_decompressed_bytes.get(),
+        }
+    }
+}
 
 #[async_trait]
 impl Fetcher for HermesMapProvider {
@@ -83,10 +96,13 @@ impl Parser for HermesMapProvider {
     ) -> Result<ParsedHermesMap, Self::Err> {
         // zstd decompress + Hermes sourcemap parse are both CPU-bound; offload from the
         // tokio runtime so a large bundle doesn't block other in-flight requests.
+        let max_decompressed_bytes = self.max_decompressed_bytes;
         tokio::task::spawn_blocking(move || -> Result<ParsedHermesMap, ResolveError> {
             let _permit = permit;
             let (map, decompressed_bytes): (HermesMap, usize) =
-                read_symbol_data_with_byte_count(&source).map_err(HermesError::DataError)?;
+                read_symbol_data_with_byte_count_limited(&source, max_decompressed_bytes)
+                    .inspect_err(|e| record_size_limit_exceeded(e, "hermes", "container"))
+                    .map_err(HermesError::DataError)?;
             metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "hermes")
                 .record(decompressed_bytes as f64);
             Ok(ParsedHermesMap::parse(map, decompressed_bytes)?)

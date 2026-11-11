@@ -33,6 +33,7 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
 )
 
+from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
 from products.alerts.backend.models.alert import AlertCheck, InvestigationStatus
 
 logger = structlog.get_logger(__name__)
@@ -79,6 +80,8 @@ def run_investigation_notification_safety_net() -> int:
         )
         # A skipped check copies the alert's FIRING state but evaluated nothing, so it has no fire to deliver.
         .exclude(triggered_metadata__has_key="skipped_reason")
+        # A firing the policy does not renotify was announced on an earlier check, so this one owes nothing.
+        .exclude(triggered_metadata__has_key=FIRING_NOT_RENOTIFIED_KEY)
         .filter(
             # Terminal investigation states (DONE / FAILED): the workflow is not coming
             # back, so a 5-min grace gets stuck dispatches through quickly. Non-terminal

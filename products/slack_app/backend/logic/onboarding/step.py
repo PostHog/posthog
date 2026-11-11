@@ -29,6 +29,7 @@ class OnboardingStepKey(StrEnum):
     SOURCES = "sources"
     CHANNEL_WELCOME = "channel_welcome"
     MODEL = "model"
+    TOOLS = "tools"
     REPLIES_IN_THREADS = "replies_in_threads"
 
 

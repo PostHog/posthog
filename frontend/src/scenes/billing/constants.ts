@@ -51,6 +51,7 @@ export const SPEND_TYPES = [
     { label: 'Rows exported', value: 'rows_exported_in_period' },
     { label: 'PostHog AI', value: 'ai_credits_used_in_period' },
     { label: 'Self-driving inbox credits', value: 'signals_credits_used_in_period' },
+    { label: 'Self-driving spend credits', value: 'signals_spend_credits_used_in_period' },
     { label: 'PostHog Desktop credits', value: 'posthog_code_credits_used_in_period' },
     { label: 'Replay vision credits', value: 'replay_vision_credits_used_in_period' },
     { label: 'Workflow emails', value: 'workflow_emails_sent_in_period' },

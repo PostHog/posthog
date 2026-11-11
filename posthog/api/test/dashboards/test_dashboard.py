@@ -26,6 +26,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_from_template, create_group_type_mapping_detail_dashboard
+from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
@@ -50,15 +51,15 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.access import DashboardAccessMethod
-from products.dashboards.backend.api.dashboard import (
-    DashboardSerializer,
-    DashboardTileErrorSerializer,
-    serialize_tile_with_context,
-)
 from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.dashboards.backend.presentation.views.dashboard import (
+    DashboardSerializer,
+    DashboardTileErrorSerializer,
+    serialize_tile_with_context,
+)
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.presentation.insight import InsightSerializer
 
@@ -118,7 +119,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             dashboard_names,
         )
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_non_web_retrieve_fires_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
         mock_report_user_action.reset_mock()
@@ -133,7 +134,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_web_retrieve_does_not_fire_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
         mock_report_user_action.reset_mock()
@@ -932,7 +933,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ("group_display", "dashboard group display configured", "sections", "tabs"),
         ]
     )
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_dashboard_display_mode_reports_every_mode_change(
         self, setting: str, event: str, default_mode: str, other_mode: str, mock_report_user_action: MagicMock
     ) -> None:
@@ -1137,7 +1138,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_impersonated_view_does_not_bump_last_accessed_at(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
 
-        with patch("products.dashboards.backend.api.dashboard.is_impersonated", return_value=True):
+        with patch("products.dashboards.backend.presentation.views.dashboard.is_impersonated", return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1243,8 +1244,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         self.client.force_login(user_with_collaboration)
+        get_ip_restrictions_for_principal(user_with_collaboration)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(6):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -1252,7 +1254,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(10, 12)):
+            with self.assertNumQueries(FuzzyInt(8, 10)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -1420,7 +1422,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert tile.deleted is True
 
     @parameterized.expand([(False,), (True,)])
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_bulk_delete_insights_option_and_project_boundary(
         self, delete_insights: bool, mock_report_user_action: MagicMock
     ) -> None:
@@ -2132,7 +2134,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert dashboard_json["tiles"][0]["show_description"] is False
 
     @parameterized.expand([("shared_insight", False), ("deep_copy", True)])
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_dashboard_tile_group_key_and_badge_are_set_duplicated_and_cleared(
         self, _name: str, duplicate_tiles: bool, mock_report_user_action: MagicMock
     ) -> None:
@@ -2209,7 +2211,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual([tile["badge"] for tile in dashboard["tiles"]], [None, None])
         self.assertEqual(dashboard["customization"], {})
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_dashboard_tile_group_created_is_reported_once_per_new_group_for_content_tiles(
         self, mock_report_user_action: MagicMock
     ) -> None:
@@ -2234,7 +2236,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
         )
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_dashboard_tile_group_created_ignores_tiles_hidden_by_a_deleted_insight(
         self, mock_report_user_action: MagicMock
     ) -> None:
@@ -2257,7 +2259,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
         )
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_dashboard_tile_group_created_is_not_reported_when_the_update_rolls_back(
         self, mock_report_user_action: MagicMock
     ) -> None:
@@ -2309,7 +2311,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard["customization"], {})
         self.assertEqual(dashboard["tiles"][0]["text"]["body"], "original")
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_dashboard_from_template(self, mock_report_user_action):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
         self.assertGreater(Insight.objects.count(), 1)
@@ -2339,7 +2341,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_soft_delete_reports_dashboard_deleted(self, mock_report_user_action):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to delete"})
         mock_report_user_action.reset_mock()
@@ -2360,7 +2362,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_update_reports_dashboard_updated_with_creation_mode(self, mock_report_user_action):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to rename"})
         mock_report_user_action.reset_mock()
@@ -2873,7 +2875,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self, _name: str, value: object, expected_attr: str
     ) -> None:
         # Wiring guard: the viewset has to reject the value rather than store it. The shape matrix
-        # lives in products/dashboards/backend/api/test/test_dashboard_filters_validation.py, which
+        # lives in products/dashboards/backend/tests/api/test_dashboard_filters_validation.py, which
         # needs no database.
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
 
@@ -3662,7 +3664,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ]
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_create_from_template_json(self, mock_report_user_action) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
@@ -3715,7 +3717,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ("feature_flag", "feature_flag"),
         ]
     )
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_create_from_template_json_analytics_template_scope(
         self, scope_in_body: str | None, expected_template_scope: str | None, mock_report_user_action: MagicMock
     ) -> None:

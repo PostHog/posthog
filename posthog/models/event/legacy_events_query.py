@@ -24,7 +24,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import generate_short_id, relative_date_parse
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 # Columns the events list/retrieve endpoints read. The order is the contract for zipping HogQL
 # result rows back into the dict shape `ClickhouseEventSerializer` expects. Deliberately NOT "*":
@@ -267,8 +268,8 @@ class LegacyEventsListQuery:
         # is left to fail (int() raises) — bad input should error, not silently return nothing.
         if action_id:
             try:
-                action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
-            except Action.DoesNotExist:
+                action = get_action(action_id=int(action_id), project_id=self.team.project_id)
+            except ActionNotFound:
                 return [], False, applied_window_seconds
             if not action.steps:
                 return [], False, applied_window_seconds

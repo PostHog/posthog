@@ -33,4 +33,39 @@ describe('emailSetupModalLogic', () => {
             emailSender: expect.objectContaining({ email: '', name: '', provider: 'ses' }),
         })
     })
+
+    it('saves a new sender with the MAIL FROM subdomain the server stored, not the one typed', async () => {
+        const createdConfig = {
+            email: 'second@example.com',
+            name: 'Second',
+            provider: 'ses',
+            domain: 'example.com',
+            mail_from_subdomain: 'bounces',
+            reply_to: '',
+        }
+        const savedBodies: any[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/integrations': () => [
+                    201,
+                    { id: 7, kind: 'email', config: createdConfig } as IntegrationType,
+                ],
+                '/api/projects/:team_id/integrations/:id/email/verify': { status: 'pending', dnsRecords: [] },
+            },
+            patch: {
+                '/api/projects/:team_id/integrations/:id/email': async ({ request }) => {
+                    savedBodies.push(await request.json())
+                    return [200, { id: 7, kind: 'email', config: createdConfig } as IntegrationType]
+                },
+            },
+        })
+        const logic = emailSetupModalLogic({ integration: null, onComplete: () => {}, onClose: () => {} })
+        logic.mount()
+
+        logic.actions.setEmailSenderValues({ email: 'second@example.com', name: 'Second', mail_from_subdomain: 'own' })
+        await expectLogic(logic, () => logic.actions.submitEmailSender()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitEmailSender()).toFinishAllListeners()
+
+        expect(savedBodies).toEqual([{ config: expect.objectContaining({ mail_from_subdomain: 'bounces' }) }])
+    })
 })

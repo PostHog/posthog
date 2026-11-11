@@ -59,7 +59,7 @@ from posthog.models.group.util import create_group
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
@@ -731,7 +731,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_actions(self):
         self._create_test_events()
 
-        action = Action.objects.create(
+        action = create_action(
             name="My Action",
             team=self.team,
             steps_json=[
@@ -742,7 +742,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        series: list[EventsNode | ActionsNode] = [ActionsNode(id=action.pk)]
+        series: list[EventsNode | ActionsNode] = [ActionsNode(id=action.id)]
 
         response = self._run_query(series=series)
 
@@ -1600,7 +1600,7 @@ class TestStickinessDashboardFilters(BaseTest):
 
 class TestStickinessCacheHit(BaseTest):
     def test_a_response_cached_by_an_older_runner_reads_like_a_fresh_one(self) -> None:
-        action = Action.objects.create(team=self.team, name="Signed up")
+        action = create_action(team=self.team, name="Signed up")
         query = StickinessQuery(series=[EventsNode(event="$pageview"), ActionsNode(id=action.id)])
         cached_rows = [
             {"label": "$pageview", "data": [3], "order": 0},

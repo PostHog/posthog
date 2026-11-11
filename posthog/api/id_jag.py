@@ -262,7 +262,27 @@ def _get_scopes(id_jag_scopes: list[str], requested_scopes: list[str] | None) ->
     return intersected
 
 
-def _verify_and_extract_id_jag_token(assertion: str, authenticated_client_id: str) -> _VerifiedIdJag:
+def _resolve_resource(claim_resource: str | None, requested_resource: str | None) -> str:
+    """The resource the minted token is for, as one of `get_allowed_resources()`.
+
+    The ID-JAG draft makes the `resource` claim optional, and the token request can carry the
+    RFC 8707 `resource` parameter instead. Claude-issued assertions use only the parameter, and
+    an IdP adds the claim only when the client asked it to. With neither, the token is for this
+    deployment, which the PostHog API and the MCP server both accept.
+    """
+    claim = (claim_resource or "").rstrip("/")
+    requested = (requested_resource or "").rstrip("/")
+    if claim and requested and claim != requested:
+        raise InvalidTargetError("The resource parameter doesn't match the ID-JAG resource claim")
+    resource = claim or requested or _get_site_url()
+    if resource not in get_allowed_resources():
+        raise InvalidTargetError(f"ID-JAG resource {resource!r} does not match this resource server")
+    return resource
+
+
+def _verify_and_extract_id_jag_token(
+    assertion: str, authenticated_client_id: str, requested_resource: str | None
+) -> _VerifiedIdJag:
     """
     Verifies the provided ID-JAG token against the IdP's JWKS and returns the
     claims, the provider name we stamp into the issued access token's `sub`,
@@ -370,14 +390,8 @@ def _verify_and_extract_id_jag_token(assertion: str, authenticated_client_id: st
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
-    resource = claims.get("resource")
-    if not resource:
-        raise InvalidGrantError("ID-JAG is missing the resource claim (RFC 8707)")
-    resource = resource.rstrip("/")
-    if resource not in get_allowed_resources():
-        raise InvalidTargetError(f"ID-JAG resource {resource!r} does not match this resource server")
-    # Store the normalized value back so the minted token's `aud` is consistent.
-    claims["resource"] = resource
+    # Store the resolved value back so the minted token's `aud` is consistent.
+    claims["resource"] = _resolve_resource(claims.get("resource"), requested_resource)
 
     client_id = claims.get("client_id")
     if not client_id:
@@ -566,16 +580,20 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
 
 
 def issue_access_token(
-    assertion: str, requested_scope: str | list[str] | None, authenticated_client_id: str
+    assertion: str,
+    requested_scope: str | list[str] | None,
+    authenticated_client_id: str,
+    requested_resource: str | None = None,
 ) -> IssuedAccessToken:
     """
     Validate an ID-JAG `assertion` and mint an access token. Pulled out of the
     view so the same path is exercised by tests, batch tools, and the HTTP
     handler. `authenticated_client_id` must come from verified client
-    authentication, never from an unchecked request field.
+    authentication, never from an unchecked request field. `requested_resource`
+    is the token request's RFC 8707 `resource` parameter.
     """
 
-    verified_id_jag = _verify_and_extract_id_jag_token(assertion, authenticated_client_id)
+    verified_id_jag = _verify_and_extract_id_jag_token(assertion, authenticated_client_id, requested_resource)
 
     organization = verified_id_jag.identity_provider_config.organization
     if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):

@@ -6,6 +6,7 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.settings import api_settings
+from rest_framework.utils import html
 
 from posthog.dataclasses import frozen
 
@@ -144,6 +145,40 @@ def _decoded_size(content: str) -> int:
         raise serializers.ValidationError("The content isn't valid base64.", code="not_base64") from None
 
 
+@frozen
+class AttachmentSize:
+    count: int | None
+    bytes: int | None
+
+
+BASE64_ALPHABET = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+
+
+def attachment_size(body: Any) -> AttachmentSize:
+    # A form body spreads each file over keys such as `attachments[0]content`, so its files can't be counted from it.
+    if not isinstance(body, Mapping) or html.is_html_input(body):
+        return AttachmentSize(count=None, bytes=None)
+    attachments = body.get("attachments")
+    if attachments is None:
+        return AttachmentSize(count=0, bytes=0)
+    if not isinstance(attachments, list):
+        return AttachmentSize(count=None, bytes=None)
+    sizes = [
+        _base64_decoded_length(attachment.get("content")) if isinstance(attachment, Mapping) else None
+        for attachment in attachments
+    ]
+    if any(size is None for size in sizes):
+        return AttachmentSize(count=len(attachments), bytes=None)
+    return AttachmentSize(count=len(attachments), bytes=sum(size or 0 for size in sizes))
+
+
+def _base64_decoded_length(content: Any) -> int | None:
+    if not isinstance(content, str) or len(content) % 4 or not BASE64_ALPHABET.fullmatch(content):
+        return None
+    padding = 2 if content.endswith("==") else 1 if content.endswith("=") else 0
+    return len(content) // 4 * 3 - padding
+
+
 class AttachmentListField(serializers.ListField):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(
@@ -164,31 +199,31 @@ class AttachmentListField(serializers.ListField):
 
 
 @frozen
-class _Reason:
+class Reason:
     why: str
     fix: str
 
 
-_ADDRESS_REASON = _Reason(
+_ADDRESS_REASON = Reason(
     why="PostHog sends a copy to every address in `cc` and `bcc`, so each one must be a single address.",
     fix="Send one address or a list of up to 10 bare addresses, such as `jane@example.com`.",
 )
-_ATTACHMENT_REASON = _Reason(
+_ATTACHMENT_REASON = Reason(
     why="PostHog attaches each file as it is sent, so each one needs a file name and base64 content.",
     fix="Send each attachment as `{filename, content}`, with `content` in base64.",
 )
-_ATTACHMENT_LIMIT_REASON = _Reason(
+_ATTACHMENT_LIMIT_REASON = Reason(
     why="A transactional email has to arrive fast, and large attachments slow its delivery.",
     fix=f"Send at most {MAX_ATTACHMENTS} files and {MAX_ATTACHMENTS_BYTES // 1024} KB in total, or link to "
     "larger files from the email body.",
 )
-_COPY_LIMIT_REASON = _Reason(
+_COPY_LIMIT_REASON = Reason(
     why="A transactional email goes to one recipient, with copies for a few others.",
     fix=f"Send at most {MAX_ADDRESSES_PER_FIELD} addresses in each of `cc` and `bcc`. To reach more people, send "
     "each one their own email.",
 )
 _HEADER_LENGTH_REASONS = {
-    field: _Reason(
+    field: Reason(
         why=f"PostHog puts `{field}` into the email's headers, which take at most {limit} characters for it.",
         fix=f"Shorten `{field}` to {limit} characters or fewer.",
     )
@@ -200,37 +235,37 @@ _HEADER_LENGTH_REASONS = {
 }
 _LIST_LIMIT_REASONS = {"cc": _COPY_LIMIT_REASON, "bcc": _COPY_LIMIT_REASON, "attachments": _ATTACHMENT_LIMIT_REASON}
 _REASONS_BY_CODE = {
-    "not_base64": _Reason(
+    "not_base64": Reason(
         why="Attachment content travels as base64 text inside the JSON body.",
         fix="Encode the file as standard base64, without line breaks.",
     ),
-    "empty_attachment": _Reason(
+    "empty_attachment": Reason(
         why="An empty file gives the recipient nothing to open.", fix="Leave out the empty file."
     ),
-    "blocked_file_type": _Reason(
+    "blocked_file_type": Reason(
         why="Mailbox providers refuse emails that carry files that can run code, so the email would bounce.",
         fix="Send a different file type, or link to the file from the email body.",
     ),
     "attachments_too_large": _ATTACHMENT_LIMIT_REASON,
-    "unsafe_filename": _Reason(
+    "unsafe_filename": Reason(
         why="The file name goes into the email's headers, where a path or a line break could change the email.",
         fix="Send only the file name, such as `invoice.pdf`.",
     ),
-    "not_mime_type": _Reason(
+    "not_mime_type": Reason(
         why="The MIME type goes into the email's headers, so it must be a type and a subtype only.",
         fix="Send a type such as `application/pdf`, or leave `content_type` out.",
     ),
-    "unsafe_content_id": _Reason(
+    "unsafe_content_id": Reason(
         why="The Content-ID header wraps the ID in angle brackets, so brackets inside the ID break the `cid:` "
         "reference from the HTML.",
         fix="Send the bare ID, such as `logo`, and reference it as `cid:logo` in the HTML.",
     ),
-    "field_not_accepted": _Reason(
+    "field_not_accepted": Reason(
         why="This PostHog version doesn't take the field yet, so it refused the email instead of sending it "
         "without it.",
         fix="Send the email without this field, or send it again once PostHog takes the field.",
     ),
-    "template_key_only": _Reason(
+    "template_key_only": Reason(
         why="A send with `template_id` takes its recipients and content from the template.",
         fix="Send the email's content with `template_key`, or leave this field out.",
     ),

@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconWarning } from '@posthog/icons'
 import { LemonModal, Link } from '@posthog/lemon-ui'
 
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { getDefaultFunnelMetric } from 'scenes/experiments/utils'
+
+import type { Experiment } from '~/types'
 
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { sharedMetricModalLogic } from 'products/experiments/frontend/modals/SharedMetricModal/sharedMetricModalLogic'
@@ -17,14 +18,17 @@ import { metricSourceModalLogic } from './metricSourceModalLogic'
 
 const METRIC_COUNT_WARNING_THRESHOLD = 3
 
-export const MetricSourceModal = (): JSX.Element | null => {
+export const MetricSourceModal = ({
+    experiment,
+}: {
+    /** The experiment that receives the metric. The wizard passes its draft, which `experimentLogic` does not hold. */
+    experiment: Pick<Experiment, 'metrics' | 'metrics_secondary' | 'start_date' | 'exposure_criteria'>
+}): JSX.Element | null => {
     const { isModalOpen, context } = useValues(metricSourceModalLogic)
     const { closeMetricSourceModal } = useActions(metricSourceModalLogic)
 
     const { openExperimentMetricModal, setMetric } = useActions(experimentMetricModalLogic)
     const { openSharedMetricModal } = useActions(sharedMetricModalLogic)
-
-    const { experiment } = useValues(experimentLogic)
 
     const metricCount =
         context.field === 'metrics' ? (experiment.metrics?.length ?? 0) : (experiment.metrics_secondary?.length ?? 0)

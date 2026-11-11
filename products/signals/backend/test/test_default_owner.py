@@ -181,6 +181,21 @@ class TestDefaultOwner(BaseTest):
         assert entry["user_uuid"] == str(self.user.uuid)
         assert entry["is_default_owner"] is True
 
+    def test_does_not_route_an_already_addressed_report_to_the_default_owner(self) -> None:
+        self._activated_by(self.user)
+        self._reviewers([])
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=self.report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps({"actionability": "immediately_actionable", "already_addressed": True}),
+        )
+
+        with patch("products.signals.backend.default_owner.default_owner_fallback_enabled", return_value=True):
+            assert assign_default_owner(self.team, str(self.report.id)) is False
+
+        assert self._latest_reviewers() == []
+
     @parameterized.expand([("code_available", True, False), ("no_code_access", False, True)])
     def test_assigns_only_when_self_driving_cannot_read_code(self, _name: str, has_code: bool, assigned: bool) -> None:
         self._activated_by(self.user)

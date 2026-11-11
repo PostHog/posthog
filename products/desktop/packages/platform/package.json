@@ -124,7 +124,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"
   },
   "devDependencies": {
-    "tsup": "^8.5.1",
+    "tsup": "^9.0.0",
     "typescript": "^5.5.0"
   },
   "files": [

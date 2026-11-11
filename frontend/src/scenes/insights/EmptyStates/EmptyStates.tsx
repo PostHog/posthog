@@ -10,18 +10,21 @@ import * as errorPng from '@posthog/brand/hoggies/png/error'
 import * as reaperPng from '@posthog/brand/hoggies/png/reaper'
 import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
-import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh } from '@posthog/icons'
+import { IconArchive, IconFunnels, IconInfo, IconLineGraph, IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
 import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, TABLE_ACCESS_DENIED_ERROR_CODE } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useInterval } from 'lib/hooks/useInterval'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { useExplainEmptyInsight } from 'lib/insights/explainEmptyInsightContext'
 import { getRetryCooldown } from 'lib/insights/sharedUtils'
 import { IconChristmasOrnament, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -29,7 +32,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import posthog from 'lib/posthog-typed'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { holidaysMatcher, isChristmas } from 'lib/utils/holidays'
@@ -60,6 +63,9 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { InsightErrorLayout } from './InsightErrorLayout'
+import { QuillFunnelSingleStepState } from './QuillFunnelSingleStepState'
+import { QuillInsightEmptyStateIcon } from './QuillInsightEmptyStateIcon'
+import { QuillInsightEmptyStateNextSteps } from './QuillInsightEmptyStateNextSteps'
 import { SampleDataState, SampleDataVariant, type SampleTableContent } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
@@ -94,6 +100,8 @@ export function InsightEmptyState({
     insightProps?: Pick<InsightLogicProps, 'dashboardId' | 'dashboardItemId'>
 }): JSX.Element {
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+    const quillSurface = useQuillSurface()
+    const explainEmptyInsight = useExplainEmptyInsight()
 
     // Before a project has ingested any events, "no matching events" is misleading — every chart is
     // empty because nothing is flowing in yet. Show clearly-fake sample data instead, explaining on
@@ -122,6 +130,26 @@ export function InsightEmptyState({
 
     heading = heading ?? 'There are no matching events for this query'
     detail = detail ?? 'Try changing the date range, or pick another action, event or breakdown.'
+
+    if (quillSurface) {
+        const quillIcon = iconProp ?? (isChristmas() ? <IconChristmasOrnament /> : undefined)
+        return (
+            <Empty data-attr="insight-empty-state" className="border-none px-4 py-6">
+                {hasCustomCopy || !explainEmptyInsight ? (
+                    <EmptyHeader>
+                        <QuillInsightEmptyStateIcon icon={quillIcon ?? <IconLineGraph />} />
+                        <EmptyTitle>{heading}</EmptyTitle>
+                        {detail && <EmptyDescription>{detail}</EmptyDescription>}
+                    </EmptyHeader>
+                ) : (
+                    <QuillInsightEmptyStateNextSteps defaultDetail={detail} icon={quillIcon}>
+                        <EmptyTitle>{heading}</EmptyTitle>
+                    </QuillInsightEmptyStateNextSteps>
+                )}
+            </Empty>
+        )
+    }
+
     const icon =
         iconProp ??
         (isChristmas() ? (
@@ -357,7 +385,7 @@ export function StatelessInsightLoadingState({
     const [secondsElapsed, setSecondsElapsed] = useState(0)
 
     const [loadingMessageIndex, setLoadingMessageIndex] = useState(() =>
-        inStorybook() || inStorybookTestRunner() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
+        inStorybook() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
     )
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -395,7 +423,7 @@ export function StatelessInsightLoadingState({
         }
 
         // Don't toggle loading messages in storybook, will make tests flaky if so
-        if (inStorybook() || inStorybookTestRunner()) {
+        if (inStorybook()) {
             return
         }
 
@@ -480,7 +508,7 @@ export function SlowQuerySuggestions({
     // way to fast-forward, so a story covering these suggestions would have to sit through
     // SLOW_LOADING_TIME of real loading before they render. Dropping the threshold in Storybook makes
     // them a consequence of the insight loading instead of a race against the clock.
-    const slowLoadingTime = inStorybook() || inStorybookTestRunner() ? 0 : SLOW_LOADING_TIME
+    const slowLoadingTime = inStorybook() ? 0 : SLOW_LOADING_TIME
 
     if (loadingTimeSeconds < slowLoadingTime) {
         return null
@@ -966,6 +994,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
     const { reportInsightFilterAdded } = useActions(eventUsageLogic)
+    const quillSurface = useQuillSurface()
 
     const addFunnelStep = (): void => {
         const defaultStep: EventsNode = setLatestVersionsOnQuery({
@@ -976,6 +1005,10 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
         const nextSeries = [...(series ?? []), defaultStep]
         updateQuerySource({ series: nextSeries })
         reportInsightFilterAdded(nextSeries.length, GraphSeriesAddedSource.Default)
+    }
+
+    if (quillSurface) {
+        return <QuillFunnelSingleStepState actionable={actionable} onAddStep={addFunnelStep} />
     }
 
     return (

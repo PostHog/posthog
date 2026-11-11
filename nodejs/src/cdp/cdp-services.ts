@@ -14,7 +14,7 @@ import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/interna
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { CdpEventsDlqOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import { CdpEventsDlqOutput, SesWebhooksOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -35,12 +35,10 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import {
-    EMAIL_ATTACHMENTS_MAX_CONNECTIONS,
-    EmailAttachmentsService,
-} from './services/messaging/email-attachments.service'
+import { S3AttachmentStore, buildAttachmentStore } from './services/messaging/attachment-store'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
+import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
@@ -48,7 +46,10 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
+import {
+    HogFunctionMonitoringService,
+    parseInternalLogsSources,
+} from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
@@ -70,6 +71,7 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
+    | SesWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
@@ -124,11 +126,12 @@ export interface CdpCoreServices {
     /** Resolved outputs shared across every CDP service/consumer. */
     outputs: CdpOutputs
     emailService: EmailService
+    attachmentStore: S3AttachmentStore | null
     /** Buffers rendered-email asset rows and bulk-flushes them at the batch boundary. */
     messageAssetsService: MessageAssetsService
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
     emailStatusService: EmailStatusService
-    emailAttachmentsService: EmailAttachmentsService
+    emailTrackingService: EmailTrackingService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -173,10 +176,19 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS'
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
         | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
+        | 'WORKFLOWS_SANDBOX_SENDER_ENABLED'
         | 'CDP_INTERNAL_LOGS_SOURCES'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_BUCKET'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_REGION'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_PREFIX'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS'
         | 'SES_ENDPOINT'
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
@@ -185,6 +197,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
+        | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
+        | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -210,6 +224,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
+        | 'CDP_SES_WEBHOOKS_TOPIC'
+        | 'CDP_SES_WEBHOOKS_PRODUCER'
     > &
     InternalLogsProducerConfig
 
@@ -460,6 +476,7 @@ export function createCdpCoreServices(
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
         globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
+        softBounceEventTimeTeams: config.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
@@ -475,10 +492,7 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
-    const emailAttachmentsService = new EmailAttachmentsService(
-        config.CYCLOTRON_NODE_DATABASE_URL,
-        EMAIL_ATTACHMENTS_MAX_CONNECTIONS
-    )
+    const attachmentStore = buildAttachmentStore(config)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -490,6 +504,7 @@ export function createCdpCoreServices(
             teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
+            workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -503,7 +518,7 @@ export function createCdpCoreServices(
         messageAssetsService,
         workflowEmailRateLimiter,
         teamEmailRateLimiter,
-        emailAttachmentsService
+        attachmentStore
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -589,14 +604,13 @@ export function createCdpCoreServices(
         emailStatusService,
         hogFlowDuplicateObserver,
         cdpUsageReporter,
-        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
+        {
+            awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED,
+            sandboxEmail: { enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED },
+        }
     )
 
-    const internalLogsSources = new Set(
-        config.CDP_INTERNAL_LOGS_SOURCES.split(',')
-            .map((source) => source.trim())
-            .filter(Boolean)
-    )
+    const internalLogsSources = parseInternalLogsSources(config.CDP_INTERNAL_LOGS_SOURCES)
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
         outputs,
         internalLogsSources.size > 0 ? new InternalLogsProducer(config, deps.teamManager) : undefined,
@@ -617,6 +631,19 @@ export function createCdpCoreServices(
         messageAssetsService,
         conversionWatchersService,
         emailStatusService
+    )
+
+    const emailTrackingService = new EmailTrackingService(
+        hogFunctionManager,
+        hogFlowManager,
+        hogFunctionMonitoringService,
+        capturedEventsService,
+        teamWorkflowsConfigService,
+        trackingCodeSigner,
+        emailSuppressionService,
+        emailStatusService,
+        redis,
+        outputs
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
@@ -652,8 +679,9 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
-        emailAttachmentsService,
+        attachmentStore,
         messageAssetsService,
         emailStatusService,
+        emailTrackingService,
     }
 }

@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Any, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -24,10 +25,14 @@ from products.messaging.backend.facade.contracts import (
     EmailDeliveryStatus,
     EmailLogEventKind,
     EmailStatsGroupBy,
+    EmailStatsInterval,
     TransactionalEmailLogDetail,
     TransactionalEmailLogEntry,
     TransactionalEmailLogEvent,
     TransactionalEmailResults,
+    TransactionalEmailStatsBucket,
+    TransactionalEmailStatsCounts,
+    TransactionalEmailStatsOverTime,
     TransactionalEmailStatsRow,
 )
 from products.messaging.backend.models.email_status_sql import (
@@ -385,6 +390,129 @@ def transactional_email_stats(
             )
         )
     return stats
+
+
+_INTERVAL_BUCKET_FUNCTION = {
+    EmailStatsInterval.MINUTE: "toStartOfFiveMinutes",
+    EmailStatsInterval.HOUR: "toStartOfHour",
+    EmailStatsInterval.DAY: "toStartOfDay",
+}
+
+
+def _stats_interval(span: timedelta) -> EmailStatsInterval:
+    if span <= timedelta(hours=2):
+        return EmailStatsInterval.MINUTE
+    if span <= timedelta(days=2):
+        return EmailStatsInterval.HOUR
+    return EmailStatsInterval.DAY
+
+
+def _bucket_starts(start: datetime, end: datetime, interval: EmailStatsInterval, tz: ZoneInfo) -> list[datetime]:
+    """The UTC start of every bucket from the one holding `start` up to `end`, in local time for the bucket edges."""
+    local = start.astimezone(tz).replace(second=0, microsecond=0)
+    if interval == EmailStatsInterval.DAY:
+        day = local.replace(hour=0, minute=0)
+        starts = []
+        while day.astimezone(UTC) < end:
+            starts.append(day.astimezone(UTC))
+            # Wall-clock addition keeps each bucket on local midnight across a daylight saving change.
+            day += timedelta(days=1)
+        return starts
+    if interval == EmailStatsInterval.HOUR:
+        local, step = local.replace(minute=0), timedelta(hours=1)
+    else:
+        local, step = local.replace(minute=local.minute - local.minute % 5), timedelta(minutes=5)
+    # UTC addition keeps the repeated hour when the clocks go back.
+    moment = local.astimezone(UTC)
+    starts = []
+    while moment < end:
+        starts.append(moment)
+        moment += step
+    return starts
+
+
+def _sum_counts(counts: Sequence[TransactionalEmailStatsCounts]) -> TransactionalEmailStatsCounts:
+    return TransactionalEmailStatsCounts(
+        sent=sum(count.sent for count in counts),
+        delivered=sum(count.delivered for count in counts),
+        bounced=sum(count.bounced for count in counts),
+        complained=sum(count.complained for count in counts),
+        failed=sum(count.failed for count in counts),
+    )
+
+
+def transactional_email_stats_over_time(
+    team_id: int,
+    timezone: str,
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    access: WorkflowViewAccess | None = None,
+) -> TransactionalEmailStatsOverTime:
+    """Delivery counts per time bucket in the team's timezone, with every empty bucket filled in."""
+    period = _window(date_from, date_to)
+    now = datetime.now(UTC)
+    # The window reaches past now for clock skew, which is not time that the previous period can be compared with.
+    span = min(period.end, now) - period.start
+    interval = _stats_interval(span)
+    tz = ZoneInfo(timezone)
+    previous_start = period.start - span
+    has_full_previous = previous_start >= now - RETENTION
+
+    rows: list[tuple] = []
+    if not _sees_no_sends(access):
+        params: dict[str, Any] = {
+            "start": previous_start if has_full_previous else period.start,
+            "end": period.end,
+            "period_start": period.start,
+            "timezone": timezone,
+        }
+        access_filter = f"AND {_access_condition('message_function_id', access, params)}" if access is not None else ""
+        rows = _execute(
+            team_id,
+            f"""
+            SELECT
+                queued_at >= %(period_start)s AS in_period,
+                {_INTERVAL_BUCKET_FUNCTION[interval]}(queued_at, %(timezone)s) AS bucket,
+                countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained')) AS sent,
+                countIf(delivery_status IN ('delivered', 'complained')) AS delivered,
+                countIf(delivery_status = 'bounced') AS bounced,
+                countIf(delivery_status = 'complained') AS complained,
+                countIf(delivery_status = 'failed') AS failed
+            FROM (
+                SELECT {_MESSAGE_COLUMNS}
+                FROM {EMAIL_STATUS_EVENTS_TABLE}
+                WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
+                GROUP BY created_at, message_id
+            )
+            WHERE delivery_status != '' {access_filter}
+            GROUP BY in_period, bucket
+            """,
+            params,
+            _GROUP_AS_READ,
+        )
+
+    current: dict[datetime, TransactionalEmailStatsCounts] = {}
+    previous: list[TransactionalEmailStatsCounts] = []
+    for in_period, bucket, sent, delivered, bounced, complained, failed in rows:
+        counts = TransactionalEmailStatsCounts(
+            sent=sent, delivered=delivered, bounced=bounced, complained=complained, failed=failed
+        )
+        if in_period:
+            current[bucket.astimezone(UTC)] = counts
+        else:
+            previous.append(counts)
+
+    empty = TransactionalEmailStatsCounts(sent=0, delivered=0, bounced=0, complained=0, failed=0)
+    # A day that starts at 01:00 local time has a bucket the clock arithmetic can't name, so the rows' own keys stay.
+    starts = sorted({*_bucket_starts(period.start, min(period.end, now), interval, tz), *current})
+    buckets = [TransactionalEmailStatsBucket(start=start, counts=current.get(start, empty)) for start in starts]
+    return TransactionalEmailStatsOverTime(
+        interval=interval,
+        timezone=timezone,
+        buckets=buckets,
+        previous=_sum_counts(previous) if has_full_previous else None,
+    )
 
 
 def transactional_email_results(

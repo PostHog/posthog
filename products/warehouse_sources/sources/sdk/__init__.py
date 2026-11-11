@@ -193,7 +193,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStoreProvider,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
-    FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
@@ -366,6 +365,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     SelectQueryBuilder,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -394,6 +394,7 @@ __all__ = [
     "BearerTokenAuthConfig",
     "BoundaryCheckpoint",
     "BoundedRetry",
+    "CERTIFICATE_ERRORS",
     "CHUNK_SIZE",
     "CLOUDFLARE_TRANSIENT_STATUSES",
     "CanonicalDescriptions",
@@ -422,7 +423,6 @@ __all__ = [
     "ExternalDataSource",
     "ExternalDataSourceType",
     "ExternalWebhookInfo",
-    "FEATURE_FLAG",
     "FILE_MODIFIED_AT_COLUMN",
     "FILE_PATH_COLUMN",
     "FORMAT_ERROR",

@@ -27,7 +27,16 @@ import click
 from hogli.manifest import REPO_ROOT, get_manifest
 
 from . import hints
-from .cargo_targets import unused_legacy_cargo_target
+from .cargo_targets import (
+    cargo_target_locked,
+    configured_cargo_targets,
+    idle_cargo_target,
+    looks_like_cargo_target,
+    shared_cargo_targets,
+    unused_cargo_units,
+    unused_legacy_cargo_target,
+)
+from .disk_usage import measure_disk_usage
 from .processes import process_cwds
 
 MAX_SAMPLE_PATHS = 8
@@ -146,6 +155,7 @@ class CleanupResult:
             "staticfiles",
             "dagster",
             "node-artifacts",
+            "cargo-units",
             "rust",
             "legacy-cargo-target",
             "sccache",
@@ -175,6 +185,7 @@ def doctor_disk(
     - Dagster background job storage
     - pnpm/Vite/Tailwind/Storybook/Playwright build artifacts
     - Rust workspaces built with Cargo, plus the sccache compilation cache
+    - Cargo build units in shared and local target dirs that no recent build needs
     - The old shared Cargo target at ~/.cargo/target
     - The uv and pnpm package caches shared across every worktree
 
@@ -280,6 +291,20 @@ def doctor_disk(
             estimate=_estimate_node_artifacts,
             cleanup=_cleanup_items,
             confirmation_prompt="Clean up JavaScript build caches and artifacts?",
+        ),
+        CleanupCategory(
+            id="cargo_units",
+            title="🦀 Cargo build units that no recent build needs",
+            description=[
+                f"Removes the units of a Cargo target dir that no unit compiled in the last {STALE_RUST_TARGET_DAYS} days needs,",
+                "directly or through other units, and incremental caches not written since then.",
+                "Covers CARGO_TARGET_DIR, build.target-dir in ~/.cargo/config.toml, ~/.cargo/target and this checkout.",
+                "Cargo writes nothing when a build finds every unit fresh, so a project that only ran such",
+                "builds in that time looks unused, and its next build recompiles what was removed.",
+            ],
+            estimate=_estimate_unused_cargo_units,
+            cleanup=_cleanup_unused_cargo_units,
+            confirmation_prompt="Remove the Cargo build units that no recent build needs?",
         ),
         CleanupCategory(
             id="rust",
@@ -1427,6 +1452,104 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
         items.append(CleanupItem(target_dir, size, is_dir=True))
 
     return items
+
+
+def _sweepable_cargo_targets(repo_root: Path) -> list[Path]:
+    """Resolved Cargo targets outside every checkout, plus configured and local targets that their checkout's git ignores."""
+
+    outside_checkouts = {shared.path for shared in shared_cargo_targets()}
+    candidates = list(outside_checkouts)
+    candidates += [
+        configured.path for configured in configured_cargo_targets() if configured.path not in outside_checkouts
+    ]
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z", "--", "Cargo.toml", ":(glob)**/Cargo.toml"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            errors="surrogateescape",
+            timeout=60,
+            check=False,
+        )
+        manifests = listed.stdout.split("\0") if listed.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError):
+        manifests = []
+    candidates += [(repo_root / manifest).parent / "target" for manifest in manifests if manifest]
+
+    targets: dict[Path, None] = {}
+    for target in candidates:
+        try:
+            resolved = target.resolve(strict=True)
+        except (OSError, RuntimeError):
+            continue
+        if not looks_like_cargo_target(resolved):
+            continue
+        if target in outside_checkouts or _ignored_by_its_checkout(resolved):
+            targets.setdefault(resolved, None)
+    return list(targets)
+
+
+def _ignored_by_its_checkout(path: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", "--", path.name],
+            cwd=path.parent,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _unused_units_by_target(repo_root: Path) -> tuple[dict[Path, list[Path]], list[str]]:
+    built_before_epoch = time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60
+    unused_by_target: dict[Path, list[Path]] = {}
+    skipped: list[str] = []
+    for target in _sweepable_cargo_targets(repo_root):
+        if not idle_cargo_target(target):
+            skipped.append(f"   {target}: skipped, because a cargo, rustc or cargo-nextest process may be using it.")
+            continue
+        unused = unused_cargo_units(target, built_before_epoch)
+        if unused is None:
+            skipped.append(f"   {target}: skipped, because a Cargo fingerprint could not be read.")
+        elif unused:
+            unused_by_target[target] = unused
+    return unused_by_target, skipped
+
+
+def _estimate_unused_cargo_units(repo_root: Path) -> CleanupEstimate:
+    unused_by_target, details = _unused_units_by_target(repo_root)
+    items: list[CleanupItem] = []
+    for target, unused in unused_by_target.items():
+        target_items = [
+            CleanupItem(path, float(measure_disk_usage([path]).freeable_bytes), is_dir=path.is_dir()) for path in unused
+        ]
+        details.append(
+            f"   {target}: {len(target_items)} unit file(s) and cache(s), "
+            f"{_format_size(sum(item.size for item in target_items))}"
+        )
+        items.extend(target_items)
+    if not items and not details:
+        details.append("   Nothing to remove.")
+    return CleanupEstimate(total_size=sum(item.size for item in items), items=items, details=details)
+
+
+def _cleanup_unused_cargo_units(estimate: CleanupEstimate, repo_root: Path) -> CleanupStats:
+    # Holding Cargo's build lock makes a build that starts now wait, and the rescan under it drops units a build used during the prompt.
+    estimated = {item.path: item for item in estimate.items}
+    built_before_epoch = time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60
+    freed = 0.0
+    for target in _sweepable_cargo_targets(repo_root):
+        with cargo_target_locked(target) as locked:
+            if not locked or not idle_cargo_target(target):
+                click.echo(f"   {target}: a build is running, so it is kept.")
+                continue
+            unused = unused_cargo_units(target, built_before_epoch) or []
+            freed += _delete_items([estimated[path] for path in unused if path in estimated])
+    return CleanupStats(freed=freed, deleted_anything=freed > 0)
 
 
 def _estimate_legacy_cargo_target(_repo_root: Path) -> CleanupEstimate:

@@ -156,6 +156,7 @@ function toolPolicy(toolName: string, overrides: Partial<ResolvedToolPolicyApi> 
         description: '',
         input_schema: {},
         is_destructive: false,
+        is_read_only: false,
         policy_state: 'approved',
         team_state: null,
         locked: false,
@@ -333,6 +334,28 @@ describe('gatewayServerLogic', () => {
 
         expect(logic.values.scope.scopeType).toBe('member')
         expect(logic.values.toolPolicies).toEqual([latestPolicy])
+    })
+
+    it.each([
+        {
+            name: 'splits read-only from write or delete tools',
+            readOnly: 2,
+            writeOrDelete: 3,
+            expected: [
+                { key: 'read_only', count: 2 },
+                { key: 'write_or_delete', count: 3 },
+            ],
+        },
+        { name: 'does not group when no tool is read-only', readOnly: 0, writeOrDelete: 3, expected: null },
+    ])('$name', ({ readOnly, writeOrDelete, expected }) => {
+        logic.actions.loadToolPoliciesSuccess([
+            ...Array.from({ length: writeOrDelete }, (_, i) => toolPolicy(`create_${i}`)),
+            ...Array.from({ length: readOnly }, (_, i) => toolPolicy(`list_${i}`, { is_read_only: true })),
+        ])
+
+        expect(
+            logic.values.toolPolicyGroups?.map((group) => ({ key: group.key, count: group.policies.length })) ?? null
+        ).toEqual(expected)
     })
 
     it('reports the number of tools changed by a bulk update', async () => {

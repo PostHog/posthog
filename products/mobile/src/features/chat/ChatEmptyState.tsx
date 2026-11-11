@@ -13,6 +13,7 @@ const GLOBAL_PROMPTS = ['What needs me today?', 'Summarize this week', 'What did
 interface ChatEmptyStateProps {
     reportCount: number
     suggestedPrompts?: string[]
+    description?: string
     onPrompt: (prompt: string) => void
 }
 
@@ -32,11 +33,20 @@ function copyFor(reportCount: number): { title: string; sub: string } {
     }
 }
 
-export function ChatEmptyState({ reportCount, suggestedPrompts, onPrompt }: ChatEmptyStateProps): ReactElement {
+export function ChatEmptyState({
+    reportCount,
+    suggestedPrompts,
+    description,
+    onPrompt,
+}: ChatEmptyStateProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const fromReport = suggestedPrompts !== undefined && suggestedPrompts.length > 0
-    const prompts: readonly string[] = fromReport ? suggestedPrompts : reportCount > 0 ? REPORT_PROMPTS : GLOBAL_PROMPTS
+    const fromReport = reportCount > 0 && suggestedPrompts !== undefined && suggestedPrompts.length > 0
+    const prompts: readonly string[] = suggestedPrompts?.length
+        ? suggestedPrompts
+        : reportCount > 0
+          ? REPORT_PROMPTS
+          : GLOBAL_PROMPTS
     const copy = copyFor(reportCount)
     // A report's own prompts are generated text, so the event names the list and the position only.
     const pick = (prompt: string, index: number): void => {
@@ -51,7 +61,7 @@ export function ChatEmptyState({ reportCount, suggestedPrompts, onPrompt }: Chat
         <View style={styles.container} testID="chat-empty">
             <PostHogLogomark height={28} />
             <Text style={styles.title}>{copy.title}</Text>
-            <Text style={[styles.sub, prettyWrap]}>{copy.sub}</Text>
+            <Text style={[styles.sub, prettyWrap]}>{description ?? copy.sub}</Text>
             <View style={styles.chips}>
                 {prompts.map((prompt, index) => (
                     <Pressable44

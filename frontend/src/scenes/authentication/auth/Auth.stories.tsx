@@ -47,7 +47,7 @@ type StoryArgs = {
     gitlab: boolean
     samlAvailable: boolean
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-    generalError: 'none' | 'invalid_credentials' | 'no_new_organizations'
+    generalError: 'none' | 'invalid_credentials' | 'no_new_organizations' | 'login_code_email_undeliverable'
     pendingOAuthConnection: boolean
     hasLoggedInBefore: boolean
     signedOutForSessionRisk: boolean
@@ -87,7 +87,7 @@ const meta: Meta<StoryArgs> = {
         generalError: {
             control: 'select',
             name: 'General error',
-            options: ['none', 'invalid_credentials', 'no_new_organizations'],
+            options: ['none', 'invalid_credentials', 'no_new_organizations', 'login_code_email_undeliverable'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
         hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
@@ -121,6 +121,7 @@ export default meta
 
 const ERROR_DETAILS: Record<string, string> = {
     invalid_credentials: 'Invalid email or password.',
+    login_code_email_undeliverable: "We can't send email to this address, so we can't send you a login code.",
 }
 
 const Template: StoryFn<StoryArgs> = ({
@@ -178,6 +179,7 @@ const Template: StoryFn<StoryArgs> = ({
                               password_login_available: !noSignInMethod,
                           },
                       ],
+            '/api/reset/': () => [200, { success: true }],
             '/api/signup/precheck': () =>
                 emailTaken
                     ? [
@@ -272,6 +274,10 @@ LoginStepFromSignupEntry.args = { step: 'Login', entry: 'signup' }
 export const LoginError: StoryFn<StoryArgs> = Template.bind({})
 LoginError.args = { step: 'Login', generalError: 'invalid_credentials' }
 
+export const LoginCodeEmailUndeliverable: StoryFn<StoryArgs> = Template.bind({})
+LoginCodeEmailUndeliverable.storyName = 'Login code email undeliverable'
+LoginCodeEmailUndeliverable.args = { step: 'Login', generalError: 'login_code_email_undeliverable' }
+
 export const SSOEnforced: StoryFn<StoryArgs> = Template.bind({})
 SSOEnforced.args = { step: 'Login', ssoEnforcement: 'google-oauth2' }
 
@@ -308,7 +314,7 @@ SignedOutForSessionRisk.args = { signedOutForSessionRisk: true }
 
 export const NoSignInMethod: StoryFn<StoryArgs> = Template.bind({})
 NoSignInMethod.storyName = 'Account with no sign-in method'
-NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: false, github: false, gitlab: false }
+NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: true, github: true, gitlab: false }
 
 export const PrecheckFailed: StoryFn<StoryArgs> = Template.bind({})
 PrecheckFailed.storyName = 'Login step when the precheck fails'

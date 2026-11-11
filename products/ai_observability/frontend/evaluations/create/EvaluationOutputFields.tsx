@@ -154,8 +154,8 @@ export function EvaluationOutputFields(): JSX.Element | null {
                             )}
                         </h4>
                         <p className="mb-0 text-xs text-secondary">
-                            Choose which results pass. The results page charts the share of runs that pass, and reports
-                            tell you when it changes.
+                            The share of runs that pass. The results page charts it, and reports tell you when it
+                            changes.
                         </p>
                     </div>
                     {outputType === 'boolean' && (

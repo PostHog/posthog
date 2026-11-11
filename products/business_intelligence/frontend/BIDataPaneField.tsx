@@ -88,9 +88,8 @@ export function BIDataPaneField({
                     event.dataTransfer.effectAllowed = 'copy'
                     event.dataTransfer.setData(BI_FIELD_DRAG_MIME_TYPE, serializeBIField(field))
                 }}
-                onDoubleClick={() => addField(field)}
                 onClick={(event) => {
-                    if (event.detail === 0) {
+                    if (event.detail <= 1) {
                         addField(field)
                     }
                 }}

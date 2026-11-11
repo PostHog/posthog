@@ -56,7 +56,7 @@ def _parse_session_recording_list_response(raw_response: bytes) -> list[str]:
 
 @activity.defn(name="load-recordings-with-person")
 async def load_recordings_with_person(input: RecordingsWithPersonInput) -> LoadRecordingsPage:
-    bind_contextvars(distinct_ids=input.distinct_ids, team_id=input.team_id)
+    bind_contextvars(team_id=input.team_id)
     tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info("Loading sessions for distinct IDs", distinct_id_count=len(input.distinct_ids), cursor=input.cursor)

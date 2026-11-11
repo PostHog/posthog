@@ -116,7 +116,7 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
 }
 
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
-export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}
+export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge }> {}
 
 export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
 export interface HogFlowActionNode extends Node<HogFlowAction> {}

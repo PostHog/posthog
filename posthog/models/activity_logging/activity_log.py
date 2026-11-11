@@ -88,6 +88,7 @@ ActivityScope = Literal[
     "LegalDocument",
     "Organization",
     "OrganizationDomain",
+    "OrganizationIPRestrictions",
     "IdentityProviderConfig",
     "OrganizationMembership",
     "Role",
@@ -137,6 +138,7 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalSourceConfig",
     "SignalTeamConfig",
     "StreamlitApp",
     "Metric",
@@ -531,6 +533,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "autostart_enabled": "PR generation",
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
+        "default_slack_notification_min_priority": "team Slack minimum priority",
         "autostart_base_branches": "base branch overrides",
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
@@ -545,6 +548,10 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
+    },
+    "OrganizationIPRestrictions": {
+        "ip_restrictions": "IP allowlist",
+        "enabled": "IP restrictions enabled",
     },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
@@ -727,6 +734,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
+        # Redis TTL edits from PostHog Admin carry the staff reason, and the row lands on the acting
+        # staff user's current organization, which has no relation to the edited key.
+        "scope": "Admin",
+        "activities": ["ttl_updated", "ttl_removed"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
         # Admin AI-gateway top-ups are staff-only; keep the staff email, credit reason,
         # and wallet balance out of the org-scoped activity log endpoints.
         "scope": "AIGatewayCredit",
@@ -823,6 +838,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "score_inputs",
         "payload",
     ],
+    "OrganizationIPRestrictions": ["organization"],
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
@@ -882,6 +898,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "usage_dashboard",
         "analytics_dashboards",
         "flag_evaluation_contexts",
+        # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
+        # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
+        "code_analyses",
     ],
     "Experiment": [
         "feature_flag",
@@ -939,6 +958,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
+        "explanations",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",
@@ -1111,8 +1131,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
-        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
-        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",
@@ -1566,7 +1584,7 @@ def log_activity(
             "user": user,
             "was_impersonated": was_impersonated,
             "is_system": user is None,
-            "item_id": str(item_id),
+            "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,
             "detail": detail,
@@ -1629,6 +1647,25 @@ class LogActivityEntry(TypedDict, total=False):
     client: Optional[str]
     ip_address: Optional[str]
     force_save: bool
+
+
+def update_activity_context(row: ActivityLog, **fields: Any) -> None:
+    """Add fields that are known only after the logged action ran to the row's context.
+
+    `$activity_log_entry_created` went out when the row was created, so a destination that streams the
+    activity log does not receive these fields.
+    """
+    try:
+        detail = cast(Detail, row.detail)
+        if detail.context is None:
+            raise ValueError(f"{row.scope} activity row has no context to update")
+        row.detail = dataclasses.replace(detail, context=dataclasses.replace(detail.context, **fields))
+        row.save(update_fields=["detail"])
+    except Exception as e:
+        logger.warn("activity_log.failed_to_update_activity_context", scope=row.scope, exception=e)
+        capture_exception(e)
+        if settings.TEST:
+            raise
 
 
 def log_activity_with_soft_delete(

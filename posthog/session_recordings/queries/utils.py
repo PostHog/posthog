@@ -29,7 +29,8 @@ from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_en
 from posthog.models import Team
 from posthog.types import AnyPropertyFilter
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 logger = structlog.get_logger(__name__)
 
@@ -243,8 +244,8 @@ def _entity_to_expr(entity: EventsNode | ActionsNode, team: Team) -> ast.Expr:
     if entity.kind == "ActionsNode":
         # Scoped to the project, not the team, because environments in a project share actions.
         try:
-            action = Action.objects.get(pk=entity.id, team__project_id=team.project_id)
-        except Action.DoesNotExist:
+            action = get_action(action_id=entity.id, project_id=team.project_id)
+        except ActionNotFound:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
         return action_to_expr(action)
     else:

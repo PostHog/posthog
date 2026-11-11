@@ -1,4 +1,5 @@
 import copy
+import dataclasses
 from collections.abc import Iterator
 
 import pytest
@@ -7,7 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from confluent_kafka import KafkaError, KafkaException
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.models import Team
 
+from products.cdp.backend.filters import compile_filters_bytecode
 from products.cdp.backend.internal_events import InternalEventEvent
 from products.error_tracking.backend.logic.assignees import ResolvedAssignee
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
@@ -347,6 +350,10 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
             return_value=stacktrace,
         ),
         patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.enabled_issue_filters",
+            return_value=None,
+        ),
+        patch(
             "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
             new=AsyncMock(),
         ) as emit_signal,
@@ -355,6 +362,8 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
             inputs,
             source_type="issue_reopened",
             preamble="Previously resolved issue reappeared",
+            event="$error_tracking_issue_reopened",
+            exception_timestamp=inputs.event_timestamp,
         )
 
     emit_signal.assert_awaited_once()
@@ -374,3 +383,73 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
         "extra": {"fingerprint": inputs.fingerprint},
         "idempotency_key": inputs.notification_id,
     }
+
+
+PRODUCTION = {"key": "environment", "value": ["production"], "operator": "exact", "type": "event"}
+HIGH_SEVERITY = {"key": "severity", "value": ["high"], "operator": "exact", "type": "event"}
+
+
+def _compiled(*leaves: dict) -> dict:
+    return compile_filters_bytecode({"properties": list(leaves)}, Team(id=42, project_id=42))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stored_filters, event_properties, severity, drop_reason",
+    [
+        pytest.param(None, {"environment": "staging"}, "high", None, id="no_filter_keeps_todays_behavior"),
+        # The filter sees one exception: an issue first seen on staging fails a production filter.
+        pytest.param(
+            lambda: _compiled(PRODUCTION), {"environment": "staging"}, "high", "excluded_by_filter", id="excluded"
+        ),
+        pytest.param(lambda: _compiled(PRODUCTION), {"environment": "production"}, "high", None, id="matches"),
+        pytest.param(lambda: _compiled(HIGH_SEVERITY), {}, None, "excluded_by_filter", id="empty_severity_is_not_high"),
+        pytest.param(
+            {"properties": [PRODUCTION]}, {"environment": "production"}, "high", "filter_error", id="missing_bytecode"
+        ),
+        pytest.param("not-a-filter", {}, "high", "filter_error", id="malformed_filter"),
+    ],
+)
+async def test_issue_filter_gates_the_signal(
+    stored_filters: object, event_properties: dict, severity: str | None, drop_reason: str | None
+) -> None:
+    inputs = _inputs()
+    inputs = dataclasses.replace(inputs, issue=dataclasses.replace(inputs.issue, severity=severity))
+    team = MagicMock(id=inputs.team_id)
+    side_effects = "products.error_tracking.backend.temporal.lifecycle.side_effects"
+
+    with (
+        patch(f"{side_effects}.Team.objects.aget", new=AsyncMock(return_value=team)),
+        patch(f"{side_effects}.fetch_event_properties", return_value=event_properties),
+        patch(
+            f"{side_effects}.enabled_issue_filters",
+            return_value=stored_filters() if callable(stored_filters) else stored_filters,
+        ) as enabled_issue_filters,
+        patch(f"{side_effects}.record_source_filter_drop") as record_drop,
+        patch(f"{side_effects}.emit_signal", new=AsyncMock()) as emit_signal,
+    ):
+        await emit_issue_lifecycle_signal(
+            inputs,
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+            event="$error_tracking_issue_reopened",
+            exception_timestamp=inputs.event_timestamp,
+        )
+
+    assert enabled_issue_filters.call_args.kwargs == {
+        "team_id": inputs.team_id,
+        "source_product": "error_tracking",
+        "source_type": "issue_reopened",
+    }
+    if drop_reason is None:
+        emit_signal.assert_awaited_once()
+        record_drop.assert_not_called()
+    else:
+        emit_signal.assert_not_awaited()
+        record_drop.assert_called_once_with(
+            team=team,
+            source_product="error_tracking",
+            source_type="issue_reopened",
+            source_id=inputs.issue_id,
+            reason=drop_reason,
+        )

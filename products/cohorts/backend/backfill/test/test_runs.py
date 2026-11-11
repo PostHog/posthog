@@ -290,9 +290,12 @@ class TestBackfillRuns(BaseTest):
     def test_team_run_excludes_an_unseedable_cohort_and_refuses_it_by_id(self) -> None:
         seedable = self._cohort()
         unseedable = self._unseedable_cohort(self._WINDOWLESS_LEAF)
+        unclassified = self._cohort("$autocapture")
+        Cohort.objects.filter(id=unclassified.id).update(condition_type=None)
 
-        with self.assertRaisesMessage(ValueError, "not eligible realtime behavioral cohorts"):
-            create_team_backfill_run(self.team.id, "team_enablement", [unseedable.id])
+        for refused in (unseedable, unclassified):
+            with self.assertRaisesMessage(ValueError, "not eligible realtime behavioral cohorts"):
+                create_team_backfill_run(self.team.id, "team_enablement", [refused.id])
 
         run = create_team_backfill_run(self.team.id, "team_enablement")
 
@@ -444,16 +447,19 @@ class TestBackfillRunFlagCallsTable(BaseTest):
         self.assertEqual(run.pinned["flag_calls_table"], expected)
         self.assertEqual(run.pinned["schema_version"], 1)
 
+    @parameterized.expand([("events", FlagEvaluationsMode.EVENTS), ("read", FlagEvaluationsMode.READ_FLAG_EVALUATIONS)])
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_run_pins_events_when_the_batch_calculation_reads_the_native_json_events_table(self) -> None:
-        # The batch calculation keeps reading events_json in this mode, so the seeder must read events too.
-        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+    def test_run_pins_flag_evaluations_when_the_batch_calculation_reads_the_native_json_events_table(
+        self, _name: str, mode: FlagEvaluationsMode
+    ) -> None:
+        self._set_flag_evaluations_mode(mode)
         cohort = self._cohort(_FLAG_CALL_LEAF)
 
-        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        with self.is_cloud(True):
+            run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
 
         assert run is not None
-        self.assertEqual(run.pinned["flag_calls_table"], "events")
+        self.assertEqual(run.pinned["flag_calls_table"], "flag_evaluations")
 
     @parameterized.expand(
         [

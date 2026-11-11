@@ -10,6 +10,34 @@
 import * as zod from 'zod'
 
 /**
+ * Before sending an email with files, ask where to upload each one. Name each file by the SHA-256 of its bytes and its size. A file this project already uploaded answers `present` and needs no upload. Any other file answers `upload`: PUT its bytes to `url` with exactly the `headers` given and without your PostHog API key, before `url_expires_at`. Once every upload succeeded, send the email with the files' hashes in `attachments`. Needs the `transactional_email:write` scope.
+ * @summary Prepare attachment uploads
+ */
+export const messagingAttachmentsUploadsCreateBodyFilesItemSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+
+export const messagingAttachmentsUploadsCreateBodyFilesMax = 10
+
+export const MessagingAttachmentsUploadsCreateBody = /* @__PURE__ */ zod.object({
+    files: zod
+        .array(
+            zod.object({
+                sha256: zod
+                    .string()
+                    .regex(messagingAttachmentsUploadsCreateBodyFilesItemSha256RegExp)
+                    .describe(
+                        "SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it."
+                    ),
+                size: zod.number().min(1).describe('Size of the file in bytes.'),
+            })
+        )
+        .min(1)
+        .max(messagingAttachmentsUploadsCreateBodyFilesMax)
+        .describe(
+            'The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.'
+        ),
+})
+
+/**
  * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional email too.
  * @summary Set a recipient's topic preferences
  */
@@ -589,16 +617,48 @@ export const MessagingSuppressionsAddSuppressionCreateBody = /* @__PURE__ */ zod
 })
 
 /**
+ * Remove up to 100 addresses from the suppression list so they can receive messages again.
+ * @summary Remove several email addresses from the suppression list
+ */
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax = 512
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax = 100
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault = false
+
+export const MessagingSuppressionsBulkRemoveSuppressionsCreateBody = /* @__PURE__ */ zod.object({
+    identifiers: zod
+        .array(zod.string().max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax))
+        .min(1)
+        .max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax)
+        .describe('The email addresses to remove, at most 100 per request.'),
+    confirm_complaints: zod
+        .boolean()
+        .default(messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault)
+        .describe(
+            'Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400.'
+        ),
+})
+
+/**
  * Remove an address from the suppression list so it can receive messages again.
  * @summary Remove an email address from the suppression list
  */
 export const messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax = 512
 
+export const messagingSuppressionsRemoveSuppressionCreateBodyConfirmComplaintsDefault = false
+
 export const MessagingSuppressionsRemoveSuppressionCreateBody = /* @__PURE__ */ zod.object({
     identifier: zod
         .string()
         .max(messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax)
-        .describe('The email address to suppress. Will not receive any messages until removed.'),
+        .describe('The email address to remove.'),
+    confirm_complaints: zod
+        .boolean()
+        .default(messagingSuppressionsRemoveSuppressionCreateBodyConfirmComplaintsDefault)
+        .describe(
+            'Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400.'
+        ),
 })
 
 export const messagingTemplatesCreateBodyNameMax = 400

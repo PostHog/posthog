@@ -3,6 +3,8 @@ import { installMockEventSource, MockEventSource } from 'lib/wizard-sync/eventSo
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
 import { wizardRunsList, wizardRunsRetrieve, wizardRunsTasksRetrieve } from '../generated/api'
@@ -13,7 +15,7 @@ import type {
     WizardRunTaskListApi,
 } from '../generated/api.schemas'
 import { loadWizardRunArtifacts } from '../lib/wizardApi'
-import { RUN_DISCOVERY_POLL_MS, wizardRunSyncLogic } from './wizardRunSyncLogic'
+import { wizardRunSyncLogic } from './wizardRunSyncLogic'
 
 jest.mock('../generated/api', () => ({
     wizardRunsList: jest.fn(),
@@ -74,6 +76,7 @@ describe('wizardRunSyncLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
+            created_by_id: MOCK_DEFAULT_USER.id,
             limit: 100,
             offset: 0,
         })
@@ -144,6 +147,7 @@ describe('wizardRunSyncLogic', () => {
             logic.actions.watchRuns('test', ['next'])
             await expectLogic(logic).toFinishAllListeners()
             expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
+                created_by_id: MOCK_DEFAULT_USER.id,
                 limit: 100,
                 offset: 0,
             })
@@ -195,42 +199,149 @@ describe('wizardRunSyncLogic', () => {
             .mockResolvedValueOnce({ results: [run('second')], next: null })
         logic.actions.checkRuns()
         await expectLogic(logic).toFinishAllListeners()
-        expect(mockWizardRunsList).toHaveBeenLastCalledWith('1', { limit: 100, offset: 100 })
+        expect(mockWizardRunsList).toHaveBeenLastCalledWith('1', {
+            created_by_id: MOCK_DEFAULT_USER.id,
+            limit: 100,
+            offset: 100,
+        })
         expect(logic.values.userRuns.map((run) => run.id)).toEqual(['first', 'second'])
         const previousCalls = mockWizardRunsList.mock.calls.length
         mockWizardRunsList.mockResolvedValue({ results: [run('first')], next: '/next' })
         for (let poll = 0; poll < 6; poll++) {
-            jest.advanceTimersByTime(RUN_DISCOVERY_POLL_MS)
+            jest.advanceTimersByTime(60_000)
             await expectLogic(logic).toFinishAllListeners()
         }
         expect(mockWizardRunsList.mock.calls.length - previousCalls).toBe(6)
-        expect(mockWizardRunsList).toHaveBeenLastCalledWith('1', { limit: 100, offset: 0 })
+        expect(mockWizardRunsList).toHaveBeenLastCalledWith('1', {
+            created_by_id: MOCK_DEFAULT_USER.id,
+            limit: 100,
+            offset: 0,
+        })
         expect(logic.values.userRuns.map((run) => run.id)).toEqual(['first', 'second'])
     })
 
-    it.each(['poll', 'focus'])('discovers local runs on %s without dropping older history', async (trigger) => {
+    it.each(['poll', 'focus'])(
+        'discovers local runs promptly on %s without dropping older history',
+        async (trigger) => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+            jest.useFakeTimers()
+            logic = wizardRunSyncLogic({ projectId: '1' })
+            logic.mount()
+            logic.actions.watchRuns('test', ['local-installation'])
+            await expectLogic(logic).toFinishAllListeners()
+            const history = { ...run('history'), status: 'completed' as const }
+            logic.actions.runsLoaded([run('newer'), history])
+            const localRun = { ...run('local-installation'), environment: 'local' as const }
+            mockWizardRunsList.mockResolvedValue({ results: [localRun], next: '/older-runs' })
+            const previousCalls = mockWizardRunsList.mock.calls.length
+
+            if (trigger === 'poll') {
+                jest.advanceTimersByTime(60_000)
+            } else {
+                jest.advanceTimersByTime(30_000)
+                window.dispatchEvent(new Event('focus'))
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            expect(mockWizardRunsList.mock.calls.length - previousCalls).toBe(1)
+            expect(logic.values.userRuns.map((run) => run.id)).toEqual(['local-installation', 'newer', 'history'])
+            expect(MockEventSource.last().url).toBe('/api/projects/1/wizard/runs/local-installation/stream/')
+        }
+    )
+
+    it('polls on an interval only while the user has runs', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.unmount()
         jest.useFakeTimers()
+        mockWizardRunsList.mockReset()
+        mockWizardRunsList.mockResolvedValue({ results: [], next: null })
         logic = wizardRunSyncLogic({ projectId: '1' })
         logic.mount()
-        logic.actions.watchRuns('test', ['local-installation'])
         await expectLogic(logic).toFinishAllListeners()
-        const history = { ...run('history'), status: 'completed' as const }
-        logic.actions.runsLoaded([run('newer'), history])
-        const localRun = { ...run('local-installation'), environment: 'local' as const }
-        mockWizardRunsList.mockResolvedValue({ results: [localRun], next: '/older-runs' })
-        const previousCalls = mockWizardRunsList.mock.calls.length
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(1)
 
-        if (trigger === 'poll') {
-            jest.advanceTimersByTime(RUN_DISCOVERY_POLL_MS)
-        } else {
-            window.dispatchEvent(new Event('focus'))
-        }
+        jest.advanceTimersByTime(180_000)
         await expectLogic(logic).toFinishAllListeners()
-        expect(mockWizardRunsList.mock.calls.length - previousCalls).toBe(1)
-        expect(logic.values.userRuns.map((run) => run.id)).toEqual(['local-installation', 'newer', 'history'])
-        expect(MockEventSource.last().url).toBe('/api/projects/1/wizard/runs/local-installation/stream/')
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(1)
+
+        window.dispatchEvent(new Event('focus'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(2)
+
+        logic.actions.awaitRuns('onboarding', true)
+        jest.advanceTimersByTime(5_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(3)
+
+        logic.actions.awaitRuns('onboarding', false)
+        jest.advanceTimersByTime(60_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(3)
+    })
+
+    it('keeps retrying the first list on the interval until it succeeds', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        jest.useFakeTimers()
+        mockWizardRunsList.mockReset()
+        mockWizardRunsList.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ results: [], next: null })
+        logic = wizardRunSyncLogic({ projectId: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(1)
+
+        jest.advanceTimersByTime(60_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(2)
+
+        jest.advanceTimersByTime(120_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([
+        ['a Retry-After header', new ApiError('Throttled', 429, new Headers({ 'Retry-After': '60' })), 60_000],
+        ['no retry hint', new Error('offline'), 30_000],
+    ])('waits out a failed run check with %s before any trigger retries it', async (_, error, delayMs) => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        jest.useFakeTimers()
+        mockWizardRunsList.mockReset()
+        mockWizardRunsList.mockRejectedValue(error)
+        logic = wizardRunSyncLogic({ projectId: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(1)
+
+        jest.advanceTimersByTime(delayMs - 1_000)
+        for (let attempt = 0; attempt < 5; attempt++) {
+            window.dispatchEvent(new Event('focus'))
+            logic.actions.checkRuns(true)
+            await expectLogic(logic).toFinishAllListeners()
+        }
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(1)
+
+        mockWizardRunsList.mockResolvedValue({ results: [run('newer')], next: null })
+        jest.advanceTimersByTime(1_000)
+        window.dispatchEvent(new Event('focus'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(2)
+        expect(logic.values.userRuns.map((run) => run.id)).toEqual(['newer'])
+    })
+
+    it('does not open a stream for a run that has not started', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const created = { ...run('created'), status: 'created' as const }
+        mockRunPages({ count: 2, results: [created] })
+        logic.actions.checkRuns()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.watchRuns('test', ['created'])
+        expect(MockEventSource.instances.filter((stream) => stream.readyState !== MockEventSource.CLOSED)).toEqual([])
+
+        jest.mocked(wizardRunsRetrieve).mockResolvedValueOnce({ ...created, status: 'running' })
+        logic.actions.refreshWatchedRun()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(MockEventSource.last().url).toBe('/api/projects/1/wizard/runs/created/stream/')
     })
 
     it('keeps a new creation response when an older full-history poll finishes afterward', async () => {
@@ -347,6 +458,9 @@ describe('wizardRunSyncLogic', () => {
             head_branch: 'setup',
             base_branch: 'main',
             created_at: '2026-09-23T10:05:00Z',
+            state: 'open',
+            merged_at: null,
+            closed_at: null,
         }
         jest.mocked(loadWizardRunArtifacts).mockResolvedValueOnce([]).mockResolvedValueOnce([artifact])
         logic.actions.loadRunData(logic.values.userRuns[0])

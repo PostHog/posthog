@@ -9,7 +9,7 @@ import { wizardRunsList, wizardRunsTasksRetrieve } from '../../generated/api'
 import type { WizardRunApi } from '../../generated/api.schemas'
 import { loadWizardRunArtifacts } from '../../lib/wizardApi'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
-import { AWAITED_RUN_POLL_MS, onboardingWizardRunLogic } from './onboardingWizardRunLogic'
+import { onboardingWizardRunLogic } from './onboardingWizardRunLogic'
 
 jest.mock('../../generated/api', () => ({
     wizardRunsList: jest.fn().mockResolvedValue({ results: [], next: null }),
@@ -73,29 +73,28 @@ describe('onboardingWizardRunLogic', () => {
         localStorage.clear()
     })
 
-    it('polls for the installation run until it appears', async () => {
+    it('polls for the installation run every few seconds until it appears', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.unmount()
         jest.useFakeTimers()
         logic = onboardingWizardRunLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        const listCalls = (): number => jest.mocked(wizardRunsList).mock.calls.length
+        const listCalls = jest.mocked(wizardRunsList).mock.calls.length
 
-        const beforeWaiting = listCalls()
-        jest.advanceTimersByTime(AWAITED_RUN_POLL_MS)
+        jest.advanceTimersByTime(5_000)
         await expectLogic(logic).toFinishAllListeners()
-        expect(listCalls() - beforeWaiting).toBe(1)
+        expect(jest.mocked(wizardRunsList).mock.calls.length).toBe(listCalls + 1)
 
         jest.mocked(wizardRunsList).mockResolvedValue({ count: 1, results: [run], next: null })
-        jest.advanceTimersByTime(AWAITED_RUN_POLL_MS)
+        jest.advanceTimersByTime(5_000)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.run?.id).toBe(run.id)
 
-        const afterFound = listCalls()
-        jest.advanceTimersByTime(AWAITED_RUN_POLL_MS * 2)
+        const callsAfterFound = jest.mocked(wizardRunsList).mock.calls.length
+        jest.advanceTimersByTime(30_000)
         await expectLogic(logic).toFinishAllListeners()
-        expect(listCalls()).toBe(afterFound)
+        expect(jest.mocked(wizardRunsList).mock.calls.length).toBe(callsAfterFound)
     })
 
     it('ignores history, audits, and other users, then saves the installation and supersedes it with a newer one', async () => {

@@ -16,7 +16,7 @@ import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
@@ -25,12 +25,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, HogFunctionTemplateType, IntegrationType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType, IntegrationType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
     hogFlowsResumeEmailSending,
+    hogFlowsRunCreate,
     hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
 } from 'products/workflows/frontend/generated/api'
@@ -829,8 +830,9 @@ export interface workflowLogicActions {
                                         value: any
                                     }
                                 >
-                                message_category_id?: string | undefined
+                                message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -1718,8 +1720,9 @@ export interface workflowLogicActions {
                                         value: any
                                     }
                                 >
-                                message_category_id?: string | undefined
+                                message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -2665,8 +2668,9 @@ export interface workflowLogicActions {
                           value: any
                       }
                   >
-                  message_category_id?: string | undefined
+                  message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
@@ -3077,8 +3081,9 @@ export interface workflowLogicActions {
                           value: any
                       }
                   >
-                  message_category_id?: string | undefined
+                  message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
@@ -3383,7 +3388,8 @@ export interface workflowLogicMeta {
         manualTriggerDisabledReason: (
             workflow: HogFlow,
             originalWorkflow: HogFlow | null,
-            hasUnsavedChanges: boolean
+            hasUnsavedChanges: boolean,
+            workflowUserAccessLevel: AccessControlLevel | null
         ) => string | undefined
     }
 }
@@ -4448,8 +4454,21 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         manualTriggerDisabledReason: [
-            (s) => [s.workflow, s.originalWorkflow, s.hasUnsavedChanges],
-            (workflow: HogFlow, originalWorkflow: HogFlow | null, hasUnsavedChanges: boolean): string | undefined => {
+            (s) => [s.workflow, s.originalWorkflow, s.hasUnsavedChanges, s.workflowUserAccessLevel],
+            (
+                workflow: HogFlow,
+                originalWorkflow: HogFlow | null,
+                hasUnsavedChanges: boolean,
+                workflowUserAccessLevel: AccessControlLevel | null
+            ): string | undefined => {
+                const accessDisabledReason = getAccessControlDisabledReason(
+                    AccessControlResourceType.Workflow,
+                    AccessControlLevel.Editor,
+                    workflowUserAccessLevel ?? undefined
+                )
+                if (accessDisabledReason) {
+                    return accessDisabledReason
+                }
                 if (workflow?.status !== 'active') {
                     return 'Must enable workflow to use trigger'
                 }
@@ -5096,27 +5115,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
-
             lemonToast.info('Triggering workflow...')
 
             try {
-                const response = await fetch(webhookUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: values.user?.email,
-                        $variables: variables,
-                    }),
-                    credentials: 'omit',
-                })
-
-                // fetch rejects only on a network failure, so a refused webhook resolves here too.
-                if (!response.ok) {
-                    throw new Error(`the webhook returned ${response.status}`)
-                }
+                // An authenticated call, so only a user who can edit the workflow starts a run.
+                await hogFlowsRunCreate(String(ApiConfig.getCurrentTeamId()), values.workflow.id, { variables })
 
                 lemonToast.success('Workflow triggered', {
                     button: {
@@ -5125,7 +5128,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     },
                 })
             } catch (e) {
-                lemonToast.error('Error triggering workflow: ' + (e as Error).message)
+                lemonToast.error('Error triggering workflow: ' + (e as Error).message, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
+                })
                 return
             }
         },
