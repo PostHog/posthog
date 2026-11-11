@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ToastContainer } from 'react-toastify'
 
 import { useMocks } from '~/mocks/jest'
@@ -14,11 +14,26 @@ type CreateResponse = [number, Record<string, any>]
 describe('AddDeliveryWebhookModal', () => {
     let releaseCreate: ((response: CreateResponse) => void) | null
     let createdBody: Record<string, any> | null
+    let templatesLoad: 'fails' | 'succeeds'
 
     beforeEach(() => {
         releaseCreate = null
         createdBody = null
+        templatesLoad = 'succeeds'
         useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': () =>
+                    templatesLoad === 'fails'
+                        ? [500, { detail: 'Server error' }]
+                        : [
+                              200,
+                              {
+                                  count: 1,
+                                  next: null,
+                                  results: [{ id: 'template-1', name: 'Receipt', transactional_hog_flow_id: 'flow-1' }],
+                              },
+                          ],
+            },
             post: {
                 '/api/projects/:team_id/hog_functions/': async ({ request }) => {
                     createdBody = await request.json()
@@ -122,6 +137,21 @@ describe('AddDeliveryWebhookModal', () => {
 
         expect(isDialogOpen()).toBe(true)
         expect(input).toHaveValue('https://example.com/hooks')
+    })
+
+    it('says when the transactional emails fail to load, and loads them again on retry', async () => {
+        templatesLoad = 'fails'
+        openModal()
+
+        const banner = (await screen.findByText(/Couldn't load your transactional emails/)).closest('.LemonBanner')!
+        expect(screen.queryByText(/No transactional emails yet/)).not.toBeInTheDocument()
+
+        templatesLoad = 'succeeds'
+        fireEvent.click(within(banner as HTMLElement).getAllByText('Try again')[0])
+
+        await waitFor(() =>
+            expect(screen.queryByText(/Couldn't load your transactional emails/)).not.toBeInTheDocument()
+        )
     })
 
     it('shows a bad URL as a field error, without a failure toast', async () => {

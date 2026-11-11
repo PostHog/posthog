@@ -18,8 +18,13 @@ export function AddDeliveryWebhookModal(): JSX.Element {
         webhookFormChanged,
         transactionalEmailOptions,
         transactionalEmailOptionsLoading,
+        transactionalEmailOptionsLoadFailed,
     } = useValues(deliveryWebhooksLogic)
-    const { closeAddModal, submitWebhookForm } = useActions(deliveryWebhooksLogic)
+    const { closeAddModal, submitWebhookForm, loadTransactionalEmailOptions } = useActions(deliveryWebhooksLogic)
+    const noTransactionalEmailsYet =
+        !transactionalEmailOptionsLoading &&
+        !transactionalEmailOptionsLoadFailed &&
+        transactionalEmailOptions.length === 0
 
     if (createdSecret) {
         return (
@@ -96,9 +101,8 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                         mode="multiple"
                         options={transactionalEmailOptions}
                         loading={transactionalEmailOptionsLoading}
-                        // The select also shows this when a search matches nothing, so it is set only for an empty list.
                         emptyStateComponent={
-                            !transactionalEmailOptionsLoading && transactionalEmailOptions.length === 0 ? (
+                            noTransactionalEmailsYet ? (
                                 <p className="text-secondary italic p-1 m-0">
                                     No transactional emails yet. This webhook gets updates for every one you add.
                                 </p>
@@ -108,6 +112,15 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                         data-attr="transactional-webhook-emails"
                     />
                 </LemonField>
+                {transactionalEmailOptionsLoadFailed ? (
+                    <LemonBanner
+                        type="error"
+                        action={{ children: 'Try again', onClick: () => loadTransactionalEmailOptions() }}
+                    >
+                        Couldn't load your transactional emails. Try again, or leave the field empty to get updates for
+                        all of them.
+                    </LemonBanner>
+                ) : null}
                 <LemonField name="events" label="Events">
                     {({ value, onChange }) => (
                         <div

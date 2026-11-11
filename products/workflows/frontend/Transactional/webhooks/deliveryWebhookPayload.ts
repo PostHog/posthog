@@ -65,17 +65,6 @@ function shortPath(pathname: string): string {
     return pathname.length > NAME_PATH_LENGTH ? `${pathname.slice(0, NAME_PATH_LENGTH)}…` : pathname
 }
 
-// Every delivery event carries the ID of the workflow that sent it. A transactional email and a code-send key each
-// have their own workflow, so one filter covers both.
-function sentByWorkflowsProperty(workflowIds: string[]): EventPropertyFilter[] {
-    if (workflowIds.length === 0) {
-        return []
-    }
-    return [
-        { key: '$workflow_id', type: PropertyFilterType.Event, operator: PropertyOperator.Exact, value: workflowIds },
-    ]
-}
-
 export function buildDeliveryWebhookPayload({
     url,
     events,
@@ -103,7 +92,19 @@ export function buildDeliveryWebhookPayload({
         filters: {
             source: 'events',
             events: events.map((event) => ({ id: event, name: event, type: 'events' })),
-            properties: [TRANSACTIONAL_EMAIL_PROPERTY, ...sentByWorkflowsProperty(workflowIds)],
+            properties: [
+                TRANSACTIONAL_EMAIL_PROPERTY,
+                ...(workflowIds.length > 0
+                    ? [
+                          {
+                              key: '$workflow_id',
+                              type: PropertyFilterType.Event,
+                              operator: PropertyOperator.Exact,
+                              value: workflowIds,
+                          },
+                      ]
+                    : []),
+            ],
         },
         enabled: true,
     }

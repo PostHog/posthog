@@ -14,6 +14,7 @@ import type { TeamPublicType, TeamType } from '~/types'
 
 import { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
 import { messagingTemplatesList } from 'products/messaging/frontend/generated/api'
+import type { MessageTemplateApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import {
     DELIVERY_WEBHOOK_EVENTS,
@@ -59,6 +60,7 @@ export interface deliveryWebhooksLogicValues {
     isWebhookFormValid: boolean
     showWebhookFormErrors: boolean
     transactionalEmailOptions: TransactionalEmailOption[]
+    transactionalEmailOptionsLoadFailed: boolean
     transactionalEmailOptionsLoading: boolean
     webhookForm: DeliveryWebhookForm
     webhookFormAllErrors: Record<string, any>
@@ -89,10 +91,16 @@ export interface deliveryWebhooksLogicActions {
         errorObject?: any
     }
     loadTransactionalEmailOptionsSuccess: (
-        transactionalEmailOptions: TransactionalEmailOption[],
+        transactionalEmailOptions: {
+            key: string
+            label: string
+        }[],
         payload?: any
     ) => {
-        transactionalEmailOptions: TransactionalEmailOption[]
+        transactionalEmailOptions: {
+            key: string
+            label: string
+        }[]
         payload?: any
     }
     openAddModal: () => {
@@ -172,6 +180,13 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
                 closeAddModal: () => false,
             },
         ],
+        transactionalEmailOptionsLoadFailed: [
+            false,
+            {
+                loadTransactionalEmailOptions: () => false,
+                loadTransactionalEmailOptionsFailure: () => true,
+            },
+        ],
         // The secret is encrypted on save and never readable again, so the modal shows it once and then drops it.
         createdSecret: [
             null as string | null,
@@ -192,23 +207,28 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
         transactionalEmailOptions: [
             [] as TransactionalEmailOption[],
             {
-                // The list endpoint pages, and a team can have more templates than one page holds.
                 loadTransactionalEmailOptions: async () => {
                     const projectId = String(values.currentTeamId)
-                    const options: TransactionalEmailOption[] = []
+                    const templates: MessageTemplateApi[] = []
                     let offset = 0
                     let hasMore = true
                     while (hasMore) {
                         const page = await messagingTemplatesList(projectId, { limit: TEMPLATES_PAGE_SIZE, offset })
-                        for (const template of page.results) {
-                            if (template.transactional_hog_flow_id) {
-                                options.push({ key: template.transactional_hog_flow_id, label: template.name })
-                            }
-                        }
+                        templates.push(...page.results.filter((template) => template.transactional_hog_flow_id))
                         offset += page.results.length
                         hasMore = !!page.next && page.results.length > 0
                     }
-                    return options
+                    const nameCounts = new Map<string, number>()
+                    for (const { name } of templates) {
+                        nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)
+                    }
+                    return templates.map((template) => ({
+                        key: template.transactional_hog_flow_id!,
+                        label:
+                            nameCounts.get(template.name)! > 1
+                                ? `${template.name} (${template.id.slice(0, 8)})`
+                                : template.name,
+                    }))
                 },
             },
         ],
