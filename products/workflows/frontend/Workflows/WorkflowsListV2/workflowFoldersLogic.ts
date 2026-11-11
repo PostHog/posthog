@@ -15,7 +15,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import { ApiError } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { withTimeout } from 'lib/utils/async'
@@ -362,22 +362,6 @@ export const FOLDER_REQUEST_TIMEOUT_MS = 10_000
 
 function apiErrorDetail(error: unknown): string {
     return (error instanceof ApiError && error.detail) || 'Try again.'
-}
-
-// A folder change has no deadline. Giving up early would not stop the server from committing it, and the list would
-// show a guess. A slow change holds only its own folder, which shows why until the server answers.
-async function changeFolder(
-    setFolderBusy: (folder: string, change: FolderChange | null) => void,
-    folder: string,
-    change: FolderChange,
-    request: Promise<unknown>
-): Promise<void> {
-    setFolderBusy(folder, change)
-    try {
-        await request
-    } finally {
-        setFolderBusy(folder, null)
-    }
 }
 
 const WORKFLOW_FILE_SEARCHES = ['type:folder', 'type:hog_flow', 'type:message_template']
@@ -996,32 +980,26 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         moveSelectedFiles: () => {
             moveToLogic.actions.openMoveToModal(values.selectedFiles)
         },
-        renameFolder: async ({ folder, name }) => {
+        // The shared tree's move owns the deadline, the Undo toast and the error toast. Its pending action holds this
+        // folder until it settles.
+        renameFolder: ({ folder, name }) => {
             const entry = values.savedItems.find((item) => item.type === 'folder' && item.path === folder)
             if (!entry?.id || values.folderBusyReason(folder)) {
                 return
             }
             const newPath = joinPath([...splitPath(parentPath(folder)), name.trim()])
-            try {
-                await changeFolder(actions.setFolderBusy, folder, 'rename', api.fileSystem.move(entry.id, newPath))
-                projectTreeDataLogic.actions.movedItem(entry, folder, newPath)
-            } catch (error) {
-                lemonToast.error(`Couldn't rename the folder. ${apiErrorDetail(error)}`)
-                actions.loadBrowser()
-            }
+            projectTreeDataLogic.actions.moveItem(entry, newPath, false, WORKFLOW_FILES_DRAG_SCOPE)
         },
         deleteFolder: async ({ folder }) => {
             const entry = values.savedItems.find((item) => item.type === 'folder' && item.path === folder)
             if (!entry?.id || folder === 'Unfiled' || values.folderBusyReason(folder)) {
                 return
             }
+            // The delete has no deadline. Giving up early would not stop the server from deleting the folder, and the
+            // list would show a guess. A slow delete holds only this folder, which shows why until the server answers.
+            actions.setFolderBusy(folder, 'delete')
             try {
-                await changeFolder(
-                    actions.setFolderBusy,
-                    folder,
-                    'delete',
-                    fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
-                )
+                await fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
                 projectTreeDataLogic.actions.deleteSavedItem(entry)
             } catch (error) {
                 // The folders reload from the server instead of guessing, and a retry that finds the folder gone
@@ -1036,6 +1014,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     )
                 }
                 actions.loadBrowser()
+            } finally {
+                actions.setFolderBusy(folder, null)
             }
         },
         dropFile: async ({ activeId, overId }) => {
@@ -1081,6 +1061,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         [projectTreeDataLogic.actionTypes.loadFolderFailure]: () => actions.restoreFileIndex(),
         [projectTreeDataLogic.actionTypes.createSavedItem]: () => {
             cache.changes = changeCount(cache) + 1
+        },
+        // A folder move that failed or passed its deadline can still have landed, so the folders reload from the server.
+        [projectTreeDataLogic.actionTypes.removeQueuedAction]: ({ action }: { action: ProjectTreeAction }) => {
+            if (action.type === 'move' && action.item.type === 'folder') {
+                actions.loadBrowser()
+            }
         },
         [projectTreeDataLogic.actionTypes.deleteSavedItem]: ({ savedItem }) => {
             cache.changes = changeCount(cache) + 1
