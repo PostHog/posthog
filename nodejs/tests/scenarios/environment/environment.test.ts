@@ -1,6 +1,6 @@
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import http from 'http'
 import net from 'net'
 import os from 'os'
@@ -111,6 +111,28 @@ describe('scenario environment', () => {
             [
                 'an unmarked process that only runs the feature flags group is not a stranger',
                 [proc(318, 318, 'node tsx src/index.ts', [...PLAIN_ENV, 'NODEJS_CAPABILITY_GROUPS=feature_flags'])],
+                { groups: [], pids: [], strangers: [] },
+            ],
+            [
+                'an unmarked node that tsx re-execs with its loaders on src/index.ts is a stranger',
+                [
+                    proc(
+                        319,
+                        319,
+                        `/opt/node/bin/node --require ${REPO}/node_modules/tsx/dist/preflight.cjs --import file://${REPO}/node_modules/tsx/dist/loader.mjs src/index.ts`,
+                        PLAIN_ENV
+                    ),
+                ],
+                { groups: [], pids: [], strangers: [319] },
+            ],
+            [
+                'an editor open on the entry point in the nodejs dir is not a stranger',
+                [proc(350, 350, 'vim src/index.ts', PLAIN_ENV), proc(351, 351, 'less ../bin/posthog-node', PLAIN_ENV)],
+                { groups: [], pids: [], strangers: [] },
+            ],
+            [
+                'a shell command that only names the entry point is not a stranger',
+                [proc(352, 352, 'bash -c vim src/index.ts', PLAIN_ENV)],
                 { groups: [], pids: [], strangers: [] },
             ],
             [
@@ -477,7 +499,7 @@ describe('scenario environment', () => {
             const verb = positionals.join(' ')
             if (verb === 'wait') {
                 if (flags.timeout === '0') {
-                    process.exit(stack.ready ? 0 : 3)
+                    process.exit(stack.ready ? 0 : stack.running ? 2 : 3)
                 }
                 if (!stack.running) {
                     fail('No stack runs')
@@ -535,27 +557,29 @@ describe('scenario environment', () => {
         let fakes = ''
         let cacheDir = ''
         let stranger: ChildProcess | undefined
+        let leftover: ChildProcess | undefined
         let environment: Environment | undefined
         let portHolder: http.Server | undefined
         let unspawnable: Role | undefined
         let losesItsPort: Role | undefined
         let exitsAfterHealth: Role | undefined
+        let teardownFails = false
         let reachedKafka: Error | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
         const healthOf = async (role: Role): Promise<number> =>
             (await internalFetch(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`)).status
-        const holdPort = async (role: Role, answersAfter: Promise<unknown> = Promise.resolve()): Promise<void> => {
+        const holdPort = async (port: number, answersAfter: Promise<unknown> = Promise.resolve()): Promise<void> => {
             portHolder = http.createServer((_request, response) => void answersAfter.then(() => response.end()))
-            await new Promise<void>((resolve) => portHolder!.listen(ROLE_PORTS[role], '127.0.0.1', resolve))
+            await new Promise<void>((resolve) => portHolder!.listen(port, '127.0.0.1', resolve))
         }
-        const bindWithoutListening = async (role: Role): Promise<() => void> => {
+        const bindWithoutListening = async (port: number): Promise<() => void> => {
             const holder = spawn(
                 'python3',
                 [
                     '-c',
                     "import socket,sys,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('127.0.0.1', int(sys.argv[1]))); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0); print('bound', flush=True); time.sleep(60)",
-                    String(ROLE_PORTS[role]),
+                    String(port),
                 ],
                 { stdio: ['ignore', 'pipe', 'inherit'] }
             )
@@ -614,9 +638,13 @@ describe('scenario environment', () => {
             const realTerminate = processes.terminate
             jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) => {
                 const foreign = [...plan.groups, ...plan.pids].filter((pid) => !stubRolePids.has(pid))
-                return foreign.length > 0
-                    ? Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
-                    : realTerminate(plan, graceMs)
+                if (foreign.length > 0) {
+                    return Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
+                }
+                const terminated = realTerminate(plan, graceMs)
+                return teardownFails && graceMs > 0 && plan.groups.length > 0
+                    ? terminated.then(() => Promise.reject(new Error('The teardown failed.')))
+                    : terminated
             })
             jest.spyOn(childProcess, 'spawn').mockImplementation(((
                 command: string,
@@ -641,7 +669,7 @@ describe('scenario environment', () => {
                           : stubRole
                 const role = realSpawn(process.execPath, ['-e', script], options)
                 if (mode === losesItsPort) {
-                    void holdPort(losesItsPort!, once(role, 'exit'))
+                    void holdPort(ROLE_PORTS[losesItsPort!], once(role, 'exit'))
                     losesItsPort = undefined
                 }
                 if (mode === exitsAfterHealth) {
@@ -682,8 +710,11 @@ describe('scenario environment', () => {
             unspawnable = undefined
             losesItsPort = undefined
             exitsAfterHealth = undefined
+            teardownFails = false
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
+            leftover?.kill('SIGKILL')
+            leftover = undefined
             if (cacheHome === undefined) {
                 delete process.env.XDG_CACHE_HOME
             } else {
@@ -717,14 +748,19 @@ describe('scenario environment', () => {
             await expect(upping).resolves.toBeUndefined()
         }, 30_000)
 
-        it.each<[string, boolean, string[]]>([
-            ['a running stack', true, STACK.templates],
-            ['a stack hogli cannot reach', false, STACK.templates],
-            ['a stack whose Django lacks the templates', true, []],
+        it.each<[string, { running: boolean; ready: boolean }, string[]]>([
+            ['a running stack', { running: true, ready: true }, STACK.templates],
+            [
+                'a stack that is still starting, without starting it again',
+                { running: true, ready: false },
+                STACK.templates,
+            ],
+            ['a stack hogli cannot reach', { running: false, ready: false }, STACK.templates],
+            ['a stack whose Django lacks the templates', { running: true, ready: true }, []],
         ])(
             'brings up %s through hogli and ends with the templates in Django',
-            async (_name, running, templates) => {
-                writeStack({ running, ready: running })
+            async (_name, stack, templates) => {
+                writeStack(stack)
                 await withPostgres(
                     (client) =>
                         client.query('DELETE FROM posthog_hogfunctiontemplate WHERE NOT (template_id = ANY($1))', [
@@ -792,6 +828,14 @@ describe('scenario environment', () => {
                     unspawnable = 'cdp-cyclotron-worker-email'
                 },
             ],
+            [
+                'answers /_health once, then exits, and whose teardown then fails,',
+                'cdp-api',
+                () => {
+                    exitsAfterHealth = 'cdp-api'
+                    teardownFails = true
+                },
+            ],
         ])(
             'fails naming a role that %s and its log',
             async (_name, role, arrange) => {
@@ -809,26 +853,31 @@ describe('scenario environment', () => {
             30_000
         )
 
-        it.each<[string, (role: Role) => Promise<() => void>]>([
+        const answerOn = async (port: number): Promise<() => void> => {
+            await holdPort(port)
+            return () => undefined
+        }
+        it.each<[string, string, number, (port: number) => Promise<() => void>]>([
+            ['answers on', 'cdp-processed-events', ROLE_PORTS['cdp-processed-events'], answerOn],
             [
-                'answers on',
-                async (role) => {
-                    await holdPort(role)
-                    return () => undefined
-                },
+                'binds without listening on',
+                'cdp-processed-events',
+                ROLE_PORTS['cdp-processed-events'],
+                bindWithoutListening,
             ],
-            ['binds without listening on', bindWithoutListening],
+            ['answers on', 'provider edge', 4566, answerOn],
+            ['binds without listening on', 'provider edge', 4566, bindWithoutListening],
         ])(
-            'refuses a role port another process %s, naming the port and how to see its holder',
-            async (_name, hold) => {
-                const release = await hold('cdp-processed-events')
+            'refuses a port another process %s, held for %s, naming the port and how to see its holder',
+            async (_how, owner, port, hold) => {
+                const release = await hold(port)
                 try {
                     environment = environmentOf()
 
                     await expect(environment.up()).rejects.toMatchObject({
                         exitCode: 2,
-                        message: expect.stringMatching(
-                            /6760 \(cdp-processed-events\)\. Find the processes that hold them with `ss -ltnp 'sport = :6760'`, stop them, then run the scenario again\.$/
+                        message: expect.stringContaining(
+                            `${port} (${owner}). Find the processes that hold them with \`ss -ltnp 'sport = :${port}'\`, stop them, then run the scenario again.`
                         ),
                     })
                 } finally {
@@ -837,6 +886,27 @@ describe('scenario environment', () => {
             },
             30_000
         )
+
+        it('cleans up its own leftover role when its cache home is reached through a symlink', async () => {
+            const stateDir = path.join(cacheDir, 'posthog-scenarios')
+            mkdirSync(stateDir)
+            const role = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+                env: { ...process.env, SCENARIO_RUNNER: stateDir },
+                detached: true,
+                stdio: 'ignore',
+            })
+            leftover = role
+            await once(role, 'spawn')
+            stubRolePids.add(role.pid!)
+            const linked = path.join(fakes, 'cache-link')
+            symlinkSync(cacheDir, linked)
+            process.env.XDG_CACHE_HOME = linked
+            environment = environmentOf()
+
+            await environment.up()
+
+            await waitForExpect(() => expect(role.signalCode).toBe('SIGTERM'), 5_000)
+        }, 30_000)
 
         it('refuses a stranger again when retried after a refused up, instead of reporting itself as the holder', async () => {
             const {
