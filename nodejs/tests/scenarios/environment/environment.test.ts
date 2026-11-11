@@ -628,7 +628,7 @@ describe('scenario environment', () => {
                 value: (...args: unknown[]) =>
                     new Promise((resolve, reject) => {
                         guardedExecFile(...args, (error: Error | null, stdout: string, stderr: string) =>
-                            error ? reject(error) : resolve({ stdout, stderr })
+                            error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr })
                         )
                     }),
             })
