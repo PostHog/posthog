@@ -82,7 +82,7 @@ def gap_brief(gap: StructuredGap, profile: TeamProfile) -> str:
     """What the model learns about the failure: aggregates only, never trace content."""
     return json.dumps(
         {
-            "finding": "One segment marks a structured output field with a severe value far more often than its siblings.",
+            "finding": "One segment gives a structured output field these values far more often than its siblings.",
             "field": gap.field,
             "values": list(gap.values),
             "segment": {"property": gap.segment_key, "value": gap.segment_value},
