@@ -1221,6 +1221,19 @@ describe('workflowFoldersLogic', () => {
         expect(
             await screen.findByText("Couldn't move the file. Wait until this folder finishes moving.")
         ).toBeInTheDocument()
+
+        const unmountMoveTo = moveToLogic.mount()
+        logic.actions.openFolder('Billing')
+        logic.actions.toggleSelectedFile(`workflow:${FIXTURE_WORKFLOWS[0].id}`)
+        await logic.asyncActions.dropFile('project/direct', 'project://')
+        expect(
+            await screen.findByText("Couldn't move the file. Wait until its folder finishes moving.")
+        ).toBeInTheDocument()
+        logic.actions.moveSelectedFiles()
+        logic.actions.moveFileToFolder(templateReceipt)
+        await logic.asyncActions.moveWorkflowToFolder(FIXTURE_WORKFLOWS[1].id)
+        expect(moveToLogic.values.isOpen).toBe(false)
+        unmountMoveTo()
         releaseMove()
         await waitFor(() => expect(logic.values.folderMutationDisabledReason('Invoices')).toBeNull())
         await expectLogic(logic).toFinishAllListeners()

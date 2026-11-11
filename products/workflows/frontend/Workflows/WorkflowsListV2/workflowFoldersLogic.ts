@@ -433,6 +433,16 @@ function whenSettled(isPending: () => boolean): Promise<void> {
 
 const NAME_TAKEN = 'This name is already used in this folder.'
 
+// A file move queued while its folder moves starts from the folder's old path, so the shared tree caches the file
+// there once both land.
+function refuseMovingSource(items: FileSystemEntry[], folderMoving: (path: string) => string | null): boolean {
+    if (!items.some((item) => folderMoving(item.path))) {
+        return false
+    }
+    lemonToast.error("Couldn't move the file. Wait until its folder finishes moving.")
+    return true
+}
+
 function folderRequest<T>(request: (signal: AbortSignal) => Promise<T>, what: string): Promise<T> {
     return withTimeout(request, FOLDER_REQUEST_TIMEOUT_MS, `workflowFoldersLogic: ${what} timed out`)
 }
@@ -1146,7 +1156,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
         },
         moveSelectedFiles: () => {
-            moveToLogic.actions.openMoveToModal(values.selectedFiles)
+            if (!refuseMovingSource(values.selectedFiles, values.folderMutationDisabledReason)) {
+                moveToLogic.actions.openMoveToModal(values.selectedFiles)
+            }
         },
         deleteFolder: async ({ folder }) => {
             if (values.folderActionPending || folder === 'Unfiled') {
@@ -1199,6 +1211,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             const items = (
                 values.selectedFiles.some((item) => item.id === drop.item.id) ? values.selectedFiles : [drop.item]
             ).filter((item) => !values.pendingFileMoveIds.includes(item.id))
+            if (refuseMovingSource(items, values.folderMutationDisabledReason)) {
+                return
+            }
             const moves = items.flatMap((item) => {
                 const destination =
                     drop.folder === 'Unfiled'
@@ -1367,7 +1382,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
         },
         moveFileToFolder: ({ entry }) => {
-            moveToLogic.actions.openMoveToModal([entry])
+            if (!refuseMovingSource([entry], values.folderMutationDisabledReason)) {
+                moveToLogic.actions.openMoveToModal([entry])
+            }
         },
         [workflowsListV2Logic.actionTypes.setValue]: () => {
             actions.revealFolder(values.currentFolder)
@@ -1394,7 +1411,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 })
                 const entry = workflowFilesByRef([...fileIndex(cache).values()])[`hog_flow::${id}`]
                 if (entry && !entry.shortcut) {
-                    moveToLogic.actions.openMoveToModal([entry])
+                    if (!refuseMovingSource([entry], values.folderMutationDisabledReason)) {
+                        moveToLogic.actions.openMoveToModal([entry])
+                    }
                 } else {
                     lemonToast.error("Couldn't find this workflow in project files")
                 }
