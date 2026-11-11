@@ -4,7 +4,12 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
-import { fileSystemEntryToAnalytics, fromPostHogItems, newCanvasSpaceIdForPath } from './analyticsUtils'
+import {
+    analyticsItemSelectionId,
+    fileSystemEntryToAnalytics,
+    fromPostHogItems,
+    newCanvasSpaceIdForPath,
+} from './analyticsUtils'
 
 const canvas = (overrides: Partial<CanvasApi>): CanvasApi =>
     ({
@@ -48,6 +53,13 @@ describe('analyticsUtils', () => {
         expect(
             items.some(({ key, href }) => key === 'product_analytics' && href === '/analytics/product-analytics')
         ).toBe(railEnabled)
+    })
+
+    it('gives two file system rows for the same object different selection ids', () => {
+        const growth = { type: 'insight', id: 'i1', entry: { id: 'fs-growth' } as FileSystemEntry } as const
+        const finance = { type: 'insight', id: 'i1', entry: { id: 'fs-finance' } as FileSystemEntry } as const
+
+        expect(analyticsItemSelectionId(growth)).not.toEqual(analyticsItemSelectionId(finance))
     })
 
     it('reads an item from its file system row, resolving the creator and the escaped name', () => {

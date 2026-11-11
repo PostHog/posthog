@@ -222,7 +222,7 @@ describe('analyticsListLogic', () => {
         logic.mount()
         router.actions.push(urls.analyticsList())
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setRowSelection({ 'insight:i1': true, 'notebook:n1': true })
+        logic.actions.setRowSelection({ 'entry:fs-i1': true, 'entry:fs-n1': true })
         expect(logic.values.selectedCount).toBe(2)
 
         change(logic)
@@ -237,9 +237,9 @@ describe('analyticsListLogic', () => {
         router.actions.push(urls.analyticsList())
         await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.setRowSelection({ 'insight:i1': true, 'insight:gone': true })
+        logic.actions.setRowSelection({ 'entry:fs-i1': true, 'entry:fs-gone': true })
 
-        expect(logic.values.visibleRowSelection).toEqual({ 'insight:i1': true })
+        expect(logic.values.visibleRowSelection).toEqual({ 'entry:fs-i1': true })
         expect(logic.values.selectedCount).toBe(1)
     })
 
