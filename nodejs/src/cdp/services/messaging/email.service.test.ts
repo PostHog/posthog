@@ -520,42 +520,12 @@ describe('EmailService', () => {
                             provider: 'mailjet',
                         },
                     })
-                    const redis = createRedisV2PoolFromConfig({
-                        connection: hub.CDP_REDIS_HOST
-                            ? {
-                                  url: hub.CDP_REDIS_HOST,
-                                  options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                              }
-                            : { url: hub.REDIS_URL },
-                        poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                        poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                    })
-                    const limiter = new RateLimiterService(redis, { name: 'unknown-provider-budget-test' })
-                    const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
-                    jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
-                    const limitedService = new EmailService(
+                    const limitedService = createService(
+                        { teamEmailCapMode: teamCap ? 'enforce' : 'off', teamEmailTierDailyCaps: [1] },
                         {
-                            sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                            sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                            sesRegion: hub.SES_REGION,
-                            sesEndpoint: hub.SES_ENDPOINT,
-                            sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
-                            sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                            teamEmailCapMode: teamCap ? 'enforce' : 'off',
-                            teamEmailTierDailyCaps: [1],
-                        },
-                        hub.integrationManager,
-                        configService,
-                        hub.ENCRYPTION_SALT_KEYS,
-                        hub.SITE_URL,
-                        new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                        new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                        new RecipientsManagerService(hub.postgres),
-                        null,
-                        { report: jest.fn() },
-                        undefined,
-                        limiter,
-                        limiter
+                            workflowEmailRateLimiter: createRateLimiter('unknown-provider-workflow-budget-test'),
+                            teamEmailRateLimiter: createRateLimiter('unknown-provider-team-budget-test'),
+                        }
                     )
                     if (workflowLimit) {
                         invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
