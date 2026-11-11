@@ -12,11 +12,10 @@ def _config(api_key: str = "cog_test", org_id: str = "org-abc") -> DevinAISource
     return DevinAISourceConfig(api_key=api_key, org_id=org_id)
 
 
-def _answers(first: list[int], then: int | BaseException = 403) -> Callable[[RecordedRequest], ScriptedResponse]:
-    queue = list(first)
-
-    def respond(_request: RecordedRequest) -> ScriptedResponse:
-        answer: int | BaseException = queue.pop(0) if queue else then
+def _answers_by_path(answers: dict[str, int | BaseException]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    # Every path not named gets a 403, the answer of a table the key has no permission for.
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        answer = next((a for suffix, a in answers.items() if request.path.endswith(suffix)), 403)
         if isinstance(answer, BaseException):
             raise answer
         return ScriptedResponse(status=answer)
@@ -74,19 +73,25 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             # A key without ViewOrgSessions can still sync the tables it has a permission for.
-            ("one_other_table_readable", [403, 403, 200], 403, True, None),
-            ("probe_unreachable", [403], ConnectionError("boom"), False, "Could not reach the Devin API"),
+            ("one_other_table_readable", {"/playbooks": 200}, True, None),
+            (
+                "readable_table_after_a_probe_outage",
+                {"/sessions/insights": ConnectionError("boom"), "/automations": 200},
+                True,
+                None,
+            ),
+            ("probe_outage_and_no_readable_table", {"/sessions/insights": ConnectionError("boom")}, False, "Try again"),
+            ("server_error_and_no_readable_table", {"/playbooks": 500}, False, "Try again"),
         ]
     )
     def test_forbidden_sessions_at_create_probes_other_tables(
         self,
         _name: str,
-        first: list[int],
-        then: int | BaseException,
+        answers: dict[str, int | BaseException],
         expected_ok: bool,
         expected_error: str | None,
     ) -> None:
-        with scripted_network(_answers(first, then)):
+        with scripted_network(_answers_by_path(answers)):
             ok, err = DevinAISource().validate_credentials(_config(), team_id=1)
         assert ok is expected_ok
         if expected_error is None:

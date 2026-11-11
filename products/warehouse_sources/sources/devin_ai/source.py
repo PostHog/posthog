@@ -163,15 +163,23 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
                 )
             # A valid key may lack the scope for some tables, so accept it at source-create when it can read
             # at least one table. A key that reads none would only create tables that fail on their first sync.
-            try:
-                readable = any(
-                    validate_devin_ai_credentials(config.api_key, config.org_id, endpoint) == 200
-                    for endpoint in _FALLBACK_PROBE_ENDPOINTS
+            # A throttle, a 5xx or a dropped connection is not a denial, so it gives a retry message instead.
+            probe_was_transient = False
+            for fallback in _FALLBACK_PROBE_ENDPOINTS:
+                try:
+                    fallback_status = validate_devin_ai_credentials(config.api_key, config.org_id, fallback)
+                except Exception:
+                    probe_was_transient = True
+                    continue
+                if fallback_status == 200:
+                    return True, None
+                if fallback_status == 429 or fallback_status >= 500:
+                    probe_was_transient = True
+            if probe_was_transient:
+                return (
+                    False,
+                    "Could not reach the Devin API to check your service user's permissions. Try again in a few minutes.",
                 )
-            except Exception:
-                return False, "Could not reach the Devin API. Check your network connection and try again."
-            if readable:
-                return True, None
             return (
                 False,
                 "Your Devin service user can't read any data in this organization. Check that the organization ID belongs to the same organization as the API key, and grant the service user the permissions listed above.",
