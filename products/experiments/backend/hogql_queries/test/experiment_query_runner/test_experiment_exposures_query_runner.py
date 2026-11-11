@@ -2804,7 +2804,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             )
         )
 
-        # Query end_date cleared -> reads as running, warning evaluated, also when as_of pins the window end.
+        # Query end_date cleared -> reads as running, warning evaluated.
         for as_of in (None, "2024-01-05T00:00:00+00:00"):
             risk = _runner(None, as_of)._evaluate_bias_risk(total_exposures, MultipleVariantHandling.EXCLUDE)
             assert risk is not None

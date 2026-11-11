@@ -169,8 +169,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # window the query declares. Otherwise the key can describe a window the result was not
         # computed for. A running experiment serializes end_date=None, which expands to now() here.
         # The expansion does not change self.query, so the moving instant stays out of the cache key
-        # and the cache TTL governs refresh. as_of ends the window at an earlier instant, such as a recalculation's
-        # query_to, without setting end_date. end_date keeps meaning "stopped", which the bias check reads.
+        # and the cache TTL governs refresh.
         self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
         # The window comes from the request, and every day in it costs one row per variant in _fill_date_gaps and one
@@ -196,13 +195,11 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 raise ValidationError("as_of must include a timezone offset")
             if any(d is not None and d.tzinfo is None for d in (self.window_start, self.window_end_date)):
                 raise ValidationError("start_date and end_date must include a timezone offset when as_of is set")
-            # An as_of before start_date comes from a recalculation of an earlier start date, so it does not
-            # describe this window.
+            # An as_of before start_date belongs to a recalculation of an earlier start date.
             if self.window_start is not None and query_as_of < self.window_start:
                 query_as_of = None
         now = datetime.now(UTC)
-        # _fill_date_gaps emits one row per day up to the window end, so a far-future as_of would allocate
-        # millions of rows. A recalculation's query_to is never later than now, so the clamp does not move it.
+        # _fill_date_gaps emits one row per day up to the window end, so a far-future as_of would allocate millions.
         self.as_of = min(query_as_of, now) if query_as_of else self.window_end_date or now
 
         # Holdout is intentionally not appended: holdout users were never exposed to
