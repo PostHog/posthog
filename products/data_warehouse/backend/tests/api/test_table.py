@@ -249,15 +249,13 @@ class TestTable(APIBaseTest):
             name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
         )
         url = f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}"
-        with patch("products.data_warehouse.backend.presentation.views.table.delete_notebook_table_node") as drop_node:
-            response = self.client.delete(url) if method == "delete" else self.client.patch(url, {"deleted": True})
+        response = self.client.delete(url) if method == "delete" else self.client.patch(url, {"deleted": True})
 
         assert response.status_code == expected_status
 
         table.refresh_from_db()
 
         assert table.deleted is True
-        drop_node.assert_called_once_with(self.team.pk, str(table.id))
         assert ActivityLog.objects.filter(
             scope="DataWarehouseTable", item_id=str(table.id), activity="deleted", user=self.user
         ).exists()
