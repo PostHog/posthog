@@ -24,7 +24,7 @@ export function WizardRailButton({ projectId }: { projectId: string }): JSX.Elem
             onOpenChange={(nextOpen) => {
                 setOpen(nextOpen)
                 if (nextOpen) {
-                    clickState('today_rail')
+                    clickState('today_top_bar')
                     markRunsSeen()
                 }
             }}

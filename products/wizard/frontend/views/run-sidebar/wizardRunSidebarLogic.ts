@@ -22,7 +22,7 @@ import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 export type WizardRailState = 'idle' | 'running' | 'completed' | 'failed'
 
 // pinned: analytics property values, renaming breaks dashboards
-export type WizardRunStateLocation = 'navbar_sidebar' | 'today_rail'
+export type WizardRunStateLocation = 'navbar_sidebar' | 'today_rail' | 'today_top_bar'
 
 const DETECTED_SOURCES_REFRESH_MS = 30_000
 

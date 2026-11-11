@@ -1,6 +1,6 @@
-// While a run is active the hog keeps casting and a ring around the tile fills with the run's progress, so the
-// run reads as in progress from anywhere in the app. The rail tile forces every svg inside it to its icon size,
-// so the ring is a masked border rather than an svg, and the badge icons shrink with a transform.
+// While a run is active the hog keeps casting and a ring around the button fills with the run's progress, so the
+// run reads as in progress from anywhere in the app. The button sizes every svg inside it, so the ring is a masked
+// border rather than an svg, and the badge icons shrink with a transform.
 
 .WizardRailButton__hog--working {
     transform-origin: 50% 85%;
@@ -17,8 +17,8 @@
         var(--border) calc(var(--wizard-rail-progress) * 1turn) 1turn
     );
 
-    // The tile is rounded-md; the ring sits 3px outside it, so its corners grow by the same amount.
-    border-radius: calc(var(--radius-md) + 3px);
+    // The ring sits 3px outside the button, so its corners grow by the same amount.
+    border-radius: calc(var(--radius-sm) + 3px);
     mask:
         linear-gradient(#000 0 0) content-box exclude,
         linear-gradient(#000 0 0);

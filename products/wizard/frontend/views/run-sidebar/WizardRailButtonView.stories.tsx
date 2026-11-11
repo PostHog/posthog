@@ -11,7 +11,7 @@ const meta: Meta<typeof WizardRailButtonView> = {
     },
     decorators: [
         (Story) => (
-            <div className="flex w-[60px] justify-center bg-[var(--chrome)] py-3">
+            <div className="flex justify-center bg-[var(--chrome)] p-3">
                 <Story />
             </div>
         ),
