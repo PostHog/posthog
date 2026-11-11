@@ -173,7 +173,7 @@ const SesRejectEventSchema = SesCommonEventBase.extend({
 
 const SesDeliveryDelayEventSchema = SesCommonEventBase.extend({
     eventType: z.literal('DeliveryDelay'),
-    deliveryDelay: z.object({ timestamp: z.string(), delayType: z.string().optional() }).optional(),
+    deliveryDelay: z.object({ timestamp: z.string() }).optional(),
 })
 
 const SesEventRecordSchema = z.union([
