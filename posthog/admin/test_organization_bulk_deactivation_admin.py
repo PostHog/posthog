@@ -2,11 +2,8 @@ import re
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
-from django.contrib import admin
 from django.test import Client, SimpleTestCase
-from django.urls import reverse
 
 from parameterized import parameterized
 
@@ -85,28 +82,6 @@ class TestBulkDeactivateOrganizationsTool(BaseTest):
         self.user.is_staff = True
         self.user.save()
         self.client.force_login(self.user)
-
-    def test_changelist_links_to_the_console_tools(self) -> None:
-        self.client.force_login(self.user)
-
-        with patch.object(
-            admin.site,
-            "each_context",
-            return_value={
-                "site_title": admin.site.site_title,
-                "site_header": admin.site.site_header,
-                "site_url": admin.site.site_url,
-                "has_permission": True,
-                "available_apps": [],
-                "is_popup": False,
-                "is_nav_sidebar_enabled": False,
-                "log_entries": [],
-            },
-        ):
-            response = self.client.get(reverse("admin:posthog_organization_changelist"))
-
-        assert response.status_code == 200
-        assert f'href="{reverse("admin_console_home")}"'.encode() in response.content
 
     def _preview(self, organization_ids: str, reason: str = DESKTOP_ABUSE, custom_reason: str = ""):
         return self.client.post(

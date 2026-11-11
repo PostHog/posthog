@@ -15,8 +15,10 @@ from products.managed_warehouse.backend.facade.contracts import StaffActionOutco
 from products.managed_warehouse.backend.facade.staff import (
     deprovision_for_staff,
     get_duckgres_server_summary,
+    is_control_plane_configured,
     onboard_team_for_staff,
     organization_id_for_duckgres_server,
+    start_trino_compile_check,
 )
 
 MANAGED_WAREHOUSE = Owner(name="Managed warehouse", crest="managed-warehouse")
@@ -58,6 +60,24 @@ def deprovision(request: HttpRequest, obj: Model, form: forms.Form | None) -> Ht
     user = cast(User, request.user)
     outcome = deprovision_for_staff(obj.pk, actor_email=user.email, actor_distinct_id=str(user.distinct_id))
     return _report(request, outcome)
+
+
+class CheckTrinoCompileForm(forms.Form):
+    explain = forms.BooleanField(required=False, label="Also plan each query on Trino")
+    limit = forms.IntegerField(
+        required=False, min_value=1, help_text="Check at most this many saved queries. Leave empty to check all."
+    )
+
+
+def check_trino_compile(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert form is not None
+    run_id = start_trino_compile_check(obj.pk, explain=form.cleaned_data["explain"], limit=form.cleaned_data["limit"])
+    messages.success(
+        request,
+        f"Started Trino compile check {run_id}. Filter the trino_compile_check_result "
+        f"and trino_compile_check_completed events on run_id = '{run_id}'.",
+    )
+    return None
 
 
 @console.register_panel
@@ -117,6 +137,31 @@ class ManagedWarehousePanel(Panel):
                 undo_hint="This cannot be undone here. The team keeps its schema, and the schema name is permanent.",
             ),
             deprovision_operation,
+        ]
+
+
+@console.register_panel
+class TrinoCompileCheckPanel(Panel):
+    record = "team"
+    key = "trino-compile-check"
+    title = "Trino compile check"
+    owner = MANAGED_WAREHOUSE
+
+    def facts(self, obj: Model) -> list[Fact]:
+        if is_control_plane_configured():
+            return [Fact(label="Managed warehouse control plane", value="Configured", tone=Tone.SUCCESS)]
+        return [Fact(label="Managed warehouse control plane", value="Not configured on this host", tone=Tone.WARNING)]
+
+    def operations(self, obj: Model) -> list[Operation]:
+        return [
+            Operation(
+                key="start",
+                label="Start Trino compile check",
+                handler=check_trino_compile,
+                description="Compiles the team's saved queries to Trino SQL in a background task. "
+                "The team sees nothing.",
+                form_class=CheckTrinoCompileForm,
+            )
         ]
 
 
