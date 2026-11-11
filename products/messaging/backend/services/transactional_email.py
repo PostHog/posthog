@@ -4,6 +4,7 @@ per send, so sends get the workflow's metrics, run history and versions."""
 import re
 import json
 import time
+import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from email.utils import parseaddr
@@ -561,7 +562,15 @@ def send_code_email(
         sandbox_send = _as_an_earlier_sandbox_send(team, email, accepted_send, idempotency_key, sandbox_warning)
         if sandbox_send is None:
             raise
-    return _queue(team.id, hog_flow_id, {**payload, "send": sandbox_send}, send_accepted_transactional_email)
+    retry_warning = _sandbox_sender_warning(team.id)
+    retried = _queue(
+        team.id,
+        hog_flow_id,
+        {**payload, "send": sandbox_send},
+        send_accepted_transactional_email,
+        sandbox_warning=retry_warning,
+    )
+    return dataclasses.replace(retried, warnings=(retry_warning,))
 
 
 def _as_an_earlier_sandbox_send(
