@@ -1,6 +1,6 @@
-import { ConversationState, ConversationTurn, NodeLoad, NodeSideContent } from '../types'
 import { makeMessage, makeNodeDetail } from './testFixtures'
-import { toThread } from './toThread'
+import { toThread } from './traceThread'
+import { ConversationState, ConversationTurn, NodeLoad, NodeSideContent } from './types'
 
 function readyTurns(thread: ConversationState): ConversationTurn[] {
     if (thread.status !== 'ready') {
@@ -9,7 +9,7 @@ function readyTurns(thread: ConversationState): ConversationTurn[] {
     return thread.turns
 }
 
-describe('toThread', () => {
+describe('traceThread', () => {
     const base = { traceId: 'trace-1', createdAt: '2026-09-01T10:15:00Z' }
     const answered = (error: string | null = null): NodeLoad => ({
         status: 'ready',
