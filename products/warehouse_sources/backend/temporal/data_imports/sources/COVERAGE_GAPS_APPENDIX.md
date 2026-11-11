@@ -12188,14 +12188,15 @@ Note: The official complete Markdown export embeds the version 2 OpenAPI specifi
 
 ## Teamwork — gaps
 
-Today (9): `comments`, `companies`, `milestones`, `people`, `projects`, `tags`, `tasklists`, `tasks`, `timelogs`
+Today (12): `comments`, `companies`, `milestones`, `people`, `project_categories`, `projects`, `tags`, `tasklists`, `tasks`, `timelogs`, `workflow_stages`, `workflows`
 
 Diffed against: <https://apidocs.teamwork.com/api/oas/download?slug=teamwork&api_version=v3>
 
-- [ ] `workflows/{workflowId}/stages.json` — board stage lookup resolving the stage each task sits in — no funnel or cycle-time analysis without it (high)
-- [ ] `people/utilization.json` — Teamwork's headline billable-utilization metric, not derivable from raw timelogs alone (high)
-- [ ] `reporting/financial/data.json (and /totals.json)` — project profitability, cost and revenue — the core financial fact table (high)
-- [ ] `projectcategories.json` — category lookup for the projects we already sync (high)
+- [x] `workflows/{workflowId}/stages.json` — board stage lookup resolving the stage each task sits in — no funnel or cycle-time analysis without it (high) → `workflow_stages` (full refresh, fan-out over `workflows`)
+- ~~`people/utilization.json` — Teamwork's headline billable-utilization metric, not derivable from raw timelogs alone (high)~~ — skipped: a report computed over a caller-chosen date range, grouping and user filters, whose default body is an undocumented legacy shape, not a record list
+- ~~`reporting/financial/data.json (and /totals.json)` — project profitability, cost and revenue — the core financial fact table (high)~~ — skipped: a report builder whose rows and metrics depend on a caller-chosen `groupBy` chain and `metrics` list, with no stable row identity; `totals.json` is one summary object
+- [x] `projectcategories.json` — category lookup for the projects we already sync (high) → `project_categories` (full refresh, single page)
+- [x] `workflows.json` — the workflow (board) list that `workflow_stages` fans out over (medium) → `workflows` (full refresh)
 - [ ] `expenses.json (v1)` — non-time project costs, required for accurate project margin (medium)
 - [ ] `invoices.json (v1)` — billed amounts per project, joins timelogs to revenue (medium)
 - [ ] `timesheets.json` — submitted/approved timesheet state on top of raw timelogs (medium)
