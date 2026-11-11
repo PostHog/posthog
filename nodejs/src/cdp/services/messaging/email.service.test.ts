@@ -501,7 +501,7 @@ describe('EmailService', () => {
 
                 expect(result.error).toBe(error)
                 expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(ses.sent).toEqual([])
             })
             it.each([
                 { budget: 'workflow', workflowLimit: true, teamCap: false },
@@ -542,7 +542,6 @@ describe('EmailService', () => {
                             sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                             sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
                             teamEmailCapMode: teamCap ? 'enforce' : 'off',
-                            teamEmailTierHourlyCaps: [1],
                             teamEmailTierDailyCaps: [1],
                         },
                         hub.integrationManager,
@@ -558,9 +557,6 @@ describe('EmailService', () => {
                         limiter,
                         limiter
                     )
-                    jest.spyOn(limitedService.sesV2Client!, 'send').mockResolvedValue({
-                        MessageId: 'test-message-id',
-                    } as never)
                     if (workflowLimit) {
                         invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
                     }
@@ -576,6 +572,7 @@ describe('EmailService', () => {
                     expect(sent.finished).toBe(true)
                     expect(sent.error).toBeUndefined()
                     expect(sent.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
+                    expect(ses.sent.map((message) => message.from)).toEqual(['"Test User" <test@posthog.com>'])
                 }
             )
             it('should send identical from and feedback forwarding args', async () => {
