@@ -6,10 +6,10 @@ import re
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from django.core.cache import cache
-
 import psycopg
 import structlog
+
+from posthog.redis import get_client
 
 from products.managed_warehouse.backend.common import is_dev_mode
 from products.managed_warehouse.backend.facade.contracts import (
@@ -19,6 +19,8 @@ from products.managed_warehouse.backend.facade.contracts import (
 from products.managed_warehouse.backend.storage import connect_to_duckgres
 
 if TYPE_CHECKING:
+    import redis
+
     from products.managed_warehouse.backend.models import DuckgresServer
 
 logger = structlog.get_logger(__name__)
@@ -26,6 +28,8 @@ logger = structlog.get_logger(__name__)
 _DUCKGRES_HOSTNAME_REFUSAL = re.compile(r"this server requires connecting via ([^\n]+)")
 _DUCKGRES_MANAGED_SUFFIX = re.compile(r"<org-id>(\S+)")
 
+# A Redis that stops replying must not hold the gate activity past its deadline.
+PROBE_CACHE_SOCKET_TIMEOUT_SECONDS = 1.0
 PROBE_APPLICATION_NAME = "ducklake-register-probe"
 PROBE_CONNECT_TIMEOUT_SECONDS = 15
 # An organization that connects does not lose its duckgres organization, so the answer stays for a day.
@@ -71,8 +75,8 @@ def classify_duckgres_refusal(
 def probe_duckgres_organization(server: DuckgresServer) -> DuckgresOrganizationStatus:
     """Ask duckgres, with a short connection, whether it has the organization of `server`.
 
-    The answer is cached per organization: AVAILABLE for a day, REFUSED for ten minutes and UNKNOWN for an hour. The probe does nothing in dev mode, where connections come from
-    environment variables and no organization is provisioned.
+    The answer is cached per organization: AVAILABLE for a day, REFUSED for ten minutes and UNKNOWN for an hour. The probe does nothing in dev mode, where
+    connections come from environment variables and no organization is provisioned.
     """
     if is_dev_mode():
         return DuckgresOrganizationStatus.UNKNOWN
@@ -80,10 +84,12 @@ def probe_duckgres_organization(server: DuckgresServer) -> DuckgresOrganizationS
     organization_id = str(server.organization_id)
     cache_key = f"managed_warehouse:duckgres_organization_probe:{organization_id}"
     try:
-        cached = cache.get(cache_key)
+        cached = _cache_client().get(cache_key)
     except Exception:
         logger.warning("managed_warehouse_duckgres_probe_cache_failure", exc_info=True)
         cached = None
+    if isinstance(cached, bytes):
+        cached = cached.decode()
     if cached in set(DuckgresOrganizationStatus):
         return DuckgresOrganizationStatus(cached)
 
@@ -94,10 +100,17 @@ def probe_duckgres_organization(server: DuckgresServer) -> DuckgresOrganizationS
         DuckgresOrganizationStatus.UNKNOWN: PROBE_UNKNOWN_CACHE_TIMEOUT_SECONDS,
     }[status]
     try:
-        cache.set(cache_key, status.value, timeout=timeout)
+        _cache_client().set(cache_key, status.value, ex=timeout)
     except Exception:
         logger.warning("managed_warehouse_duckgres_probe_cache_failure", exc_info=True)
     return status
+
+
+def _cache_client() -> redis.Redis:
+    return get_client(
+        socket_timeout=PROBE_CACHE_SOCKET_TIMEOUT_SECONDS,
+        socket_connect_timeout=PROBE_CACHE_SOCKET_TIMEOUT_SECONDS,
+    )
 
 
 def _probe_connection(server: DuckgresServer, organization_id: str) -> DuckgresOrganizationStatus:

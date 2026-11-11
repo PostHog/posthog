@@ -3,9 +3,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from django.core.cache import cache
-
 import psycopg
+import redis.exceptions
 
 from products.managed_warehouse.backend import duckgres_availability
 from products.managed_warehouse.backend.duckgres_availability import (
@@ -22,10 +21,14 @@ REFUSAL = (
 
 @pytest.fixture(autouse=True)
 def _fresh_probe_state(monkeypatch):
-    cache.clear()
+    _redis().flushdb()
     monkeypatch.setattr(duckgres_availability, "is_dev_mode", lambda: False)
     yield
-    cache.clear()
+    _redis().flushdb()
+
+
+def _redis() -> Any:
+    return duckgres_availability._cache_client()
 
 
 def _server(host: str = MANAGED_HOST) -> Any:
@@ -93,14 +96,23 @@ def test_probe_closes_the_connection_it_opens(monkeypatch) -> None:
 def test_probe_caches_each_answer_for_its_own_time(_name, error, expected, ttl, monkeypatch) -> None:
     connect = MagicMock(side_effect=error)
     monkeypatch.setattr(duckgres_availability, "connect_to_duckgres", connect)
-    spy = MagicMock(wraps=cache)
-    monkeypatch.setattr(duckgres_availability, "cache", spy)
 
     assert probe_duckgres_organization(_server()) is expected
     assert probe_duckgres_organization(_server()) is expected
 
     assert connect.call_count == 1
-    assert spy.set.call_args.kwargs["timeout"] == ttl
+    assert _redis().ttl("managed_warehouse:duckgres_organization_probe:org-1") == pytest.approx(ttl, abs=5)
+
+
+@pytest.mark.parametrize("failing_call", ["get", "set"])
+def test_probe_still_answers_when_redis_stops_replying(failing_call, monkeypatch) -> None:
+    client = MagicMock()
+    client.get.return_value = None
+    getattr(client, failing_call).side_effect = redis.exceptions.TimeoutError("timed out")
+    monkeypatch.setattr(duckgres_availability, "get_client", lambda **kwargs: client)
+    monkeypatch.setattr(duckgres_availability, "connect_to_duckgres", MagicMock())
+
+    assert probe_duckgres_organization(_server()) is DuckgresOrganizationStatus.AVAILABLE
 
 
 def test_probe_does_not_connect_in_dev_mode(monkeypatch) -> None:
