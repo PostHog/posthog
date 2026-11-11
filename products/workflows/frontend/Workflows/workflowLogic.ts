@@ -4792,8 +4792,10 @@ export const workflowLogic = kea<workflowLogicType>([
             } catch (error) {
                 // A 400 names what in the draft fails validation. A stale/expired token (the draft moved
                 // since the preview) and plain failures get the generic message.
+                const genericMessage = 'Publishing failed. Review the staged changes and try again.'
                 const validationDetail = error instanceof ApiError && error.status === 400 ? error.detail : null
-                lemonToast.error(validationDetail || 'Publishing failed. Review the staged changes and try again.')
+                // The detail can repeat step names and template text, so analytics gets the generic message.
+                lemonToast.error(validationDetail || genericMessage, { capturedMessage: genericMessage })
                 actions.loadWorkflow()
             } finally {
                 actions.setDraftActionPending(null)

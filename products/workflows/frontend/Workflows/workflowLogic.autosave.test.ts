@@ -1172,7 +1172,9 @@ describe('workflowLogic auto-save', () => {
                     logic.actions.confirmPublishDraft('old-token')
                     await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
 
-                    expect(errorToast).toHaveBeenCalledWith(toast)
+                    expect(errorToast).toHaveBeenCalledWith(toast, {
+                        capturedMessage: 'Publishing failed. Review the staged changes and try again.',
+                    })
                     expect(reloads).toBe(1)
                     expect(logic.values.draftActionPending).toBeNull()
                 }
