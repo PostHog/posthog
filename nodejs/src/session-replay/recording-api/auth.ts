@@ -1,9 +1,19 @@
 import { NextFunction, Request, Response } from 'ultimate-express'
 
-import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt, parseJwtKeys } from '~/cdp/utils/jwt-utils'
-import { logger } from '~/common/utils/logger'
+import {
+    JWT,
+    PosthogJwtAudience,
+    hasJwtKeys,
+    makeOptionalJwt,
+    parseJwtKeys,
+} from '@posthog/hog-engine/cdp/utils/jwt-utils'
+import { logger } from '@posthog/node-common/utils/logger'
 
-import { DEV_RECORDING_API_BLOCKS_JWT_SECRET, DEV_RECORDING_API_JWT_SECRET, RecordingApiRole } from './types'
+import {
+    DEV_RECORDING_API_BLOCKS_JWT_SECRET,
+    DEV_RECORDING_API_JWT_SECRET,
+    RecordingApiRole,
+} from '~/session-replay/recording-api/types'
 
 /**
  * Authorization for recording-api routes.

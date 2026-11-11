@@ -1,7 +1,8 @@
 import { register } from 'prom-client'
 
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { defaultConfig } from '~/common/config/config'
-import { logger } from '~/common/utils/logger'
 
 import { SesWebhookHandler, nonexistentRecipients, normalizeClickUrl, resolveClickDestination } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'

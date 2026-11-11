@@ -1,20 +1,23 @@
-import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
-import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
+import '@posthog/node-common/testing/mocks/consumer.mock'
+import { mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
-import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
-import { closeHub, createHub } from '~/common/utils/db/hub'
-
-import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { currentRuntimeContractHash } from '@posthog/hog-engine/cdp/utils/filter-runtime'
+import { GroupReadRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
 import {
     createOrganization,
     createTeam,
     createTestTeamFixture,
     getTeam,
     updateOrganizationAvailableFeatures,
-} from '../../../tests/helpers/sql'
+} from '@posthog/node-common/testing/sql'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+
+import { closeHub, createHub } from '~/common/utils/db/hub'
+
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import {
@@ -33,8 +36,6 @@ import {
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { currentRuntimeContractHash } from '../utils/filter-runtime'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 import { counterEventNameSource, counterUnmatchedEventName, counterUnmatchedEventNameInvoked } from './metrics'
 

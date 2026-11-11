@@ -1,7 +1,7 @@
 version: 1
 owners: []
 rules:
-    - match: ['/behavioral_cohorts_migrations/', '/capture/']
+    - match: '/behavioral_cohorts_migrations/'
       owners: team-ingestion
     - match: '/common/cookieless/'
       owners: team-web-analytics
@@ -13,25 +13,6 @@ rules:
       owners: team-feature-flags
     - match: '/hogql/'
       owners: team-data-tools
-    - match: ['/pgcollector/', '/pgapi/']
-      owners: team-ingestion
-    - match:
-          - '/ingestion-consumer/'
-          - '/kafka-assigner-proto/'
-          - '/kafka-assigner/'
-          - '/kafka-deduplicator/'
-          - '/personhog-changelog-relay/'
-          - '/personhog-common/'
-          - '/personhog-coordination/'
-          - '/personhog-leader/'
-          - '/personhog-parity-monitor/'
-          - '/personhog-proto/'
-          - '/personhog-replica/'
-          - '/personhog-router/'
-          - '/personhog-writer/'
-          - '/property-defs-rs/'
-          - '/property-vals-rs/'
-      owners: team-ingestion
     - match:
           - '/ai-research/'
           - '/replay-anonymizer/'

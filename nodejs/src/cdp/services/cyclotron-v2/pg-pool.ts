@@ -1,7 +1,7 @@
 import { Pool, PoolClient, PoolConfig } from 'pg'
 import { Counter } from 'prom-client'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 export type CyclotronPoolName = 'worker' | 'manager' | 'janitor' | 'subscription_matcher'
 

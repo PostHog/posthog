@@ -1,0 +1,234 @@
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use common_types::token::InvalidTokenReason;
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum CaptureResponseCode {
+    Ok = 1,
+    NoContent = 2,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct CaptureResponse {
+    pub status: CaptureResponseCode,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota_limited: Option<Vec<String>>,
+}
+
+impl IntoResponse for CaptureResponse {
+    fn into_response(self) -> Response {
+        match self.status {
+            CaptureResponseCode::NoContent => StatusCode::NO_CONTENT.into_response(),
+            CaptureResponseCode::Ok => (StatusCode::OK, Json(self)).into_response(),
+        }
+    }
+}
+
+#[derive(Clone, Error, Debug)]
+pub enum CaptureError {
+    #[error("failed to decode request: {0}")]
+    RequestDecodingError(String),
+    #[error("failed to parse request: {0}")]
+    RequestParsingError(String),
+    #[error("failed to hydrate events from request: {0}")]
+    RequestHydrationError(String),
+
+    #[error("request holds no event")]
+    EmptyBatch,
+    #[error("request missing data payload")]
+    EmptyPayload,
+    #[error("event submitted with an empty event name")]
+    MissingEventName,
+    #[error("event submitted without a distinct_id")]
+    MissingDistinctId,
+    #[error("event submitted with invalid cookieless mode")]
+    InvalidCookielessMode,
+    #[error("event submitted with invalid timestamp")]
+    InvalidTimestamp,
+    #[error("replay event submitted without snapshot data")]
+    MissingSnapshotData,
+    #[error("replay event submitted without session id")]
+    MissingSessionId,
+    #[error("replay event submitted without window id")]
+    MissingWindowId,
+    #[error("replay event has invalid session id")]
+    InvalidSessionId,
+
+    #[error("event submitted without an api_key")]
+    NoTokenError,
+    #[error("batch submitted with inconsistent api_key values")]
+    MultipleTokensError,
+    #[error("API key is not valid: {0}")]
+    TokenValidationError(#[from] InvalidTokenReason),
+
+    #[error("transient error, please retry")]
+    RetryableSinkError,
+    #[error("maximum event size exceeded: {0}")]
+    EventTooBig(String),
+    /// An AI-lane event over the deployment's per-event ceiling, raised by
+    /// `process_events` before the sink. Separate from [`Self::EventTooBig`]
+    /// because the two differ in what has already happened when they fire: the
+    /// sink raises `EventTooBig` for one message after earlier events in the
+    /// batch were enqueued, while this one refuses the whole request with
+    /// nothing sent. Warning counts and drop metrics both depend on that.
+    #[error("maximum AI event size exceeded: {0}")]
+    AiEventTooBig(String),
+    #[error("invalid event could not be processed")]
+    NonRetryableSinkError,
+
+    #[error("billing limit reached")]
+    BillingLimit,
+
+    #[error("rate limited")]
+    RateLimited,
+
+    #[error("rate limit exceeded: events per minute")]
+    GlobalRateLimitExceeded(),
+
+    #[error("payload empty after filtering invalid event types")]
+    EmptyPayloadFiltered,
+
+    #[error("event {0} is not an AI event; send it to the analytics endpoint")]
+    NonAiEventOnAiLane(String),
+
+    #[error("service unavailable: {0}")]
+    ServiceUnavailable(String),
+
+    #[error("client stopped sending data")]
+    BodyReadTimeout,
+
+    #[error("internal server error: {0}")]
+    InternalError(String),
+}
+
+impl From<serde_json::Error> for CaptureError {
+    fn from(e: serde_json::Error) -> Self {
+        CaptureError::RequestParsingError(e.to_string())
+    }
+}
+
+impl CaptureError {
+    pub fn to_metric_tag(&self) -> &'static str {
+        match self {
+            CaptureError::RequestDecodingError(_) => "req_decoding",
+            CaptureError::RequestParsingError(_) => "req_parsing",
+            CaptureError::RequestHydrationError(_) => "req_hydration",
+            CaptureError::EmptyBatch => "empty_batch",
+            CaptureError::EmptyPayload => "empty_payload",
+            CaptureError::MissingEventName => "no_event_name",
+            CaptureError::MissingDistinctId => "no_distinct_id",
+            CaptureError::InvalidCookielessMode => "invalid_cookieless",
+            CaptureError::InvalidTimestamp => "invalid_timestamp",
+            CaptureError::MissingSnapshotData => "no_snapshot",
+            CaptureError::MissingSessionId => "no_session_id",
+            CaptureError::MissingWindowId => "no_window_id",
+            CaptureError::InvalidSessionId => "invalid_session",
+            CaptureError::NoTokenError => "no_token",
+            CaptureError::MultipleTokensError => "multiple_tokens",
+            CaptureError::TokenValidationError(_) => "invalid_token",
+            CaptureError::RetryableSinkError => "retryable_sink",
+            CaptureError::EventTooBig(_) => "oversize_event",
+            CaptureError::AiEventTooBig(_) => "ai_event_too_big",
+            CaptureError::NonRetryableSinkError => "non_retry_sink",
+            CaptureError::BillingLimit => "billing_limit",
+            CaptureError::RateLimited => "rate_limited",
+            CaptureError::GlobalRateLimitExceeded() => "global_rate_limit",
+            CaptureError::EmptyPayloadFiltered => "empty_filtered_payload",
+            CaptureError::NonAiEventOnAiLane(_) => "non_ai_event_on_ai_lane",
+            CaptureError::ServiceUnavailable(_) => "service_unavailable",
+            CaptureError::BodyReadTimeout => "body_read_timeout",
+            CaptureError::InternalError(_) => "internal_error",
+        }
+    }
+}
+
+impl IntoResponse for CaptureError {
+    fn into_response(self) -> Response {
+        match self {
+            CaptureError::RequestDecodingError(_)
+            | CaptureError::RequestParsingError(_)
+            | CaptureError::RequestHydrationError(_)
+            | CaptureError::EmptyBatch
+            | CaptureError::EmptyPayload
+            | CaptureError::MissingEventName
+            | CaptureError::MissingDistinctId
+            | CaptureError::InvalidCookielessMode
+            | CaptureError::InvalidTimestamp
+            | CaptureError::NonRetryableSinkError
+            | CaptureError::MissingSessionId
+            | CaptureError::MissingWindowId
+            | CaptureError::InvalidSessionId
+            | CaptureError::EmptyPayloadFiltered
+            | CaptureError::NonAiEventOnAiLane(_)
+            | CaptureError::MissingSnapshotData => (StatusCode::BAD_REQUEST, self.to_string()),
+
+            CaptureError::EventTooBig(_) | CaptureError::AiEventTooBig(_) => {
+                (StatusCode::PAYLOAD_TOO_LARGE, self.to_string())
+            }
+
+            CaptureError::NoTokenError
+            | CaptureError::MultipleTokensError
+            | CaptureError::TokenValidationError(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
+
+            CaptureError::RetryableSinkError | CaptureError::ServiceUnavailable(_) => {
+                (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
+            }
+
+            CaptureError::BillingLimit | CaptureError::RateLimited => {
+                (StatusCode::TOO_MANY_REQUESTS, self.to_string())
+            }
+
+            CaptureError::GlobalRateLimitExceeded() => {
+                (StatusCode::TOO_MANY_REQUESTS, self.to_string())
+            }
+
+            CaptureError::BodyReadTimeout => (StatusCode::REQUEST_TIMEOUT, self.to_string()),
+
+            CaptureError::InternalError(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error".to_string(),
+            ),
+        }
+        .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::StatusCode;
+
+    #[test]
+    fn test_capture_response_into_response_ok() {
+        // Test Ok response
+        let response = CaptureResponse {
+            status: CaptureResponseCode::Ok,
+            quota_limited: None,
+        };
+        let response = response.into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_capture_response_into_response_no_content() {
+        // Test NoContent response
+        let response = CaptureResponse {
+            status: CaptureResponseCode::NoContent,
+            quota_limited: None,
+        };
+        let response = response.into_response();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[test]
+    fn test_internal_error_into_response() {
+        let error = CaptureError::InternalError("some detail".to_string());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+}

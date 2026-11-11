@@ -1,6 +1,7 @@
+import { MISSING_DATABASE_URL_MESSAGE } from '@posthog/node-common/config/database-url'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+
 import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '~/common/config/config'
-import { MISSING_DATABASE_URL_MESSAGE } from '~/common/config/database-url'
-import { PostgresRouter } from '~/common/utils/db/postgres'
 
 describe('config', () => {
     test('overrideWithEnv 1', () => {

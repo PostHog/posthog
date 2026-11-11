@@ -1,18 +1,23 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_PERSON } from '~/common/config/kafka-topics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
-import { UUIDT } from '~/common/utils/utils'
+import {
+    CyclotronJobInvocation,
+    CyclotronPerson,
+    HogFunctionInvocationGlobals,
+    HogFunctionTypeType,
+} from '@posthog/hog-engine/cdp/types'
+import { getPersonDisplayName } from '@posthog/hog-engine/cdp/utils'
+import { KAFKA_PERSON } from '@posthog/node-common/config/kafka-topics'
+import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { ClickHousePerson, HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
-import { getPersonDisplayName } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { parseBatch } from './message-parsing'
 

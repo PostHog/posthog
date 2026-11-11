@@ -2,12 +2,12 @@ import escapeStringRegexp from 'escape-string-regexp'
 import { deepEqual as equal } from 'fast-equals'
 import { Summary } from 'prom-client'
 
-import { stringToBoolean } from '~/common/utils/env-utils'
-import { mutatePostIngestionEventWithElementsList } from '~/common/utils/event'
-import { captureException } from '~/common/utils/posthog'
-import { createTrackedRE2 } from '~/common/utils/tracked-re2'
-import { stringify } from '~/common/utils/utils'
-import { Properties } from '~/plugin-scaffold'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { stringToBoolean } from '@posthog/node-common/utils/env-utils'
+import { mutatePostIngestionEventWithElementsList } from '@posthog/node-common/utils/event'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import { createTrackedRE2 } from '@posthog/node-common/utils/tracked-re2'
+import { stringify } from '@posthog/node-common/utils/utils'
 
 import {
     Action,

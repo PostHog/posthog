@@ -1,13 +1,14 @@
-import { mockFetch } from '../../../tests/helpers/mocks/request.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
 import { Message } from 'node-rdkafka'
 
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { FetchResponse } from '~/common/utils/request'
+import { createOrganization, createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { FetchResponse } from '@posthog/node-common/utils/request'
 
-import { createOrganization, createTeam, createTestTeamFixture, getTeam } from '../../../tests/helpers/sql'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+
 import { Action, ClickHouseTimestamp, Hook, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../types'
 import { createIncomingEvent, createKafkaMessage } from '../_tests/fixtures'
 import { LegacyWebhookService } from './legacy-webhook-service'

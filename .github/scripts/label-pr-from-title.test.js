@@ -141,7 +141,7 @@ const LABELS_FOR_FILES_CASES = [
     {
         files: [
             changed('services/sized/a.py', 2),
-            changed('nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts', 80),
+            changed('ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts', 80),
         ],
         expected: [],
         description: 'a sized rule ignores generated file lines',
@@ -351,7 +351,7 @@ for (const scope of [
 }
 
 for (const filename of [
-    'nodejs/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts',
+    'ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts',
     'packages/agent/src/run.ts',
     'posthog/migrations/1225_team_llm_gateway_overspend_allowance_usd.py',
     'posthog/tasks/team_llm_gateway_quota.py',

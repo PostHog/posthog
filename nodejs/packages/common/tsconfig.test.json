@@ -1,0 +1,15 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // ts-jest down-compiles dynamic `import()` to require() only when module=commonjs,
+        // so jest.resetModules() + dynamic-import patterns keep working under Jest. Our
+        // production tsconfig uses module: nodenext, which preserves real import() — and
+        // Jest can't execute those without --experimental-vm-modules.
+        "module": "commonjs",
+        // ts-jest 29.4.9's fixupCompilerOptionsForModuleKind hardcodes Node10 resolution
+        // when emitting CommonJS, regardless of what we declare here. Suppress the TS 6.0
+        // deprecation for that internal override; this needs revisiting at TS 7.0.
+        "moduleResolution": "node10",
+        "ignoreDeprecations": "6.0"
+    }
+}

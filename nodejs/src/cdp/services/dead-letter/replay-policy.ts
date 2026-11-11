@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import type { InvocationBuildFailure } from '@posthog/hog-engine/cdp/types'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import type { RawClickHouseEvent } from '../../../types'
-import type { InvocationBuildFailure } from '../../types'
 import { isOurFailure } from './cdp-dead-letter.service'
 
 /**

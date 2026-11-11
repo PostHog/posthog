@@ -1,6 +1,6 @@
 import { ElementType } from '~/types'
 
-// nodejs/src/common/utils/elements-chain.ts reads the same grammar under RE2. The browser has no
+// nodejs/packages/common/src/utils/elements-chain.ts reads the same grammar under RE2. The browser has no
 // RE2, so every scan here is a single pass over client-supplied input that cannot backtrack.
 
 const QUOTE = '"'

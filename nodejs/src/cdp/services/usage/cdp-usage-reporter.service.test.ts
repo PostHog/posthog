@@ -1,4 +1,4 @@
-import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
+import { UsageIngestionClient, UsageRecordInput } from '@posthog/node-common/usage-ingestion/client'
 
 import { CdpUsageReporterService } from './cdp-usage-reporter.service'
 

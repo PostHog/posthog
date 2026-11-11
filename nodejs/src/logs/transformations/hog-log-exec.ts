@@ -1,8 +1,7 @@
+import type { HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { sanitizeLogMessage } from '@posthog/hog-engine/cdp/utils'
+import { execHogImmediate } from '@posthog/hog-engine/cdp/utils/hog-exec'
 import { convertHogToJS } from '@posthog/hogvm'
-
-import type { HogFunctionType } from '~/cdp/types'
-import { sanitizeLogMessage } from '~/cdp/utils'
-import { execHogImmediate } from '~/cdp/utils/hog-exec'
 
 import { decodeLogAttributeValue, encodeLogAttributeValue } from '../attribute-value'
 import type { LogRecord } from '../log-record-avro'

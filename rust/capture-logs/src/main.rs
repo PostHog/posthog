@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post, Router};
-use capture::metrics_middleware::track_metrics;
 use capture_logs::authorizer::Authorizer;
 use capture_logs::config::Config;
 use capture_logs::endpoints::aws_firehose;
@@ -15,7 +14,7 @@ use capture_logs::service::Service;
 use capture_logs::service::{
     export_logs_http, export_metrics_http, export_traces_http, options_handler,
 };
-use common_metrics::setup_metrics_routes;
+use common_metrics::{setup_metrics_routes, track_metrics};
 use std::future::ready;
 use std::net::SocketAddr;
 

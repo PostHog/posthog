@@ -1,8 +1,9 @@
-import { defaultConfig } from '~/common/config/config'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
+import { resetBehavioralCohortsDatabase } from '@posthog/node-common/testing/sql'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { resetBehavioralCohortsDatabase } from '../../../../tests/helpers/sql'
+import { defaultConfig } from '~/common/config/config'
+
 import { MEMBER_PAGE_DEADLINE_MS, RealtimeCohortAudienceService } from './realtime-cohort-audience.service'
 
 describe('RealtimeCohortAudienceService', () => {

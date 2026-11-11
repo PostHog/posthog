@@ -4,18 +4,18 @@
  * Re-exports shared encryption types from session-replay/types.ts and adds
  * Recording API-specific types.
  */
-import { CommonConfig } from '~/common/config'
+import { CommonConfig } from '@posthog/node-common/config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-} from '~/common/config/kafka-topics'
-import { isProdEnv } from '~/common/utils/env-utils'
-import { parseJSON } from '~/common/utils/json-parse'
-import { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
+} from '@posthog/node-common/config/kafka-topics'
+import { isProdEnv } from '@posthog/node-common/utils/env-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from '@posthog/replay-storage/config'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     type IngestionSessionreplayProducer,
-} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+} from '@posthog/replay-storage/outputs/producer-config'
 
 /**
  * Recording API's outputs are ClickHouse-bound deletion tombstones on the warpstream-replay
@@ -35,7 +35,7 @@ export {
     type SerializedSessionKey,
     type SessionKey,
     type SessionState,
-} from '~/ingestion/pipelines/sessionreplay/shared/types'
+} from '@posthog/replay-storage/types'
 
 /**
  * Recording-api authorization config.

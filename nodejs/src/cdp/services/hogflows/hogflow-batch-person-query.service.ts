@@ -1,12 +1,12 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { InternalFetchService } from '~/common/services/internal-fetch'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger, serializeError } from '~/common/utils/logger'
-import { Team } from '~/types'
+import { HogFunctionFilters } from '@posthog/hog-engine/cdp/types'
+import { isTimeoutError } from '@posthog/hog-engine/cdp/utils/cdp-fetch'
+import { InternalFetchService } from '@posthog/node-common/services/internal-fetch'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger, serializeError } from '@posthog/node-common/utils/logger'
 
-import { HogFunctionFilters } from '../../types'
-import { isTimeoutError } from '../../utils/cdp-fetch'
+import { Team } from '~/types'
 
 export interface BlastRadiusResponse {
     users_affected: number

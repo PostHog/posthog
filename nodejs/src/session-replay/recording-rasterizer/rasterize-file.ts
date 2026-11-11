@@ -4,7 +4,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import { parseArgs } from 'util'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { BrowserPool } from './capture/browser-pool'
 import { playerHtmlCache } from './capture/capture-page'

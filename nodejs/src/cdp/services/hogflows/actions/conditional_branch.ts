@@ -1,10 +1,15 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import {
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    HogFunctionFilters,
+} from '@posthog/hog-engine/cdp/types'
+import { filterFunctionInstrumented } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
+
 import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-membership-repository'
-import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, HogFunctionFilters } from '~/cdp/types'
-import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'

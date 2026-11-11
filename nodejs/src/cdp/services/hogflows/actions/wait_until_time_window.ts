@@ -1,11 +1,15 @@
 import { DateTime } from 'luxon'
 
-import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { CyclotronJobInvocationHogFlow, CyclotronPerson } from '~/cdp/types'
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow, CyclotronPerson } from '@posthog/hog-engine/cdp/types'
 
-import { findContinueAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
-import { resolveTimezone } from './timezone'
+import {
+    ActionHandler,
+    ActionHandlerOptions,
+    ActionHandlerResult,
+} from '~/cdp/services/hogflows/actions/action.interface'
+import { resolveTimezone } from '~/cdp/services/hogflows/actions/timezone'
+import { findContinueAction } from '~/cdp/services/hogflows/hogflow-utils'
 
 type Action = Extract<HogFlowAction, { type: 'wait_until_time_window' }>
 

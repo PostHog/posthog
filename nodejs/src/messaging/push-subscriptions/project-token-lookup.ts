@@ -1,5 +1,5 @@
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { LazyLoader } from '~/common/utils/lazy-loader'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
 
 export type ProjectTeam = { id: number; api_token: string }
 

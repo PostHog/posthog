@@ -1,0 +1,451 @@
+import { Message, MessageHeader } from 'node-rdkafka'
+
+import { logger } from '@posthog/node-common/utils/logger'
+
+import { BatchBudget } from './batch-budget'
+import { createContext, createKafkaDebugContext, createOkContext } from './helpers'
+import { batchBudgetCheckpointCounter } from './metrics'
+import { getBudgetCheckpoints } from './metrics.test-utils'
+import { isOkResult, isTimeoutResult, ok } from './results'
+import { StartPipeline } from './start-pipeline'
+import { StepPipeline } from './step-pipeline'
+
+jest.mock('@posthog/node-common/utils/logger', () => ({
+    logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
+
+describe('StepPipeline', () => {
+    describe('constructor', () => {
+        it('should create instance with step and previous pipeline', () => {
+            const mockStep = jest.fn()
+            const mockPrevious = {} as any
+
+            const pipeline = new StepPipeline(mockStep, mockPrevious)
+
+            expect(pipeline).toBeInstanceOf(StepPipeline)
+        })
+    })
+
+    describe('process', () => {
+        it('should execute step when previous result is success', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'test' }))
+            const previous = new StartPipeline<{ data: string }, unknown>()
+
+            const pipeline = new StepPipeline(step, previous)
+            const result = await pipeline.process(createOkContext({ data: 'test' }, { message }))
+
+            expect(step).toHaveBeenCalledWith({ data: 'test' })
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
+        })
+
+        it('should handle step errors and log the debug context', async () => {
+            const headers: MessageHeader[] = [
+                { token: Buffer.from('phc_token') },
+                { uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' },
+                { event: '$pageview' },
+                { distinct_id: 'person@example.com' },
+                { session_id: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c' },
+            ]
+            const message: Message = {
+                value: Buffer.from('test'),
+                topic: 'test',
+                partition: 0,
+                offset: 1,
+                headers,
+            } as Message
+
+            const step = jest.fn().mockRejectedValue(new Error('Step failed'))
+            const previous = new StartPipeline<{ data: string }, unknown>()
+
+            const pipeline = new StepPipeline(step, previous)
+            const input = createOkContext({ data: 'test' }, { message, debugContext: createKafkaDebugContext(message) })
+
+            await expect(pipeline.process(input)).rejects.toThrow('Step failed')
+            expect(logger.error).toHaveBeenCalledWith(
+                '🔥',
+                expect.stringContaining('threw'),
+                expect.objectContaining({
+                    error: 'Step failed',
+                    debugContext: expect.objectContaining({
+                        topic: 'test',
+                        partition: 0,
+                        offset: 1,
+                        headers: {
+                            token: 'phc_token',
+                            uuid: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
+                            event: '$pageview',
+                        },
+                    }),
+                })
+            )
+            const logged = (logger.error as jest.Mock).mock.calls.at(-1)?.[2].debugContext.headers
+            expect(logged).not.toHaveProperty('distinct_id')
+            expect(logged).not.toHaveProperty('session_id')
+        })
+
+        it('should log no headers when the message has none', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const step = jest.fn().mockRejectedValue(new Error('Step failed'))
+            const previous = new StartPipeline<{ data: string }, unknown>()
+
+            const pipeline = new StepPipeline(step, previous)
+            const input = createOkContext({ data: 'test' }, { message, debugContext: createKafkaDebugContext(message) })
+
+            await expect(pipeline.process(input)).rejects.toThrow('Step failed')
+            const call = (logger.error as jest.Mock).mock.calls.at(-1)
+            expect(call?.[2].debugContext.headers).toBeUndefined()
+        })
+    })
+
+    describe('budget checkpoint', () => {
+        const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            batchBudgetCheckpointCounter.reset()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        function buildChain(calls: string[]) {
+            function firstStep(value: { value: number }) {
+                calls.push('firstStep')
+                // Stands in for the step taking longer than the batch had left.
+                jest.advanceTimersByTime(1000)
+                return Promise.resolve(ok(value))
+            }
+            function secondStep(value: { value: number }) {
+                calls.push('secondStep')
+                return Promise.resolve(ok(value))
+            }
+            function thirdStep(value: { value: number }) {
+                calls.push('thirdStep')
+                return Promise.resolve(ok(value))
+            }
+
+            return new StepPipeline(firstStep, new StartPipeline<{ value: number }, unknown>())
+                .pipe(secondStep)
+                .pipe(thirdStep)
+        }
+
+        it('times the element out at the next step and skips the rest of the chain', async () => {
+            const budget = BatchBudget.softDeadline(Date.now() + 1000)
+            const calls: string[] = []
+
+            const result = await buildChain(calls).process(createOkContext({ value: 1 }, { message, budget }))
+
+            expect(calls).toEqual(['firstStep'])
+            expect(isTimeoutResult(result.result)).toBe(true)
+            expect((result.result as { reason: string }).reason).toBe('budget exceeded before secondStep')
+            expect(result.context.lastStep).toBe('firstStep')
+            expect(await getBudgetCheckpoints('step', 'secondStep')).toBe(1)
+        })
+    })
+
+    describe('pipe', () => {
+        it('should create new StepPipeline with async step', () => {
+            const step1 = jest.fn()
+            const step = jest.fn()
+            const previous = {} as any
+
+            const pipeline1 = new StepPipeline(step1, previous)
+            const pipeline2 = pipeline1.pipe(step)
+
+            expect(pipeline2).toBeInstanceOf(StepPipeline)
+        })
+
+        it('should execute steps in order when processing through chained async pipeline', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const step1 = jest.fn().mockImplementation((input) => {
+                return Promise.resolve(ok({ value: input.value * 3 })) // Multiply by 3
+            })
+            const step = jest.fn().mockImplementation(async (input) => {
+                await new Promise((resolve) => setTimeout(resolve, 1))
+                return ok({ value: input.value - 2 }) // Subtract 2
+            })
+            const previous = new StartPipeline<{ value: number }, unknown>()
+
+            const pipeline1 = new StepPipeline(step1, previous)
+            const pipeline2 = pipeline1.pipe(step)
+
+            const result = await pipeline2.process(createOkContext({ value: 4 }, { message }))
+
+            expect(step1).toHaveBeenCalledWith({ value: 4 })
+            expect(step).toHaveBeenCalledWith({ value: 12 }) // 4 * 3
+            const pipelineResult = result.result
+            expect(isOkResult(pipelineResult)).toBe(true)
+            if (isOkResult(pipelineResult)) {
+                expect(pipelineResult.value).toEqual({ value: 10 }) // (4 * 3) - 2 = 10
+            }
+            expect(step1).toHaveBeenCalledTimes(1)
+            expect(step).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('step name tracking', () => {
+        it('should include step name in context for successful results', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            function testStep(input: any) {
+                return Promise.resolve(ok({ processed: input.data }))
+            }
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(testStep, previous)
+            const result = await pipeline.process(createOkContext({ data: 'test' }, { message }))
+
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'testStep' }))
+        })
+
+        it('should use anonymousStep when step has no name', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const anonymousStep = (input: any) => {
+                return Promise.resolve(ok({ processed: input.data }))
+            }
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(anonymousStep, previous)
+            const result = await pipeline.process(createOkContext({ data: 'test' }, { message }))
+
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'anonymousStep' }))
+        })
+
+        it('should preserve existing lastStep in context', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            function testStep(input: any) {
+                return Promise.resolve(ok({ processed: input.data }))
+            }
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(testStep, previous)
+            const result = await pipeline.process(createOkContext({ data: 'test' }, { message, lastStep: 'firstStep' }))
+
+            expect(result).toEqual(
+                createContext(ok({ processed: 'test' }), { message, lastStep: 'testStep' }) // Should update to current step
+            )
+        })
+    })
+
+    describe('side effects accumulation', () => {
+        it('should accumulate side effects from previous context and current step result', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            // Create initial context with some side effects
+            const initialSideEffect1 = Promise.resolve('initial-side-effect-1')
+            const initialSideEffect2 = Promise.resolve('initial-side-effect-2')
+
+            // Step that adds its own side effects
+            const stepSideEffect1 = Promise.resolve('step-side-effect-1')
+            const stepSideEffect2 = Promise.resolve('step-side-effect-2')
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [stepSideEffect1, stepSideEffect2]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createOkContext(
+                { data: 'test' },
+                {
+                    message,
+                    sideEffects: [initialSideEffect1, initialSideEffect2],
+                }
+            )
+
+            const result = await pipeline.process(input)
+
+            expect(result.context.sideEffects).toEqual([
+                initialSideEffect1,
+                initialSideEffect2,
+                stepSideEffect1,
+                stepSideEffect2,
+            ])
+        })
+
+        it('should preserve context side effects when step returns no side effects', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const existingSideEffect = Promise.resolve('existing-side-effect')
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' })) // No side effects
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createOkContext({ data: 'test' }, { message, sideEffects: [existingSideEffect] })
+
+            const result = await pipeline.process(input)
+
+            expect(result.context.sideEffects).toEqual([existingSideEffect])
+        })
+
+        it('should add step side effects when context has no existing side effects', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const stepSideEffect = Promise.resolve('step-side-effect')
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [stepSideEffect]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createOkContext({ data: 'test' }, { message })
+
+            const result = await pipeline.process(input)
+
+            expect(result.context.sideEffects).toEqual([stepSideEffect])
+        })
+
+        it('should accumulate side effects across multiple chained steps', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const initialSideEffect = Promise.resolve('initial')
+            const step1SideEffect = Promise.resolve('step1')
+            const step2SideEffect = Promise.resolve('step2')
+
+            const step1 = jest.fn().mockResolvedValue(ok({ value: 'processed1' }, [step1SideEffect]))
+            const step2 = jest.fn().mockResolvedValue(ok({ value: 'processed2' }, [step2SideEffect]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline1 = new StepPipeline(step1, previous)
+            const pipeline2 = new StepPipeline(step2, pipeline1)
+
+            const input = createOkContext({ data: 'test' }, { message, sideEffects: [initialSideEffect] })
+
+            const result = await pipeline2.process(input)
+
+            expect(result.context.sideEffects).toEqual([initialSideEffect, step1SideEffect, step2SideEffect])
+        })
+
+        it('should handle empty side effects arrays correctly', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [])) // Empty side effects array
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createOkContext({ data: 'test' }, { message })
+
+            const result = await pipeline.process(input)
+
+            expect(result.context.sideEffects).toEqual([])
+        })
+
+        it('should preserve order of side effects', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const contextSideEffect1 = Promise.resolve('context-1')
+            const contextSideEffect2 = Promise.resolve('context-2')
+            const stepSideEffect1 = Promise.resolve('step-1')
+            const stepSideEffect2 = Promise.resolve('step-2')
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [stepSideEffect1, stepSideEffect2]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createOkContext(
+                { data: 'test' },
+                {
+                    message,
+                    sideEffects: [contextSideEffect1, contextSideEffect2],
+                }
+            )
+
+            const result = await pipeline.process(input)
+
+            // Should preserve order: context side effects first, then step side effects
+            expect(result.context.sideEffects).toEqual([
+                contextSideEffect1,
+                contextSideEffect2,
+                stepSideEffect1,
+                stepSideEffect2,
+            ])
+        })
+    })
+
+    describe('warning accumulation', () => {
+        it('should accumulate warnings from step results', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const stepWarning = { type: 'merge_race_condition' as const, details: { message: 'from step' } }
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createOkContext({ data: 'test' }, { message })
+            const result = await pipeline.process(input)
+
+            expect(result.context.warnings).toEqual([stepWarning])
+        })
+
+        it('should merge context warnings with step warnings', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const contextWarning = { type: 'client_ingestion_warning' as const, details: { message: 'from context' } }
+            const stepWarning = { type: 'schema_validation_failed' as const, details: { message: 'from step' } }
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createOkContext(
+                { data: 'test' },
+                {
+                    message,
+                    warnings: [contextWarning],
+                }
+            )
+            const result = await pipeline.process(input)
+
+            expect(result.context.warnings).toEqual([contextWarning, stepWarning])
+        })
+
+        it('should handle empty warnings arrays', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createOkContext({ data: 'test' }, { message })
+            const result = await pipeline.process(input)
+
+            expect(result.context.warnings).toEqual([])
+        })
+
+        it('should preserve order of warnings', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const contextWarning1 = { type: 'ignored_invalid_timestamp' as const, details: { idx: 1 } }
+            const contextWarning2 = { type: 'invalid_heatmap_data' as const, details: { idx: 2 } }
+            const stepWarning1 = { type: 'message_size_too_large' as const, details: { idx: 3 } }
+            const stepWarning2 = { type: 'group_key_too_long' as const, details: { idx: 4 } }
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning1, stepWarning2]))
+
+            const previous = new StartPipeline<{ data: string }, unknown>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createOkContext(
+                { data: 'test' },
+                {
+                    message,
+                    warnings: [contextWarning1, contextWarning2],
+                }
+            )
+            const result = await pipeline.process(input)
+
+            // Should preserve order: context warnings first, then step warnings
+            expect(result.context.warnings).toEqual([contextWarning1, contextWarning2, stepWarning1, stepWarning2])
+        })
+    })
+})

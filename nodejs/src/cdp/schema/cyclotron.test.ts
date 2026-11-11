@@ -1,9 +1,10 @@
-import { createHogExecutionGlobals } from '../_tests/fixtures'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     HogFunctionInvocationGlobalsSchema,
     MAX_WORKFLOW_EMAIL_SENDERS,
-} from './cyclotron'
+} from '@posthog/hog-engine/cdp/schema/cyclotron'
+
+import { createHogExecutionGlobals } from '../_tests/fixtures'
 
 describe('cyclotron schema', () => {
     describe('HogFunctionInvocationGlobalsSchema', () => {

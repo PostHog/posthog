@@ -1575,6 +1575,441 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  ingestion/node/packages/ai-research:
+    dependencies:
+      '@aws-sdk/client-dynamodb':
+        specifier: ^3.952.0
+        version: 3.975.0
+      '@aws-sdk/client-kms':
+        specifier: ^3.952.0
+        version: 3.975.0
+      '@aws-sdk/client-s3':
+        specifier: ^3.723.0
+        version: 3.975.0
+      '@dsnp/parquetjs':
+        specifier: ^1.8.7
+        version: 1.8.7
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
+      '@posthog/ai-research-v4-native':
+        specifier: workspace:*
+        version: link:../../../../rust/ai-research/replay-core-v4-node
+      '@posthog/ingestion':
+        specifier: workspace:*
+        version: link:../ingestion
+      '@posthog/ingestion-common':
+        specifier: workspace:*
+        version: link:../common
+      '@posthog/node-common':
+        specifier: workspace:*
+        version: link:../../../../nodejs/packages/common
+      '@posthog/replay-anonymizer':
+        specifier: workspace:*
+        version: link:../../../../rust/replay-anonymizer-node
+      '@posthog/replay-storage':
+        specifier: workspace:*
+        version: link:../../../../nodejs/packages/replay-storage
+      '@smithy/node-http-handler':
+        specifier: 4.4.9
+        version: 4.4.9
+      '@trybyte/robotstxt-parser':
+        specifier: ^1.2.0
+        version: 1.2.0
+      libsodium-wrappers:
+        specifier: ^0.8.4
+        version: 0.8.4
+      lru-cache:
+        specifier: ^11.5.3
+        version: 11.5.3
+      luxon:
+        specifier: ^3.4.4
+        version: 3.5.0
+      node-rdkafka:
+        specifier: ^3.6.1
+        version: 3.6.1
+      p-limit:
+        specifier: 3.1.0
+        version: 3.1.0
+      prom-client:
+        specifier: ^15.1.3
+        version: 15.1.3
+      structured-headers:
+        specifier: ^2.1.1
+        version: 2.1.1
+    devDependencies:
+      '@bufbuild/protoc-gen-es':
+        specifier: ^2.11.0
+        version: 2.11.0(supports-color@10.2.2)
+      '@opentelemetry/sdk-trace-node':
+        specifier: ^2.0.1
+        version: 2.0.1(@opentelemetry/api@1.9.1)
+      '@trivago/prettier-plugin-sort-imports':
+        specifier: ^5.2.2
+        version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      '@types/libsodium-wrappers':
+        specifier: ^0.7.14
+        version: 0.7.14
+      '@types/long':
+        specifier: 4.x.x
+        version: 4.0.2
+      '@types/luxon':
+        specifier: ^3.4.2
+        version: 3.4.2
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      '@types/pg':
+        specifier: ~8.11.2
+        version: 8.11.2
+      jest:
+        specifier: ^30.0.0
+        version: 30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
+      jest-junit:
+        specifier: ^16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
+      node-fetch:
+        specifier: ^2.6.1
+        version: 2.6.9(encoding@0.1.13)
+      oxlint:
+        specifier: 1.78.0
+        version: 1.78.0(oxlint-tsgolint@7.0.2005)
+      oxlint-plugin-eslint:
+        specifier: 1.78.0
+        version: 1.78.0
+      oxlint-tsgolint:
+        specifier: 7.0.2005
+        version: 7.0.2005
+      prettier:
+        specifier: ~3.6.2
+        version: 3.6.2
+      snappy:
+        specifier: ^7.2.2
+        version: 7.2.2
+      ts-jest:
+        specifier: ^29.4.15
+        version: 29.4.15(@babel/core@7.29.7(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.2)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)))(typescript@6.0.3)
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)
+      tsc-alias:
+        specifier: ^1.9.6
+        version: 1.9.6
+      tsconfig-paths:
+        specifier: ^4.2.0
+        version: 4.2.0
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
+
+  ingestion/node/packages/common:
+    dependencies:
+      '@bufbuild/protobuf':
+        specifier: ^2.11.0
+        version: 2.11.0
+      '@connectrpc/connect':
+        specifier: ^2.1.1
+        version: 2.1.1(@bufbuild/protobuf@2.11.0)
+      '@connectrpc/connect-node':
+        specifier: ^2.1.1
+        version: 2.1.1(patch_hash=a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4)(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
+      '@posthog/node-common':
+        specifier: workspace:*
+        version: link:../../../../nodejs/packages/common
+      luxon:
+        specifier: ^3.4.4
+        version: 3.5.0
+      node-rdkafka:
+        specifier: ^3.6.1
+        version: 3.6.1
+      p-limit:
+        specifier: 3.1.0
+        version: 3.1.0
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      prom-client:
+        specifier: ^15.1.3
+        version: 15.1.3
+    devDependencies:
+      '@bufbuild/protoc-gen-es':
+        specifier: ^2.11.0
+        version: 2.11.0(supports-color@10.2.2)
+      '@opentelemetry/sdk-trace-node':
+        specifier: ^2.0.1
+        version: 2.0.1(@opentelemetry/api@1.9.1)
+      '@trivago/prettier-plugin-sort-imports':
+        specifier: ^5.2.2
+        version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      '@types/long':
+        specifier: 4.x.x
+        version: 4.0.2
+      '@types/luxon':
+        specifier: ^3.4.2
+        version: 3.4.2
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      '@types/pg':
+        specifier: ~8.11.2
+        version: 8.11.2
+      jest:
+        specifier: ^30.0.0
+        version: 30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
+      jest-junit:
+        specifier: ^16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
+      node-fetch:
+        specifier: ^2.6.1
+        version: 2.6.9(encoding@0.1.13)
+      oxlint:
+        specifier: 1.78.0
+        version: 1.78.0(oxlint-tsgolint@7.0.2005)
+      oxlint-plugin-eslint:
+        specifier: 1.78.0
+        version: 1.78.0
+      oxlint-tsgolint:
+        specifier: 7.0.2005
+        version: 7.0.2005
+      prettier:
+        specifier: ~3.6.2
+        version: 3.6.2
+      ts-jest:
+        specifier: ^29.4.15
+        version: 29.4.15(@babel/core@7.29.7(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.2)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)))(typescript@6.0.3)
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)
+      tsc-alias:
+        specifier: ^1.9.6
+        version: 1.9.6
+      tsconfig-paths:
+        specifier: ^4.2.0
+        version: 4.2.0
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
+
+  ingestion/node/packages/ingestion:
+    dependencies:
+      '@aws-sdk/client-dynamodb':
+        specifier: ^3.952.0
+        version: 3.975.0
+      '@aws-sdk/client-kms':
+        specifier: ^3.952.0
+        version: 3.975.0
+      '@aws-sdk/client-s3':
+        specifier: ^3.723.0
+        version: 3.975.0
+      '@aws-sdk/lib-storage':
+        specifier: ^3.723.0
+        version: 3.975.0(@aws-sdk/client-s3@3.975.0)
+      '@bufbuild/protobuf':
+        specifier: ^2.11.0
+        version: 2.11.0
+      '@connectrpc/connect':
+        specifier: ^2.1.1
+        version: 2.1.1(@bufbuild/protobuf@2.11.0)
+      '@connectrpc/connect-node':
+        specifier: ^2.1.1
+        version: 2.1.1(patch_hash=a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4)(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
+      '@dsnp/parquetjs':
+        specifier: ^1.8.7
+        version: 1.8.7
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
+      '@posthog/hog-engine':
+        specifier: workspace:*
+        version: link:../../../../nodejs/packages/hog-engine
+      '@posthog/ingestion-common':
+        specifier: workspace:*
+        version: link:../common
+      '@posthog/node-common':
+        specifier: workspace:*
+        version: link:../../../../nodejs/packages/common
+      '@posthog/replay-storage':
+        specifier: workspace:*
+        version: link:../../../../nodejs/packages/replay-storage
+      '@posthog/siphash':
+        specifier: 1.1.3
+        version: 1.1.3
+      '@smithy/node-http-handler':
+        specifier: 4.4.9
+        version: 4.4.9
+      '@trybyte/robotstxt-parser':
+        specifier: ^1.2.0
+        version: 1.2.0
+      fast-equals:
+        specifier: 'catalog:'
+        version: 6.0.1
+      generic-pool:
+        specifier: ^3.7.1
+        version: 3.9.0
+      ioredis:
+        specifier: ^4.31.0
+        version: 4.31.0(supports-color@10.2.2)
+      ipaddr.js:
+        specifier: ^2.1.0
+        version: 2.2.0
+      js-big-decimal:
+        specifier: ^2.2.0
+        version: 2.2.0
+      libsodium-wrappers:
+        specifier: ^0.8.4
+        version: 0.8.4
+      lodash:
+        specifier: ^4.18.1
+        version: 4.18.1
+      lru-cache:
+        specifier: ^11.5.3
+        version: 11.5.3
+      luxon:
+        specifier: ^3.4.4
+        version: 3.5.0
+      lz4:
+        specifier: ^0.6.5
+        version: 0.6.5
+      node-fetch:
+        specifier: ^2.6.1
+        version: 2.6.9(encoding@0.1.13)
+      node-rdkafka:
+        specifier: ^3.6.1
+        version: 3.6.1
+      p-limit:
+        specifier: 3.1.0
+        version: 3.1.0
+      prom-client:
+        specifier: ^15.1.3
+        version: 15.1.3
+      snappy:
+        specifier: ^7.2.2
+        version: 7.2.2
+      structured-headers:
+        specifier: ^2.1.1
+        version: 2.1.1
+      tldts:
+        specifier: ^6.1.57
+        version: 6.1.57
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
+      uuid:
+        specifier: ^11.1.1
+        version: 11.1.1
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@jest/test-sequencer':
+        specifier: ^30.0.5
+        version: 30.0.5
+      '@opentelemetry/sdk-metrics':
+        specifier: ^2.12.0
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-node':
+        specifier: ^2.0.1
+        version: 2.0.1(@opentelemetry/api@1.9.1)
+      '@trivago/prettier-plugin-sort-imports':
+        specifier: ^5.2.2
+        version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
+      '@types/ioredis':
+        specifier: ^4.26.4
+        version: 4.28.10
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      '@types/libsodium-wrappers':
+        specifier: ^0.7.14
+        version: 0.7.14
+      '@types/lodash':
+        specifier: ^4.17.27
+        version: 4.17.27
+      '@types/long':
+        specifier: 4.x.x
+        version: 4.0.2
+      '@types/luxon':
+        specifier: ^3.4.2
+        version: 3.4.2
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      '@types/node-fetch':
+        specifier: ^2.6.13
+        version: 2.6.13
+      '@types/pg':
+        specifier: ~8.11.2
+        version: 8.11.2
+      '@types/supertest':
+        specifier: ^7.2.1
+        version: 7.2.1
+      eslint-plugin-no-only-tests:
+        specifier: ^3.4.0
+        version: 3.4.0
+      jest:
+        specifier: ^30.0.0
+        version: 30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
+      jest-junit:
+        specifier: ^16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
+      oxlint:
+        specifier: 1.78.0
+        version: 1.78.0(oxlint-tsgolint@7.0.2005)
+      oxlint-plugin-eslint:
+        specifier: 1.78.0
+        version: 1.78.0
+      oxlint-tsgolint:
+        specifier: 7.0.2005
+        version: 7.0.2005
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      prettier:
+        specifier: ~3.6.2
+        version: 3.6.2
+      supertest:
+        specifier: ^7.2.2
+        version: 7.2.2(supports-color@10.2.2)
+      ts-jest:
+        specifier: ^29.4.15
+        version: 29.4.15(@babel/core@7.29.7(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.2)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)))(typescript@6.0.3)
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)
+      tsc-alias:
+        specifier: ^1.9.6
+        version: 1.9.6
+      tsconfig-paths:
+        specifier: ^4.2.0
+        version: 4.2.0
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   nodejs:
     dependencies:
       '@amplitude/ua-parser-js':
@@ -1679,18 +2114,33 @@ importers:
       '@posthog/ai-research-v4-native':
         specifier: workspace:*
         version: link:../rust/ai-research/replay-core-v4-node
+      '@posthog/hog-engine':
+        specifier: workspace:*
+        version: link:packages/hog-engine
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/hogvm-node':
         specifier: workspace:*
         version: link:../rust/common/hogvm/node
+      '@posthog/ingestion':
+        specifier: workspace:*
+        version: link:../ingestion/node/packages/ingestion
+      '@posthog/ingestion-common':
+        specifier: workspace:*
+        version: link:../ingestion/node/packages/common
+      '@posthog/node-common':
+        specifier: workspace:*
+        version: link:packages/common
       '@posthog/replay-anonymizer':
         specifier: workspace:*
         version: link:../rust/replay-anonymizer-node
       '@posthog/replay-headless':
         specifier: workspace:*
         version: link:../common/replay-headless
+      '@posthog/replay-storage':
+        specifier: workspace:*
+        version: link:packages/replay-storage
       '@posthog/siphash':
         specifier: 1.1.3
         version: 1.1.3
@@ -1877,7 +2327,7 @@ importers:
         version: 7.29.11
       '@bufbuild/protoc-gen-es':
         specifier: ^2.11.0
-        version: 2.11.0(@bufbuild/protobuf@2.11.0)(supports-color@10.2.2)
+        version: 2.11.0(supports-color@10.2.2)
       '@eslint-community/eslint-plugin-eslint-comments':
         specifier: ^4.8.1
         version: 4.8.1(eslint@8.57.0(supports-color@10.2.2))
@@ -2007,6 +2457,423 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
+
+  nodejs/packages/common:
+    dependencies:
+      '@bufbuild/protobuf':
+        specifier: ^2.11.0
+        version: 2.11.0
+      '@clickhouse/client':
+        specifier: ^1.12.0
+        version: 1.12.0
+      '@connectrpc/connect':
+        specifier: ^2.1.1
+        version: 2.1.1(@bufbuild/protobuf@2.11.0)
+      '@connectrpc/connect-node':
+        specifier: ^2.1.1
+        version: 2.1.1(patch_hash=a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4)(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
+      '@maxmind/geoip2-node':
+        specifier: ^3.4.0
+        version: 3.5.0
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
+      '@opentelemetry/auto-instrumentations-node':
+        specifier: ^0.76.0
+        version: 0.76.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))(supports-color@10.2.2)
+      '@opentelemetry/exporter-trace-otlp-grpc':
+        specifier: ^0.218.0
+        version: 0.218.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources':
+        specifier: ^2.12.0
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-metrics':
+        specifier: ^2.12.0
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-node':
+        specifier: ^0.218.0
+        version: 0.218.0(@opentelemetry/api@1.9.1)(supports-color@10.2.2)
+      '@opentelemetry/sdk-trace-node':
+        specifier: ^2.0.1
+        version: 2.0.1(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions':
+        specifier: ^1.44.0
+        version: 1.44.0
+      '@pyroscope/nodejs':
+        specifier: ^0.7.0
+        version: 0.7.0(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
+      cors:
+        specifier: ^2.8.6
+        version: 2.8.6
+      fastpriorityqueue:
+        specifier: ^0.8.0
+        version: 0.8.0
+      generic-pool:
+        specifier: ^3.7.1
+        version: 3.9.0
+      ioredis:
+        specifier: ^4.31.0
+        version: 4.31.0(supports-color@10.2.2)
+      ipaddr.js:
+        specifier: ^2.1.0
+        version: 2.2.0
+      lodash:
+        specifier: ^4.18.1
+        version: 4.18.1
+      lru-cache:
+        specifier: ^11.5.3
+        version: 11.5.3
+      luxon:
+        specifier: ^3.4.4
+        version: 3.5.0
+      node-rdkafka:
+        specifier: ^3.6.1
+        version: 3.6.1
+      node-schedule:
+        specifier: ^2.1.2
+        version: 2.1.2
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
+      pino:
+        specifier: ^10.4.0
+        version: 10.4.0
+      pino-pretty:
+        specifier: ^13.2.0
+        version: 13.2.0
+      posthog-node:
+        specifier: 5.67.0
+        version: 5.67.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
+      prom-client:
+        specifier: ^15.1.3
+        version: 15.1.3
+      re2:
+        specifier: ^1.26.1
+        version: 1.27.0
+      snappy:
+        specifier: ^7.2.2
+        version: 7.2.2
+      uWebSockets.js:
+        specifier: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d
+        version: https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d
+      ultimate-express:
+        specifier: 2.0.13
+        version: 2.0.13
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@bufbuild/protoc-gen-es':
+        specifier: ^2.11.0
+        version: 2.11.0(supports-color@10.2.2)
+      '@trivago/prettier-plugin-sort-imports':
+        specifier: ^5.2.2
+        version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
+      '@types/cors':
+        specifier: ^2.8.19
+        version: 2.8.19
+      '@types/ioredis':
+        specifier: ^4.26.4
+        version: 4.28.10
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      '@types/lodash':
+        specifier: ^4.17.27
+        version: 4.17.27
+      '@types/long':
+        specifier: 4.x.x
+        version: 4.0.2
+      '@types/luxon':
+        specifier: ^3.4.2
+        version: 3.4.2
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      '@types/node-schedule':
+        specifier: ^2.1.8
+        version: 2.1.8
+      '@types/pg':
+        specifier: ~8.11.2
+        version: 8.11.2
+      '@types/supertest':
+        specifier: ^7.2.1
+        version: 7.2.1
+      eslint-plugin-no-only-tests:
+        specifier: ^3.4.0
+        version: 3.4.0
+      jest:
+        specifier: ^30.0.0
+        version: 30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
+      jest-junit:
+        specifier: ^16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
+      node-fetch:
+        specifier: ^2.6.1
+        version: 2.6.9(encoding@0.1.13)
+      oxlint:
+        specifier: 1.78.0
+        version: 1.78.0(oxlint-tsgolint@7.0.2005)
+      oxlint-plugin-eslint:
+        specifier: 1.78.0
+        version: 1.78.0
+      oxlint-tsgolint:
+        specifier: 7.0.2005
+        version: 7.0.2005
+      prettier:
+        specifier: ~3.6.2
+        version: 3.6.2
+      supertest:
+        specifier: ^7.2.2
+        version: 7.2.2(supports-color@10.2.2)
+      ts-jest:
+        specifier: ^29.4.15
+        version: 29.4.15(@babel/core@7.29.7(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.2)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)))(typescript@6.0.3)
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)
+      tsc-alias:
+        specifier: ^1.9.6
+        version: 1.9.6
+      tsconfig-paths:
+        specifier: ^4.2.0
+        version: 4.2.0
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  nodejs/packages/hog-engine:
+    dependencies:
+      '@google-cloud/pubsub':
+        specifier: 6.3.2
+        version: 6.3.2(supports-color@10.2.2)
+      '@google-cloud/storage':
+        specifier: ^5.8.5
+        version: 5.20.5(encoding@0.1.13)(supports-color@10.2.2)
+      '@posthog/hogvm':
+        specifier: workspace:*
+        version: link:../../../common/hogvm/typescript
+      detect-browser:
+        specifier: ^5.3.0
+        version: 5.3.0
+      fernet-nodejs:
+        specifier: ^1.0.6
+        version: 1.0.6
+      jsonwebtoken:
+        specifier: ^9.0.3
+        version: 9.0.3
+      liquidjs:
+        specifier: ^10.27.2
+        version: 10.29.0
+      lru-cache:
+        specifier: ^11.5.3
+        version: 11.5.3
+      luxon:
+        specifier: ^3.4.4
+        version: 3.5.0
+      prom-client:
+        specifier: ^15.1.3
+        version: 15.1.3
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@maxmind/geoip2-node':
+        specifier: ^3.4.0
+        version: 3.5.0
+      '@posthog/hogvm-node':
+        specifier: workspace:*
+        version: link:../../../rust/common/hogvm/node
+      '@posthog/node-common':
+        specifier: workspace:*
+        version: link:../common
+      '@trivago/prettier-plugin-sort-imports':
+        specifier: ^5.2.2
+        version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      '@types/jsonwebtoken':
+        specifier: ^9.0.10
+        version: 9.0.10
+      '@types/long':
+        specifier: 4.x.x
+        version: 4.0.2
+      '@types/luxon':
+        specifier: ^3.4.2
+        version: 3.4.2
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      eslint-plugin-no-only-tests:
+        specifier: ^3.4.0
+        version: 3.4.0
+      jest:
+        specifier: ^30.0.0
+        version: 30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
+      jest-junit:
+        specifier: ^16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
+      node-fetch:
+        specifier: ^2.6.1
+        version: 2.6.9(encoding@0.1.13)
+      oxlint:
+        specifier: 1.78.0
+        version: 1.78.0(oxlint-tsgolint@7.0.2005)
+      oxlint-plugin-eslint:
+        specifier: 1.78.0
+        version: 1.78.0
+      oxlint-tsgolint:
+        specifier: 7.0.2005
+        version: 7.0.2005
+      prettier:
+        specifier: ~3.6.2
+        version: 3.6.2
+      ts-jest:
+        specifier: ^29.4.15
+        version: 29.4.15(@babel/core@7.29.7(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.2)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)))(typescript@6.0.3)
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)
+      tsc-alias:
+        specifier: ^1.9.6
+        version: 1.9.6
+      tsconfig-paths:
+        specifier: ^4.2.0
+        version: 4.2.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
+
+  nodejs/packages/replay-storage:
+    dependencies:
+      '@aws-sdk/client-dynamodb':
+        specifier: ^3.952.0
+        version: 3.975.0
+      '@aws-sdk/client-kms':
+        specifier: ^3.952.0
+        version: 3.975.0
+      '@aws-sdk/client-s3':
+        specifier: ^3.723.0
+        version: 3.975.0
+      '@dsnp/parquetjs':
+        specifier: ^1.8.7
+        version: 1.8.7
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
+      '@posthog/ingestion-common':
+        specifier: workspace:*
+        version: link:../../../ingestion/node/packages/common
+      '@posthog/node-common':
+        specifier: workspace:*
+        version: link:../common
+      libsodium-wrappers:
+        specifier: ^0.8.4
+        version: 0.8.4
+      lru-cache:
+        specifier: ^11.5.3
+        version: 11.5.3
+      luxon:
+        specifier: ^3.4.4
+        version: 3.5.0
+      node-rdkafka:
+        specifier: ^3.6.1
+        version: 3.6.1
+      prom-client:
+        specifier: ^15.1.3
+        version: 15.1.3
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@bufbuild/protoc-gen-es':
+        specifier: ^2.11.0
+        version: 2.11.0(supports-color@10.2.2)
+      '@opentelemetry/sdk-metrics':
+        specifier: ^2.12.0
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-node':
+        specifier: ^2.0.1
+        version: 2.0.1(@opentelemetry/api@1.9.1)
+      '@trivago/prettier-plugin-sort-imports':
+        specifier: ^5.2.2
+        version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
+      '@types/ioredis':
+        specifier: ^4.26.4
+        version: 4.28.10
+      '@types/jest':
+        specifier: ^30.0.0
+        version: 30.0.0
+      '@types/libsodium-wrappers':
+        specifier: ^0.7.14
+        version: 0.7.14
+      '@types/long':
+        specifier: 4.x.x
+        version: 4.0.2
+      '@types/luxon':
+        specifier: ^3.4.2
+        version: 3.4.2
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      '@types/pg':
+        specifier: ~8.11.2
+        version: 8.11.2
+      ioredis:
+        specifier: ^4.31.0
+        version: 4.31.0(supports-color@10.2.2)
+      jest:
+        specifier: ^30.0.0
+        version: 30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3))
+      jest-junit:
+        specifier: ^16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
+      node-fetch:
+        specifier: ^2.6.1
+        version: 2.6.9(encoding@0.1.13)
+      oxlint:
+        specifier: 1.78.0
+        version: 1.78.0(oxlint-tsgolint@7.0.2005)
+      oxlint-plugin-eslint:
+        specifier: 1.78.0
+        version: 1.78.0
+      oxlint-tsgolint:
+        specifier: 7.0.2005
+        version: 7.0.2005
+      prettier:
+        specifier: ~3.6.2
+        version: 3.6.2
+      ts-jest:
+        specifier: ^29.4.15
+        version: 29.4.15(@babel/core@7.29.7(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.2)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)))(typescript@6.0.3)
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@swc/core@1.16.20)(@types/node@26.6.6)(typescript@6.0.3)
+      tsc-alias:
+        specifier: ^1.9.6
+        version: 1.9.6
+      tsconfig-paths:
+        specifier: ^4.2.0
+        version: 4.2.0
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
 
   packages/llm-normalizer:
     dependencies:
@@ -7658,11 +8525,6 @@ packages:
     resolution: {integrity: sha512-VzQuwEQDXipbZ1soWUuAWm1Z0C3B/IDWGeysnbX6ogJ6As91C2mdvAND/ekQ4YIWgen4d5nqLfIBOWLqCCjYUA==}
     engines: {node: '>=20'}
     hasBin: true
-    peerDependencies:
-      '@bufbuild/protobuf': 2.11.0
-    peerDependenciesMeta:
-      '@bufbuild/protobuf':
-        optional: true
 
   '@bufbuild/protoplugin@2.11.0':
     resolution: {integrity: sha512-lyZVNFUHArIOt4W0+dwYBe5GBwbKzbOy8ObaloEqsw9Mmiwv2O48TwddDoHN4itylC+BaEGqFdI1W8WQt2vWJQ==}
@@ -24097,10 +24959,6 @@ packages:
     resolution: {integrity: sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q==}
     engines: {node: '>=20.18.1'}
 
-  undici@8.12.2:
-    resolution: {integrity: sha512-XtuDWVdqTLr3NAxm2ly9/hU6kUsJOgGh1RASzMBbsw6aWCOaQzHdW+QQDfdERjfJ2V5vL5pRPa4RetO9UfivDg==}
-    engines: {node: '>=22.19.0'}
-
   undici@8.12.3:
     resolution: {integrity: sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==}
     engines: {node: '>=22.19.0'}
@@ -27319,11 +28177,10 @@ snapshots:
 
   '@bufbuild/protobuf@2.11.0': {}
 
-  '@bufbuild/protoc-gen-es@2.11.0(@bufbuild/protobuf@2.11.0)(supports-color@10.2.2)':
+  '@bufbuild/protoc-gen-es@2.11.0(supports-color@10.2.2)':
     dependencies:
-      '@bufbuild/protoplugin': 2.11.0(supports-color@10.2.2)
-    optionalDependencies:
       '@bufbuild/protobuf': 2.11.0
+      '@bufbuild/protoplugin': 2.11.0(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -34713,7 +35570,7 @@ snapshots:
 
   '@types/pixelmatch@5.2.4':
     dependencies:
-      '@types/node': 22.18.8
+      '@types/node': 26.6.6
 
   '@types/prettier@2.7.3': {}
 
@@ -34839,7 +35696,7 @@ snapshots:
 
   '@types/wait-on@5.3.1':
     dependencies:
-      '@types/node': 22.18.8
+      '@types/node': 26.6.6
 
   '@types/whatwg-mimetype@3.0.2': {}
 
@@ -36764,7 +37621,7 @@ snapshots:
 
   cron-parser@4.8.1:
     dependencies:
-      luxon: 3.7.2
+      luxon: 3.5.0
 
   cron-parser@5.5.0:
     dependencies:
@@ -38647,7 +39504,7 @@ snapshots:
       extend: 3.0.2
       https-proxy-agent: 5.0.1(supports-color@10.2.2)
       is-stream: 2.0.1
-      node-fetch: 2.7.0(encoding@0.1.13)
+      node-fetch: 2.6.9(encoding@0.1.13)
     transitivePeerDependencies:
       - encoding
       - supports-color
@@ -39787,7 +40644,7 @@ snapshots:
       '@jest/expect': 30.0.5(supports-color@10.2.2)
       '@jest/test-result': 30.0.5
       '@jest/types': 30.0.5
-      '@types/node': 22.18.8
+      '@types/node': 26.6.6
       chalk: 4.1.2
       co: 4.6.0
       dedent: 1.6.0
@@ -40474,7 +41331,7 @@ snapshots:
       '@jest/test-result': 30.0.5
       '@jest/transform': 30.0.5(supports-color@10.2.2)
       '@jest/types': 30.0.5
-      '@types/node': 22.18.8
+      '@types/node': 26.6.6
       chalk: 4.1.2
       emittery: 0.13.1
       exit-x: 0.2.2
@@ -40557,7 +41414,7 @@ snapshots:
       '@jest/test-result': 30.0.5
       '@jest/transform': 30.0.5(supports-color@10.2.2)
       '@jest/types': 30.0.5
-      '@types/node': 22.18.8
+      '@types/node': 26.6.6
       chalk: 4.1.2
       cjs-module-lexer: 2.2.0
       collect-v8-coverage: 1.0.2
@@ -40763,7 +41620,7 @@ snapshots:
     dependencies:
       '@jest/test-result': 30.0.5
       '@jest/types': 30.0.5
-      '@types/node': 22.18.8
+      '@types/node': 26.6.6
       ansi-escapes: 4.3.2
       chalk: 4.1.2
       emittery: 0.13.1
@@ -42427,7 +43284,7 @@ snapshots:
       semver: 7.8.0
       tar: 7.5.15
       tinyglobby: 0.2.17
-      undici: 8.12.2
+      undici: 8.12.3
       which: 7.0.0
 
   node-int64@0.4.0: {}
@@ -43804,6 +44661,13 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       rxjs: 7.8.1
+
+  posthog-node@5.67.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2):
+    dependencies:
+      '@posthog/core': 1.67.0
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
+      rxjs: 7.8.2
 
   potpack@2.0.0: {}
 
@@ -46360,7 +47224,7 @@ snapshots:
     dependencies:
       http-proxy-agent: 5.0.0(supports-color@10.2.2)
       https-proxy-agent: 5.0.1(supports-color@10.2.2)
-      node-fetch: 2.7.0(encoding@0.1.13)
+      node-fetch: 2.6.9(encoding@0.1.13)
       stream-events: 1.0.5
       uuid: 8.3.2
     transitivePeerDependencies:
@@ -46889,8 +47753,6 @@ snapshots:
   undici@7.24.8: {}
 
   undici@7.29.1: {}
-
-  undici@8.12.2: {}
 
   undici@8.12.3: {}
 

@@ -1,12 +1,14 @@
-import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
-import '../../../tests/helpers/mocks/producer.mock'
+import '@posthog/node-common/testing/mocks/consumer.mock'
+import '@posthog/node-common/testing/mocks/producer.mock'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { createOrganization, createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common/testing/sql'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { createOrganization, createTeam, createTestTeamFixture, getTeam } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
@@ -18,7 +20,6 @@ import {
 } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { HogFunctionType } from '../types'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
 describe('CDP Internal Events Consumer', () => {

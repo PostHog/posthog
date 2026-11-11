@@ -5,7 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-personhog-common = { path = "../personhog-common" }
 common-database = { path = "../common/database" }
 common-kafka = { path = "../common/kafka" }
 common-alloc = { path = "../common/alloc" }

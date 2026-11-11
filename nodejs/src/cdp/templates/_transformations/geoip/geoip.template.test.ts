@@ -1,6 +1,7 @@
-import { HogFunctionInvocationGlobals } from '../../../types'
+import { template } from '@posthog/hog-engine/cdp/templates/_transformations/geoip/geoip.template'
+import { HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
+
 import { TemplateTester } from '../../test/test-helpers'
-import { template } from './geoip.template'
 
 describe('geoip.template', () => {
     const tester = new TemplateTester(template)

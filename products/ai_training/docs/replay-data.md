@@ -60,7 +60,7 @@ A reader must still decode that context and check it equals the object it asked 
 A reader must also bound the frame before it slices, because the magic and the length sit outside the authenticated data.
 In the v2 dataset, a parquet column holds a value and not an object body, so `metadata` and `replay-index` stay JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64). A reader there knows the shape from the column and inspects no magic bytes.
 The v3 dataset does not seal its metadata or its replay index. Both are plain Parquet columns, described in [Data layout and readers](#data-layout-and-readers).
-The `frame` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one frame with a brotli body, so a reader in another language can check its own bytes. It carries the whole frame and also each part on its own: the additional authenticated data as text, the nonce, the sealed bytes, the tag, the brotli body, and the decompressed data.
+The `frame` block in `ingestion/node/packages/ai-research/src/pipelines/ml-mirror/keys/encryption-vector.json` pins one frame with a brotli body, so a reader in another language can check its own bytes. It carries the whole frame and also each part on its own: the additional authenticated data as text, the nonce, the sealed bytes, the tag, the brotli body, and the decompressed data.
 The framed context names a `codec`, which tells a reader how to expand the plaintext.
 An `rrweb` block uses `brotli` at quality 9. Each lane declares its own codec, so this lane never produces snappy. It reads a block rarely and keeps it for months, so it stores fewer bytes instead.
 An image object uses `none`, because an image already arrives compressed.
@@ -69,7 +69,7 @@ HKDF-SHA256 makes its 32-byte wrapping key from the stored team image key, with 
 AES-256-GCM then seals the session key under that wrapping key.
 `key_nonce` holds the 12-byte nonce, and `sealed_key` holds the sealed bytes followed by the 16-byte tag.
 Its additional authenticated data is the JSON of `{"purpose": "ai-research-session", "team_id": ..., "session_id": ...}` with sorted keys and no whitespace, so every reader rebuilds the same bytes.
-The `seal` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one seal, so a reader in another language can check its own bytes.
+The `seal` block in `ingestion/node/packages/ai-research/src/pipelines/ml-mirror/keys/encryption-vector.json` pins one seal, so a reader in another language can check its own bytes.
 
 Ingestion processes key state in batches:
 
@@ -455,7 +455,7 @@ The additional authenticated data is the canonical JSON of `{"v": 4, "context": 
 | Sealed index value     | session key    | `teamId`, `sessionId`, `keyMonth`, `kind: "index"`, `ref` (the column name)                         |
 
 A sealed index value uses the v3 JSON envelope with `"v": 4`.
-`nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector-v4.json` pins one frame of each sealed object kind, so a reader in another language can check its own bytes.
+`ingestion/node/packages/ai-research/src/pipelines/ai-research/v4-keys/encryption-vector-v4.json` pins one frame of each sealed object kind, so a reader in another language can check its own bytes.
 
 ### Blocks
 

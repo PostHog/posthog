@@ -1,5 +1,5 @@
-import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
+import { ChunkProcessingStep } from '@posthog/ingestion-common/framework/base-chunk-pipeline'
+import { PipelineResult, drop, ok } from '@posthog/ingestion-common/framework/results'
 
 import {
     recordLogMessageDropped,

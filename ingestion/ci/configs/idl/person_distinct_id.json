@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "file://posthog/idl/person_distinct_id.json",
+    "title": "person_distinct_id",
+    "description": "Person distinct id schema that is destined for ClickHouse",
+    "type": "object",
+    "properties": {
+        "distinct_id": {
+            "description": "User provided ID for the distinct user",
+            "type": "string"
+        },
+        "person_id": {
+            "description": "UUID of the person",
+            "type": "string"
+        },
+        "team_id": {
+            "description": "Team ID associated with person_distinct_id",
+            "type": "number"
+        },
+        "_sign": {
+            "description": "Used for collapsing later different versions of a distinct id (psuedo-tombstone)",
+            "type": "number"
+        },
+        "is_deleted": {
+            "description": "Boolean is the person distinct_id deleted?",
+            "type": "boolean"
+        }
+    },
+    "required": ["distinct_id", "person_id", "team_id", "_sign", "is_deleted"]
+}

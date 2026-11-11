@@ -1,21 +1,26 @@
-import { QuotaLimiting } from '../../common/services/quota-limiting.service'
-import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { buildHogFunctionInvocations } from '../utils/invocation-utils'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import {
+    CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+} from '@posthog/hog-engine/cdp/types'
+import { buildHogFunctionInvocations } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
+
 import { HogFunctionInvocationPipeline } from './hog-function-invocation-pipeline.service'
-import { HogFunctionManagerService } from './managers/hog-function-manager.service'
-import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
 
-jest.mock('../utils/invocation-utils', () => ({
-    ...jest.requireActual('../utils/invocation-utils'),
+jest.mock('@posthog/hog-engine/cdp/utils/invocation-utils', () => ({
+    ...jest.requireActual('@posthog/hog-engine/cdp/utils/invocation-utils'),
     buildHogFunctionInvocations: jest
         .fn()
         .mockResolvedValue({ invocations: [], metrics: [], logs: [], buildFailures: [] }),
 }))
 
 // Mock the rate limiter to give us deterministic control
-jest.mock('../../common/services/keyed-rate-limiter.service', () => ({
+jest.mock('@posthog/node-common/services/keyed-rate-limiter.service', () => ({
     KeyedRateLimiterService: jest.fn().mockImplementation(() => ({
         rateLimitGrouped: jest.fn(),
     })),

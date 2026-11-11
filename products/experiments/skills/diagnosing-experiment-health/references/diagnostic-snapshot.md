@@ -167,7 +167,7 @@ That is not a fault of the SDK or of the application: say so, and point the user
 <!-- Source for maintainers (may rot): resolve_default_exposure_event and EXPERIMENT_EXPOSURE_EVENT_CUTOFF in
 products/experiments/backend/hogql_queries/exposure_query_logic.py; build_variant_property in
 experiment_exposure_query_builder.py; isMultivariateFeatureFlagCalledEvent in
-nodejs/src/ingestion/common/steps/event-processing/create-event-step.ts. -->
+ingestion/node/packages/ingestion/src/ingestion/common/steps/event-processing/create-event-step.ts. -->
 
 ### Raw responses
 

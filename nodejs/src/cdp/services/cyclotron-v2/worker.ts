@@ -3,7 +3,7 @@ import { Pool, PoolClient } from 'pg'
 import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { COUNT_WORK_SQL, DEQUEUE_JOBS_SQL, LEGACY_COUNT_WORK_SQL, LEGACY_DEQUEUE_JOBS_SQL } from './due-rows-sql'
 import { assignEmailDequeueSeq } from './manager'

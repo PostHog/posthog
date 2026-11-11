@@ -2,9 +2,9 @@ import { Pool } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
-import { isTransientPgError } from '~/common/utils/db/postgres'
-import { logger } from '~/common/utils/logger'
-import { sleep } from '~/common/utils/utils'
+import { isTransientPgError } from '@posthog/node-common/utils/db/postgres'
+import { logger } from '@posthog/node-common/utils/logger'
+import { sleep } from '@posthog/node-common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'

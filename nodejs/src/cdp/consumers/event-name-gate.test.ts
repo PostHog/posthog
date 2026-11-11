@@ -1,7 +1,8 @@
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionFilters } from '@posthog/hog-engine/cdp/types'
+
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFunction } from '../_tests/fixtures'
-import { HogFlow } from '../schema/hogflow'
-import { HogFunctionFilters } from '../types'
 import { buildEventNameGate } from './event-name-gate'
 
 const named = (...ids: (string | null)[]) => ids.map((id) => ({ id, type: 'events' as const }))

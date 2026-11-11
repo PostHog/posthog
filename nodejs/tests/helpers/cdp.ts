@@ -1,20 +1,20 @@
-import { mockProducer } from './mocks/producer.mock'
+import { mockProducer } from '@posthog/node-common/testing/mocks/producer.mock'
 
-import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-
-import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
-} from '../../src/cdp/outputs/producers'
+} from '@posthog/hog-engine/cdp/outputs/producers'
+import { GroupReadRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
+import { PersonReadRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { InternalCaptureService } from '@posthog/node-common/services/internal-capture'
+
+import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
 import { createFrequencyCapValkeyPool } from '../../src/cdp/services/messaging/frequency-cap-valkey-pool'
 import { createSesRateLimiterValkeyPool } from '../../src/cdp/services/rate-limiter/rate-limiter-valkey-pool'
-import { InternalCaptureService } from '../../src/common/services/internal-capture'
 import { Hub } from '../../src/types'
 
 /**

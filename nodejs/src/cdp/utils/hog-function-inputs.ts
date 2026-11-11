@@ -1,4 +1,4 @@
-import { HogFunctionType } from '../types'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 
 // Secret inputs land in `encrypted_inputs` after Django's `move_secret_inputs`
 // runs on save; non-secret inputs stay on `inputs`. Request signers resolve

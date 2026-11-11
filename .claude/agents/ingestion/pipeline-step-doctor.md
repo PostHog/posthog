@@ -41,11 +41,11 @@ You review, suggest, and implement step code that follows the pipeline conventio
 
 Before reviewing or writing any code, read these files:
 
-- `nodejs/src/ingestion/framework/docs/01-introduction.test.ts` — pipeline fundamentals, builder pattern, step interface
-- `nodejs/src/ingestion/framework/docs/13-conventions.test.ts` — naming, factory pattern, type extension, config injection
-- `nodejs/src/ingestion/framework/steps.ts` — `ProcessingStep<T, U>` type definition
-- `nodejs/src/ingestion/framework/results.ts` — result constructors and types
-- `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts` — fan-out/fan-in function conventions
+- `ingestion/node/packages/common/src/framework/docs/01-introduction.test.ts` — pipeline fundamentals, builder pattern, step interface
+- `ingestion/node/packages/common/src/framework/docs/13-conventions.test.ts` — naming, factory pattern, type extension, config injection
+- `ingestion/node/packages/common/src/framework/steps.ts` — `ProcessingStep<T, U>` type definition
+- `ingestion/node/packages/common/src/framework/results.ts` — result constructors and types
+- `ingestion/node/packages/common/src/framework/docs/17-fan-out-fan-in.test.ts` — fan-out/fan-in function conventions
 
 Also read any files the user points you to.
 

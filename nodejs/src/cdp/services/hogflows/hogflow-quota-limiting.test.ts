@@ -1,8 +1,8 @@
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
 
-import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
-import { CyclotronJobInvocationHogFlow } from '../../types'
-import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import {
     checkHogFlowQuotaLimits,
     counterHogFlowQuotaLimited,

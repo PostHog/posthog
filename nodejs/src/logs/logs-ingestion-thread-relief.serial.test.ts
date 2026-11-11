@@ -1,17 +1,22 @@
 // Serial: asserts an event-loop lag ceiling, so a worker competing for CPU fails it.
-import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/common/config/kafka-topics'
-import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import {
+    KAFKA_APP_METRICS_2,
+    KAFKA_LOGS_CLICKHOUSE,
+    KAFKA_LOGS_INGESTION_DLQ,
+} from '@posthog/node-common/config/kafka-topics'
+import { APP_METRICS_OUTPUT, AppMetricsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { LogRecord, encodeLogRecords } from './log-record-avro'

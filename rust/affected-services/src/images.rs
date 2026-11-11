@@ -4,17 +4,64 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use guppy::graph::PackageGraph;
 
-pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[(
-    "sqlx-migrate",
-    &[
-        "rust/persons_migrations/",
-        "rust/behavioral_cohorts_migrations/",
-        "rust/cyclotron-node-migrations/",
-        "rust/flags_read_store_migrations/",
-        "rust/bin/migrate-",
-        "rust/Dockerfile.sqlx-migrate",
-    ],
-)];
+pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[
+    (
+        "sqlx-migrate",
+        &[
+            "rust/behavioral_cohorts_migrations/",
+            "rust/cyclotron-node-migrations/",
+            "rust/flags_read_store_migrations/",
+            "rust/bin/migrate-",
+            "rust/Dockerfile.sqlx-migrate",
+        ],
+    ),
+    (
+        "persons-migrate",
+        &[
+            "ingestion/rust/persons_migrations/",
+            "ingestion/rust/bin/migrate-entry",
+            "ingestion/rust/Dockerfile.persons-migrate",
+        ],
+    ),
+    ("ingestion-node", NODE_IMAGE_INPUTS),
+    (
+        "ingestion-ai-research-node",
+        &[
+            "ingestion/node/",
+            "ingestion/pinned/",
+            "nodejs/packages/common/",
+            "nodejs/packages/hog-engine/",
+            "nodejs/packages/replay-storage/",
+            "common/hogvm/typescript/",
+            "rust/common/hogvm/",
+            "rust/replay-anonymizer/",
+            "rust/replay-anonymizer-node/",
+            "rust/ai-research/replay-core-v4/",
+            "rust/ai-research/replay-core-v4-node/",
+            "package.json",
+            "pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+            "turbo.json",
+            ".nvmrc",
+        ],
+    ),
+];
+
+/// The workspace packages the ingestion Node image carries and the root files that pin them.
+const NODE_IMAGE_INPUTS: &[&str] = &[
+    "ingestion/node/",
+    "ingestion/pinned/",
+    "nodejs/packages/common/",
+    "nodejs/packages/hog-engine/",
+    "nodejs/packages/replay-storage/",
+    "common/hogvm/typescript/",
+    "rust/common/hogvm/",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "turbo.json",
+    ".nvmrc",
+];
 
 #[derive(Debug, Default)]
 pub struct ImageConfig {
@@ -198,7 +245,8 @@ mod tests {
 
     #[test]
     fn non_crate_migration_trigger() {
-        let affected = non_crate_images_affected(&["rust/persons_migrations/new.sql".into()]);
+        let affected =
+            non_crate_images_affected(&["rust/cyclotron-node-migrations/new.sql".into()]);
         assert_eq!(affected, vec!["sqlx-migrate"]);
     }
 
@@ -206,6 +254,17 @@ mod tests {
     fn non_crate_no_false_positives() {
         let affected = non_crate_images_affected(&["rust/capture/src/main.rs".into()]);
         assert!(affected.is_empty());
+    }
+
+    #[test]
+    fn non_crate_node_images_follow_their_shared_packages() {
+        let affected = non_crate_images_affected(&["nodejs/packages/common/src/config.ts".into()]);
+        assert_eq!(
+            affected,
+            vec!["ingestion-node", "ingestion-ai-research-node"]
+        );
+        let affected = non_crate_images_affected(&["rust/replay-anonymizer/src/lib.rs".into()]);
+        assert_eq!(affected, vec!["ingestion-ai-research-node"]);
     }
 
     #[test]

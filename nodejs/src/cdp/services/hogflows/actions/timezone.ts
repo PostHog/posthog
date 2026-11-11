@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronPerson } from '~/cdp/types'
+import { CyclotronPerson } from '@posthog/hog-engine/cdp/types'
 
 const GEOIP_TIMEZONE_PROPERTY = '$geoip_time_zone'
 

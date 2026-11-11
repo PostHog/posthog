@@ -1,20 +1,25 @@
 import { randomUUID } from 'crypto'
 
-import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    HogFunctionType,
+} from '@posthog/hog-engine/cdp/types'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { deleteKeysWithPrefix } from '@posthog/node-common/redis/_tests/redis'
+import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { logger } from '~/common/utils/logger'
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
-import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherConfig, HogWatcherService, HogWatcherState } from './hog-watcher.service'
 
-jest.mock('~/common/utils/posthog', () => ({ captureTeamEvent: jest.fn() }))
+jest.mock('@posthog/node-common/utils/posthog', () => ({ captureTeamEvent: jest.fn() }))
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
-const mockCaptureTeamEvent: jest.Mock = require('~/common/utils/posthog').captureTeamEvent as any
+const mockCaptureTeamEvent: jest.Mock = require('@posthog/node-common/utils/posthog').captureTeamEvent as any
 
 const DEFAULT_WATCHER_CONFIG: HogWatcherConfig = {
     hogCostTimingLowerMs: 50,

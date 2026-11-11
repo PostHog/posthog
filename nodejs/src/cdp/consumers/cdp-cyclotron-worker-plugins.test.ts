@@ -1,14 +1,17 @@
+import { mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { DESTINATION_PLUGINS_BY_ID } from '@posthog/hog-engine/cdp/legacy-plugins/index'
+import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { RetryError } from '@posthog/node-common/plugin-scaffold'
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { RetryError } from '~/plugin-scaffold'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import {
@@ -16,8 +19,6 @@ import {
     createExampleInvocation,
     createHogExecutionGlobals,
 } from '../_tests/fixtures'
-import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
-import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 jest.setTimeout(1000)

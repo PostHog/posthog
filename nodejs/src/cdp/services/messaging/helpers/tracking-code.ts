@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { Counter } from 'prom-client'
 
-import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction } from '@posthog/hog-engine/cdp/types'
 
 const SIGNATURE_BYTES = 16
 

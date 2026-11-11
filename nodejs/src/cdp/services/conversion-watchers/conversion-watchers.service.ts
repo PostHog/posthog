@@ -1,11 +1,11 @@
 import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
-import { LazyPool } from '~/cdp/utils/lazy-pool'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
+import { ConversionWatcherRow, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
 
-import { ConversionWatcherRow, CyclotronJobInvocationResult } from '../../types'
+import { LazyPool } from '~/cdp/utils/lazy-pool'
 
 const counterConversionWatchersInserted = new Counter({
     name: 'cdp_conversion_watchers_inserted',

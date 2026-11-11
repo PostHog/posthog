@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+
 import { defaultConfig } from '~/common/config/config'
 
 import { registerAsyncFunction } from '../async-function-registry'
-import { PosthogJwtAudience } from '../utils/jwt-utils'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { UUID_RE, callInternalApi } from './internal-api-call'
 

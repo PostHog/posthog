@@ -1,0 +1,306 @@
+# Replay Vision ML Mirror Image Scrub Sidecar
+
+This package builds a small sidecar that is installed alongside the image scrubber kafka consumer at `ingestion/node/packages/ai-research/src/servers/ingestion-session-replay-ml-image-scrub-server.ts`
+
+It is intentionally kept separate from the root pnpm workspace, as the ML deps are several hundred MB. I did not want to add this to every CI run, every dev's local machine's worktree, etc
+
+It runs a simple http server, receives an image and replies with the scrubbed image. The `/scrub` interface is fully trusted as it only communicates with the kafka consumer in the same pod. It binds loopback only, so it must run as a sidecar container sharing the consumer's network namespace, not as its own service.
+
+`/metrics` and the health probes are served on a separate listener bound to all interfaces (default port `9011`, `IMAGE_SCRUB_METRICS_PORT`) so Prometheus and the kubelet can reach them on the pod IP. That listener exposes no image bytes, only counters and probes.
+
+## HTTP contract
+
+`POST /scrub` with the raw image bytes returns the scrubbed bytes (200). The status split is load-bearing and both sides must change together: the consumer permanently skips 413 (too large) and 422 (undecodable), and **waits and retries** on 500 (transient) and 503 (busy). See `scrub-client.ts` for the consumer half.
+
+**A busy sidecar is waited on, never given up on, and no image is ever dropped for lack of capacity.**
+Kafka is already holding the image durably, so a bounded retry buys nothing except the chance to discard data the log was keeping safe, while consuming more slowly costs only lag, which is what the topic is for.
+There is no batch time limit and no drop path: every message a poll batch takes is finished before any offset moves past it.
+
+The waiting _is_ the backpressure. A batch that spends longer on a jammed sidecar calls `consume()` that much later, so the consumer paces itself to whatever the sidecar can execute without needing to pause partitions explicitly.
+Lag grows while that happens, which is correct and is what the drain-time panels on the dashboard are for.
+
+Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (150, against a default of 500).
+It is not smaller than that because every batch ends with a window drain, where the last few images finish unevenly while the other scrub slots idle, and a larger batch spreads that fixed cost over more images.
+The consumer caps the poll below the configured size so that every image can time out once at the sidecar and the batch still returns inside `max.poll.interval.ms`, with a fifth of the interval kept for the key read, the window drain and any wait on the write lane: with a 45s scrub timeout that is five waves of `SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY` images, 70 at the production concurrency of 14.
+A batch that outlives `max.poll.interval.ms` (300s) gets the pod evicted mid-batch, and that is not a clean retry: the evicted pod loses the offsets for work it already did, and the partition lands on a pod whose sidecar is equally busy and redoes the same images, so offered load rises while throughput falls.
+Keeping batches far inside the interval is what stops ordinary saturation reaching that point.
+If a revoke does land mid-batch, the batch stops as soon as a write finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+The S3 writes run behind the scrub of the next batches, so the batch duration the consumer reports covers the scrub plus any time the batch waited for the write lane to have room (`ml_mirror_image_scrub_consumer_write_wait_seconds`); `ml_mirror_image_scrub_consumer_write_duration_seconds` covers the writes themselves.
+
+A wedged sidecar still blocks its partitions rather than draining them, and no batch size prevents that.
+
+## Images the sidecar cannot process
+
+An image that fails the same way forever would otherwise hold the head of its partition against every team whose records share it, and the bytes are user-controlled, so that is a stall anyone can cause.
+Such an image is parked on `session_replay_image_scrub_dlq` and the partition moves on.
+
+The bytes published there are the **originals, never scrubbed**, so that topic holds unredacted content and nothing may treat it as scrubbed.
+Keeping them is the point: discarding would destroy the only reproduction of the sidecar bug that rejected them, and 30 days of retention is the window to fix the sidecar and replay.
+It is the same content the source topic already carries, on the same cluster, and it expires the same way: neither topic sets `cleanup.policy`, so both take Kafka's `delete` default and segments age out on their own.
+The one difference is that a parked image outlives its source copy, 30 days against 7, which is deliberately the width of that window.
+Why it was parked travels in headers, so the topic can be triaged without reading image content.
+
+**What makes an image poison rather than unlucky is the only question that matters here.**
+Under saturation every image waits a long time, so anything keyed on waiting or failure count alone would park the entire stream during a backlog, which is the mass loss the wait exists to prevent arriving through a different door.
+An image is blamed only when it keeps failing **while other images succeed**: a sidecar that is full or wedged fails everything equally, so no image ever meets that condition and the lane keeps waiting, which is correct.
+Only a considered answer counts towards blame, which is the `rejected` reason: the sidecar took the image, looked at it, and could not produce bytes.
+A 503 is it declining to look at all, and a refused or reset socket is true of every image at once.
+
+**The two deadlines are ordered on purpose, and inverting them reopens a hole.** The sidecar gives up on a job it cannot finish first (`IMAGE_SCRUB_JOB_TIMEOUT_MS`), retires the worker, and answers 500, which is a considered answer about that image and is what lets it be blamed and parked.
+The consumer waits longer than that (`SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS`, past the job deadline plus admission queue wait) so the answer actually arrives.
+Give up first and an unprocessable image looks merely slow on every attempt, never earns blame, and holds the head of a partition shared by every team whose records hash to it.
+A timeout then means what it should: the sidecar said nothing at all, which is true of every image at once and so is not blamable.
+
+The number of other successes required is deliberately small, and must stay below the pod's scrub concurrency.
+A batch cannot finish while one of its images is in flight, and a pod cannot poll for more work until its batch finishes, so the only successes that can ever arrive are from the few slots running alongside that image.
+Requiring more than that makes the gate unreachable for an image late in a batch: the batch never returns, and the pod stops consuming entirely while still reporting Ready.
+`ImageBatcher` refuses to start if the relationship is broken, so a future concurrency change fails at boot rather than in traffic.
+
+When no peer is available to vouch at all, the time spent on considered rejections and their backoffs opens the gate on its own.
+Request time counts because a wedged worker consumes most of the Kafka lease before each backoff starts.
+Busy, timeout, refused, and reset intervals do not consume this budget because they do not identify a bad image.
+That threshold has to fire comfortably inside `max.poll.interval.ms` (300s), which is the binding constraint rather than a preference: a batch cannot return while one of its images is in flight, so anything above the lease can never be reached — the group fences the pod first, the partition moves, and its new owner repeats the same work and is fenced in turn, circling the fleet forever.
+
+It is published through this lane's own producer slot on the replay cluster, which is where the source topic lives and which carries a `message.max.bytes` sized for these payloads; the generic slot points elsewhere with librdkafka's 1 MB default, where parking a normal image would fail on every attempt.
+The topic must exist before this ships, with `max.message.bytes` at least the source topic's: clearing `SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC` is the rollback, and reverts to waiting.
+
+Parking happens before the ref is marked and before the slot retires, so a failed publish leaves the image exactly where it was, still unscrubbed and still uncommitted.
+A publish that keeps failing is retried rather than raised, because the Kafka loop exits the process on any batch error and a dead-letter topic that is missing, on the wrong cluster, or too small would otherwise crash-loop every pod in the lane on the same image.
+`ml_mirror_image_scrub_consumer_dead_letter_failed_total` is that condition, and it means the topic needs looking at rather than the image.
+With no dead-letter destination configured the client keeps waiting instead, because the only other option would be discarding.
+`ml_mirror_image_scrub_consumer_dead_lettered_total` should sit at zero; anything above a trickle is a sidecar bug reproducing across many images, and the fix belongs in the sidecar.
+
+Waiting only applies to answers a later attempt could change: 5xx, 408, 429, and socket failures (a refused socket is the ordinary case while the image-scrub container is restarting in the same pod).
+Any other status, and a 200 carrying no bytes, is the sidecar answering a question we did not think we were asking, so it fails the batch loudly instead.
+Waiting on a 404 from a misdirected `SIDECAR_URL` would otherwise turn a deploy mistake into a pod that consumes nothing, passes every probe, and surfaces only as lag.
+
+`ml_mirror_image_scrub_consumer_scrub_waits_total` (by `reason`: `busy`, `timeout`, `refused`, `reset`, `transport`, `rejected`) counts attempts that came back without bytes and will be retried, so it is a saturation signal and never a loss signal.
+`refused` means nothing is listening on the sidecar port, which after boot means the image-scrub container has exited.
+A `reset` is a connection the sidecar accepted and then dropped, which its shutdown does to idle keep-alive sockets, so resets are expected on every rollout and scale-down.
+`transport` is any other socket failure, so a sustained rate outside a rollout is a fault to look at rather than noise.
+The unreachable alert selects `refused` and `transport`, never `reset`.
+`ml_mirror_image_scrub_consumer_stuck_images_total` re-increments while any one image is still being retried past the point a healthy sidecar would have finished it, so it reads as a level rather than a one-off edge.
+
+**A stalled pod on this lane looks healthy to Kubernetes.** The lane runs the legacy heartbeat health check (`CONSUMER_LOOP_BASED_HEALTH_CHECK` is unset), and the consumer refreshes that heartbeat every 10s for the whole batch, so a pod blocked on one image stays Ready and Live indefinitely.
+That is deliberate — restarting it would only replay the same image — but it means lag and the two counters above are the only evidence, and it is why the lane's alerts are lag-shaped.
+
+**Nothing about a busy or unreachable sidecar may take the consumer down.**
+The consumer's Kafka loop exits the process on any batch error, so a failure that reaches it costs the whole pod and hands its partitions to pods that are equally busy, spreading the saturation.
+A consumer restart cannot fix the sidecar in any case: it is a separate container that keeps running.
+
+`maxConcurrency` is derived from `SCRUB_WORKERS` rather than set independently, so the sidecar sheds load it cannot execute instead of admitting it into an accept queue.
+That matters because the consumer's per-request timeout is an inactivity timeout: a queued request sends no bytes, so queueing reads to the consumer as an unresponsive sidecar rather than a busy one, and a fast 503 is the signal it can actually act on.
+
+## The scrub
+
+Given an image, `advancedScrub` (`src/scrub.ts`):
+
+1. **Apply the image policy**: reject an image when its XMP `plus:DataMining` value prohibits AI training.
+2. **Plan the sizes**: `planScales` (`src/scale-plan.ts`) decides every resize from the source dimensions alone, before a pixel is read — the decoded frame, what each detector sees, and what gets stored.
+   An area budget rather than a long-side cap, so tall pages keep legible native resolution instead of being squashed.
+   Faces are detected at up to 640 px on the long side, never enlarged or squashed; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
+3. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
+4. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
+5. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
+   We detect _where_ text is and never read it.
+6. **Code redaction**: every QR/barcode that zxing decodes gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+   zxing reads the frame at the plan's code scale, which finds every code still decodable from the stored image.
+
+The goal is to protect data labellers and reduce PII exposure.
+It does not need to be perfect; the self-verifying test (below) keeps it honest.
+
+**Why solid fill, not blur/mosaic.** Blur and pixelation are low-pass filters: they remove fine detail but keep coarse structure, so large text (titles, headings) stays legible to a capable reader — we confirmed an LLM could still read blurred titles and the opening sentence of a test page — and a mosaicked face can be re-smoothed back into something a detector finds again.
+A solid, quantized mean-colour fill removes the information entirely, so faces, text, and codes all get it.
+The fill's edges are feathered by blurring the fill's _colour_ only, never the mask, so nothing under a box is ever revealed.
+
+## This is native code, not ML-in-JS
+
+All model inference and image processing run in optimized native libraries.
+The TypeScript is orchestration plus lightweight output decoding (over small downscaled maps, not full images):
+
+| Stage                                  | Library                 | Native engine        |
+| -------------------------------------- | ----------------------- | -------------------- |
+| NSFW/gore classify (SwiftFormer)       | `onnxruntime-node`      | ONNX Runtime (C++)   |
+| Face detection (YuNet)                 | `onnxruntime-node`      | ONNX Runtime (C++)   |
+| Text detection (DBNet / PP-OCRv6 tiny) | `onnxruntime-node`      | ONNX Runtime (C++)   |
+| QR/barcode detection                   | `zxing-wasm`            | zxing-cpp (C++/wasm) |
+| resize / blur / composite / encode     | `sharp`                 | libvips (C++)        |
+| model input and zxing pixel layout     | replay-anonymizer addon | Rust (neon)          |
+
+We do not train anything and run no neural nets in JS.
+The only hand-written JS is model-output decoding (DBNet threshold + dilation + connected components, YuNet anchor decode + NMS, mask fill), which runs over the small detection maps and is not the bottleneck.
+Everything model-shaped runs on ONE runtime (onnxruntime-node) on purpose: a second ML runtime would mean a second native-binary compatibility surface and a second set of failure modes (Node-version coupling, slow fallback backends).
+
+## Layout
+
+`src/` is production (ships in the sidecar image; tests co-locate as `*.test.ts` and are stripped from the image); `dev/` is everything non-production (benchmarks, the eval harness, data setup).
+Production never imports from `dev/`.
+
+```text
+src/  (production — ships)
+  main.ts         entrypoint: start the worker pool -> start servers
+  pool.ts         the inference workers: dispatch, per-job deadlines, replace the dead
+  scrub-worker.ts one worker thread: owns its ONNX sessions, scrubs one image at a time
+  worker-protocol.ts  the job/reply messages crossing the thread boundary
+  cores.ts        worker + ORT thread sizing from the cgroup CPU quota and memory limit
+  server.ts       the /scrub + /metrics listeners; scrub implementation injected
+  config.ts       env-driven runtime config
+  blur.ts         baseline blur (kept in sync with rust/replay-anonymizer/src/blur.rs)
+  scrub.ts        the ML scrub pipeline: decode-once, NSFW gate, solid-fill of faces/text/codes
+  yunet.ts        YuNet face detector (ONNX)
+  dbnet.ts        DBNet text-region detector (ONNX)
+  qr.ts           QR/barcode detector (zxing-wasm, loaded from node_modules — no egress)
+  pixel-convert.ts  pixel layout conversions for the model inputs and zxing (Rust addon in native/)
+  scale-plan.ts   every resize decided in one pure function, before a pixel is read
+  floors.ts       what each detector finds vs what a person can read, and where both were measured
+  src-image.ts    decode the source once to raw RGB, to the size the plan asked for
+  geometry.ts     shared Box type + grid rounding
+  safety.ts       NSFW/gore gate (SwiftFormer image-safety classifier, ONNX)
+  smoke.ts        image-build-time smoke test: models load + text and face fixtures scrubbed, with networking disabled
+  env.ts          validated numeric env knobs — invalid values refuse to start (never fail open)
+  metrics.ts      Prometheus registry: HTTP outcomes + scrub outcome signals
+  image-input.ts  accepted image decoders, pixel limits, and embedded metadata policy
+  xmp.ts          PLUS Data Mining metadata parser
+
+dev/  (non-production)
+  scrub-eval.ts   OCR + face-redaction eval over downloaded images (npm run eval)
+  verify.ts       quick OCR-readability check
+  bench.ts scale.ts worker-proc.ts   latency + throughput benchmarks
+  make-corpus.ts  synthetic screenshot corpus
+  setup.ts        download ONNX models + sample test images (npm run setup)
+  text-det-bench.ts   text detector comparison: cost and per-word redaction recall, per model and canvas size
+  text-det-setup.ts text-det-corpus.ts text-det-quantize.py text-det-dynamic-hw.py   its models, labelled images and int8 builds
+  face-bench.ts   face detector comparison: YuNet variants and input sizes, cost and per-face redaction recall
+  code-bench.ts   code detector cost against zxing's input scale, and which codes stay decodable from the stored image
+  build-native.ts build the replay-anonymizer Rust addon into native/ (npm run build:native)
+  pixel-convert-bench.ts pixel-convert-reference.ts   the addon's conversions timed against the TypeScript loops they replaced
+
+fixtures/  committed eval fixtures (e.g. a retina Wikipedia page: dense text + a face)
+models/  test-data/  corpus/  out/   downloaded/generated by setup (gitignored)
+native/  the replay-anonymizer addon, built by npm run build:native (gitignored)
+```
+
+## Run
+
+```bash
+pnpm install --ignore-workspace   # standalone package: own lockfile, outside the root workspace
+npm run setup        # download ONNX models + sample test images, generate the corpus
+npm run build:native # build the Rust addon into native/ (needs cargo); again after any rust/replay-anonymizer* change
+npm run test:unit    # fast unit tests (no models/network, but the addon)
+npm run eval         # scrub-quality suite (text + face) over real images
+npm run bench        # latency + per-stage breakdown
+npm run smoke        # models load + text and face fixtures scrubbed end to end (what the image build runs)
+npm run start        # the sidecar server (needs `npm run setup` for the models)
+```
+
+If the model/data downloads fail with a TLS chain error, your machine is missing an intermediate CA.
+Point `NODE_EXTRA_CA_CERTS` at a complete bundle (e.g. certifi's `cacert.pem`) rather than disabling certificate validation.
+
+## The self-verifying test
+
+The production path _detects_ text with DBNet (fast).
+The test _reads_ the scrubbed output with OCR (tesseract, a different model doing recognition not detection) and counts confident multi-character words.
+OCR generally reads degraded text better than people, so "OCR can't read it" is a conservative proxy for "a labeller can't".
+The face check re-runs YuNet at high sensitivity on the scrubbed output and asserts no face still sits (by IoU) where one was; a successfully solid-filled face is no longer detectable.
+
+The suite **gates** on session replay's representative domain (crisp rendered-UI text + faces) and **reports** on a harder scanned-document set:
+
+```text
+UI TEXT (gated):        31/31 clean, 0.0% leak   [PASS]   # rendered screenshots
+DOCUMENT TEXT (report): 20/20 clean, 0.0% worst  [report] # faint fax/scan print, out of domain
+FACE:                   89/89 faces redacted (100%)
+```
+
+The corpus spans 0.3 to 8.3 megapixels at both device pixel ratios, which matters: it used to top out
+at 1440x900, entirely under the frame budget, so nothing in it was ever downscaled on the
+way to detection and the suite could not see what that cap costs. Adding monitor-sized frames
+immediately failed the gate at a 14.3% leak on 4K captures taken at device pixel ratio 1, where 14px
+text reaches DBNet at about 6px after both downscales. `DET_SHARPEN` closes that, and the numbers
+above are with it on.
+
+Faint, low-contrast scanned-fax lines occasionally survive.
+That is contrast-limited not size-limited, so resolution alone won't catch every faded line, and it is outside the rendered-UI domain and within the "best-effort, not catastrophic if a little gets through" bar.
+Raising `SCRUB_SAFETY_FACTOR` spends more CPU on recall: it enlarges the frame every detector sees, since the frame budget is derived from it.
+
+## Resolution
+
+One rule sets every size: **each detector must see a subject at least `ratio` times larger, per axis, than the stored image keeps it.**
+Anything still readable in the artifact was therefore large enough to have been found and filled.
+
+`ratio` is derived rather than chosen, from measured floors in `src/floors.ts` — what each detector reliably finds, against what a person can still read out of the stored image.
+Faces bind at 64/21 ≈ 3.05; codes need 3, and text 4.3/3 ≈ 1.43.
+zxing reads the frame at exactly `ratio` times the stored scale, because its cost grows with the pixels it reads and no model fixes its input size.
+DBNet reads exactly `ratio` times the stored size too, cut down from its canvas budget whenever that makes its padded canvas smaller.
+`SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
+
+### Stored size
+
+The guarantee is the ratio, not a small stored image.
+Whatever is still legible in the artifact was large enough for a detector to find and fill, at any stored size.
+A larger stored size keeps more scene detail for training and costs detector time, because the detectors grow with it.
+
+**`SCRUB_STORED_MAX_SIDE` sets the stored size, and is the knob most people should touch.**
+Up to the face tiling aspect (3:1) it caps the long side of what gets stored, and everything else follows from it: the face detector's input and the text canvas grow to `side x ratio`, and the frame budget to `stored x ratio^2`.
+It takes 0 (off) or a value from 16 to 1024.
+
+| Source    | Unset (0) | 384     |
+| --------- | --------- | ------- |
+| 1920x1080 | 161x90    | 384x216 |
+| 1280x720  | 161x90    | 323x181 |
+| 390x844   | 74x161    | 98x213  |
+| 400x300   | 100x75    | 100x75  |
+
+- Unset, the face detector runs at 640 px, which caps every stored image at about 161 px on its long side.
+- An image smaller than about `side x ratio` stores at `1/ratio` of its size, whatever the side.
+- Past 3:1 the side is not a cap, because capping a banner's long side would crush its short one. The face detector's input binds instead, as it does unset: the long side stays near the side up to 6:1, then the short side holds at about `side / 6` and the long side grows with the aspect (384 stores an 8:1 source at 517x64, and 20:1 at 1292x64).
+- Above 640 px the face detector also runs a second pass at 640, since its floors were measured there and a close-up face at the larger input reaches the model bigger than anything checked. The pass is skipped where 640 would not shrink the window, and the two passes' boxes are merged as a union, so neither can remove a box the other found.
+
+Before raising it in a deployment:
+
+- Raise the container's memory, or the pool runs fewer workers. The model in `src/cores.ts` gives about 955 MB per worker at 384 instead of 514 MB. `dev/mem-probe.ts` measured 755 MB at 384 and 4.5 GB at 1024 on frames at the cap, inside the model's 955 MB and 5.0 GB.
+- Check detection recall at the new sizes with `dev/scrub-eval.ts`.
+- Watch `ml_mirror_image_scrub_duration_seconds` and `ml_mirror_image_scrub_stage_duration_seconds`, split by `ml_mirror_image_scrub_plan_info`, which carries the sizes each pod runs with.
+
+`SCRUB_OUT_MAX_PIXELS` bounds the stored area (default `side^2`, or 50,000 when no side is set).
+Setting the frame budget independently is what let two individually-reasonable settings combine into a pipeline that under-redacted, so `SCRUB_MAX_PIXELS` still exists as an override but is derived by default.
+
+Re-derive the floors with `tsx dev/glyph-floor.ts` (text), `tsx dev/floors.ts` (faces) and `tsx dev/code-bench.ts` (codes); all three read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
+
+## Models are baked into the image
+
+The three ONNX models (safety gate, YuNet, DBNet) are `ADD`ed in `Dockerfile.ml-mirror-image-scrub` (repo root) from commit-pinned upstream URLs with BuildKit `--checksum` verification (same pins + sha256 checks as `dev/setup.ts` — keep them in sync).
+zxing's wasm loads from `node_modules`.
+A build-time smoke test (`src/smoke.ts`) then loads the models and scrubs a text fixture and a face fixture with networking disabled. It checks that text is found and that the face is filled, so a broken model, a native-binary mismatch, or an accidental runtime network dependency fails the image build instead of crash-looping the deploy.
+The sidecar makes no network fetches at startup.
+
+## The native addon
+
+The pixel layout conversions that build each model input and zxing's RGBA frame (`src/pixel-convert.ts`) run in the replay-anonymizer Rust addon (`rust/replay-anonymizer-node/src/pixels.rs`).
+The worker allocates each destination typed array, and the addon borrows the source and the destination in place, so no pixel data crosses the boundary as a copy.
+The output is the same, bit for bit, as the TypeScript loops that it replaced.
+`src/pixel-convert.test.ts` checks that against those loops (`dev/pixel-convert-reference.ts`), and `dev/pixel-convert-bench.ts` times the two.
+
+The image compiles the addon from `rust/` in a Rust stage of `Dockerfile.ml-mirror-image-scrub` and copies it to `native/`.
+Every worker loads it at startup, so a missing or stale addon fails the smoke test and with it the image build.
+On a dev machine, `npm run build:native` builds it into `native/`.
+
+## SVG
+
+The anonymizer sends an SVG data URI as its decoded document, checking only its size and that it starts with markup.
+Parsing and rendering both cost more than the document's size suggests: a few hundred bytes of huge strokes, markers or clip paths can take minutes to draw, and thousands of attributes on one element make the XML parser quadratic.
+So both run in a separate process (`src/svg-rasterizer-process.mjs`, through the addon's `rasterizeSvg`), which the sidecar kills when a render runs past `IMAGE_SCRUB_SVG_TIMEOUT_MS` (2s).
+A worker thread inside a native call cannot be stopped, but a process can.
+The renderer refuses DTDs, filters, masks, patterns, `foreignObject`, deep nesting and more than 8 `<use>` elements before it draws anything.
+Rendering drops the document's metadata, so the sidecar reads the XMP training opt-out from the SVG itself first.
+The PNG then goes through the same scrub as any other image.
+
+The renderer has no text or raster-image support and refuses every nested image reference, so the PNG holds only shapes.
+A refused document and a timed-out render both answer 422 (`undecodable` reasons `svg_refused` and `svg_timeout`), so the consumer skips the image.
+`IMAGE_SCRUB_SVG_RASTERIZERS` (1) sets how many renders run at once.
+
+## Observability
+
+Beyond the HTTP outcome counters (scrubbed/failed/undecodable/rejected/too-large/aborted, duration, output bytes), `/metrics` carries the outcome signals an anonymization control needs:
+
+- `..._blanked_total` — NSFW-gate blanks are destructive and irreversible; alert on rate spikes.
+- `..._faces_redacted_total`, `..._text_boxes_redacted_total`, `..._codes_redacted_total` — a sustained zero rate under traffic means a detector outage (un-redacted output), not a clean stream.

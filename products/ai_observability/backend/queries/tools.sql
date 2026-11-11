@@ -1,7 +1,7 @@
 /*
 -- Tool call extraction is done at ingestion time.
 -- The $ai_tools_called property contains comma-separated tool names.
--- See: nodejs/src/ingestion/ai/tools/extract-tool-calls.ts
+-- See: ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/tools/extract-tool-calls.ts
 --
 -- Performance: this query only reads $ai_tools_called from the JSON properties blob.
 -- solo_pct uses position() to check for commas instead of reading $ai_tool_call_count,

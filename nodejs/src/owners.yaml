@@ -3,16 +3,10 @@ owners: []
 rules:
     - match: '/ai-observability/'
       owners: team-ai-observability
+    - match: '/metrics/'
+      owners: team-apm
     - match: '/cdp/'
       owners: team-workflows
-    - match: '/ingestion/'
-      owners: team-ingestion
-    - match: '/ingestion/pipelines/sessionreplay/'
-      owners: [team-replay, team-ingestion]
-    - match:
-          - '/ingestion/pipelines/sessionreplay/ml-mirror/'
-          - '/ingestion/pipelines/sessionreplay/ml-mirror-*/'
-      owners: ai-research
     - match: '/session-replay/recording-rasterizer/'
       owners: team-replay
     - match:
@@ -28,27 +22,10 @@ rules:
           - '/logs/transformations/benchmarks/*.test.*'
       owners: team-apm
     - match:
-          - '/common/usage-ingestion/*.test.*'
-      owners: team-billing
-    - match:
-          - '/common/api/*.test.*'
-          - '/common/api/middleware/*.test.*'
           - '/common/config/*.test.*'
-          - '/common/groups/*.test.*'
-          - '/common/groups/repositories/*.test.*'
-          - '/common/kafka/*.test.*'
-          - '/common/kafka/consumer/*.test.*'
           - '/common/outputs/*.test.*'
-          - '/common/personhog/*.test.*'
-          - '/common/persons/*.test.*'
-          - '/common/persons/repositories/*.test.*'
-          - '/common/tracing/*.test.*'
           - '/common/utils/db/*.test.*'
-          - '/common/utils/event-ingestion-restrictions/*.test.*'
       owners: team-ingestion
-    - match:
-          - '/schema-check/*.test.*'
-      owners: team-devex
     - match:
           - '/session-replay/recording-api/*.test.*'
       owners: team-replay

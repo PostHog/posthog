@@ -1,8 +1,8 @@
 import { DateTime, DurationLike } from 'luxon'
 
-import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
-import { execHog } from '~/cdp/utils/hog-exec'
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
+import { execHog } from '@posthog/hog-engine/cdp/utils/hog-exec'
 
 import { ParsedDuration, SECONDS_PER_DURATION_UNIT, parseDuration } from '../duration'
 import { findContinueAction } from '../hogflow-utils'

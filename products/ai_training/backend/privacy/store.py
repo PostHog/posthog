@@ -29,7 +29,7 @@ from products.ai_training.backend.privacy.v4 import V4KeyTarget
 
 logger = structlog.get_logger(__name__)
 
-# Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
+# Equals ML_SESSION_MAX_AGE_DAYS in ingestion/node/packages/ai-research/src/pipelines/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
 MONTH_DELETE_GRACE_DAYS = 14
 # A batch admitted just inside the grace period still commits within its 45 s budget, so deletion stays behind that too.
 MONTH_DELETE_IN_FLIGHT_MARGIN = timedelta(hours=1)

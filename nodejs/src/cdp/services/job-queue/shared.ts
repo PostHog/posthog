@@ -1,24 +1,24 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import type { CommonConfig } from '~/common/config'
-import { buildIntegerMatcher } from '~/common/config/config'
-
-import { ValueMatcher } from '../../../types'
-import { CdpConfig } from '../../config'
+import { CdpConfig } from '@posthog/hog-engine/cdp/config'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
     CyclotronJobQueueSource,
     IntegrationType,
-} from '../../types'
-import { EncryptedFields } from '../../utils/encryption-utils'
+} from '@posthog/hog-engine/cdp/types'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import {
     IntegrationInputRefsRollout,
     IntegrationRefSigner,
     replaceIntegrationInputsWithRefs,
     signIntegrationRef,
-} from '../../utils/integration-input-refs'
+} from '@posthog/hog-engine/cdp/utils/integration-input-refs'
+import type { CommonConfig } from '@posthog/node-common/config'
+import { buildIntegerMatcher } from '@posthog/node-common/config/matchers'
+
+import { ValueMatcher } from '~/types'
 
 export const cdpJobSizeKb = new Histogram({
     name: 'cdp_cyclotron_job_size_kb',

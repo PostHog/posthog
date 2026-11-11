@@ -2,27 +2,27 @@ import { Client, Pool } from 'pg'
 import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { waitForExpect } from '~/tests/helpers/expectations'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import {
-    HOGFLOW_BATCH_RESOLVE_QUEUE,
-    deserializeResolverState,
-    serializeResolverState,
-} from '../hogflows/batch-resolver.types'
-import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
-import { createCyclotronPool } from './pg-pool'
+import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from '~/cdp/services/cyclotron-v2/janitor'
+import { CyclotronV2Manager, assignEmailDequeueSeq } from '~/cdp/services/cyclotron-v2/manager'
+import { createCyclotronPool } from '~/cdp/services/cyclotron-v2/pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
     CyclotronV2BatchLimit,
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
-} from './types'
-import { CyclotronV2Worker, sleep } from './worker'
-import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
+} from '~/cdp/services/cyclotron-v2/types'
+import { CyclotronV2Worker, sleep } from '~/cdp/services/cyclotron-v2/worker'
+import { CyclotronV2RateLimitedWorker } from '~/cdp/services/cyclotron-v2/worker-rate-limited'
+import {
+    HOGFLOW_BATCH_RESOLVE_QUEUE,
+    deserializeResolverState,
+    serializeResolverState,
+} from '~/cdp/services/hogflows/batch-resolver.types'
+import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invocation-results.service'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const QUEUE = 'test-queue'
@@ -668,7 +668,7 @@ describe('Cyclotron V2', () => {
                 expect(jobs).toHaveLength(1)
                 expect((await queryJob(id)).status).toBe('running')
 
-                const { CyclotronJobConflictError } = await import('./manager.js')
+                const { CyclotronJobConflictError } = await import('~/cdp/services/cyclotron-v2/manager.js')
                 await expect(
                     manager.createJob({
                         id,
@@ -687,7 +687,7 @@ describe('Cyclotron V2', () => {
                 await manager.createJob({ id, teamId: 1, queueName: QUEUE })
                 expect((await queryJob(id)).status).toBe('available')
 
-                const { CyclotronJobConflictError } = await import('./manager.js')
+                const { CyclotronJobConflictError } = await import('~/cdp/services/cyclotron-v2/manager.js')
                 await expect(
                     manager.createJob({ id, teamId: 1, queueName: QUEUE, overwriteExisting: true })
                 ).rejects.toBeInstanceOf(CyclotronJobConflictError)
@@ -772,7 +772,7 @@ describe('Cyclotron V2', () => {
                 await activeJob.reschedule()
                 expect((await queryJob(activeId)).status).toBe('available')
 
-                const { CyclotronJobConflictError } = await import('./manager.js')
+                const { CyclotronJobConflictError } = await import('~/cdp/services/cyclotron-v2/manager.js')
                 await expect(
                     manager.bulkCreateJobs([
                         {

@@ -1,22 +1,29 @@
-import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import { Hub, PluginsServerConfig } from '~/types'
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
+import { PostgresGroupRepository } from '@posthog/ingestion-common/groups/repositories/postgres-group-repository'
+import {
+    buildGroupRepository,
+    buildPersonRepository,
+    createPersonHogClient,
+} from '@posthog/ingestion-common/personhog/index'
+import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repositories/postgres-person-repository'
+import {
+    createIngestionRedisConnectionConfig,
+    createPosthogRedisConnectionConfig,
+} from '@posthog/node-common/config/redis-pools'
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
+import { PostgresRouter, installPostgresTypeParsers } from '@posthog/node-common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
+import { isTestEnv } from '@posthog/node-common/utils/env-utils'
+import { GeoIPService } from '@posthog/node-common/utils/geoip'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
-import { defaultConfig } from '../../config/config'
-import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from '../../config/redis-pools'
-import { isTestEnv } from '../env-utils'
-import { GeoIPService } from '../geoip'
-import { logger } from '../logger'
-import { PubSub } from '../pubsub'
-import { TeamManager } from '../team-manager'
-import { PostgresRouter, installPostgresTypeParsers } from './postgres'
-import { createRedisPoolFromConfig } from './redis'
+import { defaultConfig } from '~/common/config/config'
+import { Hub, PluginsServerConfig } from '~/types'
 
 // Ensure type parsers are installed for any code path that uses hub.ts directly
 // (many test files still use createHub instead of PluginServer)

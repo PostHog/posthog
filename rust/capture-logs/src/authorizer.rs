@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Json;
-use capture::token::validate_token;
+use common_types::token::validate_token;
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;

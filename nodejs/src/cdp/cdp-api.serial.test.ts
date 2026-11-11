@@ -1,50 +1,50 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
-import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
-import { mockFetch } from '../../tests/helpers/mocks/request.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
-import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
-import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
-import { setupExpressApp } from '~/common/api/router'
-import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
-import { waitForExpect } from '~/tests/helpers/expectations'
+import { posthogFilterOutPlugin } from '@posthog/hog-engine/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import {
+    transactionalEmailRequestsTotal,
+    transactionalEmailStageDurationMs,
+} from '@posthog/hog-engine/cdp/services/hogflows/transactional-email'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+import { setupExpressApp } from '@posthog/node-common/api/router'
+import { deleteKeysWithPrefix } from '@posthog/node-common/redis/_tests/redis'
+import { createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { createTeam, getFirstTeam, resetTestDatabase } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
-import { forSnapshot } from '../../tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
-import { Hub, Team } from '../types'
-import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
     createHogFunction,
     insertHogFunctionTemplate,
     insertIntegration,
-} from './_tests/fixtures'
-import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tests/fixtures-hogflows'
-import { CdpApi } from './cdp-api'
-import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
-import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
-import {
-    transactionalEmailRequestsTotal,
-    transactionalEmailStageDurationMs,
-} from './services/hogflows/transactional-email'
-import { SuppressionLookupError } from './services/messaging/email-suppression.service'
-import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
-import { compileHog } from './templates/compiler'
-import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+} from '~/cdp/_tests/fixtures'
+import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from '~/cdp/_tests/fixtures-hogflows'
+import { CdpApi } from '~/cdp/cdp-api'
+import { CdpConsumerBaseDeps } from '~/cdp/consumers/cdp-base.consumer'
+import { IdempotencyKeys, createIdempotencyValkeyPool } from '~/cdp/services/hogflows/idempotency-keys'
+import { SuppressionLookupError } from '~/cdp/services/messaging/email-suppression.service'
+import { BASE_REDIS_KEY, HogWatcherState } from '~/cdp/services/monitoring/hog-watcher.service'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { Hub, Team } from '~/types'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
 // email tests would do live DNS lookups for their fixture recipients (and

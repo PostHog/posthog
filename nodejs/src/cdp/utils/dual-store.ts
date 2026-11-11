@@ -1,9 +1,8 @@
 import { isDeepStrictEqual } from 'node:util'
 import { Counter } from 'prom-client'
 
-import { logger } from '~/common/utils/logger'
-
-import { instrumentFn } from '../../common/tracing/tracing-utils'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
 
 const DEFAULT_TIMEOUT_MS = 2000
 const mismatchWarningLogged = new Set<string>()

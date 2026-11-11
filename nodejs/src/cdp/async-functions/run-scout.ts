@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { CyclotronInvocationQueueParametersFetchSchema } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+
 import { defaultConfig } from '~/common/config/config'
 
 import { registerAsyncFunction } from '../async-function-registry'
-import { PosthogJwtAudience } from '../utils/jwt-utils'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '../utils/workflow-step-dispatch-key'
 

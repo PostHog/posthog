@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { DeadLetterStep, HogFunctionInvocationGlobals, InvocationBuildFailure } from '@posthog/hog-engine/cdp/types'
+
 import { CdpOutputs } from '../../cdp-services'
 import { CDP_EVENTS_DLQ_OUTPUT } from '../../outputs/outputs'
-import { DeadLetterStep, HogFunctionInvocationGlobals, InvocationBuildFailure } from '../../types'
 import { CdpDeadLetterService } from './cdp-dead-letter.service'
 
 describe('CdpDeadLetterService', () => {

@@ -38,7 +38,6 @@ const {
     tripwireDomain,
     ALL,
     JAVASCRIPT,
-    NATIVE_BINDING_CONSUMER_LANES,
     NODE,
     PROTO_TREES,
     PYTHON,
@@ -46,6 +45,14 @@ const {
     stripJsonComments,
     RUST,
     UNIVERSAL,
+    INGESTION,
+    INGESTION_AI_RESEARCH,
+    INGESTION_SESSION_REPLAY,
+    INGESTION_AI_EVENTS,
+    INGESTION_LANES,
+    INGESTION_ROOT_BUILD_INPUTS,
+    ciActionsUsedBy,
+    INGESTION_ROOT_INPUTS_LEFT_TO_THE_LOCKFILE,
 } = require('./trunk-impacted-targets')
 const { tachDependents } = require('./turbo-discover')
 
@@ -75,6 +82,7 @@ const CONTEXT = {
 
 // What a widening decision now uploads in place of the "ALL" sentinel.
 const EVERYTHING = allKnownTargets(CONTEXT)
+const withIngestionLanes = (targets) => [...new Set([...targets, ...INGESTION_LANES])].sort()
 
 // A graph the tach map walked all three products into, so their importer sets
 // are known. The base CONTEXT deliberately holds none, which covers the case
@@ -96,16 +104,7 @@ const TACH_DECLARED_CONTEXT = {
 // this inventory has to carry their real names. The dependent and the
 // bystander are synthetic, which is what keeps the assertions off the real
 // crate workspace.
-const PROTO_CRATES = [
-    'cymbal-proto',
-    'ingestion-worker-proto',
-    'kafka-assigner-proto',
-    'personhog-proto',
-    'personhog-consumer',
-    'prometheus-rw-proto',
-    'usage-ingestion-proto',
-    'unrelated',
-]
+const PROTO_CRATES = ['cymbal-proto', 'prometheus-rw-proto', 'usage-ingestion-proto', 'unrelated']
 const PROTO_CONTEXT = {
     ...CONTEXT,
     rustInventory: {
@@ -163,10 +162,11 @@ test('a change to the lane rules themselves stays universal', () => {
         '.github/scripts/trunk-lane-telemetry.js',
         '.github/scripts/turbo-discover.js',
         '.github/workflows/trunk-impacted-targets.yml',
-        'turbo.json',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, file)
     }
+    // turbo-discover reads turbo.json too, and the Node packages build from it.
+    assert.deepEqual(computeTargets(['turbo.json'], CONTEXT), withIngestionLanes(EVERYTHING))
 })
 
 // tach.toml is read by the lane rules too, so it carries the same hazard, but
@@ -183,9 +183,14 @@ test('the tach graph claims the python lanes rather than every lane', () => {
 // the mirror image, and neither workspace resolves against the other's files.
 // Only the root files narrow: a product's own manifests keep the product's lanes.
 test('a lockfile claims its own toolchain rather than every lane', () => {
-    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json']) {
+    for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['tsconfig.json'], CONTEXT), file)
     }
+    // The root manifest is also a build input of the ingestion packages.
+    assert.deepEqual(
+        computeTargets(['package.json'], CONTEXT),
+        withIngestionLanes(computeTargets(['tsconfig.json'], CONTEXT))
+    )
     for (const file of ['uv.lock', 'pyproject.toml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
     }
@@ -198,43 +203,26 @@ test('a lockfile claims its own toolchain rather than every lane', () => {
 // answer for the diff (the crate that compiles the tree plus its dependents),
 // not every crate.
 test('a proto claims the consumers that generate from it rather than every lane', () => {
-    const targets = computeTargets(['proto/personhog/types/v1/person.proto'], {
-        ...PROTO_CONTEXT,
-        rustAffectedCrates: ['personhog-proto', 'personhog-consumer'],
-    })
-    for (const target of [
-        'py:core',
-        'py:product:alpha',
-        'node:ingestion',
-        'rust:crate:personhog-proto',
-        'rust:crate:personhog-consumer',
-    ]) {
-        assert.equal(targets.includes(target), true, target)
-    }
-    for (const target of ['fe:core', 'svc:mcp', 'rust:crate:cymbal-proto', 'rust:crate:unrelated']) {
-        assert.equal(targets.includes(target), false, target)
-    }
+    // The personhog proto is ingestion's: a change to it is an ingestion change,
+    // and the Python stubs under packages/personhog-proto follow it by pinned
+    // commit in a bump of their own.
+    assert.deepEqual(computeTargets(['ingestion/proto/personhog/types/v1/person.proto'], PROTO_CONTEXT), [INGESTION])
+    const stubTargets = computeTargets(['packages/personhog-proto/stub'], PROTO_CONTEXT)
+    assert.equal(stubTargets.includes('py:core'), true)
+    assert.equal(stubTargets.includes(INGESTION), false)
+    assert.equal(stubTargets.includes('fe:core'), false)
 
-    // A stub tree claims its consumer's lane whichever top-level directory
-    // holds it: packages/ reads as frontend unless a rule says otherwise.
-    const generatedDirs = [
-        ['packages/personhog-proto', 'py:core'],
-        ['nodejs/src/common/generated/personhog', 'node:ingestion'],
-        ['rust/personhog-proto', 'rust:crate:personhog-proto'],
-    ]
-    for (const [dir, lane] of generatedDirs) {
-        assert.equal(fs.existsSync(path.join(REPO_ROOT, dir)), true, `${dir} is the stub tree its lane stands for`)
-        const stubTargets = computeTargets([`${dir}/stub`], {
-            ...PROTO_CONTEXT,
-            rustAffectedCrates: ['personhog-proto'],
-        })
-        assert.equal(stubTargets.includes(lane), true, `${dir} claims ${lane}`)
-        assert.equal(stubTargets.includes('fe:core'), false, `${dir} claims no frontend lane`)
+    // A proto outside ingestion's tree still claims the crates that compile it.
+    const targets = computeTargets(['proto/usage_ingestion/v1/service.proto'], {
+        ...PROTO_CONTEXT,
+        rustAffectedCrates: ['usage-ingestion-proto'],
+    })
+    assert.equal(targets.includes('rust:crate:usage-ingestion-proto'), true)
+    for (const target of ['fe:core', 'svc:mcp', 'rust:crate:cymbal-proto', 'rust:crate:unrelated', INGESTION]) {
+        assert.equal(targets.includes(target), false, target)
     }
 })
 
-// The narrowing the per-tree table buys: a tree nothing outside rust/ generates
-// from used to serialize against every python lane in the repo.
 test('a proto tree with no stubs outside rust claims neither python nor nodejs', () => {
     assert.deepEqual(
         computeTargets(['proto/cymbal/resolution/v1/resolution.proto'], {
@@ -244,11 +232,11 @@ test('a proto tree with no stubs outside rust claims neither python nor nodejs',
         ['rust:crate:cymbal-proto']
     )
     assert.deepEqual(
-        computeTargets(['proto/kafka_assigner/v1/service.proto'], {
+        computeTargets(['proto/prometheus/v1/remote_write.proto'], {
             ...PROTO_CONTEXT,
-            rustAffectedCrates: ['kafka-assigner-proto'],
+            rustAffectedCrates: ['prometheus-rw-proto'],
         }),
-        ['rust:crate:kafka-assigner-proto']
+        ['rust:crate:prometheus-rw-proto']
     )
 })
 
@@ -257,10 +245,7 @@ test('a proto tree with no stubs outside rust claims neither python nor nodejs',
 test('proto configuration at the root claims every tree', () => {
     const union = new Set()
     for (const file of [
-        'proto/personhog/types/v1/person.proto',
         'proto/cymbal/resolution/v1/resolution.proto',
-        'proto/ingestion/worker/v1/worker.proto',
-        'proto/kafka_assigner/v1/service.proto',
         'proto/prometheus/v1/remote_write.proto',
         'proto/usage_ingestion/v1/service.proto',
     ]) {
@@ -349,10 +334,11 @@ test('every proto tree is declared, with the crate that compiles it', () => {
 // its own name (usage_ingestion generates into usage-ingestion) reads as "no
 // stubs" and agrees with an empty domain list. The directory side catches that.
 test('every proto tree declaring a stub consumer has stubs there, and no other tree does', () => {
-    const stubRoots = [
-        ['packages/personhog-proto', PYTHON],
-        ['nodejs/src/common/generated', NODE],
-    ]
+    // packages/personhog-proto holds the Python stubs of ingestion/proto/personhog,
+    // generated from a pinned commit rather than from a tree under proto/; the Node
+    // stubs of every ingestion proto live in ingestion's own packages.
+    const PINNED_STUBS = { 'packages/personhog-proto': ['personhog'] }
+    const stubRoots = [['packages/personhog-proto', PYTHON]]
     for (const [root, domain] of stubRoots) {
         const generated = fs
             .readdirSync(path.join(REPO_ROOT, root), { withFileTypes: true })
@@ -370,6 +356,9 @@ test('every proto tree declaring a stub consumer has stubs there, and no other t
             if (domains.includes(domain)) {
                 claimed.add(stubDir || tree)
             }
+        }
+        for (const dir of PINNED_STUBS[root] || []) {
+            claimed.add(dir)
         }
         assert.deepEqual(
             generated.filter((dir) => !claimed.has(dir)),
@@ -526,7 +515,9 @@ test('the quarantine list claims the fullstack lanes and no rust crate', () => {
 // paths-filter decides which jobs run inside a single run's own diff, so no
 // run's outcome depends on it jointly with another queue entry. Its own CI and
 // its .depot mirror share the lane.
+// The other root actions ingestion's workflows run claim ingestion's lanes on top of their own.
 test('the paths-filter action and its CI share the ci-tooling lane', () => {
+    const context = { ...CONTEXT, ingestionCiActions: buildContext(REPO_ROOT).ingestionCiActions }
     for (const file of [
         '.github/actions/paths-filter/src/filter.ts',
         '.github/actions/paths-filter/dist/index.js',
@@ -535,7 +526,10 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
         '.github/workflows/ci-paths-filter.yml',
         '.depot/actions/paths-filter/src/filter.ts',
     ]) {
-        assert.deepEqual(computeTargets([file], CONTEXT), ['ci-tooling'], file)
+        assert.deepEqual(computeTargets([file], context), ['ci-tooling'], file)
+    }
+    for (const file of ['.github/actions/setup-rust/action.yml', '.github/actions/setup-pnpm/action.yml']) {
+        assert.deepEqual(computeTargets([file], context), withIngestionLanes(computeTargets([file], CONTEXT)), file)
     }
 })
 
@@ -545,7 +539,7 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
 test('pnpm patches take the JS lanes and depot.json the repo-config lane', () => {
     assert.deepEqual(
         computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT),
-        computeTargets(['tsconfig.json'], CONTEXT)
+        withIngestionLanes(computeTargets(['tsconfig.json'], CONTEXT))
     )
     assert.deepEqual(computeTargets(['depot.json'], CONTEXT), ['repo-config'])
 })
@@ -864,6 +858,7 @@ test('the ml-mirror sidecar image and its workflow stay on the node lanes', () =
 const [RASTERIZER_LANE, RASTERIZER_DIR] = NODE_SUB_LANES.find(([lane]) => lane === 'node:recording-rasterizer')
 const [CDP_LANE] = NODE_SUB_LANES.find(([lane]) => lane === 'node:cdp')
 const ALL_NODE_LANES = [...NODE_LANES].sort()
+const ALL_NODE_AND_INGESTION_LANES = [...NODE_LANES, ...INGESTION_LANES].sort()
 
 const NODE_CONTEXT = {
     ...CONTEXT,
@@ -929,6 +924,49 @@ function writeTree(files) {
     }
     return root
 }
+
+// Ingestion's packages seed their lanes from server files, and the walk crosses package
+// boundaries through workspace specifiers, so a shared file claims every lane that reaches it.
+test('the node lane map seeds ingestion lanes from server files across packages', () => {
+    const ING = 'ingestion/node/packages/ingestion'
+    const tree = {
+        'nodejs/src/index.ts': "import './cdp/executor'\n",
+        'nodejs/src/cdp/executor.ts': "import { log } from '@posthog/node-common/utils/logger'\n",
+        'nodejs/packages/common/src/utils/logger.ts': 'export const log = () => {}\n',
+        'nodejs/packages/common/src/utils/unused.ts': 'export const unused = 1\n',
+        'nodejs/packages/replay-storage/src/keystore.ts': 'export const key = 1\n',
+        [`${ING}/src/index.ts`]:
+            "import './servers/ingestion-general-server'\nimport './servers/ingestion-session-replay-server'\n",
+        [`${ING}/src/servers/ingestion-general-server.ts`]:
+            "import { log } from '@posthog/node-common/utils/logger'\nimport { step } from '~/ingestion/pipelines/analytics/step'\n",
+        [`${ING}/src/servers/ingestion-session-replay-server.ts`]:
+            "import { key } from '@posthog/replay-storage/keystore'\nimport { consume } from '~/ingestion/pipelines/sessionreplay/consumer'\n",
+        [`${ING}/src/ingestion/pipelines/analytics/step.ts`]: 'export const step = 1\n',
+        [`${ING}/src/ingestion/pipelines/sessionreplay/consumer.ts`]: 'export const consume = 1\n',
+        [`${ING}/src/ingestion/pipelines/sessionreplay/consumer.test.ts`]: "import { consume } from './consumer'\n",
+        [`${ING}/src/ingestion/pipelines/orphan.ts`]: 'export const orphan = 1\n',
+    }
+    const root = writeTree(tree)
+    const map = loadNodeLaneMap(root)
+    const context = { ...CONTEXT, nodeLaneMap: map }
+    const lanesOf = (file) => computeTargets([file], context).sort()
+    assert.deepEqual(lanesOf('nodejs/packages/common/src/utils/logger.ts'), [INGESTION, CDP_LANE].sort())
+    assert.deepEqual(lanesOf(`${ING}/src/ingestion/pipelines/analytics/step.ts`), [INGESTION])
+    assert.deepEqual(lanesOf(`${ING}/src/ingestion/pipelines/sessionreplay/consumer.ts`), [INGESTION_SESSION_REPLAY])
+    assert.deepEqual(lanesOf(`${ING}/src/ingestion/pipelines/sessionreplay/consumer.test.ts`), [
+        INGESTION_SESSION_REPLAY,
+    ])
+    assert.deepEqual(lanesOf('nodejs/packages/replay-storage/src/keystore.ts'), [INGESTION_SESSION_REPLAY])
+    assert.deepEqual(lanesOf(`${ING}/src/servers/ingestion-session-replay-server.ts`), [INGESTION_SESSION_REPLAY])
+    // An entry point claims every lane of its package; a file nothing reaches claims them too.
+    assert.deepEqual(lanesOf(`${ING}/src/index.ts`), [INGESTION, INGESTION_AI_EVENTS, INGESTION_SESSION_REPLAY].sort())
+    assert.deepEqual(
+        lanesOf(`${ING}/src/ingestion/pipelines/orphan.ts`),
+        [INGESTION, INGESTION_AI_EVENTS, INGESTION_SESSION_REPLAY].sort()
+    )
+    // A library file nothing reaches falls back to the lanes that import the library at all.
+    assert.deepEqual(lanesOf('nodejs/packages/common/src/utils/unused.ts'), [INGESTION, CDP_LANE].sort())
+})
 
 test('the node lane map follows imports in both directions and fails closed', () => {
     const tree = {
@@ -1111,9 +1149,21 @@ test('a JS lockfile change claims the node lanes whose dependencies it moved', (
             nodeLaneMap,
             [CDP_LANE],
         ],
-        ['a root dependency no lane imports', lockfileWith({ tool: '1.0.1' }), WORKSPACE, nodeLaneMap, ALL_NODE_LANES],
+        [
+            'a root dependency no lane imports',
+            lockfileWith({ tool: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            ALL_NODE_AND_INGESTION_LANES,
+        ],
         ['a root copy of a package nodejs declares', lockfileWith({ rootKafka: '3.0.1' }), WORKSPACE, nodeLaneMap, []],
-        ['a root dependency with no node lane map', lockfileWith({ pad: '1.0.1' }), WORKSPACE, null, ALL_NODE_LANES],
+        [
+            'a root dependency with no node lane map',
+            lockfileWith({ pad: '1.0.1' }),
+            WORKSPACE,
+            null,
+            ALL_NODE_AND_INGESTION_LANES,
+        ],
         ['an unchanged lockfile', base, WORKSPACE, nodeLaneMap, []],
         [
             'a bump only replay-headless resolves',
@@ -1136,14 +1186,14 @@ test('a JS lockfile change claims the node lanes whose dependencies it moved', (
             lockfileWith({ overrides: 'overrides:\n  shim: 1.0.0\n' }),
             WORKSPACE,
             nodeLaneMap,
-            ALL_NODE_LANES,
+            ALL_NODE_AND_INGESTION_LANES,
         ],
         [
             'a workspace change outside the catalog',
             base,
             WORKSPACE.replace('    - packages/*', '    - packages/*\n    - tools/*'),
             nodeLaneMap,
-            ALL_NODE_LANES,
+            ALL_NODE_AND_INGESTION_LANES,
         ],
         ['a catalog-only workspace change', base, WORKSPACE.replace('^1.0.0', '^1.0.1'), nodeLaneMap, []],
         ['a snapshot the walk cannot find', base.replace('  shim@1.0.0: {}', ''), WORKSPACE, nodeLaneMap, null],
@@ -1367,11 +1417,17 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         'depot.json',
         '.github/workflows/_rust-build-images.yml',
     ]
+    // The ingestion lanes are the one deliberate exception: a widened PR never
+    // claims them, only a rule that names an ingestion dependency does.
     for (const file of everyRule) {
         const targets = computeTargets([file], CONTEXT)
         assert.notEqual(targets, ALL, `${file} should enumerate`)
         for (const target of targets) {
-            assert.equal(EVERYTHING.includes(target), true, `${target} (from ${file}) is missing from allKnownTargets`)
+            assert.equal(
+                EVERYTHING.includes(target) || INGESTION_LANES.includes(target),
+                true,
+                `${target} (from ${file}) is missing from allKnownTargets`
+            )
         }
     }
 })
@@ -1645,88 +1701,36 @@ test('the crate inventory holds every crate the determinator can name', () => {
     assert.deepEqual(missing, [], 'these workspace members are absent from the crate inventory')
 })
 
+// Ingestion's crates are workspace members under ingestion/rust, so the
+// determinator names them like any other crate; their lane is ingestion's.
+test('an affected ingestion crate claims the ingestion lane, not a crate target', () => {
+    const context = buildContext(REPO_ROOT)
+    assert.equal(context.rustInventory.ingestionCrates.has('capture'), true)
+    const targets = computeTargets(['rust/common/kafka/src/lib.rs'], {
+        ...context,
+        rustAffectedCrates: ['common-kafka', 'capture', 'cymbal'],
+    })
+    assert.deepEqual(targets, [INGESTION, 'rust:crate:common-kafka', 'rust:crate:cymbal'])
+})
+
 // The consumer lanes are declared rather than derived, so a second dependent
 // appearing anywhere in the pnpm workspace has to fail here. Reads the real
 // workspace for that reason: a synthetic one cannot notice the new dependent.
-test('nodejs is still the only workspace package importing a rust binding', () => {
-    const workspaceGlobs = parseWorkspacePackageGlobs(
-        fs.readFileSync(path.join(REPO_ROOT, 'pnpm-workspace.yaml'), 'utf8')
-    )
-    // pnpm's package globs are one level deep, so a trailing /* expands by
-    // listing the directory. Negations exclude a package rather than add one.
-    const expand = (glob) => {
-        if (glob.startsWith('!')) {
-            return []
-        }
-        if (!glob.endsWith('/*')) {
-            return [glob]
-        }
-        const parent = path.join(REPO_ROOT, glob.slice(0, -2))
-        if (!fs.existsSync(parent)) {
-            return []
-        }
-        return fs
-            .readdirSync(parent, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
-            .map((entry) => path.posix.join(glob.slice(0, -2), entry.name))
-    }
-    const packageDirs = workspaceGlobs.flatMap(expand)
-
-    // An incomplete checkout (e.g. a sparse CI checkout missing workspace
-    // manifests) would silently shrink the inspection set: expand() and the
-    // existsSync checks below skip whatever is absent. The git index stays
-    // complete even when the working tree is sparse, so any tracked manifest
-    // inside the workspace that is not on disk means the checkout dropped it.
-    const matcher = compileWorkspaceMatcher(workspaceGlobs)
-    const trackedManifests = execFileSync('git', ['ls-files', '-z', '--', ':(glob)**/package.json', 'package.json'], {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-    })
-        .split('\0')
-        .filter(Boolean)
-    assert.ok(trackedManifests.length > 0, 'git ls-files found no manifests, so the checkout check below is vacuous')
-    for (const manifest of new Set(trackedManifests)) {
-        if (manifest !== 'package.json' && !matcher(manifest)) {
-            continue
-        }
-        assert.ok(
-            fs.existsSync(path.join(REPO_ROOT, manifest)),
-            `${manifest} is tracked by git but absent on disk — an incomplete checkout guts this guard`
+test('every rust binding the workspace publishes has a consumer the import walk can see', () => {
+    const context = buildContext(REPO_ROOT)
+    assert.ok(context.nodeLaneMap, 'the node lane map must build on the real repository')
+    const bindings = [...context.rustInventory.nativeBindings]
+    assert.ok(bindings.length > 0, 'expected the rust workspace to publish npm packages')
+    for (const crate of bindings) {
+        const dir = context.rustInventory.byDir.find((entry) => entry.name === crate).dir
+        const name = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'rust', dir, 'package.json'), 'utf8')).name
+        const lanes = context.nodeLaneMap.packageLanes.get(name)
+        assert.ok(lanes && lanes.size > 0, `${name} (${crate}) is imported by nothing the walk covers`)
+        assert.deepEqual(
+            computeTargets([`rust/${dir}/src/lib.rs`], { ...context, rustAffectedCrates: [crate] }).sort(),
+            [...lanes, `rust:crate:${crate}`].sort()
         )
     }
-
-    const bindingPackages = new Set()
-    for (const dir of packageDirs) {
-        if (!dir.startsWith('rust/')) {
-            continue
-        }
-        const manifest = path.join(REPO_ROOT, dir, 'package.json')
-        if (fs.existsSync(manifest)) {
-            bindingPackages.add(JSON.parse(fs.readFileSync(manifest, 'utf8')).name)
-        }
-    }
-    assert.ok(bindingPackages.size > 0, 'expected the rust workspace to publish npm packages')
-
-    const dependentDirs = []
-    for (const dir of packageDirs) {
-        if (dir.startsWith('rust/')) {
-            continue
-        }
-        const manifest = path.join(REPO_ROOT, dir, 'package.json')
-        if (!fs.existsSync(manifest)) {
-            continue
-        }
-        const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'))
-        const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies }
-        if (Object.keys(deps).some((name) => bindingPackages.has(name))) {
-            dependentDirs.push(dir)
-        }
-    }
-    assert.deepEqual(
-        dependentDirs.sort(),
-        ['nodejs'],
-        `NATIVE_BINDING_CONSUMER_LANES (${NATIVE_BINDING_CONSUMER_LANES.join(', ')}) must cover every dependent`
-    )
 })
 
 // The cargo lockfile claims no python lane, which holds only while every python
@@ -2361,3 +2365,118 @@ for (const writable of [true, false]) {
         }
     })
 }
+
+// Ingestion's tree is its own lane: its CI checks out ingestion/ alone, so a
+// change elsewhere cannot affect its checks, and a change inside claims no
+// other team's lane. The every-lane set never includes it.
+test('ingestion claims only its own lane', () => {
+    assert.deepEqual(computeTargets(['ingestion/rust/capture/src/main.rs'], CONTEXT), [INGESTION])
+    assert.deepEqual(computeTargets(['ingestion/proto/personhog/types/v1/person.proto'], CONTEXT), [INGESTION])
+    assert.deepEqual(computeTargets(['ingestion/ci/docker-compose.yml'], CONTEXT), [INGESTION])
+    assert.deepEqual(computeTargets(['ingestion/pinned/schema/postgres.sql'], CONTEXT), [INGESTION])
+    assert.deepEqual(computeTargets(['.github/workflows/ingestion-rust.yml'], CONTEXT), [INGESTION])
+    assert.deepEqual(
+        computeTargets(['.github/workflows/_ingestion-build-images.yml'], CONTEXT),
+        [...INGESTION_LANES].sort()
+    )
+    assert.deepEqual(computeTargets(['ingestion/README.md'], CONTEXT), computeTargets(['README.md'], CONTEXT))
+    assert.equal(EVERYTHING.includes(INGESTION), false)
+    assert.equal(EVERYTHING.includes(INGESTION_AI_RESEARCH), false)
+})
+
+// The universal set leaves the ingestion lanes out, so the root files every
+// Node package builds from claim them on top of it: those changes run
+// ingestion's CI and must serialize with it in the queue.
+test('a root build input claims the ingestion lanes on top of its own', () => {
+    for (const file of ['turbo.json', 'package.json', '.nvmrc', 'patches/some-dep.patch']) {
+        const targets = computeTargets([file], CONTEXT)
+        for (const lane of INGESTION_LANES) {
+            assert.equal(targets.includes(lane), true, `${file} should claim ${lane}`)
+        }
+    }
+    for (const file of ['tsconfig.json', 'pnpm-workspace.yaml', 'pnpm-lock.yaml', 'README.md']) {
+        assert.equal(computeTargets([file], CONTEXT).includes(INGESTION), false, file)
+    }
+    assert.equal(computeTargets(['turbo.json', 'README.md'], CONTEXT).includes(INGESTION), true)
+})
+
+// Both lists come from one fact, which root files ingestion's build reads; this
+// keeps the lane claim and the CI trigger from drifting apart.
+test('the ingestion workflow filters list the root inputs the lane script claims for them', () => {
+    const filterOf = (workflow) => {
+        const text = fs.readFileSync(path.join(REPO_ROOT, workflow), 'utf8')
+        const start = text.indexOf('filters: |')
+        const end = text.slice(start).search(/\n    [\w-]+:\n/)
+        return [...text.slice(start, start + end).matchAll(/^\s+- '([^']+)'$/gm)].map((match) => match[1])
+    }
+    const rootEntries = filterOf('.github/workflows/ingestion-node.yml')
+        .filter((entry) => !entry.includes('/') || /^[^/]+\/\*\*$/.test(entry))
+        .map((entry) => entry.replace(/\*\*$/, ''))
+        .filter((entry) => !INGESTION_ROOT_INPUTS_LEFT_TO_THE_LOCKFILE.includes(entry))
+        .sort()
+    assert.deepEqual(rootEntries, [...INGESTION_ROOT_BUILD_INPUTS].sort())
+    for (const workflow of ['.github/workflows/ingestion-node.yml', '.github/workflows/ingestion-rust.yml']) {
+        const filter = filterOf(workflow)
+        for (const action of ciActionsUsedBy(REPO_ROOT, [path.join(REPO_ROOT, workflow)])) {
+            assert.ok(filter.includes(`${action}**`), `${workflow} runs ${action} but does not trigger on it`)
+        }
+    }
+})
+
+test('the AI research pipelines inside the ingestion tree have a lane of their own', () => {
+    const file = 'ingestion/node/packages/ai-research/src/pipelines/ml-mirror/ml-mirror-pipeline.ts'
+    assert.deepEqual(computeTargets([file], CONTEXT), [INGESTION_AI_RESEARCH])
+    const server = 'ingestion/node/packages/ai-research/src/servers/ai-research-v4-parquet-sink-server.ts'
+    assert.deepEqual(computeTargets([server], CONTEXT), [INGESTION_AI_RESEARCH])
+})
+
+// Shared packages are consumed by workspace path, so a file in one claims the lanes of every
+// server whose imports reach it, in whichever package that server lives.
+test('a shared package file claims the lanes of the servers that reach it', () => {
+    const context = buildContext(REPO_ROOT)
+    assert.ok(context.nodeLaneMap, 'the node lane map must build on the real repository')
+    const logger = computeTargets(['nodejs/packages/common/src/utils/logger.ts'], context)
+    for (const lane of [...NODE_LANES, ...INGESTION_LANES]) {
+        assert.equal(logger.includes(lane), true, `the logger runs everywhere, missing ${lane}`)
+    }
+    const engine = computeTargets(['nodejs/packages/hog-engine/src/cdp/types.ts'], context)
+    assert.equal(engine.includes(INGESTION), true)
+    assert.equal(engine.includes('node:cdp'), true)
+    const persons = computeTargets(
+        ['ingestion/node/packages/common/src/persons/repositories/person-repository.ts'],
+        context
+    )
+    assert.equal(persons.includes(INGESTION), true)
+    assert.equal(persons.includes('node:cdp'), true)
+    assert.equal(persons.includes(INGESTION_AI_RESEARCH), false)
+    const keystore = computeTargets(['nodejs/packages/replay-storage/src/keystore/index.ts'], context)
+    assert.equal(keystore.includes(INGESTION_SESSION_REPLAY), true)
+    assert.equal(keystore.includes(INGESTION), false, 'the replay storage library is not in the core lane')
+    // The pipelines claim only the servers that run them.
+    assert.deepEqual(
+        computeTargets(
+            ['ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/costs/providers/llm-costs.json'],
+            context
+        ),
+        // Combined mode in the general server runs the AI consumer too.
+        [INGESTION, INGESTION_AI_EVENTS]
+    )
+    assert.deepEqual(
+        computeTargets(['ingestion/node/packages/ai-research/src/pipelines/ml-mirror/ml-mirror-pipeline.ts'], context),
+        [INGESTION_AI_RESEARCH]
+    )
+    assert.equal(
+        computeTargets(
+            ['ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/consumer.ts'],
+            context
+        ).includes(INGESTION),
+        false
+    )
+    assert.deepEqual(
+        computeTargets(['ingestion/node/packages/ingestion/src/index.ts'], context).sort(),
+        [INGESTION, INGESTION_AI_EVENTS, INGESTION_SESSION_REPLAY].sort()
+    )
+    assert.deepEqual(computeTargets(['nodejs/src/cdp/services/managers/persons-manager.service.ts'], context), [
+        'node:cdp',
+    ])
+})

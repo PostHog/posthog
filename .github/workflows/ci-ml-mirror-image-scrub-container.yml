@@ -43,7 +43,7 @@ jobs:
                   # The image and the unit tests both build the replay-anonymizer addon from these crates and the workspace files cargo reads.
                   filters: |
                       scrub_files:
-                        - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**'
+                        - 'ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/**'
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
                         - 'rust/Cargo.toml'
@@ -62,7 +62,7 @@ jobs:
             contents: read
         defaults:
             run:
-                working-directory: nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar
+                working-directory: ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

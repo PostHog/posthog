@@ -3,7 +3,7 @@ import { AddressInfo } from 'net'
 import { register } from 'prom-client'
 import { gzipSync } from 'zlib'
 
-import { FetchResponse, internalFetch } from '~/common/utils/request'
+import { FetchResponse, internalFetch } from '@posthog/node-common/utils/request'
 
 import { createPushSubscriptionsHandler } from './push-subscriptions-http'
 import { PushHandlerResult, PushSubscriptionsService } from './push-subscriptions.service'

@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises'
 import jwt from 'jsonwebtoken'
 
-import { logger, serializeError } from '~/common/utils/logger'
+import { logger, serializeError } from '@posthog/node-common/utils/logger'
 
 import { ClickHousePasswordFallbackReason, RecordingApiMetrics } from './metrics'
 import { RecordingApiConfig } from './types'

@@ -186,7 +186,7 @@ knowledge_base:
 
             # The personhog coordination protocol, where a mistake is hard to see.
             - files: '.agents/skills/reviewing-personhog-protocol/SKILL.md,.agents/skills/adding-personhog-rpc/SKILL.md'
-              applyTo: 'posthog/personhog_client/**,rust/personhog-coordination/**,rust/personhog-test-harness/**'
+              applyTo: 'posthog/personhog_client/**,ingestion/rust/personhog-coordination/**,ingestion/rust/personhog-test-harness/**'
 
             - files: '.agents/skills/working-with-charts/SKILL.md,packages/quill/packages/charts/src/docs/**/*.md'
               applyTo: 'packages/quill/packages/charts/**'

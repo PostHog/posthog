@@ -1,7 +1,7 @@
 import http from 'http'
 import { AddressInfo } from 'net'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 export interface FakeSesMessage {
     messageId: string

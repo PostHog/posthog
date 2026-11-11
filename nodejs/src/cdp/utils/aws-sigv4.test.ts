@@ -1,6 +1,6 @@
-import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 
-import { HogFunctionType } from '../types'
 import { resolveAwsSigV4Credentials, signAwsRequest } from './aws-sigv4'
 
 describe('signAwsRequest', () => {

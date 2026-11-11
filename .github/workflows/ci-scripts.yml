@@ -18,6 +18,7 @@ on:
             # trunk-impacted-targets.test.js reads proto/ and fails on a tree the
             # table does not declare, so adding one has to run these tests.
             - proto/**
+            - ingestion/proto/**
             # The lane tests guard that both root oxc configs keep ignoring nodejs/.
             - .oxlintrc.json
             - .oxfmtrc*
@@ -73,6 +74,7 @@ jobs:
                       /proto/
                       /rust/
                       /nodejs/
+                      /ingestion/
                       /packages/personhog-proto/
                       /.semgrep/
                       /frontend/bin/ci-report/

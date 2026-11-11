@@ -1,0 +1,85 @@
+import { Message } from 'node-rdkafka'
+
+import { TopHogRegistry } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput, TophogOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
+import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
+import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'
+import {
+    createApplyEventFiltersStep,
+    createEventFiltersBatchAppMetricsBeforeBatchStep,
+    createFlushEventFiltersBatchAppMetricsStep,
+} from '~/ingestion/common/steps/event-filters-steps'
+import {
+    createValidateEventMetadataStep,
+    createValidateEventPropertiesStep,
+} from '~/ingestion/common/steps/event-preprocessing'
+import { createApplyBasicEventRestrictionsStep } from '~/ingestion/common/steps/event-preprocessing/apply-event-restrictions'
+import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
+import { createHandleClientIngestionWarningStep } from '~/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step'
+import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
+import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+
+export interface ClientWarningsPipelineConfig {
+    outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | AppMetricsOutput | TophogOutput>
+    teamManager: TeamManager
+    // The managers come from a started `Lifecycle`'s service map, where
+    // `start` and `stop` are stripped from the type — the pipeline only
+    // needs their business methods.
+    eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventFilterManager: EventFilterManager
+    promiseScheduler: PromiseScheduler
+    topHog: TopHogRegistry
+    teamsPrefetchEnabled: boolean
+}
+
+interface ClientWarningsPipelineInput {
+    message: Message
+}
+
+interface ClientWarningsPipelineContext {
+    message: Message
+}
+
+export function createClientWarningsPipeline<
+    TInput extends ClientWarningsPipelineInput,
+    TContext extends ClientWarningsPipelineContext,
+>(config: ClientWarningsPipelineConfig) {
+    const {
+        outputs,
+        teamManager,
+        eventIngestionRestrictionManager,
+        eventFilterManager,
+        promiseScheduler,
+        topHog,
+        teamsPrefetchEnabled,
+    } = config
+
+    return newCommonIngestionPipeline<TInput, TContext>({
+        teamManager,
+        outputs,
+        promiseScheduler,
+        concurrentBatches: 1,
+        topHog,
+    })
+        .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
+        .parseHeaders()
+        .pipe(createAllowEventsStep(['$$client_ingestion_warning']))
+        .pipe(createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager))
+        .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
+        .parseMessage()
+        .resolveTeam()
+        .pipe(createValidateEventMetadataStep())
+        .pipe(createValidateEventPropertiesStep())
+        .pipe(createApplyEventFiltersStep(eventFilterManager))
+        .pipe(createDropOldEventsStep())
+        .pipe(createHandleClientIngestionWarningStep(outputs))
+        .pipe(createRecordIngestionLagStep())
+        .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
+        .build()
+}

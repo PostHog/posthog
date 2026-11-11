@@ -1,20 +1,23 @@
 import { register } from 'prom-client'
 
-import { IntegrationType } from '~/cdp/types'
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
-import { IntegrationReference } from '~/cdp/utils/integration-reference'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { logger } from '~/common/utils/logger'
-import { PubSub } from '~/common/utils/pubsub'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
-import { Hub } from '~/types'
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import {
+    IntegrationSource,
+    IntegrationSourceRecord,
+} from '@posthog/hog-engine/cdp/services/managers/integration-source'
+import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
+import { IntegrationType } from '@posthog/hog-engine/cdp/types'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { IntegrationReference } from '@posthog/hog-engine/cdp/utils/integration-reference'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
 
-import { createIntegration, insertIntegration } from '../../_tests/fixtures'
-import { IntegrationManagerService } from './integration-manager.service'
-import { IntegrationSource, IntegrationSourceRecord } from './integration-source'
-import { PostgresIntegrationSource } from './postgres-integration-source'
+import { createIntegration, insertIntegration } from '~/cdp/_tests/fixtures'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { Hub } from '~/types'
 
 const UUID_REFERENCE = '6f1c2a4e-8b3d-4c5e-9f7a-1b2c3d4e5f60'
 

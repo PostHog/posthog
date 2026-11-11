@@ -2,10 +2,10 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
+import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
 
-import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { QUEUE_DEPTHS_SQL } from './due-rows-sql'

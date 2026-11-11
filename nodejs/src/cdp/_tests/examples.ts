@@ -1,7 +1,7 @@
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { ACCESS_TOKEN_PLACEHOLDER } from '@posthog/node-common/config/constants'
 
 import { PropertyOperator } from '../../types'
-import { HogFunctionType } from '../types'
 
 /**
  * Hog functions are largely generated and built in the django service, making it tricky to test on this side.

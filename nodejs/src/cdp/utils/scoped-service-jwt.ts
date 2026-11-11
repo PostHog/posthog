@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken'
 
-import { JWT, PosthogJwtAudience, makeOptionalJwt } from './jwt-utils'
+import { JWT, PosthogJwtAudience, makeOptionalJwt } from '@posthog/hog-engine/cdp/utils/jwt-utils'
 
 // Mirrors DEFAULT_SERVICE_TOKEN_TTL in posthog/scoped_service_jwt.py.
 const DEFAULT_TTL_SECONDS = 5 * 60

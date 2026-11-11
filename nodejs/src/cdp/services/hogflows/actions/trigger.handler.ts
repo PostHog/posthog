@@ -8,8 +8,8 @@ import {
     getInternalEventFilterEventIds,
     isRowScopedTrigger,
     rowScopedTriggerTypeForEvent,
-} from '~/cdp/schema/hogflow'
-import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+} from '@posthog/hog-engine/cdp/schema/hogflow'
+import { filterFunctionInstrumented } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
 
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'

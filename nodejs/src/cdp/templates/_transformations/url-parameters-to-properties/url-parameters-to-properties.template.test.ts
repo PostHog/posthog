@@ -1,4 +1,5 @@
-import { HogFunctionInvocationGlobals } from '../../../types'
+import { HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
+
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './url-parameters-to-properties.template'
 

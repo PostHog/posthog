@@ -1,7 +1,7 @@
 import { IncomingMessage, ServerResponse } from 'http'
 import { Counter, Histogram } from 'prom-client'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { MAX_BODY_BYTES, PushSubscriptionsService } from './push-subscriptions.service'
 import { REGION_BLOCKED_MESSAGE, RegionBlockCheck } from './region-block'

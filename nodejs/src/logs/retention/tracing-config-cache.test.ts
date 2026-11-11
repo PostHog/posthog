@@ -1,5 +1,5 @@
-import { DependencyUnavailableError } from '~/common/utils/db/error'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 
 import { DEFAULT_TRACES_RETENTION_DAYS, TracingConfigCache } from './tracing-config-cache'
 

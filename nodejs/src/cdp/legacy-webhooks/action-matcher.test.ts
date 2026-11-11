@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { createTestTeamFixture, insertRow } from '@posthog/node-common/testing/sql'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
-import { createTestTeamFixture, insertRow } from '../../../tests/helpers/sql'
 import {
     Action,
     ActionStep,
@@ -17,7 +18,7 @@ import {
 import { ActionManager } from './action-manager'
 import { ActionMatcher, castingCompare } from './action-matcher'
 
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 /** Return a test event created on a common base using provided property overrides. */
 function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {

@@ -1,12 +1,14 @@
-import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
-import '../../../tests/helpers/mocks/producer.mock'
+import '@posthog/node-common/testing/mocks/consumer.mock'
+import '@posthog/node-common/testing/mocks/producer.mock'
+
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
@@ -15,7 +17,6 @@ import {
     createHogFunction,
     createKafkaMessage,
 } from '../_tests/fixtures'
-import { HogFunctionType } from '../types'
 import { CdpPersonUpdatesConsumer } from './cdp-person-updates-consumer'
 
 describe('CDP Person Updates Consumer', () => {

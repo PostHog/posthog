@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { getTeamMemberUserId, insertRow } from '~/tests/helpers/sql'
+import { getTeamMemberUserId, insertRow } from '@posthog/node-common/testing/sql'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { LLMProviderKeyState, ProviderKey } from '../services/provider-key-manager.service'

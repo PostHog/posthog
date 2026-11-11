@@ -1,0 +1,110 @@
+#!/bin/bash
+set -eE
+
+# Applies the persons database migrations. The persons-migrate image runs this as
+# `migrate-entry persons`; locally it reads the migrations beside this script.
+
+MIGRATION_TYPE=""
+FRESH_MODE=false
+
+parse_args() {
+    MIGRATION_TYPE="$1"
+    shift || true
+
+    for arg in "$@"; do
+        case "$arg" in
+            --fresh)
+                FRESH_MODE=true
+                ;;
+            *)
+                echo "Unknown option: $arg"
+                exit 1
+                ;;
+        esac
+    done
+}
+
+show_usage() {
+    echo "Usage: $0 persons [--fresh]"
+    echo "  persons            - Run the persons migrations"
+    echo ""
+    echo "Options:"
+    echo "  --fresh            - Drop and recreate database before migrating (for test environments)"
+}
+
+parse_args "$@"
+
+log_json() {
+    local level="$1"
+    local message="$2"
+    local status="$3"
+    local migration_type="${4:-$MIGRATION_TYPE}"
+    local extra="${5:-}"
+
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    local json="{\"timestamp\":\"$timestamp\",\"level\":\"$level\",\"message\":\"$message\",\"migration_type\":\"$migration_type\",\"status\":\"$status\""
+
+    if [ -n "$extra" ]; then
+        json="$json,$extra"
+    fi
+
+    json="$json}"
+    echo "$json"
+}
+
+handle_error() {
+    local exit_code=$?
+    log_json "error" "Migration failed" "failed" "$MIGRATION_TYPE" "\"exit_code\":$exit_code"
+    exit $exit_code
+}
+
+trap handle_error ERR
+
+if [ -z "$MIGRATION_TYPE" ]; then
+    log_json "error" "No migration type specified" "failed" "unknown"
+    echo ""
+    show_usage
+    exit 1
+fi
+
+# In the image the migrations sit under /migrations; locally they sit beside bin/.
+if [ -d "/migrations" ]; then
+    MIGRATIONS_BASE="/migrations"
+else
+    SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+    MIGRATIONS_BASE="$SCRIPT_DIR/.."
+fi
+
+run_persons_migrations() {
+    local db_type="persons"
+    PERSONS_DATABASE_NAME=${PERSONS_DATABASE_NAME:-posthog_persons}
+    PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$PERSONS_DATABASE_NAME}
+
+    log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$PERSONS_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
+
+    if [ "$FRESH_MODE" = true ]; then
+        sqlx database reset -y -D "$PERSONS_DATABASE_URL" --source "$MIGRATIONS_BASE/persons_migrations/"
+        log_json "info" "Database reset and migrations completed" "completed" "$db_type"
+    else
+        sqlx database create -D "$PERSONS_DATABASE_URL"
+        log_json "info" "Database created or already exists" "running" "$db_type"
+
+        sqlx migrate run -D "$PERSONS_DATABASE_URL" --source "$MIGRATIONS_BASE/persons_migrations/"
+        log_json "info" "Migrations completed successfully" "completed" "$db_type"
+    fi
+}
+
+case "$MIGRATION_TYPE" in
+    persons)
+        run_persons_migrations
+        ;;
+    *)
+        log_json "error" "Invalid migration type specified" "failed" "$MIGRATION_TYPE"
+        show_usage
+        exit 1
+        ;;
+esac
+
+log_json "info" "All requested migrations completed successfully" "completed"

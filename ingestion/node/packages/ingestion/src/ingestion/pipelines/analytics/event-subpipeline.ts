@@ -1,0 +1,230 @@
+import { Message } from 'node-rdkafka'
+
+import { PipelineBuilder, StartPipelineBuilder } from '@posthog/ingestion-common/framework/builders/pipeline-builders'
+import { TopHogWrapper, sum, sumOk, sumResult, timer } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { isDropResult } from '@posthog/ingestion-common/framework/results'
+import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+import { IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
+import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
+import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
+import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
+import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
+import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
+import { createForkFlagEvaluationsStep } from '~/ingestion/common/steps/event-processing/fork-flag-evaluations-step'
+import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
+import { createNormalizeEventStep } from '~/ingestion/common/steps/event-processing/normalize-event-step'
+import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/event-processing/normalize-process-person-flag-step'
+import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
+import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
+import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
+import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
+import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import {
+    createRecordEventUsageAfterIngestStep,
+    createRecordEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
+import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billable-events'
+import { EventHeaders, Team } from '~/types'
+
+import {
+    AsyncOutput,
+    EVENTS_OUTPUT,
+    EventOutput,
+    FlagEvaluationsOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+    RealtimeOnlyEventsOutput,
+} from './outputs'
+
+// Mirrors the merge condition in PersonMergeService.handleIdentifyOrAlias: an event asks for a person
+// merge when it's $create_alias/$merge_dangerously with an `alias`, or $identify with $anon_distinct_id.
+// Kept in the metrics layer so counting merge-intent events doesn't reach into person processing logic.
+function isMergeIntentEvent(event: PluginEvent): boolean {
+    const properties = event.properties ?? {}
+    if (['$create_alias', '$merge_dangerously'].includes(event.event) && properties['alias']) {
+        return true
+    }
+    return event.event === '$identify' && '$anon_distinct_id' in properties
+}
+
+export interface EventSubpipelineInput {
+    message: Message
+    event: PluginEvent
+    team: Team
+    headers: EventHeaders
+    personsStoreForBatch: PersonsStoreForBatch
+    groupStoreForBatch: GroupStoreForBatch
+    eventUsageBatch: UsageRecordBatch
+}
+
+export interface EventSubpipelineConfig {
+    options: EventPipelineRunnerOptions
+    outputs: IngestionOutputs<
+        | EventOutput
+        | FlagEvaluationsOutput
+        | RealtimeOnlyEventsOutput
+        | IngestionWarningsOutput
+        | PersonsOutput
+        | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
+    >
+    teamManager: TeamManager
+    groupTypeManager: GroupTypeManager
+    hogTransformer: HogTransformer
+    topHog: TopHogWrapper
+    flagEvaluationsService?: FlagEvaluationsService
+}
+
+// The WithMergeFoldDecision constraint (not a field on EventSubpipelineInput) is deliberate: the
+// decision is produced by the merge-fold planning step, so only compositions wired after it — or
+// ones that decide `immediate` themselves — can build this subpipeline.
+export function createEventSubpipeline<TInput extends EventSubpipelineInput & WithMergeFoldDecision, TContext>(
+    builder: StartPipelineBuilder<TInput, TContext>,
+    config: EventSubpipelineConfig
+): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog, flagEvaluationsService } = config
+
+    let pipeline = builder
+        .pipe(createNormalizeProcessPersonFlagStep())
+        .pipe(
+            topHog(createHogTransformEventStep(hogTransformer), [
+                sumOk(
+                    'transformations_run',
+                    (output) => ({ team_id: String(output.team.id) }),
+                    (output) => output.transformationsRun
+                ),
+                sumOk(
+                    'transformations_run_per_partition',
+                    (output, input) => ({
+                        team_id: String(output.team.id),
+                        partition: String(input.message.partition),
+                    }),
+                    (output) => output.transformationsRun
+                ),
+                sumResult(
+                    'events_dropped_by_transformation',
+                    (_result, input) => ({ team_id: String(input.team.id) }),
+                    (result) => (isDropResult(result) ? 1 : 0)
+                ),
+                sumResult(
+                    'events_dropped_by_transformation_per_partition',
+                    (_result, input) => ({
+                        team_id: String(input.team.id),
+                        partition: String(input.message.partition),
+                    }),
+                    (result) => (isDropResult(result) ? 1 : 0)
+                ),
+            ]),
+            { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
+        )
+        .pipe(createNormalizeEventStep())
+        // From here on the event writes persons, groups and itself, so finishing costs less than redelivering.
+        .timeoutBarrier()
+        .pipe(
+            createProcessPersonlessStep(
+                options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                options.FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS
+            ),
+            { retry: { tries: 5, sleepMs: 100, name: 'process_personless' } }
+        )
+        .pipe(
+            topHog(createProcessPersonsStep(options, outputs), [
+                timer('process_persons_time', (input) => ({
+                    team_id: String(input.team.id),
+                    distinct_id: input.normalizedEvent.distinct_id,
+                    partition: String(input.message.partition),
+                })),
+                sum(
+                    'merge_events_per_distinct_id',
+                    (input) => ({
+                        team_id: String(input.team.id),
+                        distinct_id: input.normalizedEvent.distinct_id,
+                        partition: String(input.message.partition),
+                    }),
+                    (input) => (isMergeIntentEvent(input.normalizedEvent) ? 1 : 0)
+                ),
+                sum(
+                    'group_identify_events_per_distinct_id',
+                    (input) => ({
+                        team_id: String(input.team.id),
+                        distinct_id: input.normalizedEvent.distinct_id,
+                        partition: String(input.message.partition),
+                    }),
+                    (input) => (input.normalizedEvent.event === '$groupidentify' ? 1 : 0)
+                ),
+            ]),
+            { retry: { tries: 5, sleepMs: 100, name: 'process_persons' } }
+        )
+        .pipe(createPrepareEventStep())
+        .pipe(
+            topHog(createProcessGroupsStep(teamManager, groupTypeManager, options), [
+                timer('process_groups_time', (input) => ({
+                    team_id: String(input.team.id),
+                    distinct_id: input.preparedEvent.distinctId,
+                    partition: String(input.message.partition),
+                })),
+            ]),
+            { retry: { tries: 5, sleepMs: 100, name: 'process_groups' } }
+        )
+        .pipe(createRecordEventUsageStep(resolveAnalyticsUsageKey))
+        .pipe(
+            createCreateEventStep(
+                // The fork step below moves a FLAG_EVALUATIONS_ONLY team's flag calls to the realtime-only output.
+                EVENTS_OUTPUT as EventOutput | RealtimeOnlyEventsOutput,
+                options.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS
+            )
+        )
+
+    // Composed at build time so the disabled fleet default pays no per-event step
+    // overhead. No retry envelope: a retry would queue the produce again. Unlike
+    // emit-event below, this produce is best effort: its ack settles inside the
+    // step and a failure drops the row.
+    if (flagEvaluationsService) {
+        pipeline = pipeline.pipe(createForkFlagEvaluationsStep(outputs, flagEvaluationsService))
+    }
+
+    return pipeline
+        .pipe(
+            topHog(
+                createEmitEventStep({
+                    outputs,
+                }),
+                [
+                    sum(
+                        'emitted_events',
+                        (input) => ({ team_id: String(input.teamId) }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                    sum(
+                        'emitted_events_per_distinct_id',
+                        (input) => ({
+                            team_id: String(input.teamId),
+                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
+                            partition: String(input.message.partition),
+                        }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                    sum(
+                        'emitted_events_per_partition',
+                        (input) => ({
+                            team_id: String(input.teamId),
+                            partition: String(input.message.partition),
+                        }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                ]
+            ),
+            { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
+        )
+        .pipe(createRecordEventUsageAfterIngestStep())
+        .pipe(createRecordIngestionLagStep())
+}

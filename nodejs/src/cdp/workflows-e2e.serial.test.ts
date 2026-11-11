@@ -10,10 +10,10 @@
  * producers, Postgres, Redis, person loading, filter evaluation, and
  * state serialization.
  */
-import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
+import { MockKafkaProducerWrapper } from '@posthog/node-common/testing/mocks/producer.mock'
+import { mockFetch, mockInternalFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/producer.spy'
 
 import jsonwebtoken from 'jsonwebtoken'
 import { DateTime } from 'luxon'
@@ -22,31 +22,43 @@ import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
-import { template as createTaskTemplate } from '~/cdp/templates/_destinations/posthog_tasks/posthog-create-task.template'
-import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
-import { setupExpressApp } from '~/common/api/router'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/types'
+import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '@posthog/hog-engine/cdp/utils'
+import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
+import {
+    InternalPersonWithDistinctId,
+    PersonReadRepository,
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { setupExpressApp } from '@posthog/node-common/api/router'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
     KAFKA_MESSAGE_ASSETS,
-} from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { InternalFetchService } from '~/common/services/internal-fetch'
+} from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { deleteKeysWithPrefix } from '@posthog/node-common/redis/_tests/redis'
+import { createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+import { InternalFetchService } from '@posthog/node-common/services/internal-fetch'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import {
+    createTeam,
+    getFirstTeam,
+    resetBehavioralCohortsDatabase,
+    resetTestDatabase,
+} from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
+import { template as createTaskTemplate } from '~/cdp/templates/_destinations/posthog_tasks/posthog-create-task.template'
+import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../src/types'
-import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES } from './_tests/examples'
 import {
@@ -84,11 +96,8 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
-import { HogFunctionInvocationGlobals } from './types'
-import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
-import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
-const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('@posthog/node-common/kafka/producer').KafkaProducerWrapper
 
 // DNS is mocked (like fetch) because EmailValidationService's MX lookups are a real
 // network boundary: validation is fail-open, so a CI resolver hiccup would silently

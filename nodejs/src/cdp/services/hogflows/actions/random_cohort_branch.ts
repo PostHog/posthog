@@ -1,5 +1,5 @@
-import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
 
 import { findNextAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'

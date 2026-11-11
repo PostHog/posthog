@@ -1,27 +1,34 @@
+import { mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
+import { mockFetch, mockInternalFetch } from '@posthog/node-common/testing/mocks/request.mock'
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import { DateTime, Settings } from 'luxon'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    HogFunctionType,
+} from '@posthog/hog-engine/cdp/types'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+import { setupExpressApp } from '@posthog/node-common/api/router'
+import { KAFKA_HOG_INVOCATION_RESULTS } from '@posthog/node-common/config/kafka-topics'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
-import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.template'
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
-import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
-import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -29,9 +36,7 @@ import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { getCustomHttpResponse } from '../consumers/cdp-source-webhooks.consumer'
 import { createIdempotencyValkeyPool } from '../services/hogflows/idempotency-keys'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
-import { PosthogJwtAudience } from '../utils/jwt-utils'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 
 describe('getCustomHttpResponse', () => {

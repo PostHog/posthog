@@ -1,10 +1,11 @@
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
 import { DateTime, Settings } from 'luxon'
 
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { defaultConfig } from '~/common/config/config'
-import { parseJSON } from '~/common/utils/json-parse'
-import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { createHogFunction } from '../_tests/fixtures'
 import {

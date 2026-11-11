@@ -1,9 +1,9 @@
 import { trace } from '@opentelemetry/api'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { logger } from '~/common/utils/logger'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { logger } from '@posthog/node-common/utils/logger'
 
 const REFRESH_MS = 30_000
 

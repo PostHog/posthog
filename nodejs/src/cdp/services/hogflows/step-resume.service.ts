@@ -2,8 +2,8 @@ import { Pool } from 'pg'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
 
 export const WorkflowStepResumeSchema = z.object({
     origin_key: z.string().min(1),

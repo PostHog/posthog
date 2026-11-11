@@ -1,6 +1,7 @@
 import { get } from 'lodash'
 
-import { HogFlowAction } from '../schema/hogflow'
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+
 import { capWorkflowStepResult } from './workflow-step-result'
 
 describe('workflow step result byte budget', () => {

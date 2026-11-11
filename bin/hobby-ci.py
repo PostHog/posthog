@@ -20,10 +20,12 @@ import base64
 import datetime
 import subprocess
 from dataclasses import dataclass
+from typing import Any
 
 import urllib3
 import requests
 import digitalocean  # type: ignore
+import urllib3.exceptions
 
 DOMAIN = os.getenv("HOBBY_DOMAIN", "posthog.cc")
 FALLBACK_SIZE = "g-8vcpu-32gb"
@@ -259,7 +261,7 @@ runcmd:
             time.sleep(1)
             self.droplet.load()
             ip = self.droplet.ip_address
-        print(f"Public IP found: {ip}")  # type: ignore
+        print(f"Public IP found: {ip}")
         return ip
 
     def create_droplet(self, ssh_enabled=False):
@@ -504,7 +506,7 @@ runcmd:
         capture_id = str(uuid.uuid4())
         exception_value = f"hobby_ci_error_smoke_test_{time.time_ns()}"
         error_date_from = datetime.datetime.now(datetime.UTC).isoformat()
-        events = [
+        events: list[dict[str, Any]] = [
             {
                 "event": "hobby_ci_smoke_test",
                 "properties": {"source": "hobby-ci", "capture_id": capture_id},
@@ -544,7 +546,7 @@ runcmd:
         print(f"⏳ Polling for events (timeout {timeout_seconds}s)...", flush=True)
         deadline = time.time() + timeout_seconds
         attempt = 0
-        pending_event_names = {event["event"] for event in events}
+        pending_event_names: set[str] = {event["event"] for event in events}
         while time.time() < deadline:
             attempt += 1
             for event_name in pending_event_names.copy():
@@ -1095,6 +1097,8 @@ runcmd:
 
         Returns (success, failure_details, cloud_init_finished_at).
         """
+        if not self.droplet:
+            return (False, {"reason": "no_droplet", "message": "No droplet to wait for"}, None)
         start_time = datetime.datetime.now()
         last_log_fetch = -30
         attempt = 0
@@ -1183,6 +1187,8 @@ runcmd:
 
         Returns (success, failure_details).
         """
+        if not self.droplet:
+            return (False, {"reason": "no_droplet", "message": "No droplet to check"})
 
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -1333,7 +1339,8 @@ runcmd:
             for line in mem_result["stdout"].strip().split("\n"):
                 print(f"    {line}", flush=True)
 
-        print(f"\n📍 For debugging, SSH to: ssh root@{self.droplet.ip_address}", flush=True)
+        if self.droplet:
+            print(f"\n📍 For debugging, SSH to: ssh root@{self.droplet.ip_address}", flush=True)
 
     def test_deployment_with_details(
         self,
@@ -1353,7 +1360,7 @@ runcmd:
         )
 
         cloud_init_ok, details, finished_at = self.wait_for_cloud_init(cloud_init_timeout, retry_interval)
-        if not cloud_init_ok:
+        if not cloud_init_ok or finished_at is None:
             return (False, details)
 
         health_ok, details = self.wait_for_health_check(
@@ -1553,8 +1560,7 @@ runcmd:
             f.write(f"URL: https://{record_name}.posthog.cc\n")
 
         # Export to GitHub env
-        env_file_name = os.getenv("GITHUB_ENV")
-        with open(env_file_name, "a") as env_file:
+        with open(os.environ["GITHUB_ENV"], "a") as env_file:
             env_file.write(f"HOBBY_DROPLET_ID={droplet_id}\n")
             env_file.write(f"HOBBY_DROPLET_IP={ip_address}\n")
             env_file.write(f"HOBBY_DNS_RECORD_ID={record_id}\n")

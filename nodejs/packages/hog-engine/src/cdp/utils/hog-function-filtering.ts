@@ -1,0 +1,533 @@
+import { DateTime } from 'luxon'
+import { Counter, Histogram } from 'prom-client'
+
+import { ExecResult } from '@posthog/hogvm'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { createTrackedRE2 } from '@posthog/node-common/utils/tracked-re2'
+import { UUIDT, clickHouseTimestampToISO } from '@posthog/node-common/utils/utils'
+
+import { HogFlow } from '~/cdp/schema/hogflow'
+
+import { RawClickHouseEvent } from '../../types'
+import {
+    HogFunctionFilterGlobals,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+    LogEntry,
+    MinimalAppMetric,
+} from '../types'
+import { currentRuntimeContractHash } from './filter-runtime'
+import { HogErrorClass, classifyHogError } from './hog-error-classification'
+import { execHog } from './hog-exec'
+
+// Module-level constants for fixed regex patterns to avoid recompilation
+// These patterns are compiled once at module load and reused for all events
+const HREF_REGEX = createTrackedRE2(/(?::|")href="(.*?)"/, undefined, 'hog-filtering:href')
+const TEXT_REGEX = createTrackedRE2(/(?::|")text="(.*?)"/g, undefined, 'hog-filtering:text')
+const ID_REGEX = createTrackedRE2(/(?::|")attr_id="(.*?)"/g, undefined, 'hog-filtering:id')
+const ELEMENT_REGEX = createTrackedRE2(
+    /(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g,
+    undefined,
+    'hog-filtering:element'
+)
+
+const hogFunctionFilterDuration = new Histogram({
+    name: 'cdp_hog_function_filter_duration_ms',
+    help: 'Processing time for filtering a function',
+    // We have a timeout so we don't need to worry about much more than that
+    buckets: [0, 10, 20, 50, 100, 200, 300, 500, 1000],
+    labelNames: ['type'],
+})
+
+const hogFunctionFilterOutcomes = new Counter({
+    name: 'cdp_hog_function_filter_outcome',
+    help: 'Count of filter outcomes',
+    labelNames: ['result', 'result_type'],
+})
+
+/**
+ * Where a filter threw, rather than how many threw.
+ *
+ * This counts every exception the catch block below sees. The `filtering_failed` app metric is
+ * pushed onto the returned `metrics` array in that same block, but most callers discard the array.
+ * This counter therefore covers a strictly larger population than the app metric, so read its
+ * per-caller rate on its own rather than as a share of that metric.
+ *
+ * That rate is what the dead-letter work needs, because only the two `build_*` callers turn a
+ * filter error into a parked record.
+ */
+const hogFunctionFilterErrors = new Counter({
+    name: 'cdp_hog_function_filter_error',
+    help: 'A filter threw while being evaluated, by the code path that asked for it',
+    labelNames: ['caller', 'type', 'reason', 'class'],
+})
+
+/**
+ * `not_compiled` and `no_bytecode` break every event for a destination, the rest only the events
+ * whose shape the filter cannot handle. The thrown message never becomes a label, because it
+ * carries filter expressions and its cardinality is unbounded.
+ */
+type FilterErrorReason = 'not_compiled' | 'no_bytecode' | 'prefilter' | 'vm_error' | 'unknown'
+
+const hogFunctionPreFilterCounter = new Counter({
+    name: 'cdp_hog_function_prefilter_result',
+    help: 'Count of pre-filter results',
+    labelNames: ['result'],
+})
+
+interface HogFilterResult {
+    match: boolean
+    error?: unknown
+    /** Set beside `error`. Who has to act on it, see HogErrorClass. */
+    errorClass?: HogErrorClass
+    logs: LogEntry[]
+    metrics: MinimalAppMetric[]
+}
+
+function getElementsChainHref(elementsChain: string): string {
+    // Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
+    const hrefMatch = HREF_REGEX.exec(elementsChain)
+    return hrefMatch ? hrefMatch[1] : ''
+}
+
+function getElementsChainTexts(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
+    const textMatches = new Set<string>()
+    // Reset lastIndex for global regex reuse
+    TEXT_REGEX.lastIndex = 0
+    let textMatch
+    while ((textMatch = TEXT_REGEX.exec(elementsChain)) !== null) {
+        textMatches.add(textMatch[1])
+    }
+    return Array.from(textMatches)
+}
+
+function getElementsChainIds(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"')),
+    const idMatches = new Set<string>()
+    // Reset lastIndex for global regex reuse
+    ID_REGEX.lastIndex = 0
+    let idMatch
+    while ((idMatch = ID_REGEX.exec(elementsChain)) !== null) {
+        idMatches.add(idMatch[1])
+    }
+    return Array.from(idMatches)
+}
+
+function getElementsChainElements(elementsChain: string): string[] {
+    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
+    const elementMatches = new Set<string>()
+    // Reset lastIndex for global regex reuse
+    ELEMENT_REGEX.lastIndex = 0
+    let elementMatch
+    while ((elementMatch = ELEMENT_REGEX.exec(elementsChain)) !== null) {
+        elementMatches.add(elementMatch[1])
+    }
+    return Array.from(elementMatches)
+}
+
+export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEvent): HogFunctionFilterGlobals {
+    const properties = event.properties ? parseJSON(event.properties) : {}
+    const elementsChain = event.elements_chain ?? properties['$elements_chain']
+
+    // Handle timestamp conversion
+    const eventTimestamp = DateTime.fromISO(event.timestamp).isValid
+        ? event.timestamp
+        : clickHouseTimestampToISO(event.timestamp)
+
+    // Handle person
+    let person: HogFunctionFilterGlobals['person'] = null
+    let pdi: HogFunctionFilterGlobals['pdi'] = null
+
+    if (event.person_id) {
+        const personProperties = event.person_properties ? parseJSON(event.person_properties) : {}
+
+        person = {
+            id: event.person_id,
+            properties: personProperties,
+        }
+
+        pdi = {
+            distinct_id: event.distinct_id,
+            person_id: event.person_id,
+            person: {
+                id: event.person_id,
+                properties: personProperties,
+            },
+        }
+    }
+
+    // Initialize response with basic structure
+    const response: HogFunctionFilterGlobals = {
+        event: event.event,
+        uuid: event.uuid,
+        elements_chain: elementsChain,
+        elements_chain_href: '',
+        elements_chain_texts: [] as string[],
+        elements_chain_ids: [] as string[],
+        elements_chain_elements: [] as string[],
+        timestamp: eventTimestamp,
+        properties,
+        person,
+        pdi,
+        distinct_id: event.distinct_id,
+        $group_0: null,
+        $group_1: null,
+        $group_2: null,
+        $group_3: null,
+        $group_4: null,
+        group_0: { properties: {} },
+        group_1: { properties: {} },
+        group_2: { properties: {} },
+        group_3: { properties: {} },
+        group_4: { properties: {} },
+        variables: {},
+    }
+
+    // Handle groups from RawClickHouseEvent
+    const groupProperties = [
+        event.group0_properties,
+        event.group1_properties,
+        event.group2_properties,
+        event.group3_properties,
+        event.group4_properties,
+    ]
+
+    groupProperties.forEach((groupPropsString, index) => {
+        if (groupPropsString) {
+            const groupProps = parseJSON(groupPropsString)
+            const groupKey = `group_${index}` as keyof HogFunctionFilterGlobals
+
+            if (groupKey in response) {
+                ;(response as any)[groupKey] = {
+                    properties: groupProps,
+                }
+            }
+        }
+    })
+
+    // Extract group IDs from properties
+    for (let i = 0; i < 5; i++) {
+        const groupIdKey = `$group_${i}` as keyof HogFunctionFilterGlobals
+        const groupIdValue = properties[groupIdKey]
+
+        if (groupIdValue && groupIdKey in response) {
+            ;(response as any)[groupIdKey] = groupIdValue
+        }
+    }
+
+    // Handle elements_chain processing with lazy evaluation
+    if (elementsChain) {
+        const cache: Record<string, any> = {}
+        Object.defineProperties(response, {
+            elements_chain_href: {
+                get: () => {
+                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
+                    return cache.elements_chain_href
+                },
+            },
+            elements_chain_texts: {
+                get: () => {
+                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
+                    return cache.elements_chain_texts
+                },
+            },
+            elements_chain_ids: {
+                get: () => {
+                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
+                    return cache.elements_chain_ids
+                },
+            },
+            elements_chain_elements: {
+                get: () => {
+                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
+                    return cache.elements_chain_elements
+                },
+            },
+        })
+    }
+
+    return response
+}
+
+export function convertToHogFunctionFilterGlobal(
+    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups' | 'variables'>
+): HogFunctionFilterGlobals {
+    // Rehydrated invocation events (e.g. a rerun of a janitor-recorded poison pill,
+    // whose stored globals are trimmed) can arrive without `properties` — default it
+    // rather than dereferencing undefined.
+    const properties = globals.event.properties ?? {}
+    const elementsChain = globals.event.elements_chain ?? properties['$elements_chain']
+
+    const response: HogFunctionFilterGlobals = {
+        event: globals.event.event,
+        uuid: globals.event.uuid,
+        elements_chain: elementsChain,
+        elements_chain_href: '',
+        elements_chain_texts: [] as string[],
+        elements_chain_ids: [] as string[],
+        elements_chain_elements: [] as string[],
+        timestamp: globals.event.timestamp,
+        properties,
+        person: globals.person ? { id: globals.person.id, properties: globals.person.properties } : null,
+        pdi: globals.person
+            ? {
+                  distinct_id: globals.event.distinct_id,
+                  person_id: globals.person.id,
+                  person: { id: globals.person.id, properties: globals.person.properties },
+              }
+            : null,
+        distinct_id: globals.event.distinct_id,
+        $group_0: null,
+        $group_1: null,
+        $group_2: null,
+        $group_3: null,
+        $group_4: null,
+        group_0: {
+            properties: {},
+        },
+        group_1: {
+            properties: {},
+        },
+        group_2: {
+            properties: {},
+        },
+        group_3: {
+            properties: {},
+        },
+        group_4: {
+            properties: {},
+        },
+        variables: globals.variables || {},
+    }
+
+    for (const group of Object.values(globals.groups || {})) {
+        // Find the group information and update the relevant properties - NOTE: The typing is tricky here hence the any cast
+        const groupKey = `group_${group.index}`
+
+        if (groupKey in response) {
+            ;(response as any)[groupKey] = {
+                properties: group.properties,
+            }
+        }
+
+        const groupIdKey = `$group_${group.index}`
+
+        if (groupIdKey in response) {
+            ;(response as any)[groupIdKey] = group.id
+        }
+    }
+
+    // The elements_chain_* fields are stored as materialized columns in ClickHouse.
+    // We use the same formula to calculate them here.
+    if (elementsChain) {
+        const cache: Record<string, any> = {}
+        Object.defineProperties(response, {
+            elements_chain_href: {
+                get: () => {
+                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
+                    return cache.elements_chain_href
+                },
+            },
+            elements_chain_texts: {
+                get: () => {
+                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
+                    return cache.elements_chain_texts
+                },
+            },
+            elements_chain_ids: {
+                get: () => {
+                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
+                    return cache.elements_chain_ids
+                },
+            },
+            elements_chain_elements: {
+                get: () => {
+                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
+                    return cache.elements_chain_elements
+                },
+            },
+        })
+    }
+
+    return response
+}
+
+const HOG_FILTERING_TIMEOUT_MS = 100
+
+/** An action is a saved event filter, so only an events-only list can reject on the name; a null id admits all. */
+export function rejectsEventName(filters: HogFunctionType['filters'], eventName: string): boolean {
+    if (!filters?.events?.length || filters.actions?.length) {
+        return false
+    }
+    return !filters.events.some((eventFilter) => eventFilter.id === null || eventFilter.id === eventName)
+}
+
+export const filteredMetric = (source: { team_id: number; id: string }): MinimalAppMetric => ({
+    team_id: source.team_id,
+    app_source_id: source.id,
+    metric_kind: 'other',
+    metric_name: 'filtered',
+    count: 1,
+})
+
+/**
+ * Shared utility to check if an event matches the filters of a HogFunction.
+ * Used by both the HogExecutorService (for destinations) and HogTransformerService (for transformations).
+ */
+/**
+ * Named so a filter error can be attributed to the code path that asked for it.
+ *
+ * Only the two `build_*` callers run before an invocation exists, so only their errors become
+ * dead-letter records. Everything else here is either the ingestion transformer or a filter
+ * evaluated while an invocation is already running.
+ */
+export type FilterCaller =
+    | 'build_hog_function_invocations'
+    | 'build_hogflow_invocations'
+    | 'execute_hog_function'
+    | 'hogflow_conditional_branch'
+    | 'hogflow_conversion'
+    | 'hogflow_exit_condition'
+    | 'hogflow_skip_action'
+    | 'hogflow_trigger_action'
+    | 'transformation'
+
+export async function filterFunctionInstrumented(options: {
+    fn: HogFunctionType | HogFlow
+    filterGlobals: HogFunctionFilterGlobals
+    /** Optional filters to use instead of those on the function */
+    filters: HogFunctionType['filters']
+    caller: FilterCaller
+}): Promise<HogFilterResult> {
+    const { fn, filters, filterGlobals, caller } = options
+    const type = 'type' in fn ? fn.type : 'hogflow'
+    const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
+    const logs: LogEntry[] = []
+    const metrics: MinimalAppMetric[] = []
+
+    let execResult: ExecResult | undefined
+    const result: HogFilterResult = {
+        match: false,
+        logs,
+        metrics,
+    }
+
+    // Narrows what the catch block can blame. Each step sets it before the call that can throw.
+    let reason: FilterErrorReason = 'unknown'
+
+    try {
+        // If there are no filters (only bytecode exists then on the filter object)
+        // everything matches no need to execute bytecode (lets save those cpu cycles)
+        // The stamp is metadata about the bytecode, not a filter.
+        const filterKeys = Object.keys(filters ?? {}).filter((key) => key !== 'bytecode_contract')
+        if (filters && filterKeys.length === 1 && 'bytecode' in filters) {
+            hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__no_filters' })
+            result.match = true
+            return result
+        }
+
+        reason = 'prefilter'
+        if (rejectsEventName(filters, filterGlobals.event)) {
+            hogFunctionPreFilterCounter.inc({ result: 'bytecode_execution_skipped__pre_filtered_out' })
+            result.match = false
+            metrics.push(filteredMetric(fn))
+            return result
+        }
+
+        if (!filters?.bytecode) {
+            reason = filters?.bytecode_error ? 'not_compiled' : 'no_bytecode'
+            throw new Error('Filters were not compiled correctly and so could not be executed')
+        }
+
+        reason = 'vm_error'
+        const execHogOutcome = await execHog(filters.bytecode, { globals: filterGlobals })
+
+        if (execHogOutcome) {
+            hogFunctionFilterDuration.observe({ type }, execHogOutcome.durationMs)
+        }
+
+        if (execHogOutcome.durationMs > HOG_FILTERING_TIMEOUT_MS) {
+            logger.error('🦔', `[${fnKind}] Filter took longer than expected`, {
+                functionId: fn.id,
+                functionName: fn.name,
+                teamId: fn.team_id,
+                duration: execHogOutcome.durationMs,
+                eventId: filterGlobals.uuid,
+            })
+        }
+
+        execResult = execHogOutcome.execResult
+
+        if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
+            throw execHogOutcome.error ?? execHogOutcome.execResult?.error ?? new Error('Unknown error')
+        }
+
+        // Metric the actual result of the filter to investigate if we get anything other than booleans
+        hogFunctionFilterOutcomes.inc({
+            result: JSON.stringify(execHogOutcome.execResult.result),
+            result_type: typeof execHogOutcome.execResult.result,
+        })
+
+        result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
+
+        if (!result.match) {
+            metrics.push(filteredMetric(fn))
+        }
+    } catch (error) {
+        const errorClass = classifyFilterError(error, reason, filters)
+        hogFunctionFilterErrors.inc({ caller, type, reason, class: errorClass })
+
+        logger.debug('🦔', `[${fnKind}] Error filtering function`, {
+            functionId: fn.id,
+            functionName: fn.name,
+            teamId: fn.team_id,
+            error: error.message,
+            result: execResult,
+        })
+
+        metrics.push({
+            team_id: fn.team_id,
+            app_source_id: fn.id,
+            metric_kind: 'other',
+            metric_name: 'filtering_failed',
+            count: 1,
+        })
+
+        logs.push({
+            team_id: fn.team_id,
+            log_source: fnKind === 'HogFunction' ? 'hog_function' : 'hog_flow',
+            log_source_id: fn.id,
+            instance_id: new UUIDT().toString(),
+            timestamp: DateTime.now(),
+            level: 'error',
+            message: `Error filtering event ${filterGlobals.uuid ?? ''}: ${error.message}`,
+        })
+        result.error = error.message
+        result.errorClass = errorClass
+    }
+    return result
+}
+
+function classifyFilterError(
+    error: unknown,
+    reason: FilterErrorReason,
+    filters: HogFunctionType['filters']
+): HogErrorClass {
+    switch (reason) {
+        case 'not_compiled':
+        case 'no_bytecode':
+            // Nothing ran. The function cannot work until its owner saves it again.
+            return 'legacy'
+        case 'vm_error':
+            return classifyHogError(error, {
+                bytecodeContract: filters?.bytecode_contract,
+                runtimeContract: currentRuntimeContractHash(),
+            })
+        case 'prefilter':
+        case 'unknown':
+            // Our own code threw before or around the VM.
+            return 'platform'
+    }
+}

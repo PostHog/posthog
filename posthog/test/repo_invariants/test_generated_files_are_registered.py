@@ -13,7 +13,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 PIPELINE_ROOTS = (
     "frontend/src/generated/*",
     "products/*/frontend/generated/*",
-    "nodejs/src/common/generated/*",
+    "nodejs/packages/common/src/generated/*",
+    "ingestion/node/packages/common/src/generated/*",
     "posthog/usage_ingestion/generated/*",
     "services/mcp/src/generated/*",
     "services/mcp/src/tools/generated/*",
@@ -27,8 +28,8 @@ EXTERNAL_PRODUCERS = {
     "frontend/src/lib/agentScopes.generated.ts": "services/mcp/scripts/build-cli-agent-scopes.ts",
     "services/mcp/src/resources/ui-apps.generated.ts": "services/mcp/scripts/generate-ui-apps.ts",
     "products/webmcp/frontend/execTool.generated.ts": "services/mcp/scripts/generate-webmcp-exec-tool.ts",
-    "rust/common/ingestion_warnings/warning_types.generated.json": (
-        "nodejs/src/ingestion/common/scripts/generate-ingestion-warning-types.ts"
+    "ingestion/rust/ingestion_warnings/warning_types.generated.json": (
+        "ingestion/node/packages/common/src/scripts/generate-ingestion-warning-types.ts"
     ),
 }
 

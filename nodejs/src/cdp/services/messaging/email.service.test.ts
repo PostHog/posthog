@@ -1,36 +1,35 @@
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
+
+import {
+    CyclotronInvocationQueueParametersEmailSchema,
+    CyclotronInvocationQueueParametersEmailType,
+} from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { RecipientsManagerService } from '@posthog/hog-engine/cdp/services/managers/recipients-manager.service'
+import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
+import { CyclotronJobInvocationHogFunction } from '@posthog/hog-engine/cdp/types'
+import { MESSAGE_ASSETS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { FakeSes, FakeSesFault, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { EMAIL_STATUS_OUTPUT } from '~/cdp/outputs/outputs'
-import {
-    CyclotronInvocationQueueParametersEmailSchema,
-    CyclotronInvocationQueueParametersEmailType,
-} from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
-import { MESSAGE_ASSETS_OUTPUT } from '~/common/outputs'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
-import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
-
-import { Hub, Team } from '../../../types'
-import { RecipientsManagerService } from '../managers/recipients-manager.service'
-import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
-import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusService } from './email-status.service'
-import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
+import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
+import { selectEmailSenderIntegrationId } from '~/cdp/services/messaging/email-sender-selection'
+import { EmailStatusService } from '~/cdp/services/messaging/email-status.service'
+import {
+    EmailSuppressionService,
+    emailSuppressionConfigFromEnv,
+} from '~/cdp/services/messaging/email-suppression.service'
 import {
     EmailService,
     EmailServiceConfig,
@@ -39,11 +38,15 @@ import {
     parseTierCaps,
     sanitizeEmailSubject,
     teamEmailCapBucket,
-} from './email.service'
-import { MailDevAPI } from './helpers/maildev'
-import { EmailTrackingCodeSigner } from './helpers/tracking-code'
-import { MessageAssetsService } from './message-assets.service'
-import { RecipientTokensService } from './recipient-tokens.service'
+} from '~/cdp/services/messaging/email.service'
+import { MailDevAPI } from '~/cdp/services/messaging/helpers/maildev'
+import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
+import { MessageAssetsService } from '~/cdp/services/messaging/message-assets.service'
+import { WorkflowsActivationReporter } from '~/cdp/services/monitoring/workflows-activation-reporter'
+import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
+import { Hub, Team } from '~/types'
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
     const metric = await register.getSingleMetric(name)!.get()
@@ -1144,7 +1147,7 @@ describe('EmailService', () => {
         let invocation: CyclotronJobInvocationHogFunction
         const mailDevAPI = new MailDevAPI()
         beforeEach(async () => {
-            const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
+            const actualFetch = jest.requireActual('@posthog/node-common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })
@@ -1205,7 +1208,7 @@ describe('EmailService', () => {
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
         beforeEach(async () => {
-            const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
+            const actualFetch = jest.requireActual('@posthog/node-common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
                 return actualFetch(...args) as any
             })

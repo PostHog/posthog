@@ -1,13 +1,14 @@
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
-import { defaultConfig } from '~/common/config/config'
-import { KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
+import { KAFKA_COHORT_RECONCILE_MARKERS } from '@posthog/node-common/config/kafka-topics'
+import { resetBehavioralCohortsDatabase } from '@posthog/node-common/testing/sql'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { resetBehavioralCohortsDatabase } from '../../../../tests/helpers/sql'
+import { defaultConfig } from '~/common/config/config'
+
 import {
     COHORT_PARTITION_COUNT,
     CohortMembershipSweepConfig,

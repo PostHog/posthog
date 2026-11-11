@@ -144,7 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder = builder.max_connection_age(age);
     }
     builder
-        .layer(GrpcMetricsLayer)
+        .layer(GrpcMetricsLayer::default())
         .add_service(UsageIngestionServer::new(service))
         .serve(config.grpc_address.parse()?)
         .await?;

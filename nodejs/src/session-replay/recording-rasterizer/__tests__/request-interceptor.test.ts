@@ -1,13 +1,14 @@
 import { brotliCompressSync, deflateSync, gzipSync } from 'node:zlib'
 import { Frame, HTTPRequest, Page } from 'puppeteer'
 
-import { fetchAttribution } from '~/common/utils/fetch-attribution'
+import { fetchAttribution } from '@posthog/node-common/utils/fetch-attribution'
+
 import { BlockProxy } from '~/session-replay/recording-rasterizer/capture/block-proxy'
 import { CapturePage } from '~/session-replay/recording-rasterizer/capture/capture-page'
 import { RequestInterceptor } from '~/session-replay/recording-rasterizer/capture/request-interceptor'
 
 const mockFetch = jest.fn()
-jest.mock('~/common/utils/request', () => ({
+jest.mock('@posthog/node-common/utils/request', () => ({
     fetchStreamed: (...args: any[]) => mockFetch(...args),
 }))
 

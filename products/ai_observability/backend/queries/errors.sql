@@ -1,7 +1,7 @@
 /*
 -- Error normalization is done at ingestion time.
 -- The $ai_error_normalized property contains the pre-computed normalized error message.
--- See: nodejs/src/ingestion/ai/errors/normalize-error.ts
+-- See: ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/errors/normalize-error.ts
 --
 -- This query uses HogQL property syntax (properties.$prop) to leverage materialized columns
 -- for $ai_trace_id, $ai_session_id, and $ai_is_error for better performance.

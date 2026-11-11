@@ -3,7 +3,7 @@ import Redis from 'ioredis'
 import { join, resolve } from 'path'
 import { register } from 'prom-client'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import {
     FRAMEWORK_CLASSES,

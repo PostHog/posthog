@@ -29,7 +29,7 @@ pub struct WarningClassification {
 
 // The Node registry exports this file, and a Node test fails when the two differ.
 const WARNING_TYPES_JSON: &str =
-    include_str!("../../common/ingestion_warnings/warning_types.generated.json");
+    include_str!("../../../ingestion/rust/ingestion_warnings/warning_types.generated.json");
 
 pub fn warning_classification(warning_type: &str) -> Option<WarningClassification> {
     #[derive(serde::Deserialize)]

@@ -1,4 +1,4 @@
-import type { MinimalAppMetric } from '../types'
+import type { MinimalAppMetric } from '@posthog/hog-engine/cdp/types'
 
 // Push opens arrive as this captured event, emitted by the mobile SDKs when a user taps a
 // notification. Its `$notification_*` properties carry the ids stamped into the push payload at send.

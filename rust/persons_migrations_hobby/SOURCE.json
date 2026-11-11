@@ -1,0 +1,10 @@
+{
+    "repository": "PostHog/posthog",
+    "path": "ingestion/rust/persons_migrations_hobby",
+    "commit": "868392694e3b7ae50c913b055b22e3d6f4579ad4",
+    "files": {
+        "20261030000001_add_person_team_id_id_unique_index.sql": "5bf20b1bced3279788c60058d5fc923a0aa61a763639768879e49048f29ab4e0",
+        "20261030000002_check_person_team_id_uuid_duplicates.sql": "12d7b5101cfc5123e0c952b316eb1290332406ad2790d8cf9aeac11ea7970a60",
+        "20261030000003_add_person_team_id_uuid_unique_index.sql": "1fa9fe6dd00e5b55427b89f47eeb50e65b7262084664ec6b3391b99fccc524fb"
+    }
+}

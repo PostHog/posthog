@@ -1,0 +1,342 @@
+import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
+
+import { TopHogRegistry } from '@posthog/ingestion-common/framework/extensions/tophog'
+import { ok } from '@posthog/ingestion-common/framework/results'
+import {
+    createApplyEventRestrictionsStep,
+    createParseHeadersStep,
+} from '@posthog/ingestion/common/steps/event-preprocessing/index'
+import { SessionBatchRecorder } from '@posthog/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import { SessionFilter } from '@posthog/ingestion/pipelines/sessionreplay/sessions/session-filter'
+import { SessionTracker } from '@posthog/ingestion/pipelines/sessionreplay/sessions/session-tracker'
+import { TeamForReplay } from '@posthog/ingestion/pipelines/sessionreplay/teams/types'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { RetentionResolution, RetentionService } from '@posthog/replay-storage/retention/retention-service'
+import { SessionMap, SessionSet } from '@posthog/replay-storage/session-map'
+import { TeamService } from '@posthog/replay-storage/teams/team-service'
+import { createMockKeyStore } from '@posthog/replay-storage/test-helpers'
+
+import { defaultAllowLists } from '~/pipelines/anonymize/default-dict'
+import { buildMlMirrorStagedRunner, runMlMirrorBatch } from '~/tests/helpers/ml-mirror-staged-batch'
+
+import { MlMirrorStagedBatchRunner } from './staged-batch-runner'
+
+jest.mock('@posthog/ingestion/common/steps/event-preprocessing/index', () => ({
+    createParseHeadersStep: jest.fn(),
+    createApplyEventRestrictionsStep: jest.fn(),
+}))
+
+const mockCreateParseHeadersStep = createParseHeadersStep as jest.Mock
+const mockCreateApplyEventRestrictionsStep = createApplyEventRestrictionsStep as jest.Mock
+
+// The pipeline's parse+anonymize step runs inside the native addon; scrub-dependent tests need it built.
+let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
+try {
+    rustAddon = require('@posthog/replay-anonymizer')
+    rustAddon!.initAnonymizer(defaultAllowLists().entries())
+} catch (e) {
+    if (process.env.CI) {
+        throw new Error(`replay-anonymizer addon failed to load; pipeline tests cannot run in CI: ${String(e)}`)
+    }
+    logger.warn('🙈', 'replay_anonymizer_addon_not_built_skipping_pipeline_scrub_tests')
+}
+const itAddon = rustAddon ? it : it.skip
+
+function createMockTopHog(): TopHogRegistry {
+    const recorder = { record: jest.fn() }
+    return {
+        registerSum: jest.fn().mockReturnValue(recorder),
+        registerMax: jest.fn().mockReturnValue(recorder),
+        registerAverage: jest.fn().mockReturnValue(recorder),
+    } as unknown as TopHogRegistry
+}
+
+describe('ml-mirror-pipeline', () => {
+    const V2_SESSION_ID = '01a0a4f0-3200-7000-8000-000000000001'
+    const V2_SESSION_ID_2 = '01a0a4f0-3200-7000-8000-000000000002'
+    const V2_SESSION_ID_3 = '01a0a4f0-3200-7000-8000-000000000003'
+    let recordMock: jest.Mock
+    let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
+    let mockTeamService: TeamService
+    let topHog: TopHogRegistry
+    let promiseScheduler: PromiseScheduler
+    let outputs: jest.Mocked<
+        IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
+    >
+
+    // Resolves every session to 30d so messages flow through to recording.
+    const retentionService = {
+        resolveSessionRetentions: jest.fn().mockImplementation((sessions: SessionSet) => {
+            const resolutions = new SessionMap<RetentionResolution>()
+            for (const s of sessions) {
+                resolutions.set(s.teamId, s.sessionId, { resolved: true, retentionPeriod: '30d' })
+            }
+            return Promise.resolve(resolutions)
+        }),
+    } as unknown as RetentionService
+    // Every session resolves as already-seen, unblocked, and with a cleartext key so messages flow
+    // through to recording.
+    const sessionTracker = {
+        hasSeen: jest.fn().mockImplementation((sessions: SessionSet) => {
+            const map = new SessionMap<boolean>()
+            for (const { teamId, sessionId } of sessions) {
+                map.set(teamId, sessionId, true)
+            }
+            return Promise.resolve(map)
+        }),
+        markSeen: jest.fn().mockResolvedValue(undefined),
+    } as unknown as SessionTracker
+    const sessionFilter = {
+        handleNewSessions: jest.fn().mockResolvedValue(new SessionSet()),
+        isBlocked: jest.fn().mockResolvedValue(new SessionSet()),
+    } as unknown as SessionFilter
+    const keyStore = createMockKeyStore()
+    const now = DateTime.now()
+
+    const team = (aiTrainingOptedIn: boolean): TeamForReplay => ({
+        teamId: 1,
+        consoleLogIngestionEnabled: false,
+        aiTrainingOptedIn,
+    })
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        outputs = createMockIngestionOutputs()
+
+        recordMock = jest.fn().mockResolvedValue(undefined)
+        mockBatchRecorder = {
+            record: recordMock,
+            getRetention: jest.fn().mockReturnValue(undefined),
+        } as unknown as jest.Mocked<SessionBatchRecorder>
+
+        topHog = createMockTopHog()
+        promiseScheduler = new PromiseScheduler()
+
+        mockCreateParseHeadersStep.mockReturnValue((input: { message: Message }) => {
+            const headers: Record<string, string> = {}
+            for (const header of input.message.headers || []) {
+                for (const [key, value] of Object.entries(header)) {
+                    headers[key] = Buffer.isBuffer(value) ? value.toString() : (value as string)
+                }
+            }
+            return Promise.resolve(ok({ ...input, headers }))
+        })
+        mockCreateApplyEventRestrictionsStep.mockReturnValue((input: unknown) => Promise.resolve(ok(input)))
+    })
+
+    function buildRunner(): MlMirrorStagedBatchRunner {
+        return buildMlMirrorStagedRunner(
+            {
+                outputs,
+                eventIngestionRestrictionManager: {} as unknown as EventIngestionRestrictionManager,
+                overflowMode: 'disabled',
+                promiseScheduler,
+                teamService: mockTeamService,
+                retentionService,
+                sessionTracker,
+                sessionFilter,
+                keyStore,
+                sessionKeyResolutionMaxConcurrency: 20,
+                topHog,
+                isDebugLoggingEnabled: () => false,
+            },
+            { anonymizeMaxConcurrency: 4, nowMs: () => Date.UTC(2026, 8, 15, 13) }
+        )
+    }
+
+    function message(sessionId: string): Message {
+        const payload = JSON.stringify({
+            distinct_id: 'user-123',
+            data: JSON.stringify({
+                event: '$snapshot_items',
+                properties: {
+                    $session_id: sessionId,
+                    $window_id: 'window-1',
+                    $snapshot_source: 'web',
+                    $snapshot_items: [
+                        {
+                            type: 3,
+                            timestamp: now.toMillis(),
+                            data: { source: 5, id: 1, text: 'Hello SecretName', isChecked: false },
+                        },
+                        {
+                            type: 5,
+                            timestamp: now.plus({ milliseconds: 1 }).toMillis(),
+                            data: {
+                                tag: '$json_ld',
+                                href: 'https://example.com/private-name?email=private#secret',
+                                payload: {
+                                    '@context': 'https://schema.org',
+                                    '@type': 'Product',
+                                    name: 'Camera',
+                                    email: 'viewer@example.com',
+                                    offers: {
+                                        '@type': 'Offer',
+                                        price: 100,
+                                        seller: {
+                                            '@type': 'Person',
+                                            name: 'Example Viewer',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    ],
+                },
+            }),
+        })
+        return {
+            partition: 0,
+            offset: 1,
+            topic: 'test-topic',
+            value: Buffer.from(payload),
+            key: Buffer.from('k'),
+            timestamp: Date.now(),
+            headers: [
+                { token: Buffer.from('test-token') },
+                { session_id: Buffer.from(sessionId) },
+                { distinct_id: Buffer.from('user-123') },
+            ],
+            size: payload.length,
+        } as unknown as Message
+    }
+
+    function fullSnapshotMessage(sessionId: string): Message {
+        const snapshot = {
+            type: 2,
+            timestamp: now.toMillis(),
+            data: {
+                node: {
+                    type: 0,
+                    id: 1,
+                    childNodes: [
+                        {
+                            type: 2,
+                            id: 2,
+                            tagName: 'a',
+                            attributes: {
+                                href: 'https://example.com/u/abc/edit',
+                                'data-note': 'Smithson lives nearby',
+                            },
+                            childNodes: [{ type: 3, id: 3, textContent: 'Hello SecretName' }],
+                        },
+                    ],
+                },
+                initialOffset: { top: 0, left: 0 },
+            },
+        }
+        const payload = JSON.stringify({
+            distinct_id: 'user-123',
+            data: JSON.stringify({
+                event: '$snapshot_items',
+                properties: {
+                    $session_id: sessionId,
+                    $window_id: 'window-1',
+                    $snapshot_source: 'web',
+                    $snapshot_items: [snapshot],
+                },
+            }),
+        })
+        return {
+            partition: 0,
+            offset: 1,
+            topic: 'test-topic',
+            value: Buffer.from(payload),
+            key: Buffer.from('k'),
+            timestamp: Date.now(),
+            headers: [
+                { token: Buffer.from('test-token') },
+                { session_id: Buffer.from(sessionId) },
+                { distinct_id: Buffer.from('user-123') },
+            ],
+            size: payload.length,
+        } as unknown as Message
+    }
+
+    // The fused step emits pre-serialized JSONL lines of [windowId, event].
+    function recordedEvents(): [string, any][] {
+        const lines: Buffer = recordMock.mock.calls[0][0].message.preSerialized.lines
+        return lines
+            .toString()
+            .split('\n')
+            .filter((l) => l.length > 0)
+            .map((l) => parseJSON(l))
+    }
+
+    itAddon('anonymizes events before recording for an opted-in team', async () => {
+        mockTeamService = {
+            getTeamByToken: jest.fn().mockResolvedValue(team(true)),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        } as unknown as TeamService
+
+        await runMlMirrorBatch(buildRunner(), [message(V2_SESSION_ID)], mockBatchRecorder)
+
+        expect(recordMock).toHaveBeenCalledTimes(1)
+        const [windowId, event] = recordedEvents()[0]
+        expect(windowId).toBe('window-1')
+        // The Input event's text was scrubbed before it reached the recorder.
+        expect(event.data.text).toBe('Hello **********')
+        expect(recordedEvents()[1][1].data).toEqual({
+            tag: '$json_ld',
+            href: 'https://example.com/[redacted]?[key]=private',
+            payload: {
+                '@context': 'https://schema.org',
+                '@type': 'Product',
+                name: 'Camera',
+                offers: {
+                    '@type': 'Offer',
+                    price: 100,
+                    seller: {
+                        '@type': 'Person',
+                    },
+                },
+            },
+        })
+    })
+
+    it('drops sessions for a team that did not opt into AI training', async () => {
+        mockTeamService = {
+            getTeamByToken: jest.fn().mockResolvedValue(team(false)),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        } as unknown as TeamService
+
+        await runMlMirrorBatch(buildRunner(), [message(V2_SESSION_ID_2)], mockBatchRecorder)
+
+        expect(recordMock).not.toHaveBeenCalled()
+    })
+
+    it('drops sessions whose ID is not UUIDv7 before session resolution', async () => {
+        mockTeamService = {
+            getTeamByToken: jest.fn().mockResolvedValue(team(true)),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        } as unknown as TeamService
+
+        await runMlMirrorBatch(buildRunner(), [message('legacy-session-id')], mockBatchRecorder)
+
+        expect(retentionService.resolveSessionRetentions).not.toHaveBeenCalled()
+        expect(recordMock).not.toHaveBeenCalled()
+    })
+
+    itAddon('scrubs a FullSnapshot (text, url, free-text data-*) end-to-end before recording', async () => {
+        mockTeamService = {
+            getTeamByToken: jest.fn().mockResolvedValue(team(true)),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        } as unknown as TeamService
+
+        await runMlMirrorBatch(buildRunner(), [fullSnapshotMessage(V2_SESSION_ID_3)], mockBatchRecorder)
+
+        expect(recordMock).toHaveBeenCalledTimes(1)
+        const node = recordedEvents()[0][1].data.node.childNodes[0]
+        expect(node.childNodes[0].textContent).toBe('Hello **********') // DOM text
+        expect(node.attributes.href).toContain('https://example.com/') // authority kept...
+        expect(node.attributes.href).not.toContain('abc') // ...path segments redacted
+        expect(node.attributes['data-note']).not.toContain('Smithson') // free-text data-* scrubbed
+    })
+})

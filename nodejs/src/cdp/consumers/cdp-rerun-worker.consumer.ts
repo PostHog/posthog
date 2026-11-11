@@ -2,9 +2,9 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import { Counter } from 'prom-client'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../types'
 import { RERUN_PAGE_ERROR_BACKOFF_MAX_MS, RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'

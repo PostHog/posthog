@@ -1,0 +1,71 @@
+/** Resolves the root key for legacy identifiers and image hashes (KMS-wrapped in prod, plaintext env for local dev) and pins it against rotation. */
+import { DecryptCommand, KMSClient } from '@aws-sdk/client-kms'
+import { createHmac } from 'crypto'
+
+import { logger } from '@posthog/node-common/utils/logger'
+
+export interface PseudonymKeyConfig {
+    AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: string
+    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: string
+    AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION: string
+    AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT: string
+}
+
+/** Decrypts a base64 KMS-wrapped key; injectable so tests don't hit KMS. */
+export type KeyDecryptor = (ciphertextBase64: string, region: string) => Promise<Buffer>
+
+const kmsDecrypt: KeyDecryptor = async (ciphertextBase64, region) => {
+    const client = new KMSClient(region ? { region } : {})
+    const result = await client.send(new DecryptCommand({ CiphertextBlob: Buffer.from(ciphertextBase64, 'base64') }))
+    if (!result.Plaintext) {
+        throw new Error('KMS Decrypt returned no plaintext for the pseudonym key')
+    }
+    return Buffer.from(result.Plaintext)
+}
+
+/**
+ * Non-reversible, domain-separated fingerprint of the key. Safe to log/store: it identifies the key without
+ * revealing it, so legacy identifiers and image references can stay stable.
+ */
+export function pseudonymKeyFingerprint(secret: string | Buffer): string {
+    return createHmac('sha256', secret).update('pseudonym-key-fingerprint:v1').digest('hex').slice(0, 16)
+}
+
+/**
+ * Resolves the HMAC key: prefers the KMS-wrapped ciphertext (decrypted once, never persisted), else the plaintext
+ * env secret (local dev). Fails closed when no key is configured, or when a pinned fingerprint doesn't match the
+ * resolved key because a changed key would break legacy identifiers, image references, and crawl-history cache joins.
+ */
+export async function resolvePseudonymKey(
+    config: PseudonymKeyConfig,
+    decrypt: KeyDecryptor = kmsDecrypt
+): Promise<string | Buffer> {
+    let secret: string | Buffer
+    let source: 'kms' | 'env'
+    if (config.SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY) {
+        secret = await decrypt(
+            config.SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY,
+            config.AI_RESEARCH_REPLAY_PSEUDONYM_KMS_REGION
+        )
+        source = 'kms'
+    } else if (config.AI_RESEARCH_REPLAY_PSEUDONYM_SECRET) {
+        secret = config.AI_RESEARCH_REPLAY_PSEUDONYM_SECRET
+        source = 'env'
+    } else {
+        throw new Error(
+            'SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY or AI_RESEARCH_REPLAY_PSEUDONYM_SECRET must be set for the ML mirror'
+        )
+    }
+
+    const fingerprint = pseudonymKeyFingerprint(secret)
+    const expected = config.AI_RESEARCH_REPLAY_PSEUDONYM_KEY_FINGERPRINT
+    if (expected && expected !== fingerprint) {
+        throw new Error(
+            `pseudonym key fingerprint mismatch (resolved ${fingerprint}, expected ${expected}) — refusing to start: ` +
+                'a rotated/incorrect key would break legacy identifiers, image references, and crawl-history cache joins'
+        )
+    }
+
+    logger.info('🔑', 'ml_pseudonym_key_loaded', { source, fingerprint, pinned: Boolean(expected) })
+    return secret
+}

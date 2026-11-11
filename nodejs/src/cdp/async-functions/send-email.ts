@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronInvocationQueueParametersEmailSchema } from '~/cdp/schema/cyclotron'
-import { acceptedSendEmailFields } from '~/cdp/services/hogflows/transactional-email'
+import { CyclotronInvocationQueueParametersEmailSchema } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { acceptedSendEmailFields } from '@posthog/hog-engine/cdp/services/hogflows/transactional-email'
 
 import { registerAsyncFunction } from '../async-function-registry'
 

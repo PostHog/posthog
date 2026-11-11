@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken'
 
-import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
-import { parseJSON } from '~/common/utils/json-parse'
+import { CyclotronInvocationQueueParametersFetchType } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './posthog-run-scout.template'

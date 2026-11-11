@@ -3,12 +3,12 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
-import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { JWT, PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { getBlockDecryptor, getBlockEncryptor } from '@posthog/replay-storage/crypto/index'
+import { getKeyStore } from '@posthog/replay-storage/keystore/index'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '@posthog/replay-storage/outputs/index'
 
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
@@ -34,21 +34,21 @@ jest.mock('@aws-sdk/client-s3', () => ({
     GetObjectCommand: jest.fn().mockImplementation((params) => params),
 }))
 
-jest.mock('~/ingestion/pipelines/sessionreplay/shared/keystore', () => ({
+jest.mock('@posthog/replay-storage/keystore/index', () => ({
     getKeyStore: jest.fn(),
 }))
 
-jest.mock('~/ingestion/pipelines/sessionreplay/shared/keystore/cache', () => ({
+jest.mock('@posthog/replay-storage/keystore/cache/index', () => ({
     MemoryCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
     RedisCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
 }))
 
-jest.mock('~/ingestion/pipelines/sessionreplay/shared/crypto', () => ({
+jest.mock('@posthog/replay-storage/crypto/index', () => ({
     getBlockDecryptor: jest.fn(),
     getBlockEncryptor: jest.fn(),
 }))
 
-jest.mock('~/common/utils/db/redis', () => ({
+jest.mock('@posthog/node-common/utils/db/redis', () => ({
     createRedisPoolFromConfig: jest.fn().mockReturnValue({
         acquire: jest.fn(),
         release: jest.fn(),

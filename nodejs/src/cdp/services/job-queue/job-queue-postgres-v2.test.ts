@@ -2,18 +2,18 @@ import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 import { v4 as uuidv4 } from 'uuid'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
-import { CyclotronV2DequeuedJob } from '../cyclotron-v2'
+import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2'
 import {
     CyclotronJobQueuePostgresV2,
     extractActionId,
     extractDistinctId,
     extractPersonId,
-} from './job-queue-postgres-v2'
+} from '~/cdp/services/job-queue/job-queue-postgres-v2'
 
-jest.mock('../cyclotron-v2', () => ({
+jest.mock('~/cdp/services/cyclotron-v2', () => ({
     CyclotronV2Manager: jest.fn(),
     CyclotronV2Worker: jest.fn(),
 }))
@@ -400,7 +400,9 @@ describe('CyclotronJobQueuePostgresV2', () => {
     describe('heartbeatInvocations', () => {
         it('proxies to heartbeat, skips unknown ids, and distinguishes released races from real failures', async () => {
             const { queue } = createQueue()
-            const warnSpy = jest.spyOn(require('~/common/utils/logger').logger, 'warn').mockImplementation(() => {})
+            const warnSpy = jest
+                .spyOn(require('@posthog/node-common/utils/logger').logger, 'warn')
+                .mockImplementation(() => {})
 
             const pending = createDequeuedJob()
             const released = createDequeuedJob({

@@ -1,7 +1,7 @@
 import { v7 as uuidv7 } from 'uuid'
 
-import { buildIntegerMatcher } from '~/common/config/matchers'
-import { logger } from '~/common/utils/logger'
+import { buildIntegerMatcher } from '@posthog/node-common/config/matchers'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
 import {

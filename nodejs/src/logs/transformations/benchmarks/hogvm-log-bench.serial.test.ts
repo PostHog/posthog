@@ -1,5 +1,5 @@
 // Serial: concurrent workers invalidate this CPU-performance threshold.
-import { compileHog } from '~/cdp/templates/compiler'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 
 import { BENCH_LOG_RECORDS, BENCH_PROGRAMS, buildBenchGlobals } from './fixtures'
 import { execBenchProgram } from './hogvm-exec'

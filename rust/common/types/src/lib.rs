@@ -7,6 +7,7 @@ mod group;
 mod person;
 mod team;
 pub mod timestamp;
+pub mod token;
 
 // Events
 pub use event::CapturedEvent;

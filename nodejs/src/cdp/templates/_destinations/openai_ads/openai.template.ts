@@ -1,4 +1,4 @@
-import { HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionInputSchemaType, HogFunctionTemplate } from '@posthog/hog-engine/cdp/types'
 
 // Based on https://developers.openai.com/ads/conversions-api
 // Sends server-to-server conversion events to the OpenAI Ads Conversions API.

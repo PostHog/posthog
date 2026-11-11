@@ -4,48 +4,71 @@ import { SendMailOptions } from 'nodemailer'
 import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
-import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
+import { CyclotronInvocationQueueParametersEmailType } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import {
+    HogFlowEmailSendingRateLimit,
+    HogFlowEmailSendingRateLimitSchema,
+} from '@posthog/hog-engine/cdp/schema/hogflow'
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import {
+    RecipientManagerRecipient,
+    RecipientsManagerService,
+} from '@posthog/hog-engine/cdp/services/managers/recipients-manager.service'
+import {
+    PreferencesTokenSource,
+    RecipientTokensService,
+    preferencesTokenSourceForInvocation,
+} from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionType,
     IntegrationType,
     MessageAssetRow,
-} from '~/cdp/types'
-import { createAddLogFunction, logEntry } from '~/cdp/utils'
-import { createInvocationResult } from '~/cdp/utils/invocation-utils'
-import { buildIntegerMatcher } from '~/common/config/matchers'
-import { logger } from '~/common/utils/logger'
-import type { ValueMatcher } from '~/types'
+} from '@posthog/hog-engine/cdp/types'
+import { createAddLogFunction, logEntry } from '@posthog/hog-engine/cdp/utils'
+import { createInvocationResult } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { buildIntegerMatcher } from '@posthog/node-common/config/matchers'
+import { logger } from '@posthog/node-common/utils/logger'
 
-import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
-import { IntegrationManagerService } from '../managers/integration-manager.service'
-import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
-import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
-import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { getEmailQueuePriorityClass } from './email-priority'
-import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
-import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
+import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
+import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
+import { getEmailQueuePriorityClass } from '~/cdp/services/messaging/email-priority'
+import { selectEmailSenderIntegrationId } from '~/cdp/services/messaging/email-sender-selection'
+import {
+    EmailStatusReason,
+    EmailStatusService,
+    isTransactionalEmailSend,
+} from '~/cdp/services/messaging/email-status.service'
+import {
+    EmailSuppressionService,
+    SuppressionCheckOptions,
+    SuppressionLookupError,
+} from '~/cdp/services/messaging/email-suppression.service'
 import {
     addTrackingToEmail,
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
-} from './email-tracking.service'
-import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
-import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
-import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
-import { addUtmTagsToEmail, addWorkflowRunTagToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
-import { MessageAssetsService } from './message-assets.service'
+} from '~/cdp/services/messaging/email-tracking.service'
+import { mailDevTransport, mailDevWebUrl } from '~/cdp/services/messaging/helpers/maildev'
+import { maybeAddPreheaderToEmail } from '~/cdp/services/messaging/helpers/preheader'
+import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from '~/cdp/services/messaging/helpers/ses'
 import {
-    PreferencesTokenSource,
-    RecipientTokensService,
-    preferencesTokenSourceForInvocation,
-} from './recipient-tokens.service'
+    quoteMailbox,
+    removeSuppressedRecipients,
+    unquoteMailbox,
+} from '~/cdp/services/messaging/helpers/suppressed-recipients'
+import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from '~/cdp/services/messaging/helpers/tracking-code'
+import {
+    addUtmTagsToEmail,
+    addWorkflowRunTagToEmail,
+    renderUtmOverrides,
+    resolveUtmTags,
+} from '~/cdp/services/messaging/helpers/utm'
+import { MessageAssetsService } from '~/cdp/services/messaging/message-assets.service'
+import { WorkflowsActivationReporter } from '~/cdp/services/monitoring/workflows-activation-reporter'
+import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
+import type { ValueMatcher } from '~/types'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',

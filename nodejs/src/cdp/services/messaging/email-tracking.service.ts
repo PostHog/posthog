@@ -2,33 +2,33 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
 import {
     CyclotronJobInvocationHogFunction,
     HogFunctionType,
     LogEntry,
     LogEntryLevel,
     MinimalAppMetric,
-} from '~/cdp/types'
-import { ModifiedRequest } from '~/common/api/router'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { RedisV2 } from '~/common/redis/redis-v2'
-import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger, serializeError } from '~/common/utils/logger'
+} from '@posthog/hog-engine/cdp/types'
+import { ModifiedRequest } from '@posthog/node-common/api/router'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
+import { isDevEnv, isTestEnv } from '@posthog/node-common/utils/env-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger, serializeError } from '@posthog/node-common/utils/logger'
 
-import { SES_WEBHOOKS_OUTPUT, SesWebhooksOutput } from '../../outputs/outputs'
-import { CapturedEventsService } from '../captured-events/captured-events.service'
-import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
-import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
-import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
-import { EmailStatusService } from './email-status.service'
-import { EmailSuppressionService } from './email-suppression.service'
-import { escapeHtml } from './helpers/escape-html'
-import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
-import { SES_LINK_INDEX_TAG, SesWebhookHandler, SnsEnvelope } from './helpers/ses'
-import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
+import { SES_WEBHOOKS_OUTPUT, SesWebhooksOutput } from '~/cdp/outputs/outputs'
+import { CapturedEventsService } from '~/cdp/services/captured-events/captured-events.service'
+import { HogFlowManagerService } from '~/cdp/services/hogflows/hogflow-manager.service'
+import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
+import { EmailStatusService } from '~/cdp/services/messaging/email-status.service'
+import { EmailSuppressionService } from '~/cdp/services/messaging/email-suppression.service'
+import { escapeHtml } from '~/cdp/services/messaging/helpers/escape-html'
+import { hasClickTrackingOptOut, hasSesNoTrack } from '~/cdp/services/messaging/helpers/link-tags'
+import { SES_LINK_INDEX_TAG, SesWebhookHandler, SnsEnvelope } from '~/cdp/services/messaging/helpers/ses'
+import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from '~/cdp/services/messaging/helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =

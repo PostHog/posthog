@@ -1,9 +1,10 @@
 import { Counter, Gauge } from 'prom-client'
 import { z } from 'zod'
 
-import { InternalFetchService } from '~/common/services/internal-fetch'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { InternalFetchService } from '@posthog/node-common/services/internal-fetch'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import {
     HealthCheckResult,
     HealthCheckResultError,

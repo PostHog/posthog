@@ -5,16 +5,19 @@ edition = "2021"
 publish = false
 
 [dependencies]
+futures = { workspace = true }
 http = { workspace = true }
 metrics = { workspace = true }
 pin-project = "1.1"
+tokio = { workspace = true, features = ["net", "sync", "time"] }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
-tower = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+tracing = { workspace = true }
 
 [dev-dependencies]
 metrics-util = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt"] }
-tower = { workspace = true, features = ["util"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "test-util"] }
 
 [lints]
 workspace = true

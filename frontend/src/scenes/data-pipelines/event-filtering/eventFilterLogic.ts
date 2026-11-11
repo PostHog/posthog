@@ -67,7 +67,7 @@ export const EVENT_FILTER_MAX_DEPTH = 5
 
 // --- Filter tree types ---
 // Recursive discriminated union. Mirrors the JSON schema stored in Postgres
-// and the Zod schema in nodejs/src/ingestion/common/event-filters/schema.ts.
+// and the Zod schema in ingestion/node/packages/ingestion/src/ingestion/common/event-filters/schema.ts.
 
 export type FilterNode = FilterConditionNode | FilterAndNode | FilterOrNode | FilterNotNode
 

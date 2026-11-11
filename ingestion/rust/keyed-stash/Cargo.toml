@@ -1,0 +1,12 @@
+[package]
+name = "keyed-stash"
+workspace = "../../../rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+proptest = "1"
+
+[lints]
+workspace = true

@@ -1,13 +1,28 @@
-import '~/tests/helpers/mocks/consumer.mock'
+import '@posthog/node-common/testing/mocks/consumer.mock'
+import { mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
+import { mockFetch, mockInternalFetch } from '@posthog/node-common/testing/mocks/request.mock'
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
+
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { setupExpressApp } from '@posthog/node-common/api/router'
+import {
+    KAFKA_APP_METRICS_2,
+    KAFKA_CDP_SES_WEBHOOKS,
+    KAFKA_EMAIL_STATUS,
+    KAFKA_LOG_ENTRIES,
+} from '@posthog/node-common/config/kafka-topics'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import * as envUtils from '@posthog/node-common/utils/env-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -19,27 +34,8 @@ import {
 import { hideHogFlowsFromReplica, insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
 import { CdpSesWebhooksConsumer } from '~/cdp/consumers/cdp-ses-webhooks.consumer'
-import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
-import { setupExpressApp } from '~/common/api/router'
-import { defaultConfig } from '~/common/config/config'
-import {
-    KAFKA_APP_METRICS_2,
-    KAFKA_CDP_SES_WEBHOOKS,
-    KAFKA_EMAIL_STATUS,
-    KAFKA_LOG_ENTRIES,
-} from '~/common/config/kafka-topics'
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import * as envUtils from '~/common/utils/env-utils'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
-import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
-
-import { Hub, Team } from '../../../types'
-import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailSuppressionService } from './email-suppression.service'
+import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
+import { EmailSuppressionService } from '~/cdp/services/messaging/email-suppression.service'
 import {
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
@@ -47,9 +43,13 @@ import {
     addTrackingToEmail,
     decodeHtmlEntitiesInHref,
     resolveEmailEngagementDistinctId,
-} from './email-tracking.service'
-import { SesWebhookHandler } from './helpers/ses'
-import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+} from '~/cdp/services/messaging/email-tracking.service'
+import { SesWebhookHandler } from '~/cdp/services/messaging/helpers/ses'
+import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from '~/cdp/services/messaging/helpers/tracking-code'
+import { defaultConfig } from '~/common/config/config'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { Hub, Team } from '~/types'
 
 describe('EmailTrackingService', () => {
     let hub: Hub

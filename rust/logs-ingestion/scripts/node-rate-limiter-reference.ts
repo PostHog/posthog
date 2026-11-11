@@ -2,8 +2,8 @@
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 
-import { createRedisV2PoolFromConfig } from '../../../nodejs/src/common/redis/redis-v2'
-import { KeyedRateLimiterService } from '../../../nodejs/src/common/services/keyed-rate-limiter.service'
+import { createRedisV2PoolFromConfig } from '../../../nodejs/packages/common/src/redis/redis-v2'
+import { KeyedRateLimiterService } from '../../../nodejs/packages/common/src/services/keyed-rate-limiter.service'
 import { type LogRecord } from '../../../nodejs/src/logs/log-record-avro'
 import { runPipelineStages } from '../../../nodejs/src/logs/pipeline/log-processing-pipeline'
 import { compileRuleSet } from '../../../nodejs/src/logs/sampling/compile-rules'

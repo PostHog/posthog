@@ -1,5 +1,10 @@
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationResult,
+    CyclotronJobQueueKind,
+} from '@posthog/hog-engine/cdp/types'
+
 import { HealthCheckResult } from '../../../types'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 
 export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 

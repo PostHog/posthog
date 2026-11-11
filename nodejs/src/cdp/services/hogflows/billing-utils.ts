@@ -1,4 +1,4 @@
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
 
 import { resolveEmailSendingAppSourceVersion } from '../messaging/email-tracking.service'
 

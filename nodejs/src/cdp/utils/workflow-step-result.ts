@@ -1,6 +1,6 @@
 import { get } from 'lodash'
 
-import { HogFlowAction } from '../schema/hogflow'
+import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
 
 const VARIABLES_BYTE_CAP = 5120
 const RESULT_STRING_CAP = 1500

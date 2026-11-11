@@ -2,7 +2,7 @@ import { HogFlowScheduleService } from './hogflow-schedule.service'
 
 const mockFetch = jest.fn()
 
-jest.mock('~/common/services/internal-fetch', () => ({
+jest.mock('@posthog/node-common/services/internal-fetch', () => ({
     InternalFetchService: jest.fn().mockImplementation(() => ({
         fetch: mockFetch,
     })),

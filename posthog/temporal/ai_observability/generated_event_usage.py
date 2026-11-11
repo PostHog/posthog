@@ -67,7 +67,7 @@ def create_generated_ai_event(
 
 def _record_id(day: str, event: str, distinct_id: str, event_uuid: uuid.UUID) -> str:
     # The same identity as the ingestion pipeline's records (`analyticsRecordId` in
-    # nodejs/src/ingestion/common/steps/usage-records-steps.ts): the event's day, then a hash of
+    # ingestion/node/packages/ingestion/src/ingestion/common/steps/usage-records-steps.ts): the event's day, then a hash of
     # the event name, distinct ID and UUID.
     identity = json.dumps([event, distinct_id, str(event_uuid)], separators=(",", ":"), ensure_ascii=False)
     return f"{day}:{hashlib.sha256(identity.encode()).hexdigest()[:32]}"

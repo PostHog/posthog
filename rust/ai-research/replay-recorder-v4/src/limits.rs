@@ -6,12 +6,12 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use capture::event_restrictions::{
-    EventContext, EventRestrictionService, EventRestrictionsRepository, Pipeline,
-    RedisRestrictionsRepository,
-};
 use common_redis::{
     Client, CompressionConfig, CustomRedisError, PipelineCommand, RedisClient, RedisValueFormat,
+};
+use event_restrictions::{
+    EventContext, EventRestrictionService, EventRestrictionsRepository, Pipeline,
+    RedisRestrictionsRepository,
 };
 use metrics::counter;
 
@@ -340,11 +340,11 @@ impl SessionLimiter {
 
 #[cfg(test)]
 mod tests {
-    use capture::event_restrictions::{
+    use common_redis::{MockRedisClient, MockRedisValue, RedisErrorKind};
+    use event_restrictions::{
         Restriction as Rule, RestrictionFilters, RestrictionManager, RestrictionScope,
         RestrictionType,
     };
-    use common_redis::{MockRedisClient, MockRedisValue, RedisErrorKind};
 
     use super::*;
 

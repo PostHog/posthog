@@ -2,24 +2,27 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
-import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
-import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
-
-import { Hub, InternalPerson, Team } from '../../types'
-import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { createHogFlowInvocationContext, hideHogFlowsFromReplica, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
-} from '../types'
-import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
+} from '@posthog/hog-engine/cdp/types'
+import {
+    InternalPersonWithDistinctId,
+    PersonReadRepository,
+} from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { createHogFlowInvocationContext, hideHogFlowsFromReplica, insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
+import { CdpCyclotronWorkerHogFlow } from '~/cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { Hub, InternalPerson, Team } from '~/types'
 
 jest.setTimeout(1000)
 

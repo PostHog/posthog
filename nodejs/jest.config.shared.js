@@ -22,6 +22,7 @@ module.exports = {
     // The image-scrub sidecar is a standalone package with its own jest run; keep the plugin-server suite out of it.
     modulePathIgnorePatterns: [
         '<rootDir>/.tmp/',
+        '<rootDir>/packages/',
         '<rootDir>/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/',
     ],
     // `dev/` folders hold dev-only benchmarks/scripts, never CI tests. Anchored to rootDir:

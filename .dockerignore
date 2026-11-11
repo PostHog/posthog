@@ -43,7 +43,6 @@
 !nodejs/package.json
 !nodejs/pnpm-lock.yaml
 !nodejs/src
-!nodejs/assets
 !nodejs/tsconfig.eslint.json
 !nodejs/tsconfig.json
 !services/mcp
@@ -75,6 +74,10 @@ services/agent-*/.next
 !requirements-dev.txt
 !requirements.txt
 !rust
+!ingestion/rust
+!ingestion/node/packages/common
+!ingestion/node/packages/ingestion
+!ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar
 !share/GeoLite2-City.mmdb
 !staticfiles
 !tailwind.config.js
@@ -96,16 +99,22 @@ products/**/node_modules
 # can change the image, so keep the two in step.
 products/desktop/*
 nodejs/node_modules
+nodejs/packages/*/node_modules
+nodejs/packages/*/dist
+nodejs/packages/*/.tmp
+ingestion/node/**/node_modules
+ingestion/node/**/dist
+ingestion/node/**/*.test.ts
 # The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
 # artifacts out of the plugin-server build context.
-nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/node_modules
-nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/models
-nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/native
-nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/corpus
-nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/test-data
-nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/out
-nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/tmp
-nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/*.traineddata
+ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/node_modules
+ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/models
+ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/native
+ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/corpus
+ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/test-data
+ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/out
+ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/tmp
+ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/*.traineddata
 services/mcp/node_modules
 services/mcp/dist
 services/mcp/.wrangler

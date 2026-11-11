@@ -1,6 +1,7 @@
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { insertProviderKey } from '../_tests/fixtures'

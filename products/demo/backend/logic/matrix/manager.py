@@ -35,7 +35,7 @@ QUEUE_FULL_MAX_FLUSHES = 60
 
 # Demo events go straight to ClickHouse and skip Node ingestion, so this module makes the
 # $experiment_exposure copies itself. Keep these values and the copy rule in sync with
-# nodejs/src/ingestion/common/steps/event-processing/create-event-step.ts.
+# ingestion/node/packages/ingestion/src/ingestion/common/steps/event-processing/create-event-step.ts.
 EVENT_FEATURE_FLAG_CALLED = "$feature_flag_called"
 EVENT_EXPERIMENT_EXPOSURE = "$experiment_exposure"
 EXPERIMENT_EXPOSURE_UUID_NAMESPACE = UUID("1b7c9119-5953-4668-97b7-ab0ef8a6bb48")

@@ -3,8 +3,9 @@ import { promisify } from 'node:util'
 import { brotliDecompress, gunzip, inflate } from 'node:zlib'
 import { Frame, HTTPRequest } from 'puppeteer'
 
-import { fetchAttribution } from '~/common/utils/fetch-attribution'
-import { fetchStreamed } from '~/common/utils/request'
+import { fetchAttribution } from '@posthog/node-common/utils/fetch-attribution'
+import { fetchStreamed } from '@posthog/node-common/utils/request'
+
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 

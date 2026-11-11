@@ -1,27 +1,36 @@
-import '~/tests/helpers/mocks/date.mock'
+import '@posthog/node-common/testing/mocks/date.mock'
 
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 import { inspect } from 'util'
 
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
-import { Hub, Team } from '~/types'
+import {
+    HogInputsService,
+    formatHogInput,
+    formatLiquidInput,
+    getAppIdentifierForPush,
+} from '@posthog/hog-engine/cdp/services/hog-inputs.service'
+import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { classifyHogError } from '@posthog/hog-engine/cdp/utils/hog-error-classification'
+import { HogConfigurationError } from '@posthog/hog-engine/cdp/utils/hog-error-classification'
+import {
+    replaceIntegrationInputsWithRefs,
+    signIntegrationRef,
+} from '@posthog/hog-engine/cdp/utils/integration-input-refs'
+import { buildHogFunctionInvocations } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { LiquidRenderBudget } from '@posthog/hog-engine/cdp/utils/liquid'
+import { NATIVE_PUSH_TEMPLATE_ID } from '@posthog/hog-engine/cdp/utils/push-subscription-utils'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 
-import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
-import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
-import { compileHog } from '../templates/compiler'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { HogConfigurationError, classifyHogError } from '../utils/hog-error-classification'
-import { replaceIntegrationInputsWithRefs, signIntegrationRef } from '../utils/integration-input-refs'
-import { buildHogFunctionInvocations } from '../utils/invocation-utils'
-import { LiquidRenderBudget } from '../utils/liquid'
-import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
-import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
-import { serializeInvocation } from './job-queue/job-queue-kafka'
-import { invocationToV2JobInit } from './job-queue/job-queue-postgres-v2'
-import { sanitizeInvocationForPersistence } from './job-queue/shared'
-import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
+import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '~/cdp/_tests/fixtures'
+import { serializeInvocation } from '~/cdp/services/job-queue/job-queue-kafka'
+import { invocationToV2JobInit } from '~/cdp/services/job-queue/job-queue-postgres-v2'
+import { sanitizeInvocationForPersistence } from '~/cdp/services/job-queue/shared'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { Hub, Team } from '~/types'
 
 describe('getAppIdentifierForPush', () => {
     it('returns null when no integration inputs are present', () => {

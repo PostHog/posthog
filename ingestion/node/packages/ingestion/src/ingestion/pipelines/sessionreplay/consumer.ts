@@ -1,0 +1,520 @@
+import { Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
+import pLimit from 'p-limit'
+
+import { TopHog } from '@posthog/ingestion-common/framework/tophog/tophog'
+import { EachBatchResult, KafkaConsumerV2 } from '@posthog/node-common/kafka/consumer/consumer-v2'
+import {
+    DlqOutput,
+    IngestionWarningsOutput,
+    LogEntriesOutput,
+    OverflowOutput,
+    TophogOutput,
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import {
+    UsageIngestionConfig,
+    createUsageIngestionClient,
+    usageReportTeamMatcher,
+} from '@posthog/node-common/usage-ingestion/index'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { CaptureWatermark } from '@posthog/replay-storage/capture-watermark'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from '@posthog/replay-storage/config'
+import { getBlockEncryptor } from '@posthog/replay-storage/crypto/index'
+import { SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { MemoryCachedKeyStore } from '@posthog/replay-storage/keystore/cache/index'
+import { getKeyStore } from '@posthog/replay-storage/keystore/index'
+import { SessionMetadataSink, SessionMetadataStore } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '@posthog/replay-storage/outputs/index'
+import { RetentionService } from '@posthog/replay-storage/retention/retention-service'
+import { buildSessionRecordingS3Client } from '@posthog/replay-storage/s3-client'
+import { TeamService } from '@posthog/replay-storage/teams/team-service'
+import { KeyStore, RecordingEncryptor } from '@posthog/replay-storage/types'
+
+import { buildIntegerMatcher } from '~/common/config/config'
+import { IngestionConsumerConfig } from '~/ingestion/config'
+import { SessionReplayPipelineConfig, createSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
+import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '~/types'
+
+import { BatchStages } from './batch-stages'
+import { KafkaOffsetManager } from './kafka/offset-manager'
+import { SessionRecordingIngesterMetrics } from './metrics'
+import { statedDecodedBytes } from './parse-message-step'
+import { SessionReplayLagReporter } from './session-replay-lag-reporter'
+import { SessionReplayPipelineFactory, SessionReplayPipelineRunner } from './session-replay-pipeline-runner'
+import { billPersistedSessions } from './session-usage-step'
+import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
+import { BlockCompression } from './sessions/block-compression'
+import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
+import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
+import { SessionBatchManager } from './sessions/session-batch-manager'
+import { SessionBatchRecorder } from './sessions/session-batch-recorder'
+import { SessionConsoleLogStore } from './sessions/session-console-log-store'
+import { SessionFilter } from './sessions/session-filter'
+import { SessionTracker } from './sessions/session-tracker'
+import {
+    BatchCommitter,
+    STAGED_BATCH_REBALANCE_TIMEOUT_MS,
+    STAGED_BATCH_TIMEOUT_MS,
+    StagedBatchRunner,
+} from './staged-batch'
+
+/**
+ * Configuration for SessionRecordingIngester.
+ * All service instances (postgres, kafka producers, redis pools) are passed as explicit constructor params.
+ */
+export type SessionRecordingIngesterConfig = SessionRecordingConfig &
+    SessionRecordingApiConfig &
+    UsageIngestionConfig &
+    Pick<
+        IngestionConsumerConfig,
+        // INGESTION_OVERFLOW_MODE drives force-overflow routing; the rest are for TopHog metrics.
+        'INGESTION_OVERFLOW_MODE' | 'INGESTION_PIPELINE' | 'INGESTION_LANE'
+    >
+
+/** Collaborators a deployment can inject to vary ingester behavior; anything omitted uses the primary default. */
+export interface SessionRecordingIngesterCollaborators {
+    fileStorage?: SessionBatchFileStorage
+    metadataStore?: SessionMetadataSink
+    consoleLogStore?: SessionConsoleLogStore
+    featureStore?: SessionFeatureStore
+    keyStore?: KeyStore
+    encryptor?: RecordingEncryptor
+    compression?: BlockCompression
+    createPipeline?: SessionReplayPipelineFactory
+    /** Runs each poll batch through its stages. If omitted, the session replay pipeline runs in one stage. A lane that overlaps batches supplies a runner with more stages. The consumer then keeps one batch in flight for each stage. */
+    runner?: StagedBatchRunner
+    /**
+     * Namespaces this ingester's session tracker/filter Redis keys. Leave unset for the main lane; a
+     * secondary lane (the ML mirror) must set it so it doesn't share seen/block state with the main lane
+     * (which would let it mark a session seen without the main key and cause a cleartext recording).
+     */
+    redisKeyNamespace?: string
+    /** The ML mirror reports how far back its events are complete; the main lane leaves this unset. */
+    captureWatermark?: CaptureWatermark
+    /** False on the ML mirror, because the main lane bills the same recordings. */
+    reportUsage?: boolean
+}
+
+export class SessionRecordingIngester {
+    kafkaConsumer: KafkaConsumerV2
+    topic: string
+    consumerGroupId: string
+    isStopping = false
+
+    private isDebugLoggingEnabled: ValueMatcher<number>
+    private readonly promiseScheduler: PromiseScheduler
+    private readonly sessionBatchManager: SessionBatchManager
+    /** Buffers capture timestamps of processed messages and reports ingestion lag after each flush. */
+    private readonly lagReporter: SessionReplayLagReporter
+    /** The accumulator for the current flush cycle. Owned here, minted and flushed via the manager. */
+    private currentBatch: SessionBatchRecorder
+    /** When the current accumulation cycle started (last flush, or startup), for the age flush trigger. */
+    private lastFlushTime: number
+    /**
+     * Serializes access to {@link currentBatch}: recording a poll batch, flushing on size/age, and
+     * flushing on partition revoke all run one at a time, so a revoke can't flush a batch a concurrent
+     * poll is still recording into. (The accumulating pipeline will own this serialization later.)
+     */
+    private readonly batchLock = pLimit(1)
+    private readonly redisPool: RedisPool
+    private readonly restrictionRedisPool: RedisPool
+    private readonly teamService: TeamService
+    private readonly retentionService: RetentionService
+    private readonly fileStorage: SessionBatchFileStorage
+    private readonly eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
+    private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
+    private stopEventIngestionRestrictionManager?: () => Promise<void>
+    private readonly outputs: IngestionOutputs<
+        | IngestionWarningsOutput
+        | DlqOutput
+        | OverflowOutput
+        | TophogOutput
+        | LogEntriesOutput
+        | ReplayEventsOutput
+        | SessionFeaturesOutput
+    >
+    private readonly topHog: TopHog
+    private readonly sessionTracker: SessionTracker
+    private readonly sessionFilter: SessionFilter
+    private readonly keyStore: KeyStore
+    private readonly encryptor: RecordingEncryptor
+    private readonly compression?: BlockCompression
+    private readonly runner: StagedBatchRunner
+    private readonly batchStages: BatchStages
+    private readonly usageBatch: UsageRecordBatch
+    private readonly captureWatermark?: CaptureWatermark
+
+    constructor(
+        private config: SessionRecordingIngesterConfig,
+        postgres: PostgresRouter,
+        outputs: IngestionOutputs<
+            | IngestionWarningsOutput
+            | DlqOutput
+            | OverflowOutput
+            | TophogOutput
+            | LogEntriesOutput
+            | ReplayEventsOutput
+            | SessionFeaturesOutput
+        >,
+        redisPool: RedisPool,
+        restrictionRedisPool: RedisPool,
+        collaborators: SessionRecordingIngesterCollaborators = {}
+    ) {
+        this.topic = config.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
+        this.consumerGroupId = config.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID
+        this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
+
+        this.promiseScheduler = new PromiseScheduler()
+        this.usageBatch = new UsageRecordBatch(
+            collaborators.reportUsage === false ? null : createUsageIngestionClient(config, 'session_replay'),
+            {
+                unit: 'recordings',
+                isTeamEnabled: usageReportTeamMatcher(config),
+            }
+        )
+
+        this.runner =
+            collaborators.runner ??
+            new SessionReplayPipelineRunner(
+                collaborators.createPipeline ?? createSessionReplayPipeline,
+                this.promiseScheduler
+            )
+        this.batchStages = new BatchStages(this.runner.stages)
+        // The v2 consumer defers the unassign on revoke until in-flight work is drained and the
+        // revoke hook has run, so a revoke can flush the current batch (persisting sessions and
+        // storing offsets) before the revoked partitions are given up.
+        this.kafkaConsumer = new KafkaConsumerV2({
+            topic: this.topic,
+            groupId: this.consumerGroupId,
+            callEachBatchWhenEmpty: true,
+            autoCommit: true,
+            autoOffsetStore: false,
+            ...(this.batchStages.lookahead > 1
+                ? {
+                      maxBackgroundTasks: this.batchStages.lookahead,
+                      backgroundTaskTimeoutMs: STAGED_BATCH_TIMEOUT_MS,
+                      rebalanceTimeoutMs: STAGED_BATCH_REBALANCE_TIMEOUT_MS,
+                  }
+                : {}),
+        })
+
+        this.redisPool = redisPool
+        this.restrictionRedisPool = restrictionRedisPool
+        this.outputs = outputs
+
+        // Only needed to build the default file storage; skip it when storage is injected.
+        const s3Client = collaborators.fileStorage ? null : buildSessionRecordingS3Client(config)
+
+        this.topHog = new TopHog({
+            outputs,
+            pipeline: config.INGESTION_PIPELINE ?? 'unknown',
+            lane: config.INGESTION_LANE ?? 'unknown',
+        })
+
+        this.teamService = new TeamService(postgres)
+
+        this.eventIngestionRestrictionManagerComponent = new EventIngestionRestrictionManagerComponent(
+            this.restrictionRedisPool,
+            { pipeline: 'session_recordings' }
+        )
+
+        this.retentionService = new RetentionService(this.redisPool, this.teamService)
+
+        const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
+        const metadataStore = collaborators.metadataStore ?? new SessionMetadataStore(outputs)
+        const consoleLogStore =
+            collaborators.consoleLogStore ??
+            new SessionConsoleLogStore(outputs, {
+                messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
+            })
+        const featureStore =
+            collaborators.featureStore ??
+            new SessionFeatureStore(outputs, this.config.SESSION_RECORDING_FEATURES_ENABLED)
+        this.fileStorage =
+            collaborators.fileStorage ??
+            (s3Client
+                ? new RetentionAwareStorage(
+                      s3Client,
+                      this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                      this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+                  )
+                : new BlackholeSessionBatchFileStorage())
+
+        this.sessionTracker = new SessionTracker(
+            this.redisPool,
+            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS,
+            undefined,
+            collaborators.redisKeyNamespace
+        )
+        this.sessionFilter = new SessionFilter({
+            redisPool: this.redisPool,
+            bucketCapacity: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
+            bucketReplenishRate: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
+            blockingEnabled: this.config.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
+            filterEnabled: this.config.SESSION_RECORDING_SESSION_FILTER_ENABLED,
+            localCacheTtlMs: this.config.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
+            keyNamespace: collaborators.redisKeyNamespace,
+        })
+
+        const region = config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        this.keyStore =
+            collaborators.keyStore ??
+            new MemoryCachedKeyStore(
+                getKeyStore(region, {
+                    kmsEndpoint: config.SESSION_RECORDING_KMS_ENDPOINT,
+                    dynamoDBEndpoint: config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+                })
+            )
+        this.encryptor = collaborators.encryptor ?? getBlockEncryptor(this.keyStore)
+        this.compression = collaborators.compression
+
+        this.sessionBatchManager = new SessionBatchManager({
+            maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
+            maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
+            maxEventsPerSessionPerBatch: this.config.SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH,
+            featuresRolloutPercentage: this.config.SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE,
+            offsetManager,
+            fileStorage: this.fileStorage,
+            metadataStore,
+            consoleLogStore,
+            featureStore,
+            encryptor: this.encryptor,
+            compression: this.compression,
+        })
+
+        this.lagReporter = new SessionReplayLagReporter(this.topic)
+        this.captureWatermark = collaborators.captureWatermark
+
+        this.currentBatch = this.sessionBatchManager.createBatch()
+        this.lastFlushTime = Date.now()
+    }
+
+    public get service(): PluginServerService {
+        return {
+            id: 'session-recordings-blob-v2-overflow',
+            onShutdown: async () => await this.stop(),
+            healthcheck: () => this.isHealthy() ?? false,
+        }
+    }
+
+    public async handleEachBatch(messages: Message[]): Promise<EachBatchResult> {
+        if (messages.length > 0) {
+            logger.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
+                size: messages.length,
+                partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
+                assignedPartitions: this.assignedPartitions,
+            })
+        }
+
+        messages.forEach((message) => {
+            SessionRecordingIngesterMetrics.incrementMessageReceived(message.partition)
+        })
+
+        this.captureWatermark?.hold(
+            messages.map((message) => ({
+                topic: message.topic,
+                partition: message.partition,
+                offset: message.offset,
+                data: 'events',
+                capturedAtMs: message.timestamp,
+            }))
+        )
+
+        const batchSize = messages.length
+        const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
+        SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
+        SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
+        if (messages.length > 0) {
+            SessionRecordingIngesterMetrics.observeKafkaBatchDecodedKb(
+                messages.reduce((acc, m) => statedDecodedBytes(m) + acc, 0) / 1024
+            )
+        }
+
+        const batch = this.runner.run(messages, this.batchStages.admit(), this.committer)
+        // A runner with one stage cannot overlap batches. The batch completes inside this call, which is what the consumer expects from a lane that returns no task.
+        if (this.batchStages.lookahead === 1) {
+            await instrumentFn({ key: `recordingingesterv2.handleEachBatch`, sendException: false }, () => batch)
+            return
+        }
+        return { backgroundTask: batch }
+    }
+
+    // A batch that is still in flight after a revoke drain must not write or report offsets for the partitions that this pod released. The new owner replays those partitions. The committer tells the write which partitions the pod holds, and the write reports progress for those partitions only.
+    private readonly committer: BatchCommitter = {
+        knownRetention: (teamId, sessionId) => this.currentBatch.getRetention(teamId, sessionId),
+        commit: async (write) => {
+            // The write holds the batch lock, so a revoke cannot flush the batch during the write. The committer takes the ownership snapshot under the lock, immediately before the write, because a revoke whose drain timed out can release a partition while this commit waits for the lock. The committer tracks the offsets under the same lock, so a revoke flush that waits behind this commit stores them together with the data.
+            const { okMessages } = await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, () =>
+                this.batchLock(async () => {
+                    const assigned = new Set(this.assignedPartitions)
+                    const progress = await write(this.currentBatch, (partition) => assigned.has(partition))
+                    this.sessionBatchManager.trackProcessedOffsets(progress.maxOffsets)
+                    return progress
+                })
+            )
+            // Buffer the capture timestamps of the written (OK) messages. The lag report waits until the batch
+            // is flushed and its offsets are committed.
+            this.lagReporter.record(okMessages)
+            if (this.sessionBatchManager.shouldFlush(this.currentBatch, this.lastFlushTime)) {
+                await this.flushCurrentBatch()
+            }
+        },
+    }
+
+    /**
+     * Flush the current accumulator (persisting it and committing its tracked offsets) and start a new
+     * cycle. Serialized by the batch lock so it can't run while a batch is being recorded or another
+     * flush (e.g. a partition revoke) is in progress.
+     */
+    private async flushCurrentBatch(): Promise<void> {
+        // The pipeline schedules its side effects (DLQ and overflow produces) fire-and-forget on the
+        // promise scheduler. Drain them before flushing so we never commit a message's offset before its
+        // produce is durable — otherwise a crash in that window would lose it. Drain outside the lock so a
+        // scheduled revoke waiting on the lock can't deadlock this drain.
+        await instrumentFn(`recordingingesterv2.handleEachBatch.flush.awaitSideEffects`, async () => {
+            await this.promiseScheduler.waitForAllSettled()
+        })
+        await this.batchLock(async () => {
+            logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
+            // Usage goes out before the offsets commit, so a crash cannot lose the bill of a session with no later
+            // batch. A replayed batch resends the same record, and the usage table removes the duplicate.
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+                this.currentBatch.flush((sessions) =>
+                    billPersistedSessions(this.usageBatch, this.sessionTracker, sessions).catch((error) => {
+                        logger.warn('⚠️', 'blob_ingester_consumer_v2 - usage flush failed', { error })
+                    })
+                )
+            )
+            // The flush committed the batch's offsets, so its data is now durably ingested — report lag.
+            // Skipped if the flush above threw, so a failed flush records no premature lag sample.
+            this.lagReporter.flush()
+            this.currentBatch = this.sessionBatchManager.createBatch()
+            this.lastFlushTime = Date.now()
+        })
+    }
+
+    public async start(): Promise<void> {
+        logger.info('🔁', 'blob_ingester_consumer_v2 - starting session recordings blob consumer', {
+            librdKafkaVersion: librdkafkaVersion,
+            kafkaCapabilities: features,
+        })
+
+        await this.keyStore.start()
+        await this.encryptor.start()
+        const started = await this.eventIngestionRestrictionManagerComponent.start()
+        this.eventIngestionRestrictionManager = started.value
+        this.stopEventIngestionRestrictionManager = started.stop
+
+        const pipelineConfig: SessionReplayPipelineConfig = {
+            maxDecodedBytesPerWrite: this.config.SESSION_RECORDING_MAX_DECODED_KB_PER_WRITE * 1024,
+            messageLimits: {
+                maxWindowIdBytes: this.config.SESSION_RECORDING_MAX_WINDOW_ID_BYTES,
+                maxEventsPerMessage: this.config.SESSION_RECORDING_MAX_EVENTS_PER_MESSAGE,
+                enforce: this.config.SESSION_RECORDING_ENFORCE_MESSAGE_LIMITS,
+            },
+            outputs: this.outputs,
+            eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
+            promiseScheduler: this.promiseScheduler,
+            teamService: this.teamService,
+            retentionService: this.retentionService,
+            sessionTracker: this.sessionTracker,
+            sessionFilter: this.sessionFilter,
+            keyStore: this.keyStore,
+            sessionKeyResolutionMaxConcurrency: this.config.SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY,
+            topHog: this.topHog,
+            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
+        }
+        this.runner.start(pipelineConfig)
+
+        // Check that the storage backend is healthy before starting the consumer
+        // This is especially important in local dev with minio
+        await this.fileStorage.checkHealth()
+        // The revoke hook runs inside the rebalance callback, before the partitions are unassigned, so
+        // the flush it triggers stores offsets that librdkafka commits as it gives the partitions up.
+        await this.kafkaConsumer.connect(
+            (messages) => this.handleEachBatch(messages),
+            (revokedPartitions) => this.onRevokePartitions(revokedPartitions)
+        )
+
+        // Start periodic flushing of TopHog metrics
+        this.topHog.start()
+    }
+
+    public async stop(): Promise<PromiseSettledResult<any>[]> {
+        logger.info('🔁', 'blob_ingester_consumer_v2 - stopping')
+        this.isStopping = true
+
+        // Stop the consume loop and drain in-flight batches first, so the final flush below can't
+        // race a poll batch that is still recording (and scheduling side effects) concurrently.
+        await this.kafkaConsumer.stopConsuming()
+
+        // Stop TopHog and flush final metrics
+        await this.topHog.stop()
+
+        // Persist whatever is buffered and store its offsets while we still own the partitions;
+        // disconnect commits them as it leaves the group.
+        await this.flushCurrentBatch()
+        await this.kafkaConsumer.disconnect()
+
+        const promiseResults = await this.promiseScheduler.waitForAllSettled()
+
+        this.keyStore.stop()
+        await this.stopEventIngestionRestrictionManager?.()
+        // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
+        // not by the ingester. The server handles their lifecycle in getCleanupResources().
+
+        logger.info('👍', 'blob_ingester_consumer_v2 - stopped!')
+
+        return promiseResults
+    }
+
+    public isHealthy(): HealthCheckResult {
+        // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
+        return this.kafkaConsumer.isHealthy()
+    }
+
+    private get assignedTopicPartitions(): TopicPartition[] {
+        return this.kafkaConsumer.assignments() ?? []
+    }
+
+    private get assignedPartitions(): TopicPartition['partition'][] {
+        return this.assignedTopicPartitions.map((x) => x.partition)
+    }
+
+    private onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
+        /**
+         * The revoke_partitions event indicates that the consumer group has had partitions revoked.
+         * Rather than reaching into the live batch to discard the revoked partitions' sessions, we flush
+         * whatever is buffered (persisting it and committing its offsets), so the new owner resumes from
+         * after the work we already persisted instead of reprocessing it.
+         */
+
+        const revokedPartitions = topicPartitions.map((x) => x.partition)
+        if (!revokedPartitions.length) {
+            return Promise.resolve()
+        }
+
+        // Forgotten before the flush, because a failed revoke flush is swallowed and the partitions still go to the next owner.
+        this.captureWatermark?.forget(topicPartitions)
+        SessionRecordingIngesterMetrics.resetSessionsHandled()
+        return this.flushCurrentBatch()
+    }
+
+    private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
+        await instrumentFn(`recordingingesterv2.handleEachBatch.flush.commitOffsets`, () => {
+            this.kafkaConsumer.offsetsStore(offsets)
+            this.captureWatermark?.release(offsets)
+            return Promise.resolve()
+        })
+    }
+}

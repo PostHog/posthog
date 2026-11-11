@@ -183,13 +183,20 @@ class TestDetectTestType:
     # -- Rust tests: these hit real Cargo.toml files on disk --
 
     def test_rust_workspace_crate(self) -> None:
-        config = detect_test_type("rust/capture/tests/events.rs")
+        config = detect_test_type("rust/cymbal/tests/events.rs")
+        assert config.test_type == "rust"
+        assert "--manifest-path=rust/Cargo.toml" in config.command
+        assert "-p" in config.command
+        assert "cymbal" in config.command
+        assert "--test" in config.command
+        assert "events" in config.command
+
+    def test_rust_crate_outside_the_workspace_directory(self) -> None:
+        config = detect_test_type("ingestion/rust/capture/tests/events.rs")
         assert config.test_type == "rust"
         assert "--manifest-path=rust/Cargo.toml" in config.command
         assert "-p" in config.command
         assert "capture" in config.command
-        assert "--test" in config.command
-        assert "events" in config.command
 
     def test_rust_standalone_cli(self) -> None:
         config = detect_test_type("cli/src/main.rs")
@@ -279,7 +286,7 @@ class TestDetectTestType:
         assert config.cwd == _get_repo_root() / "livestream"
 
     def test_rust_directory(self) -> None:
-        config = detect_test_type("rust/capture/tests")
+        config = detect_test_type("rust/cymbal/tests")
         assert config.test_type == "rust"
         assert "--manifest-path=rust/Cargo.toml" in config.command
 

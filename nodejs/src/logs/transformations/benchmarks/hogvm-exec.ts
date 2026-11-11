@@ -1,6 +1,5 @@
+import { execHogImmediate } from '@posthog/hog-engine/cdp/utils/hog-exec'
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
-
-import { execHogImmediate } from '~/cdp/utils/hog-exec'
 
 import type { BenchGlobals } from './fixtures'
 

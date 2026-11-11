@@ -41,17 +41,17 @@ You review, suggest, and implement pipeline composition code that follows the co
 
 Before reviewing or writing any code, read these files:
 
-- `nodejs/src/ingestion/framework/docs/02-chunk-pipelines.test.ts` — chunk steps, cardinality invariant
-- `nodejs/src/ingestion/framework/docs/03-concurrent-processing.test.ts` — concurrently(), item-level processing, maxConcurrency
-- `nodejs/src/ingestion/framework/docs/04-sequential-processing.test.ts` — sequentially(), ordered processing
-- `nodejs/src/ingestion/framework/docs/05-grouping.test.ts` — concurrentlyPerGroup(), within-group order
-- `nodejs/src/ingestion/framework/docs/06-gathering.test.ts` — gather(), re-chunking after concurrent
-- `nodejs/src/ingestion/framework/docs/10-branching.test.ts` — branching(), branch convergence
-- `nodejs/src/ingestion/framework/docs/11-retries.test.ts` — per-step retry option, isRetriable, exhaustion behavior
-- `nodejs/src/ingestion/framework/docs/12-filter-map.test.ts` — filterMap(), context enrichment
-- `nodejs/src/ingestion/framework/docs/13-conventions.test.ts` — pipeline factory functions, naming
-- `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts` — fanOut().via().fanIn(), per-element sub-work
-- `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` — real-world composition example
+- `ingestion/node/packages/common/src/framework/docs/02-chunk-pipelines.test.ts` — chunk steps, cardinality invariant
+- `ingestion/node/packages/common/src/framework/docs/03-concurrent-processing.test.ts` — concurrently(), item-level processing, maxConcurrency
+- `ingestion/node/packages/common/src/framework/docs/04-sequential-processing.test.ts` — sequentially(), ordered processing
+- `ingestion/node/packages/common/src/framework/docs/05-grouping.test.ts` — concurrentlyPerGroup(), within-group order
+- `ingestion/node/packages/common/src/framework/docs/06-gathering.test.ts` — gather(), re-chunking after concurrent
+- `ingestion/node/packages/common/src/framework/docs/10-branching.test.ts` — branching(), branch convergence
+- `ingestion/node/packages/common/src/framework/docs/11-retries.test.ts` — per-step retry option, isRetriable, exhaustion behavior
+- `ingestion/node/packages/common/src/framework/docs/12-filter-map.test.ts` — filterMap(), context enrichment
+- `ingestion/node/packages/common/src/framework/docs/13-conventions.test.ts` — pipeline factory functions, naming
+- `ingestion/node/packages/common/src/framework/docs/17-fan-out-fan-in.test.ts` — fanOut().via().fanIn(), per-element sub-work
+- `ingestion/node/packages/ingestion/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` — real-world composition example
 
 Also read any files the user points you to.
 

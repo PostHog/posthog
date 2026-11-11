@@ -1,0 +1,74 @@
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+import { logger } from '@posthog/node-common/utils/logger'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
+import { SessionKey } from '@posthog/replay-storage/types'
+
+import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
+import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
+import { MessageWithTeam, TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
+import { ValueMatcher } from '~/types'
+
+export interface RecordSessionEventStepInput extends SessionBatchContext {
+    team: TeamForReplay
+    headers: { now?: Date }
+    parsedMessage: ParsedMessageData
+    retentionPeriod: RetentionPeriod
+    sessionKey: SessionKey
+}
+
+export interface RecordSessionEventStepConfig {
+    isDebugLoggingEnabled: ValueMatcher<number>
+}
+
+/**
+ * Creates a step that records parsed session event messages to the session batch.
+ * This is a side-effect step that writes to the session batch recorder.
+ *
+ * Metrics (tracked via TopHog wrapper in the pipeline):
+ * - message_size_by_session_id: Sum of raw message sizes per session
+ * - consume_time_ms_by_session_id: Time spent recording each message
+ */
+export function createRecordSessionEventStep<T extends RecordSessionEventStepInput>(
+    config: RecordSessionEventStepConfig
+): ProcessingStep<T, T> {
+    const { isDebugLoggingEnabled } = config
+
+    return async function recordSessionEventStep(input) {
+        const { team, parsedMessage, retentionPeriod, sessionKey, sessionBatchRecorder } = input
+
+        // Reset revoked sessions counter once we're consuming
+        SessionRecordingIngesterMetrics.resetSessionsRevoked()
+
+        const { partition } = parsedMessage.metadata
+        if (isDebugLoggingEnabled(partition)) {
+            logger.debug('🔄', 'processing_session_recording', {
+                partition: parsedMessage.metadata.partition,
+                offset: parsedMessage.metadata.offset,
+                distinct_id: parsedMessage.distinct_id,
+                session_id: parsedMessage.session_id,
+                raw_size: parsedMessage.metadata.rawSize,
+            })
+            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
+                ...parsedMessage.metadata,
+                team_id: team.teamId,
+                session_id: parsedMessage.session_id,
+            })
+        }
+
+        SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
+
+        // Record to the batch's recorder, carried on the element by the pipeline's beforeBatch.
+        const messageWithTeam: MessageWithTeam = { team, message: parsedMessage }
+        const captureTimestampMs = input.headers.now?.getTime()
+        await sessionBatchRecorder.record(
+            messageWithTeam,
+            retentionPeriod,
+            sessionKey,
+            Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
+        )
+
+        return ok(input)
+    }
+}

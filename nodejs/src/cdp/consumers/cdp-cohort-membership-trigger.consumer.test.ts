@@ -1,19 +1,20 @@
-import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
-import '../../../tests/helpers/mocks/producer.mock'
+import '@posthog/node-common/testing/mocks/consumer.mock'
+import '@posthog/node-common/testing/mocks/producer.mock'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '@posthog/hog-engine/cdp/types'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
 import { createCohortMembershipEvent, createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
-import { CyclotronJobInvocationHogFlow } from '../types'
 import { CdpCohortMembershipTriggerConsumer } from './cdp-cohort-membership-trigger.consumer'
 import { counterParseError } from './metrics'
 

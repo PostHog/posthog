@@ -1,7 +1,7 @@
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { LazyLoader } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
-import { PubSub } from '~/common/utils/pubsub'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
 
 import { Team } from '../../types'
 

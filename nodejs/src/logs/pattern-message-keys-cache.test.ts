@@ -1,5 +1,5 @@
-import { DependencyUnavailableError } from '~/common/utils/db/error'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 
 import { MESSAGE_KEYS } from './log-pattern-mask'
 import { PatternMessageKeysCache } from './pattern-message-keys-cache'

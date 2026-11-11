@@ -1,0 +1,899 @@
+use std::{net::SocketAddr, num::NonZeroU32};
+
+use common_continuous_profiling::ContinuousProfilingConfig;
+use envconfig::Envconfig;
+use event_restrictions::Pipeline;
+use tracing::Level;
+
+use crate::producers::ProducerName;
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum CaptureMode {
+    Events,
+    Recordings,
+    Ai,
+    /// Analytics ingestion for historical backfills (the batch-import-worker).
+    /// Unlike `Events`, it skips the global rate limiter, drops batches not
+    /// flagged `historical_migration: true`, serves no AI or OTEL routes (their
+    /// handlers hardcode `historical_migration: false`), and has no AI overflow
+    /// lane.
+    Import,
+}
+
+impl CaptureMode {
+    /// Pipelines a given capture deployment produces events to. The events
+    /// deployment writes to `analytics` (normal events), `errortracking`
+    /// (`$exception`), `ai` (`$ai_` names), `heatmaps` (`$$heatmap`) and
+    /// `clientwarnings` (`$$client_ingestion_warning`), so its restriction
+    /// service must serve all five. `Import` is an events deployment
+    /// restricted to backfills, so it serves the same five.
+    ///
+    /// `Ai` serves only `ai`. That deployment registers no analytics route,
+    /// and `process_events` rejects a batch carrying anything off the AI lane,
+    /// so no event there resolves to another pipeline. Both halves have to
+    /// hold: serving fewer pipelines than a deployment can produce to leaves
+    /// those lookups matching an unloaded slice, which returns an empty
+    /// `RestrictionSet` — silently unrestricted.
+    pub fn restriction_pipelines(self) -> Vec<Pipeline> {
+        match self {
+            CaptureMode::Events | CaptureMode::Import => vec![
+                Pipeline::Analytics,
+                Pipeline::ErrorTracking,
+                Pipeline::Ai,
+                Pipeline::Heatmaps,
+                Pipeline::ClientWarnings,
+            ],
+            CaptureMode::Recordings => vec![Pipeline::SessionRecordings],
+            // capture-ai registers only the AI routes, and both pipelines
+            // refuse an event off the AI lane before restrictions are applied,
+            // so no event there ever resolves to another pipeline. Loading the
+            // analytics and error-tracking slices would only cost memory.
+            //
+            // The two refuse differently, each fitting its own response
+            // contract: v0's `process_events` rejects the whole request
+            // (`CaptureError::NonAiEventOnAiLane`, 400), while v1's
+            // `drop_non_ai_events` drops only the offenders, because it can
+            // report per-event outcomes. The guarantee relied on here is the
+            // same either way.
+            CaptureMode::Ai => vec![Pipeline::Ai],
+        }
+    }
+
+    pub fn as_tag(&self) -> &'static str {
+        match self {
+            CaptureMode::Events => "events",
+            CaptureMode::Recordings => "recordings",
+            CaptureMode::Ai => "ai",
+            CaptureMode::Import => "import",
+        }
+    }
+
+    /// Whether this mode subjects incoming events to the per-(token,
+    /// distinct_id) global rate limiter. `Import` opts out: historical
+    /// backfills are internal traffic that must not be throttled.
+    ///
+    /// Note this is necessary but not sufficient: only the analytics processing
+    /// paths (legacy `events::analytics` and `v1::analytics`) actually consult
+    /// the limiter, so `Recordings` never rate-limits despite returning `true`
+    /// here. The predicate gates the two analytics paths; other paths ignore it.
+    pub fn applies_global_rate_limit(&self) -> bool {
+        !matches!(self, CaptureMode::Import)
+    }
+
+    /// Whether this mode drops any batch not marked `historical_migration:
+    /// true`. Only `Import` does — it exclusively ingests historical data.
+    pub fn requires_historical_migration(&self) -> bool {
+        matches!(self, CaptureMode::Import)
+    }
+
+    /// Import has no AI overflow lane: imports must never overflow.
+    pub fn has_ai_overflow_lane(&self) -> bool {
+        !matches!(self, CaptureMode::Import)
+    }
+}
+
+impl std::str::FromStr for CaptureMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_ref() {
+            "events" => Ok(CaptureMode::Events),
+            "recordings" => Ok(CaptureMode::Recordings),
+            "ai" => Ok(CaptureMode::Ai),
+            "import" => Ok(CaptureMode::Import),
+            _ => Err(format!("Unknown Capture Type: {s}")),
+        }
+    }
+}
+
+/// Compression algorithm applied at the Kafka message payload (envelope) level,
+/// independent of the broker-level `compression.codec` setting.
+/// Enables Warpstream billing reduction by storing compressed bytes.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub enum EnvelopeCompression {
+    #[default]
+    None,
+    Lz4,
+}
+
+impl std::str::FromStr for EnvelopeCompression {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_ref() {
+            "none" => Ok(EnvelopeCompression::None),
+            "lz4" => Ok(EnvelopeCompression::Lz4),
+            _ => Err(format!("Unknown EnvelopeCompression: {s}")),
+        }
+    }
+}
+
+#[derive(Envconfig, Clone)]
+pub struct Config {
+    #[envconfig(default = "false")]
+    pub print_sink: bool,
+
+    #[envconfig(default = "false")]
+    pub noop_sink: bool,
+
+    #[envconfig(default = "127.0.0.1:3000")]
+    pub address: SocketAddr,
+
+    pub redis_url: String,
+
+    #[envconfig(default = "100")]
+    pub redis_response_timeout_ms: u64,
+
+    #[envconfig(default = "5000")]
+    pub redis_connection_timeout_ms: u64,
+
+    #[envconfig(default = "false")]
+    pub global_rate_limit_enabled: bool,
+
+    /// When true, the global rate limiter evaluates and emits metrics/logs
+    /// but does not enforce (events pass through as if not limited).
+    #[envconfig(default = "false")]
+    pub global_rate_limit_dry_run: bool,
+
+    /// Sliding window interval to apply global rate limiting threshold to
+    #[envconfig(default = "60")]
+    pub global_rate_limit_window_interval_secs: u64,
+
+    /// Base re-sync cadence (seconds). The pressure tier scales it
+    #[envconfig(default = "15")]
+    pub global_rate_limit_sync_interval_secs: u64,
+
+    /// Background task cadence for pipeline reads + writes (milliseconds)
+    #[envconfig(default = "1000")]
+    pub global_rate_limit_tick_interval_ms: u64,
+
+    // --- Token+DistinctId limiter config ---
+    /// Per-(token, distinct_id) rate limit threshold per window interval
+    /// Note: default is too high to trigger limiting in production
+    #[envconfig(default = "300000")]
+    pub global_rate_limit_token_distinctid_threshold: u64,
+
+    /// CSV list of key=value pairs for custom per-(token, distinct_id) thresholds
+    pub global_rate_limit_token_distinctid_overrides_csv: Option<String>,
+
+    /// Max local cache entries for the per-(token, distinct_id) limiter
+    #[envconfig(default = "5000000")]
+    pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
+
+    /// Minimum local event count before a key earns a Redis read; `0` reads every key. Keep
+    /// it well under `threshold / pod_count`, or a key at its limit spread across pods is read
+    /// more than a window late.
+    #[envconfig(default = "10")]
+    pub global_rate_limit_min_sync_floor: u64,
+
+    /// Max keys read, and max write entries sent, per tick. The rest wait, so a backlog
+    /// shows as staleness rather than a tick that overruns its interval.
+    #[envconfig(default = "20000")]
+    pub global_rate_limit_max_sync_keys_per_tick: usize,
+
+    /// Max Redis keys per command (a read costs two per entity), so one command fits the
+    /// Redis client's response timeout.
+    #[envconfig(default = "2000")]
+    pub global_rate_limit_max_keys_per_command: usize,
+
+    /// How many chunked commands may be in flight at once per Redis instance.
+    #[envconfig(default = "4")]
+    pub global_rate_limit_max_concurrent_commands: usize,
+
+    /// Max distinct (key, epoch) entries held in the deferred write batch per
+    /// limiter. Merges are always accepted; at the cap, updates for new keys
+    /// are dropped and counted (fail-open). Bounds limiter memory under
+    /// unique-key floods that outrun the per-tick write drain.
+    #[envconfig(default = "200000")]
+    pub global_rate_limit_max_write_batch_entries: usize,
+
+    /// Max keys held in the pending-sync set per limiter. At the cap, new sync
+    /// requests drop and re-queue on the key's next request (fail-open).
+    /// Bounds limiter memory alongside the write-batch cap.
+    #[envconfig(default = "200000")]
+    pub global_rate_limit_max_pending_sync_entries: usize,
+
+    /// Seconds since a cache entry was last written before it is dropped. Every request
+    /// and read rewrites the entry, so at or above the idle timeout this never fires first.
+    #[envconfig(default = "600")]
+    pub global_rate_limit_local_cache_ttl_secs: u64,
+
+    /// Evict local cache entries not accessed within this window (seconds).
+    /// This is the main lever on cache cardinality: with a key space dominated
+    /// by one-shot identities, most entries are pure churn and hold a slot for
+    /// the full idle window. Must stay at or above the rate-limit window, or
+    /// entries expire inside the enforcement window and the limiter loses the
+    /// counts it is supposed to be accumulating -- values below the window are
+    /// clamped up, with a warning.
+    #[envconfig(default = "300")]
+    pub global_rate_limit_local_cache_idle_timeout_secs: u64,
+
+    /// Seconds reads (replica, then primary) must keep failing before a pod stops
+    /// limiting on its own unconfirmed counts. Unset uses each limiter's window; `0` disables.
+    pub global_rate_limit_max_read_outage_secs: Option<u64>,
+
+    /// The limiter's cap on one Redis read command (milliseconds). The Redis
+    /// client's response timeout also applies, and the shorter one fires first.
+    #[envconfig(default = "250")]
+    pub global_rate_limit_read_timeout_ms: u64,
+
+    /// The limiter's cap on one Redis write command (milliseconds). The Redis
+    /// client's response timeout also applies, and the shorter one fires first.
+    #[envconfig(default = "250")]
+    pub global_rate_limit_write_timeout_ms: u64,
+
+    // --- Token-only limiter config (not currently used in production, retained for new_token()) ---
+    /// Per-token rate limit threshold per window interval
+    /// Note: default is too high to trigger limiting in production
+    #[envconfig(default = "5000000")]
+    pub global_rate_limit_token_threshold: u64,
+
+    /// CSV list of key=value pairs for custom per-token thresholds
+    pub global_rate_limit_token_overrides_csv: Option<String>,
+
+    /// Max local cache entries for the per-token limiter
+    #[envconfig(default = "300000")]
+    pub global_rate_limit_token_local_cache_max_entries: u64,
+
+    /// Optional dedicated Redis URL for global rate limiter.
+    /// If set, creates a separate Redis client for the limiter.
+    /// Falls back to the shared redis_url if unset.
+    pub global_rate_limit_redis_url: Option<String>,
+
+    /// Optional replica URL: with `global_rate_limit_redis_url` set, reads go here and writes
+    /// to the primary. A replica read that fails with a recoverable error retries on the primary.
+    pub global_rate_limit_redis_reader_url: Option<String>,
+
+    /// Response timeout (ms) for the dedicated limiter Redis, defaulting to
+    /// `redis_response_timeout_ms`; ignored unless `global_rate_limit_redis_url` is set.
+    pub global_rate_limit_redis_response_timeout_ms: Option<u64>,
+
+    /// Connection timeout (ms) for the dedicated limiter Redis, defaulting to
+    /// `redis_connection_timeout_ms`; ignored unless `global_rate_limit_redis_url` is set.
+    pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
+
+    /// Redis clusters the per-(token, distinct_id) limiter shards its keys across: `1` uses
+    /// `global_rate_limit_redis_url` only, `2` adds the shard 1 URLs. The AI byte limiter always uses the first.
+    #[envconfig(default = "1")]
+    pub global_rate_limit_redis_shards: usize,
+
+    /// Writer URL of the second limiter cluster. Capture connects to it only when `global_rate_limit_redis_shards` is 2.
+    pub global_rate_limit_redis_shard_1_url: Option<String>,
+
+    /// Replica URL of the second limiter cluster, used like `global_rate_limit_redis_reader_url`.
+    pub global_rate_limit_redis_shard_1_reader_url: Option<String>,
+
+    /// Redis key holding the dynamic custom per-key rate-limit thresholds
+    /// (JSON object of `{key: threshold}`), written by Django. When set, the
+    /// per-(token, distinct_id) limiter refreshes its custom thresholds from
+    /// this key on a timer, overriding the static CSV overrides. Sourced from
+    /// the same Redis as event restrictions (`event_restrictions_redis_url`).
+    /// When unset, the limiter uses only the static CSV overrides.
+    pub global_rate_limit_custom_threshold_key: Option<String>,
+
+    /// How often to refresh the dynamic custom thresholds from Redis (seconds).
+    #[envconfig(default = "60")]
+    pub global_rate_limit_custom_threshold_refresh_secs: u64,
+
+    // Event restrictions configuration (reads from Redis, synced by Django)
+    #[envconfig(default = "false")]
+    pub event_restrictions_enabled: bool,
+
+    /// Redis URL for event restrictions (separate from main redis_url)
+    pub event_restrictions_redis_url: Option<String>,
+
+    #[envconfig(default = "30")]
+    pub event_restrictions_refresh_interval_secs: u64,
+
+    #[envconfig(default = "300")]
+    pub event_restrictions_fail_open_after_secs: u64,
+
+    pub otel_url: Option<String>,
+
+    #[envconfig(default = "false")]
+    pub overflow_enabled: bool,
+
+    /// Builds the AI lane's overflow limiter when `overflow_enabled` is also
+    /// set. Restriction overflow does not need it.
+    #[envconfig(default = "false")]
+    pub ai_events_overflow_enabled: bool,
+
+    #[envconfig(default = "false")]
+    pub overflow_preserve_partition_locality: bool,
+
+    #[envconfig(default = "100")]
+    pub overflow_per_second_limit: NonZeroU32,
+
+    #[envconfig(default = "1000")]
+    pub overflow_burst_limit: NonZeroU32,
+
+    pub ingestion_force_overflow_by_token_distinct_id: Option<String>, // Comma-delimited keys
+
+    pub drop_events_by_token_distinct_id: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
+
+    #[envconfig(default = "false")]
+    pub enable_historical_rerouting: bool,
+
+    #[envconfig(default = "1")]
+    pub historical_rerouting_threshold_days: i64,
+
+    #[envconfig(nested = true)]
+    pub outputs: OutputsConfig,
+
+    /// Application-level compression of session replay payloads, independent of
+    /// broker-level compression. Consumers detect and decompress it.
+    #[envconfig(from = "KAFKA_REPLAY_ENVELOPE_COMPRESSION", default = "none")]
+    pub replay_envelope_compression: EnvelopeCompression,
+
+    /// Refuse to boot when a registered output has an empty topic name (see
+    /// `OutputTable::check_complete`). Off by default so that a deployment which
+    /// blanks a topic it never produces to still boots.
+    #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
+    pub outputs_completeness_check_enabled: bool,
+
+    #[envconfig(default = "1.0")]
+    pub otel_sampling_rate: f64,
+
+    #[envconfig(default = "capture")]
+    pub otel_service_name: String,
+
+    /// Install the Prometheus recorder and the limiters' metric tasks.
+    #[envconfig(default = "true")]
+    pub export_prometheus: bool,
+    pub redis_key_prefix: Option<String>,
+
+    #[envconfig(default = "events")]
+    pub capture_mode: CaptureMode,
+
+    pub concurrency_limit: Option<usize>,
+
+    #[envconfig(default = "false")]
+    pub s3_fallback_enabled: bool,
+    pub s3_fallback_bucket: Option<String>,
+    pub s3_fallback_endpoint: Option<String>,
+
+    #[envconfig(default = "")]
+    pub s3_fallback_prefix: String,
+
+    #[envconfig(default = "false")]
+    pub is_mirror_deploy: bool,
+
+    #[envconfig(default = "info")]
+    pub log_level: Level,
+
+    // deploy var [0.0..100.0] to sample behavior of interest for verbose logging
+    #[envconfig(default = "0.0")]
+    pub verbose_sample_percent: f32,
+
+    // AI endpoint size limits
+    #[envconfig(default = "26214400")] // 25MB in bytes
+    pub ai_max_sum_of_parts_bytes: usize,
+
+    /// Largest single AI-lane event this deployment accepts. Measured on the
+    /// serialized event body, except on v1, which measures the properties blob
+    /// — see [`crate::v0_request::exceeds_max_ai_event_bytes`]. `0` disables
+    /// the ceiling.
+    ///
+    /// Set it below what the deployment's broker accepts, leaving room for the
+    /// `CapturedEvent` envelope and the JSON-escaping of `data`:
+    /// `KAFKA_INGESTION_PRODUCER_MESSAGE_MAX_BYTES` bounds the produced message, not the
+    /// event inside it. capture-analytics needs a smaller value than capture-ai
+    /// because its AI topic is on MSK.
+    ///
+    /// What an over-ceiling event gets back differs by path, because each one
+    /// keeps its own convention:
+    ///
+    /// * `/i/v0/ai/batch` and the diverted legacy path — 413, whole request
+    ///   refused, like every other oversize check there.
+    /// * `/i/v1/analytics/events` — the one event is dropped and reported as
+    ///   `ai_event_too_big` in the 200 body; the rest of the batch publishes.
+    /// * `/i/v0/ai` (multipart) — 413, the endpoint's pre-existing behavior.
+    /// * `/i/v0/ai/otel` — the span is shed and the export still succeeds. A
+    ///   collector retries a rejected export, so refusing would stall every
+    ///   span behind one that can never fit. That loss is invisible in the
+    ///   response, so it raises a `MessageSizeTooLarge` ingestion warning.
+    ///
+    /// The legacy, v1, and OTEL paths count the loss under `ai_event_too_big`,
+    /// on `capture_events_dropped_total` or `capture_v1_events_dropped`. The
+    /// legacy path charges the whole batch, because the refusal loses every
+    /// event in it, not just the offender. The multipart handler counts no
+    /// drop at all: like every other error it raises, the refusal shows up
+    /// only on `capture_error_by_stage_and_type`.
+    /// Keep this under the deployment's `KAFKA_INGESTION_PRODUCER_MESSAGE_MAX_BYTES`.
+    /// Above it the ceiling stops being a guard: capture reads the body, builds
+    /// the event, and the producer refuses it anyway. A deployment that has not
+    /// raised its producer cap wants a lower value than this default; the boot
+    /// warning says so when the two are out of order.
+    ///
+    /// Must equal `AI_MAX_EVENT_BYTES_DEFAULT`, or `tests/ai_event_limits_parity.rs` fails.
+    #[envconfig(default = "8388608")] // 8MiB
+    pub ai_max_event_bytes: u64,
+
+    // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
+    // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
+    // exempted from the llm_events quota limiter. Unset disables verification
+    // (all $ai_gateway* props are stripped as untrusted).
+    pub ai_gateway_signing_secret: Option<String>,
+
+    // HTTP/1 header read timeout in milliseconds - closes connections that don't
+    // send complete headers within this duration (slow loris protection).
+    // Set env var to enable; unset to disable.
+    pub http1_header_read_timeout_ms: Option<u64>,
+
+    // Body chunk read timeout in milliseconds. If a client stops sending data
+    // for this duration mid-upload, the request is aborted with 408 to avoid
+    // pointless gateway retries of stalled mobile requests that can't succeed.
+    // Set env var to enable; unset to disable (existing behavior).
+    pub body_chunk_read_timeout_ms: Option<u64>,
+
+    // Initial buffer size for body reads in KB. The buffer starts at this size
+    // (or the request limit, whichever is smaller) and grows as needed.
+    #[envconfig(default = "256")]
+    pub body_read_chunk_size_kb: usize,
+
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
+    #[envconfig(default = "10485760")]
+    pub capture_v1_max_compressed_body_bytes: usize,
+
+    /// Maximum decompressed body size the v1 endpoint will accept (bytes).
+    #[envconfig(default = "52428800")]
+    pub capture_v1_max_decompressed_body_bytes: usize,
+
+    /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
+    #[envconfig(default = "8")]
+    pub capture_v1_scatter_gather_min_batch: usize,
+
+    /// Turn off only where every consumer of the capture topics applies the outbound `options`.
+    #[envconfig(default = "true")]
+    pub capture_v1_legacy_property_splice: bool,
+
+    // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
+    // Warnings go out as `$$client_ingestion_warning` events through a
+    // dedicated `common_kafka::config::KafkaConfig` with fire-and-forget
+    // acks/retries and a small queue, so a slow warnings topic cannot contend
+    // with the main event producer. Defaults off (fail open).
+    #[envconfig(default = "false")]
+    pub capture_ingestion_warnings_enabled: bool,
+
+    // The producer's fire-and-forget policy (acks, retries, linger, queue
+    // depth in messages, message timeout) is fixed in code — see the
+    // `WARNINGS_KAFKA_*` constants in `setup.rs` — not env-configurable, since
+    // those define the "a warning is worth less than the cost of retrying it"
+    // contract rather than operator knobs. Only the two capacity/safety limits
+    // below stay tunable.
+    #[envconfig(default = "16")]
+    pub capture_ingestion_warnings_kafka_queue_mib: u32,
+
+    // rdkafka "message.max.bytes": a hard per-message ceiling, independent of
+    // the main producer's, so an oversized warning envelope (e.g. built from
+    // attacker-controlled input) cannot inflate past this regardless of what
+    // the main event producer allows.
+    #[envconfig(default = "1048576")]
+    pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
+
+    // The warnings emitter's own destination. It serves every pipeline that
+    // emits (v1 and legacy analytics, both AI endpoints, and replay) but reads
+    // only these three vars, never the ingestion producer's settings or
+    // `CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC`. charts sets all three per env,
+    // pointed at the MSK cluster the clientwarnings consumer reads from.
+    //
+    // Defaults are inert on purpose: empty hosts or topic makes
+    // `create_ingestion_warning_emitter` report the emitter disabled and return
+    // (fail open) rather than produce to a wrong or empty destination. TLS is a
+    // separate knob from hosts because the warnings cluster's TLS requirement
+    // need not match the main one — capture-ai is the live example, with a
+    // PLAINTEXT WarpStream event sink and a TLS MSK warnings destination.
+    #[envconfig(default = "")]
+    pub capture_ingestion_warnings_kafka_topic: String,
+    #[envconfig(default = "")]
+    pub capture_ingestion_warnings_kafka_hosts: String,
+    #[envconfig(default = "false")]
+    pub capture_ingestion_warnings_kafka_tls: bool,
+
+    /// Per-token AI bytes per second, enforced fleet-wide as this times the AI byte window;
+    /// `0` (and import mode) disables it. A token may spend a whole window's budget at once.
+    #[envconfig(default = "0")]
+    pub ai_byte_limit_per_second: u64,
+
+    /// CSV list of `token=bytesPerSecond` pairs setting specific tokens' budgets.
+    /// Same unit as `ai_byte_limit_per_second`.
+    pub ai_byte_limit_overrides_csv: Option<String>,
+
+    /// When true, the AI byte limiter evaluates and reports but does not drop.
+    /// Separate from `global_rate_limit_dry_run` so this rollout and the
+    /// token+distinct_id limiter's can move independently.
+    #[envconfig(default = "false")]
+    pub ai_byte_limit_dry_run: bool,
+
+    /// Window the AI byte budget is enforced over. Falls back to
+    /// `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS` when unset.
+    ///
+    /// The AI byte budget is shared across capture deployments through one
+    /// Redis counter, and the epoch key derives from this window, so every
+    /// deployment must set the same value or the shared budget splits. Kept
+    /// separate so the token+distinct_id window can be tuned per deployment.
+    pub ai_byte_limit_window_interval_secs: Option<u64>,
+
+    /// Max local cache entries for the AI byte limiter. Keyed per token, so this
+    /// is bounded by the number of projects sending AI traffic — far smaller
+    /// than the per-(token, distinct_id) limiter's key space.
+    #[envconfig(default = "300000")]
+    pub ai_byte_limit_local_cache_max_entries: u64,
+}
+
+/// Mirrors Node.js ingestion's `INGESTION_OUTPUT_<OUTPUT>_{TOPIC,PRODUCER}`.
+///
+/// Topic defaults are the local dev and hobby topics. Those stacks pull
+/// `capture:master` with compose files that can predate these variables.
+#[derive(Envconfig, Clone)]
+pub struct OutputsConfig {
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+        default = "events_plugin_ingestion"
+    )]
+    pub analytics_main_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_ANALYTICS_MAIN_PRODUCER", default = "INGESTION")]
+    pub analytics_main_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_TOPIC",
+        default = "events_plugin_ingestion_overflow"
+    )]
+    pub analytics_overflow_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub analytics_overflow_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_TOPIC",
+        default = "events_plugin_ingestion_historical"
+    )]
+    pub analytics_historical_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub analytics_historical_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_TOPIC",
+        default = "session_recording_snapshot_item_events"
+    )]
+    pub session_replay_main_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub session_replay_main_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_OVERFLOW_TOPIC",
+        default = "session_recording_snapshot_item_overflow"
+    )]
+    pub session_replay_overflow_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_SESSION_REPLAY_OVERFLOW_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub session_replay_overflow_producer: ProducerName,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_TOPIC", default = "heatmaps_ingestion")]
+    pub heatmaps_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_HEATMAPS_PRODUCER", default = "INGESTION")]
+    pub heatmaps_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC",
+        default = "ingestion-clientwarnings-main-1"
+    )]
+    pub client_warnings_topic: String,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_CLIENT_WARNINGS_PRODUCER",
+        default = "INGESTION"
+    )]
+    pub client_warnings_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC",
+        default = "ingestion-errortracking-main"
+    )]
+    pub error_tracking_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_PRODUCER", default = "INGESTION")]
+    pub error_tracking_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_DLQ_TOPIC",
+        default = "events_plugin_ingestion_dlq"
+    )]
+    pub dlq_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_DLQ_PRODUCER", default = "INGESTION")]
+    pub dlq_producer: ProducerName,
+    /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiMain`) pipelines
+    /// divert AI events here instead of the main topic on every deployment,
+    /// capture-ai included.
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_AI_MAIN_TOPIC",
+        default = "events_plugin_ingestion_ai"
+    )]
+    pub ai_main_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_MAIN_PRODUCER", default = "INGESTION")]
+    pub ai_main_producer: ProducerName,
+    #[envconfig(
+        from = "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC",
+        default = "events_plugin_ingestion_ai_overflow"
+    )]
+    pub ai_overflow_topic: String,
+    #[envconfig(from = "CAPTURE_OUTPUT_AI_OVERFLOW_PRODUCER", default = "INGESTION")]
+    pub ai_overflow_producer: ProducerName,
+    /// Carries event-restriction redirects to an admin-supplied topic.
+    #[envconfig(from = "CAPTURE_OUTPUT_CUSTOM_PRODUCER", default = "INGESTION")]
+    pub custom_producer: ProducerName,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CaptureMode, Config};
+    use crate::producers::ProducerName;
+    use crate::v0_request::DataType;
+    use event_restrictions::{
+        EventContext, MockRestrictionsRepository, Pipeline, RestrictionEntry, RestrictionManager,
+        RestrictionType,
+    };
+    use std::collections::HashMap;
+    use std::str::FromStr;
+    use strum::IntoEnumIterator;
+
+    fn restriction_entry(token: &str, pipeline: Pipeline) -> RestrictionEntry {
+        RestrictionEntry {
+            version: Some(2),
+            token: token.to_string(),
+            pipelines: vec![pipeline.as_str().to_string()],
+            distinct_ids: vec![],
+            session_ids: vec![],
+            event_names: vec![],
+            event_uuids: vec![],
+            args: None,
+            index: None,
+        }
+    }
+
+    #[test]
+    fn restriction_pipelines_cover_each_deployment() {
+        assert_eq!(
+            CaptureMode::Events.restriction_pipelines(),
+            vec![
+                Pipeline::Analytics,
+                Pipeline::ErrorTracking,
+                Pipeline::Ai,
+                Pipeline::Heatmaps,
+                Pipeline::ClientWarnings,
+            ]
+        );
+        // Import is an events deployment restricted to backfills, so it must
+        // serve the identical pipeline set -- a backfill can carry $exception
+        // and AI events too.
+        assert_eq!(
+            CaptureMode::Import.restriction_pipelines(),
+            CaptureMode::Events.restriction_pipelines()
+        );
+        assert_eq!(
+            CaptureMode::Recordings.restriction_pipelines(),
+            vec![Pipeline::SessionRecordings]
+        );
+        // Ai serves only the AI lane: its routes are AI-only and its batch path
+        // rejects anything off the AI lane, so every event it processes
+        // resolves to Pipeline::Ai. Widening this would load slices nothing
+        // looks up; narrowing it below is only safe while both of those hold.
+        assert_eq!(CaptureMode::Ai.restriction_pipelines(), vec![Pipeline::Ai]);
+    }
+
+    #[tokio::test]
+    async fn events_deployment_loads_restrictions_for_every_classified_pipeline() {
+        for data_type in DataType::iter() {
+            let Some(pipeline) = data_type.pipeline() else {
+                continue;
+            };
+            let repo = MockRestrictionsRepository::new();
+            repo.set_entries(
+                RestrictionType::DropEvent,
+                Some(vec![restriction_entry("token", pipeline)]),
+            )
+            .await;
+
+            let manager = RestrictionManager::from_repository(
+                &repo,
+                &CaptureMode::Events.restriction_pipelines(),
+            )
+            .await
+            .unwrap();
+
+            let restrictions =
+                manager.get_restrictions("token", &EventContext::default(), pipeline);
+            assert!(
+                restrictions.contains(RestrictionType::DropEvent),
+                "{data_type:?}"
+            );
+        }
+    }
+
+    fn required_config_env() -> HashMap<String, String> {
+        [("REDIS_URL", "redis://localhost:6379/")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn output_topic_defaults_match_the_local_stack() {
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert_eq!(config.outputs.ai_main_topic, "events_plugin_ingestion_ai");
+        assert_eq!(
+            config.outputs.ai_overflow_topic,
+            "events_plugin_ingestion_ai_overflow"
+        );
+        assert!(!config.ai_events_overflow_enabled);
+        assert_eq!(
+            config.outputs.session_replay_main_topic,
+            "session_recording_snapshot_item_events"
+        );
+        assert_eq!(
+            config.outputs.error_tracking_topic,
+            "ingestion-errortracking-main"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case("CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC", |c: &Config| c.outputs.analytics_main_topic.clone())]
+    #[case("CAPTURE_OUTPUT_ANALYTICS_OVERFLOW_TOPIC", |c: &Config| c.outputs.analytics_overflow_topic.clone())]
+    #[case("CAPTURE_OUTPUT_ANALYTICS_HISTORICAL_TOPIC", |c: &Config| c.outputs.analytics_historical_topic.clone())]
+    #[case("CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_TOPIC", |c: &Config| c.outputs.session_replay_main_topic.clone())]
+    #[case("CAPTURE_OUTPUT_SESSION_REPLAY_OVERFLOW_TOPIC", |c: &Config| c.outputs.session_replay_overflow_topic.clone())]
+    #[case("CAPTURE_OUTPUT_HEATMAPS_TOPIC", |c: &Config| c.outputs.heatmaps_topic.clone())]
+    #[case("CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC", |c: &Config| c.outputs.client_warnings_topic.clone())]
+    #[case("CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC", |c: &Config| c.outputs.error_tracking_topic.clone())]
+    #[case("CAPTURE_OUTPUT_DLQ_TOPIC", |c: &Config| c.outputs.dlq_topic.clone())]
+    #[case("CAPTURE_OUTPUT_AI_MAIN_TOPIC", |c: &Config| c.outputs.ai_main_topic.clone())]
+    #[case("CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC", |c: &Config| c.outputs.ai_overflow_topic.clone())]
+    fn topic_env_var_binds_to_its_field(
+        #[case] env_var: &str,
+        #[case] field: fn(&Config) -> String,
+    ) {
+        let mut env = required_config_env();
+        env.insert(env_var.into(), "configured_topic".into());
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        assert_eq!(field(&config), "configured_topic");
+    }
+
+    #[rstest::rstest]
+    #[case("KAFKA_TOPIC")]
+    #[case("KAFKA_OVERFLOW_TOPIC")]
+    #[case("KAFKA_HISTORICAL_TOPIC")]
+    #[case("KAFKA_CLIENT_INGESTION_WARNING_TOPIC")]
+    #[case("KAFKA_ERROR_TRACKING_TOPIC")]
+    #[case("KAFKA_HEATMAPS_TOPIC")]
+    #[case("KAFKA_REPLAY_OVERFLOW_TOPIC")]
+    #[case("KAFKA_DLQ_TOPIC")]
+    #[case("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC")]
+    #[case("CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC")]
+    fn legacy_topic_env_var_is_not_read(#[case] env_var: &str) {
+        let mut env = required_config_env();
+        env.insert(env_var.into(), "legacy_topic".into());
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        let outputs = &config.outputs;
+        let topics = [
+            outputs.analytics_main_topic.as_str(),
+            outputs.analytics_overflow_topic.as_str(),
+            outputs.analytics_historical_topic.as_str(),
+            outputs.session_replay_main_topic.as_str(),
+            outputs.session_replay_overflow_topic.as_str(),
+            outputs.heatmaps_topic.as_str(),
+            outputs.client_warnings_topic.as_str(),
+            outputs.error_tracking_topic.as_str(),
+            outputs.dlq_topic.as_str(),
+            outputs.ai_main_topic.as_str(),
+            outputs.ai_overflow_topic.as_str(),
+        ];
+        assert!(!topics.contains(&"legacy_topic"), "{env_var} is still read");
+    }
+
+    #[test]
+    fn output_producers_default_to_ingestion_and_parse_their_env_var() {
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert_eq!(
+            config.outputs.analytics_main_producer,
+            ProducerName::Ingestion
+        );
+        assert_eq!(config.outputs.custom_producer, ProducerName::Ingestion);
+
+        let mut env = required_config_env();
+        env.insert(
+            "CAPTURE_OUTPUT_HEATMAPS_PRODUCER".into(),
+            "WARPSTREAM".into(),
+        );
+        let bad: Result<Config, _> = envconfig::Envconfig::init_from_hashmap(&env);
+        assert!(bad.is_err(), "an undeclared producer must fail startup");
+    }
+
+    #[test]
+    fn moved_output_settings_keep_their_env_vars() {
+        let mut env = required_config_env();
+        env.insert("KAFKA_REPLAY_ENVELOPE_COMPRESSION".into(), "lz4".into());
+        env.insert(
+            "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED".into(),
+            "true".into(),
+        );
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        assert_eq!(
+            config.replay_envelope_compression,
+            super::EnvelopeCompression::Lz4
+        );
+        assert!(config.outputs_completeness_check_enabled);
+    }
+
+    #[test]
+    fn capture_mode_from_str_and_tag_roundtrip() {
+        // Locks the CAPTURE_MODE env contract, including the new `import` mode
+        // and case/whitespace handling, plus the tag used as a metric label.
+        let ok = [
+            ("events", CaptureMode::Events, "events"),
+            ("Recordings", CaptureMode::Recordings, "recordings"),
+            (" ai ", CaptureMode::Ai, "ai"),
+            ("import", CaptureMode::Import, "import"),
+            ("IMPORT", CaptureMode::Import, "import"),
+        ];
+        for (input, expected, tag) in ok {
+            let parsed = CaptureMode::from_str(input).unwrap();
+            assert_eq!(parsed, expected, "input={input}");
+            assert_eq!(parsed.as_tag(), tag, "input={input}");
+        }
+
+        for bad in ["", "imports", "backfill", "historical"] {
+            assert!(
+                CaptureMode::from_str(bad).is_err(),
+                "expected err for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn capture_mode_import_policy_differs_from_events() {
+        // The whole point of Import mode: it skips the global rate limiter and
+        // drops non-historical batches, while every other mode does neither.
+        assert!(!CaptureMode::Import.applies_global_rate_limit());
+        assert!(CaptureMode::Import.requires_historical_migration());
+
+        for mode in [
+            CaptureMode::Events,
+            CaptureMode::Recordings,
+            CaptureMode::Ai,
+        ] {
+            assert!(
+                mode.applies_global_rate_limit(),
+                "{mode:?} should apply GRL"
+            );
+            assert!(
+                !mode.requires_historical_migration(),
+                "{mode:?} should not require historical_migration"
+            );
+        }
+    }
+}

@@ -1,5 +1,6 @@
+import { template } from '@posthog/hog-engine/cdp/templates/_destinations/push/push.template'
+
 import { TemplateTester } from '../../test/test-helpers'
-import { template } from './push.template'
 
 describe('push template', () => {
     // The empty mapping_templates only clears old mappings, and the tester refuses any mapping list.

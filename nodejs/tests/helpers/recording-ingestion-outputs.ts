@@ -1,7 +1,7 @@
-import { IngestionOutput } from '~/common/outputs/ingestion-output'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { IngestionOutputMessage } from '~/common/outputs/types'
-import { parseJSON } from '~/common/utils/json-parse'
+import { IngestionOutput } from '@posthog/node-common/outputs/ingestion-output'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { IngestionOutputMessage } from '@posthog/node-common/outputs/types'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 export interface RecordingIngestionOutputs<O extends string> {
     outputs: IngestionOutputs<O>

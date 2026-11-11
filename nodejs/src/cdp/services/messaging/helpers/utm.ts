@@ -1,12 +1,16 @@
 import { getDomain } from 'tldts'
 
-import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
-import { LiquidRenderer } from '~/cdp/utils/liquid'
+import { HogFunctionInvocationGlobalsWithInputs } from '@posthog/hog-engine/cdp/types'
+import { LiquidRenderer } from '@posthog/hog-engine/cdp/utils/liquid'
 
-import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
-import { escapeHtml } from './escape-html'
-import { WORKFLOW_RUN_PARAM, isNeverClickTracked, removeWorkflowRunTag } from './link-tags'
-import { addUtmTagsToEmailLegacy } from './utm-legacy'
+import { decodeHtmlEntitiesInHref } from '~/cdp/services/messaging/email-tracking.service'
+import { escapeHtml } from '~/cdp/services/messaging/helpers/escape-html'
+import {
+    WORKFLOW_RUN_PARAM,
+    isNeverClickTracked,
+    removeWorkflowRunTag,
+} from '~/cdp/services/messaging/helpers/link-tags'
+import { addUtmTagsToEmailLegacy } from '~/cdp/services/messaging/helpers/utm-legacy'
 
 export type UtmTags = {
     utm_source: string

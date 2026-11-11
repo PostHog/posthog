@@ -1,15 +1,16 @@
 use std::io::BufRead;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 
-use affected_services::affected::compute_affected;
+use affected_services::affected::compute_affected_with_rules;
 use affected_services::dump::dump_graph;
 use affected_services::graph::{
     build_old_package_graph, build_package_graph, find_repo_root, get_changed_files,
 };
 use affected_services::images::parse_images_yaml;
+use affected_services::RULES_TOML;
 
 #[derive(Parser)]
 #[command(about = "Compute affected Rust services from changed files")]
@@ -31,6 +32,10 @@ struct Cli {
 
     #[arg(long)]
     images_file: Option<std::path::PathBuf>,
+
+    /// Path rules to use instead of the compiled-in `determinator-rules.toml`.
+    #[arg(long)]
+    rules: Option<std::path::PathBuf>,
 
     #[arg(long, value_enum, default_value = "json")]
     output: OutputFormat,
@@ -86,7 +91,18 @@ fn main() -> Result<()> {
         (files, old)
     };
 
-    let result = compute_affected(&changed_files, old_graph.as_ref(), &new_graph, &images)?;
+    let rules_toml = match &cli.rules {
+        Some(path) => std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read rules from {}", path.display()))?,
+        None => RULES_TOML.to_string(),
+    };
+    let result = compute_affected_with_rules(
+        &changed_files,
+        old_graph.as_ref(),
+        &new_graph,
+        &images,
+        &rules_toml,
+    )?;
 
     match cli.output {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&result)?),

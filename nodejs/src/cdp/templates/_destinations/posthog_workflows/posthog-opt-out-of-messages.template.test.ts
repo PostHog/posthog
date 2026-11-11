@@ -1,10 +1,11 @@
 import jwt from 'jsonwebtoken'
 
-import { defaultConfig } from '~/common/config/config'
-import { parseJSON } from '~/common/utils/json-parse'
-import * as requestModule from '~/common/utils/request'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import * as requestModule from '@posthog/node-common/utils/request'
 
-import { PosthogJwtAudience } from '../../../utils/jwt-utils'
+import { defaultConfig } from '~/common/config/config'
+
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './posthog-opt-out-of-messages.template'
 

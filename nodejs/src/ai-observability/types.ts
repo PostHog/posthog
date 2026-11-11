@@ -1,4 +1,5 @@
-import { HogBytecode } from '../cdp/types'
+import { HogBytecode } from '@posthog/hog-engine/cdp/types'
+
 import { PropertyFilter } from '../types'
 
 export type EvaluationStatus = 'active' | 'paused' | 'error'

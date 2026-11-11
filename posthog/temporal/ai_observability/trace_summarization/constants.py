@@ -46,7 +46,7 @@ MAX_TRACE_PROPERTIES_SIZE = 2_000_000
 # AI event types used in trace queries (sampling and fetching).
 # Mirrors `AI_EVENT_NAMES` in posthog/hogql_queries/ai/ai_table_resolver.py.
 # Node.js ingestion admits any `$ai_*` name by the prefix in
-# nodejs/src/ingestion/common/ai-event-types.ts, so it has no list to sync.
+# ingestion/node/packages/ingestion/src/ingestion/common/ai-event-types.ts, so it has no list to sync.
 # Kept as a tuple here so HogQL placeholders can build a deterministic
 # `event IN (...)` clause from a single source.
 AI_EVENT_TYPES = (

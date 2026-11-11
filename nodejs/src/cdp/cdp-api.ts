@@ -2,57 +2,13 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 import { z } from 'zod'
 
-import { ModifiedRequest } from '~/common/api/router'
-import type { RedisV2 } from '~/common/redis/redis-v2'
-import { logger } from '~/common/utils/logger'
-import { UUID, UUIDT, delay } from '~/common/utils/utils'
-import { LogRecord } from '~/logs/log-record-avro'
 import {
-    DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS,
-    buildLogRecordGlobals,
-    executeLogTransformation,
-    resolveLogTransformationInputs,
-} from '~/logs/transformations/hog-log-exec'
-import { PluginEvent } from '~/plugin-scaffold'
-
-import {
-    HealthCheckResult,
-    HealthCheckResultError,
-    HealthCheckResultOk,
-    PluginServerService,
-    PluginsServerConfig,
-} from '../types'
-import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
-import './async-functions'
-import { createCdpCoreServices } from './cdp-services'
-import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
-import {
-    CdpSourceWebhooksConsumer,
-    HogFunctionWebhookResult,
-    SourceWebhookError,
-} from './consumers/cdp-source-webhooks.consumer'
-import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { RerunJobManager } from './rerun/rerun-job.manager'
-import { RerunRequest } from './rerun/rerun-job.types'
-import { HogFlow, HogFlowAction } from './schema/hogflow'
-import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
-import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
-import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
-import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
-import { HogInputsService } from './services/hog-inputs.service'
-import { counterBatchResolverParked } from './services/hogflows/batch-resolver-resume'
-import {
-    BatchResolverState,
-    HOGFLOW_BATCH_RESOLVE_QUEUE,
-    serializeResolverState,
-} from './services/hogflows/batch-resolver.types'
-import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
-import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
-import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
-import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
-import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
-import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
+    HogTransformerService,
+    createHogTransformerService,
+} from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
+import { HogFlow, HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
+import { MAX_ASYNC_STEPS } from '@posthog/hog-engine/cdp/services/hog-executor.service'
+import { HogInputsService } from '@posthog/hog-engine/cdp/services/hog-inputs.service'
 import {
     AcceptedSend,
     AcceptedSendRequestSchema,
@@ -65,42 +21,97 @@ import {
     isRecipientFormatIssue,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
-} from './services/hogflows/transactional-email'
-import { InvocationResultsService } from './services/invocation-results.service'
-import { JobQueue } from './services/job-queue/job-queue.interface'
-import { GroupsManagerService } from './services/managers/groups-manager.service'
-import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
-import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
-import { EmailStatusService } from './services/messaging/email-status.service'
-import { EmailSuppressionService } from './services/messaging/email-suppression.service'
-import { EmailTrackingService } from './services/messaging/email-tracking.service'
-import { EmailValidationService } from './services/messaging/email-validation.service'
-import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import {
-    HogWatcherService,
-    HogWatcherState,
-    sameWatcherState,
-    sameWatcherStates,
-} from './services/monitoring/hog-watcher.service'
-import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
-import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
-import { HOG_FUNCTION_TEMPLATES } from './templates'
-import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
+} from '@posthog/hog-engine/cdp/services/hogflows/transactional-email'
+import { HogFunctionManagerService } from '@posthog/hog-engine/cdp/services/managers/hog-function-manager.service'
+import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messaging/recipient-tokens.service'
+import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from '@posthog/hog-engine/cdp/types'
 import {
     convertToHogFunctionInvocationGlobals,
     isConvertibleClickHouseEvent,
     isNativeHogFunction,
     isSegmentPluginHogFunction,
     sanitizeLogMessage,
-} from './utils'
-import { recordRequestOrigins } from './utils/cdp-fetch'
-import { dualRead, dualWrite } from './utils/dual-store'
-import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
-import { buildHogFunctionInvocations } from './utils/invocation-utils'
-import { PosthogJwtAudience } from './utils/jwt-utils'
-import { ScopedServiceJwt } from './utils/scoped-service-jwt'
-import { parseWorkflowStepDispatchKey } from './utils/workflow-step-dispatch-key'
+} from '@posthog/hog-engine/cdp/utils'
+import { recordRequestOrigins } from '@posthog/hog-engine/cdp/utils/cdp-fetch'
+import { convertToHogFunctionFilterGlobal } from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
+import { buildHogFunctionInvocations } from '@posthog/hog-engine/cdp/utils/invocation-utils'
+import { PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+import { ModifiedRequest } from '@posthog/node-common/api/router'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import type { RedisV2 } from '@posthog/node-common/redis/redis-v2'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUID, UUIDT, delay } from '@posthog/node-common/utils/utils'
+
+import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '~/cdp/async-function-registry'
+import '~/cdp/async-functions'
+import { createCdpCoreServices } from '~/cdp/cdp-services'
+import { CdpConsumerBaseDeps } from '~/cdp/consumers/cdp-base.consumer'
+import {
+    CdpSourceWebhooksConsumer,
+    HogFunctionWebhookResult,
+    SourceWebhookError,
+} from '~/cdp/consumers/cdp-source-webhooks.consumer'
+import { RerunJobManager } from '~/cdp/rerun/rerun-job.manager'
+import { RerunRequest } from '~/cdp/rerun/rerun-job.types'
+import {
+    BatchExportHogFunctionService,
+    NotFoundError,
+    ParseError,
+} from '~/cdp/services/batch-export-hog-function.service'
+import type { CyclotronV2JobProducer } from '~/cdp/services/cyclotron-v2'
+import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '~/cdp/services/hog-executor-async.service'
+import { counterBatchResolverParked } from '~/cdp/services/hogflows/batch-resolver-resume'
+import {
+    BatchResolverState,
+    HOGFLOW_BATCH_RESOLVE_QUEUE,
+    serializeResolverState,
+} from '~/cdp/services/hogflows/batch-resolver.types'
+import { HogFlowExecutorService, createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
+import { HogFlowManagerService } from '~/cdp/services/hogflows/hogflow-manager.service'
+import { checkHogFlowQuotaLimits } from '~/cdp/services/hogflows/hogflow-quota-limiting'
+import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
+import { matchesWaitUntilCondition } from '~/cdp/services/hogflows/hogflow-utils'
+import { IdempotencyKeys } from '~/cdp/services/hogflows/idempotency-keys'
+import { WorkflowStepResumeSchema } from '~/cdp/services/hogflows/step-resume.service'
+import { InvocationResultsService } from '~/cdp/services/invocation-results.service'
+import { JobQueue } from '~/cdp/services/job-queue/job-queue.interface'
+import { GroupsManagerService } from '~/cdp/services/managers/groups-manager.service'
+import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
+import {
+    EMAIL_QUEUE_PRIORITY,
+    EmailQueuePriorityClass,
+    cdpEmailQueuedTotal,
+} from '~/cdp/services/messaging/email-priority'
+import { EmailStatusService } from '~/cdp/services/messaging/email-status.service'
+import { EmailSuppressionService } from '~/cdp/services/messaging/email-suppression.service'
+import { EmailTrackingService } from '~/cdp/services/messaging/email-tracking.service'
+import { EmailValidationService } from '~/cdp/services/messaging/email-validation.service'
+import {
+    HogWatcherService,
+    HogWatcherState,
+    sameWatcherState,
+    sameWatcherStates,
+} from '~/cdp/services/monitoring/hog-watcher.service'
+import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
+import { SegmentDestinationExecutorService } from '~/cdp/services/segment-destination-executor.service'
+import { HOG_FUNCTION_TEMPLATES } from '~/cdp/templates'
+import { dualRead, dualWrite } from '~/cdp/utils/dual-store'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
+import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
+import { LogRecord } from '~/logs/log-record-avro'
+import {
+    DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS,
+    buildLogRecordGlobals,
+    executeLogTransformation,
+    resolveLogTransformationInputs,
+} from '~/logs/transformations/hog-log-exec'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    PluginServerService,
+    PluginsServerConfig,
+} from '~/types'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([

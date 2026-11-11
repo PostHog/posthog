@@ -2271,6 +2271,7 @@ dependencies = [
  "common-redis",
  "common-types",
  "envconfig",
+ "event-restrictions",
  "flate2",
  "futures",
  "hex",
@@ -2321,7 +2322,6 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
  "bytes",
- "capture",
  "capture-logs",
  "chrono",
  "common-alloc",
@@ -2383,7 +2383,6 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.23.1",
  "bytes",
- "capture",
  "chrono",
  "clickhouse",
  "common-alloc",
@@ -2391,6 +2390,7 @@ dependencies = [
  "common-continuous-profiling",
  "common-kafka",
  "common-metrics",
+ "common-types",
  "envconfig",
  "flate2",
  "health",
@@ -2994,13 +2994,16 @@ dependencies = [
 name = "common-grpc"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "http 1.5.0",
  "metrics",
  "metrics-util",
  "pin-project",
  "tokio",
+ "tokio-util",
  "tonic 0.12.3",
  "tower 0.4.13",
+ "tracing",
 ]
 
 [[package]]
@@ -3619,6 +3622,7 @@ dependencies = [
  "common-continuous-profiling",
  "common-database",
  "common-dns",
+ "common-grpc",
  "common-kafka",
  "common-metrics",
  "common-posthog",
@@ -3636,7 +3640,6 @@ dependencies = [
  "metrics-util",
  "mockall",
  "moka",
- "personhog-common",
  "posthog-rs",
  "posthog-symbol-data",
  "proguard",
@@ -4665,6 +4668,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "event-restrictions"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "common-redis",
+ "futures",
+ "lifecycle",
+ "metrics",
+ "rand 0.8.8",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4907,7 +4928,6 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
- "personhog-common",
  "rand 0.8.8",
  "serde",
  "serde_json",
@@ -9194,6 +9214,8 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "chrono",
+ "common-database",
+ "common-grpc",
  "flate2",
  "futures",
  "http 1.5.0",
@@ -9208,7 +9230,6 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
- "tokio-util",
  "tonic 0.12.3",
  "tower 0.4.13",
  "tracing",
@@ -11224,7 +11245,6 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.23.1",
  "brotlic",
- "capture",
  "chrono",
  "common-alloc",
  "common-database",
@@ -11232,6 +11252,7 @@ dependencies = [
  "common-metrics",
  "common-redis",
  "envconfig",
+ "event-restrictions",
  "futures",
  "hegeltest",
  "lifecycle",

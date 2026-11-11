@@ -1,26 +1,31 @@
-import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PluginEvent } from '~/plugin-scaffold'
+import type { HogTransformerServiceConfig } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
+import {
+    HogTransformerService,
+    createHogTransformerService,
+} from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
+import { resetHogvmNodeModuleCacheForTests } from '@posthog/hog-engine/cdp/hog-transformations/rust-vm'
+import { posthogFilterOutPlugin } from '@posthog/hog-engine/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { posthogPluginGeoip } from '@posthog/hog-engine/cdp/legacy-plugins/_transformations/posthog-plugin-geoip/template'
+import { propertyFilterPlugin } from '@posthog/hog-engine/cdp/legacy-plugins/_transformations/property-filter-plugin/template'
+import { HogFunctionMonitoringService } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
+import { template as geoipTemplate } from '@posthog/hog-engine/cdp/templates/_transformations/geoip/geoip.template'
+import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
+import { HogFunctionTemplate, HogFunctionType } from '@posthog/hog-engine/cdp/types'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { createTestMonitoringOutputs } from '@posthog/node-common/testing/monitoring-outputs'
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
-import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
-import { compileHog } from '../../../src/cdp/templates/compiler'
-import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
-import { forSnapshot } from '../../../tests/helpers/snapshots'
-import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
-import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
-import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
-import { HogFunctionTemplate, HogFunctionType } from '../types'
-import type { HogTransformerServiceConfig } from './hog-transformer.service'
-import { HogTransformerService, createHogTransformerService } from './hog-transformer.service'
-import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
 
 jest.mock('@posthog/hogvm-node', () => ({
     init: jest.fn(),
@@ -920,7 +925,10 @@ describe('HogTransformer', () => {
                 new Error('Could not execute bytecode for input field: person_id')
             )
 
-            const queueAppMetricSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueAppMetric')
+            const queueAppMetricSpy = jest.spyOn(
+                hogTransformer['hogFunctionMonitoringService'] as HogFunctionMonitoringService,
+                'queueAppMetric'
+            )
 
             const event = createPluginEvent({ event: 'test', properties: {} }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
@@ -1621,7 +1629,10 @@ describe('HogTransformer', () => {
 
         const transform = async (hogFunctions: HogFunctionType[], properties: Record<string, any>) => {
             const executeSpy = jest.spyOn(hogTransformer['hogExecutor'], 'execute')
-            const queueAppMetricSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueAppMetric')
+            const queueAppMetricSpy = jest.spyOn(
+                hogTransformer['hogFunctionMonitoringService'] as HogFunctionMonitoringService,
+                'queueAppMetric'
+            )
             const result = await hogTransformer.transformEvent(createPluginEvent({ properties }, teamId), hogFunctions)
             hogTransformer['hogFunctionMonitoringService'].queueInvocationResults(result.invocationResults)
             const outcome = {

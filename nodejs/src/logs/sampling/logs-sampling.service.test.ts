@@ -1,6 +1,7 @@
 import avro from 'avsc'
 
-import type { RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
+import type { RedisClientPipeline, RedisV2 } from '@posthog/node-common/redis/redis-v2'
+
 import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/logs/log-record-avro'
 import { type DropStats, runPipelineStages } from '~/logs/pipeline/log-processing-pipeline'
 

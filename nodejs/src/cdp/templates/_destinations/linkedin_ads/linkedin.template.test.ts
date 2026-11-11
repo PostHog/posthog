@@ -1,6 +1,6 @@
 import { DateTime, Settings } from 'luxon'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './linkedin.template'

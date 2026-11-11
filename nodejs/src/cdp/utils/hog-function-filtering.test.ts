@@ -1,12 +1,13 @@
 import { register } from 'prom-client'
 
-import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
-import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import {
     convertClickhouseRawEventToFilterGlobals,
     convertToHogFunctionFilterGlobal,
     filterFunctionInstrumented,
-} from './hog-function-filtering'
+} from '@posthog/hog-engine/cdp/utils/hog-function-filtering'
+
+import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
 
 describe('hog-function-filtering', () => {
     describe('convertToHogFunctionFilterGlobal', () => {

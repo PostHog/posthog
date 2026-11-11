@@ -1,8 +1,8 @@
 import { createHmac } from 'node:crypto'
 
-import { CyclotronInvocationQueueParametersFetchStandardWebhooksType } from '~/cdp/schema/cyclotron'
+import { CyclotronInvocationQueueParametersFetchStandardWebhooksType } from '@posthog/hog-engine/cdp/schema/cyclotron'
+import { HogFunctionType } from '@posthog/hog-engine/cdp/types'
 
-import { HogFunctionType } from '../types'
 import { resolveHogFunctionInputValue } from './hog-function-inputs'
 
 // Headers that are signing artifacts. They must always be rebuilt, never

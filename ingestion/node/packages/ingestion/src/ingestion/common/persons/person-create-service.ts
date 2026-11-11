@@ -1,0 +1,132 @@
+import { DateTime } from 'luxon'
+
+import { emitIngestionWarning } from '@posthog/ingestion-common/ingestion-warnings'
+import { personCreateConflictResolvedCounter } from '@posthog/ingestion-common/persons/metrics'
+import { PersonMessage } from '@posthog/ingestion-common/persons/person-message'
+import { PersonPropertiesSizeViolationError } from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+
+import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
+import { InternalPerson, PropertyUpdateOperation } from '~/types'
+
+import { PersonOutputs } from './person-context'
+import { PersonsStoreForBatch, PersonsStoreTransactionForBatch } from './persons-store-for-batch'
+
+export class PersonCreateService {
+    constructor(
+        private store: PersonsStoreForBatch,
+        private outputs: PersonOutputs
+    ) {}
+
+    /**
+     * Creation messages are returned, never produced here: the caller owns the
+     * produce, so a transactional caller can defer it past commit instead of
+     * holding the transaction open across the Kafka roundtrip.
+     *
+     * @returns [Person, true if person was created by this call (false if found existing person from concurrent creation), ClickHouse messages to produce,
+     *   true if the conflict found a person that owns one of the requested distinct ids]
+     */
+    async createPerson(
+        createdAt: DateTime,
+        properties: Properties,
+        propertiesOnce: Properties,
+        teamId: number,
+        isUserId: number | null,
+        isIdentified: boolean,
+        creatorEventUuid: string,
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[],
+        tx?: PersonsStoreTransactionForBatch
+    ): Promise<[InternalPerson, boolean, PersonMessage[], boolean]> {
+        const uuid = uuidFromDistinctId(teamId, primaryDistinctId.distinctId)
+
+        const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
+        const propertiesLastOperation: Record<string, any> = {}
+        const propertiesLastUpdatedAt: Record<string, any> = {}
+        Object.keys(propertiesOnce).forEach((key) => {
+            propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
+            propertiesLastUpdatedAt[key] = createdAt.toISO()
+        })
+        Object.keys(properties).forEach((key) => {
+            propertiesLastOperation[key] = PropertyUpdateOperation.Set
+            propertiesLastUpdatedAt[key] = createdAt.toISO()
+        })
+
+        try {
+            const result = await (tx || this.store).createPerson(
+                createdAt,
+                props,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                teamId,
+                isUserId,
+                isIdentified,
+                uuid,
+                primaryDistinctId,
+                extraDistinctIds
+            )
+
+            if (result.success) {
+                return [result.person, result.created, result.messages, false]
+            }
+
+            // Handle creation conflict - another process created the person concurrently
+            if (result.error === 'CreationConflict') {
+                // Try to fetch the person that was created concurrently
+                const allDistinctIds = [primaryDistinctId, ...(extraDistinctIds || [])]
+                for (const distinctIdInfo of allDistinctIds) {
+                    // Read on the caller's transaction. A pool read needs a second connection while this
+                    // transaction holds one, so a pool full of conflicting transactions waits on itself
+                    // forever, holding row locks that block every other writer of these persons.
+                    const existingPerson = tx
+                        ? ((await tx.readPerson(teamId, distinctIdInfo.distinctId)) ?? null)
+                        : await this.store.fetchForUpdate(teamId, distinctIdInfo.distinctId)
+                    if (existingPerson) {
+                        return [existingPerson, false, [], true]
+                    }
+                }
+
+                // Nothing owns the distinct IDs we tried to create, so the row holding this
+                // uuid owns a different one. Resolve to it: the alternative is an error with no
+                // isRetriable, which the pipeline rethrows until the consumer dies with
+                // uncommitted offsets. The event is attributed to the holder without moving any
+                // mapping, so no two identities are silently merged.
+                if (result.conflictingPerson) {
+                    personCreateConflictResolvedCounter.labels({ resolved_by: 'uuid' }).inc()
+                    return [result.conflictingPerson, false, [], false]
+                }
+
+                // The holder vanished between the failed write and the lookup, so there is
+                // nothing to resolve to.
+                personCreateConflictResolvedCounter.labels({ resolved_by: 'none' }).inc()
+                throw new Error(
+                    `Person creation failed with constraint violation, but could not fetch existing person for distinct IDs: ${result.distinctIds.join(
+                        ', '
+                    )}`
+                )
+            }
+
+            // This should never happen due to the discriminated union, but TypeScript requires it
+            throw new Error('Unexpected CreatePersonResult state')
+        } catch (error) {
+            if (error instanceof PersonPropertiesSizeViolationError) {
+                await emitIngestionWarning(this.outputs, teamId, {
+                    type: 'person_properties_size_violation',
+                    details: {
+                        // uuid of the person we tried to create; error.personId is a DB row id
+                        personId: uuid,
+                        distinctId: primaryDistinctId.distinctId,
+                        teamId: teamId,
+                        eventUuid: creatorEventUuid,
+                        message: 'Person properties exceeds size limit and was rejected',
+                    },
+                    pipelineStep: 'person-store',
+                })
+                throw error
+            }
+
+            // Re-throw other errors
+            throw error
+        }
+    }
+}

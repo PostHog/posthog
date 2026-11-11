@@ -1,0 +1,41 @@
+[package]
+name = "personhog-writer"
+workspace = "../../../rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+personhog-proto = { path = "../personhog-proto" }
+common-database = { path = "../../../rust/common/database" }
+common-kafka = { path = "../../../rust/common/kafka" }
+common-alloc = { path = "../../../rust/common/alloc" }
+common-liveness = { path = "../../../rust/common/liveness" }
+common-metrics = { path = "../../../rust/common/metrics" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
+assignment-coordination = { path = "../assignment-coordination" }
+personhog-coordination = { path = "../personhog-coordination" }
+
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+envconfig = { workspace = true }
+futures = { workspace = true }
+metrics = { workspace = true }
+prost = { workspace = true }
+rdkafka = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+health = { path = "../../../rust/common/health" }
+personhog-common = { path = "../personhog-common" }
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
 
 import { CohortMembershipRepository, StoredCohortMembership } from './cohort-membership-repository'
 

@@ -150,7 +150,7 @@
         'services/stripe-mock/**',
         'tools/hedgebox-dummy/**',
         'frontend/@posthog/lemon-ui/**',
-        'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**',
+        'ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar/**',
         '.depot/actions/paths-filter/**',
         '.github/actions/paths-filter/**',
         '.github/actions/shared-image-releases/**',

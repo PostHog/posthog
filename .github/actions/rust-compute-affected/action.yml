@@ -35,6 +35,18 @@ inputs:
             fetched on its own, at depth 1, for the old package graph.
         required: false
         default: ''
+    rules-file:
+        description: 'Path rules for affected-services, relative to the repository root (empty for its built-in rules)'
+        required: false
+        default: ''
+    images-file:
+        description: 'Image list for affected-services, relative to the repository root (empty for its built-in list)'
+        required: false
+        default: ''
+    crate-path-filter:
+        description: 'Keep only the crates whose manifest path contains this string (empty keeps every crate)'
+        required: false
+        default: ''
     token:
         description: Token for the compare API call that resolves the merge base.
         required: false
@@ -89,11 +101,17 @@ runs:
               CHANGED_FILES: ${{ inputs.changed-files }}
               REPOSITORY: ${{ github.repository }}
               GH_TOKEN: ${{ inputs.token }}
+              RULES_FILE: ${{ inputs.rules-file }}
+              IMAGES_FILE: ${{ inputs.images-file }}
+              CRATE_PATH_FILTER: ${{ inputs.crate-path-filter }}
           working-directory: rust
           run: |
+              affected=(./target/release/affected-services)
+              if [ -n "$RULES_FILE" ]; then affected+=(--rules "../$RULES_FILE"); fi
+              if [ -n "$IMAGES_FILE" ]; then affected+=(--images-file "../$IMAGES_FILE"); fi
               if [ "$FORCE_REBUILD" = "true" ]; then
                   echo "rebuild-all requested"
-                  result=$(./target/release/affected-services --files rust/Cargo.lock)
+                  result=$("${affected[@]}" --files rust/Cargo.lock)
               else
                   if [ -n "$BASE_REF" ]; then
                       if [[ "$BASE_REF" =~ ^[0-9a-f]{40}$ ]]; then
@@ -131,21 +149,26 @@ runs:
 
                   if [ -z "$base_ref" ] || echo "$base_ref" | grep -qE '^0+$'; then
                       echo "No valid base ref — rebuilding all"
-                      result=$(./target/release/affected-services --files rust/Cargo.lock)
+                      result=$("${affected[@]}" --files rust/Cargo.lock)
                   else
                       if ! git cat-file -e "$base_ref^{commit}" 2>/dev/null; then
                           git fetch --no-tags --depth=1 --filter=blob:none origin "$base_ref" || true
                       fi
                       if [ -n "$CHANGED_FILES" ]; then
-                          result=$(./target/release/affected-services --stdin --base-ref "$base_ref" < "$CHANGED_FILES")
+                          result=$("${affected[@]}" --stdin --base-ref "$base_ref" < "$CHANGED_FILES")
                       else
-                          result=$(./target/release/affected-services --base-ref "$base_ref")
+                          result=$("${affected[@]}" --base-ref "$base_ref")
                       fi
                   fi
               fi
 
               rebuild_all=$(echo "$result" | jq -r '.rebuild_all')
               crates=$(echo "$result" | jq -c '.crates')
+              if [ -n "$CRATE_PATH_FILTER" ]; then
+                  # The binary answers for the whole workspace; keep the crates under the filter.
+                  ours=$(cargo metadata --no-deps --format-version 1 | jq -c --arg f "$CRATE_PATH_FILTER" '[.packages[] | select(.manifest_path | contains($f)) | .name]')
+                  crates=$(echo "$crates" | jq -c --argjson ours "$ours" '[.[] | select(. as $c | $ours | index($c))]')
+              fi
               images=$(echo "$result" | jq -r '.images | join(",")')
 
               echo "rebuild_all=$rebuild_all, crates=$crates, images=$images"

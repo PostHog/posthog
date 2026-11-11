@@ -1,15 +1,15 @@
 import { Message } from 'node-rdkafka'
 import { ZodError } from 'zod'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { logger, serializeError } from '~/common/utils/logger'
+import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { logger, serializeError } from '@posthog/node-common/utils/logger'
 
-import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { sesQueuedNotificationsCounter } from '../services/messaging/email-tracking.service'
-import { SnsEnvelope, parseSnsEnvelope } from '../services/messaging/helpers/ses'
-import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { CdpConsumerBase, CdpConsumerBaseDeps } from '~/cdp/consumers/cdp-base.consumer'
+import { counterParseError } from '~/cdp/consumers/metrics'
+import { sesQueuedNotificationsCounter } from '~/cdp/services/messaging/email-tracking.service'
+import { SnsEnvelope, parseSnsEnvelope } from '~/cdp/services/messaging/helpers/ses'
+import { HealthCheckResult, PluginsServerConfig } from '~/types'
 
 type SkipReason = 'unparseable' | 'not_an_sns_envelope' | 'invalid_ses_event' | 'rejected'
 

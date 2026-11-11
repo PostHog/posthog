@@ -1,8 +1,8 @@
 import { HTTPRequest } from 'puppeteer'
 
+import { internalFetch } from '@posthog/node-common/utils/request'
 import { BLOCK_REQUEST_PREFIX } from '@posthog/replay-headless/protocol'
 
-import { internalFetch } from '~/common/utils/request'
 import { type RecordingBlock as FullRecordingBlock } from '~/session-replay/recording-api/types'
 import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'

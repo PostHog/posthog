@@ -1,5 +1,5 @@
-import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/common/outputs'
-import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
+import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '@posthog/node-common/outputs/index'
+import { IngestionOutputsBuilder } from '@posthog/node-common/outputs/ingestion-outputs-builder'
 
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT } from './outputs'
 

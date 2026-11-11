@@ -38,8 +38,18 @@ pub fn compute_affected(
     new_graph: &PackageGraph,
     images: &[ImageConfig],
 ) -> Result<AffectedResult> {
+    compute_affected_with_rules(changed_files, old_graph, new_graph, images, RULES_TOML)
+}
+
+pub fn compute_affected_with_rules(
+    changed_files: &[String],
+    old_graph: Option<&PackageGraph>,
+    new_graph: &PackageGraph,
+    images: &[ImageConfig],
+    rules_toml: &str,
+) -> Result<AffectedResult> {
     let rules =
-        DeterminatorRules::parse(RULES_TOML).context("failed to parse determinator rules")?;
+        DeterminatorRules::parse(rules_toml).context("failed to parse determinator rules")?;
 
     let workspace_paths: Vec<String> = changed_files
         .iter()
@@ -109,8 +119,9 @@ pub fn compute_affected(
     }
 
     let mut affected_images = map_crates_to_images(&affected_names, &bin_to_crate, images);
+    // The triggers cover every pipeline's images; only those in the caller's images file apply.
     for img in non_crate_images_affected(changed_files) {
-        if !affected_images.contains(&img) {
+        if images.iter().any(|i| i.image == img) && !affected_images.contains(&img) {
             affected_images.push(img);
         }
     }

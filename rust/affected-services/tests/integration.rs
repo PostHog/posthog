@@ -120,7 +120,11 @@ fn every_deployable_binary_has_an_image_entry() {
     ]
     .into();
 
-    let (graph, images) = load_test_fixtures();
+    let (graph, mut images) = load_test_fixtures();
+    let repo_root = find_repo_root().expect("must be in a git repo");
+    images.extend(
+        parse_images_yaml(&repo_root.join("ingestion/ci/images.yml")).expect("images YAML"),
+    );
     let bin_to_crate = build_binary_to_crate_map(&graph);
 
     let image_binaries: HashSet<&str> = images
@@ -140,7 +144,7 @@ fn every_deployable_binary_has_an_image_entry() {
     missing.sort();
     assert!(
         missing.is_empty(),
-        "workspace binaries missing from .github/rust-images.yml: {:?}\n\
+        "workspace binaries missing from .github/rust-images.yml and ingestion/ci/images.yml: {:?}\n\
          If these are not deployable services, add them to `non_deployable` in this test.",
         missing,
     );
@@ -164,7 +168,7 @@ fn proto_build_scripts_are_in_determinator_rules() {
             in_proto_rule = false;
             in_mark_changed = false;
         }
-        if trimmed.contains("../proto/**") {
+        if trimmed.contains("proto/**") {
             in_proto_rule = true;
         }
         if in_proto_rule && trimmed.starts_with("mark-changed") {
@@ -250,32 +254,29 @@ fn every_image_resolves_to_a_workspace_binary() {
 fn leaf_service_only_affects_itself_and_dependents() {
     let (graph, images) = load_test_fixtures();
     let result =
-        compute_affected(&["rust/capture/src/main.rs".into()], None, &graph, &images).unwrap();
+        compute_affected(&["rust/cymbal/src/main.rs".into()], None, &graph, &images).unwrap();
     assert!(!result.rebuild_all);
-    assert_eq!(result.directly_changed, vec!["capture"]);
-    assert_eq!(
-        result.images,
-        vec![
-            "capture",
-            "capture-apm-metrics",
-            "capture-logs",
-            "replay-recorder-v4"
-        ]
-    );
+    assert_eq!(result.directly_changed, vec!["cymbal"]);
+    assert_eq!(result.images, vec!["cymbal"]);
 }
 
 #[test]
 fn proto_change_maps_to_proto_crates() {
     let (graph, images) = load_test_fixtures();
-    let result =
-        compute_affected(&["proto/personhog.proto".into()], None, &graph, &images).unwrap();
+    let result = compute_affected(
+        &["proto/cymbal/resolution/v1/resolution.proto".into()],
+        None,
+        &graph,
+        &images,
+    )
+    .unwrap();
     assert!(!result.rebuild_all);
-    assert!(result.directly_changed.contains(&"personhog-proto".into()));
+    assert!(result.directly_changed.contains(&"cymbal-proto".into()));
     assert!(result
         .directly_changed
-        .contains(&"kafka-assigner-proto".into()));
+        .contains(&"usage-ingestion-proto".into()));
     assert!(
-        result.images.len() > 2,
+        result.images.len() > 1,
         "proto change should propagate to multiple images"
     );
 }
@@ -284,7 +285,7 @@ fn proto_change_maps_to_proto_crates() {
 fn migration_only_triggers_sqlx_migrate() {
     let (graph, images) = load_test_fixtures();
     let result = compute_affected(
-        &["rust/persons_migrations/new.sql".into()],
+        &["rust/cyclotron-node-migrations/new.sql".into()],
         None,
         &graph,
         &images,
@@ -359,7 +360,7 @@ fn path_rule_ordering(
 #[test]
 fn same_old_and_new_graph_matches_none_fallback() {
     let (graph, images) = load_test_fixtures();
-    let changed = vec!["rust/capture/src/main.rs".into()];
+    let changed = vec!["rust/cymbal/src/main.rs".into()];
 
     let result_none = compute_affected(&changed, None, &graph, &images).unwrap();
     let result_some = compute_affected(&changed, Some(&graph), &graph, &images).unwrap();
@@ -408,31 +409,31 @@ fn single_graph_lockfile_triggers_rebuild_all() {
 fn old_graph_leaf_service() {
     let (graph, images) = load_test_fixtures();
     let result = compute_affected(
-        &["rust/capture/src/main.rs".into()],
+        &["rust/cymbal/src/main.rs".into()],
         Some(&graph),
         &graph,
         &images,
     )
     .unwrap();
     assert!(!result.rebuild_all);
-    assert_eq!(result.directly_changed, vec!["capture"]);
-    assert!(result.crates.contains(&"capture".into()));
+    assert_eq!(result.directly_changed, vec!["cymbal"]);
+    assert!(result.crates.contains(&"cymbal".into()));
 }
 
 #[test]
 fn old_graph_proto_propagation() {
     let (graph, images) = load_test_fixtures();
     let result = compute_affected(
-        &["proto/personhog.proto".into()],
+        &["proto/cymbal/resolution/v1/resolution.proto".into()],
         Some(&graph),
         &graph,
         &images,
     )
     .unwrap();
     assert!(!result.rebuild_all);
-    assert!(result.directly_changed.contains(&"personhog-proto".into()));
+    assert!(result.directly_changed.contains(&"cymbal-proto".into()));
     assert!(
-        result.images.len() > 2,
+        result.images.len() > 1,
         "proto change should propagate to multiple images via old_graph path"
     );
 }
@@ -452,11 +453,11 @@ fn old_graph_from_master() {
         parse_images_yaml(&repo_root.join(".github/rust-images.yml")).expect("images YAML");
 
     let result = compute_affected(
-        &["rust/capture/src/main.rs".into()],
+        &["rust/cymbal/src/main.rs".into()],
         Some(&old_graph),
         &new_graph,
         &images,
     )
     .unwrap();
-    assert!(result.crates.contains(&"capture".into()));
+    assert!(result.crates.contains(&"cymbal".into()));
 }

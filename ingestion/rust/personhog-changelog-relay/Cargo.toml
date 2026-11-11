@@ -1,0 +1,36 @@
+[package]
+name = "personhog-changelog-relay"
+workspace = "../../../rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+personhog-proto = { path = "../personhog-proto" }
+personhog-coordination = { path = "../personhog-coordination" }
+assignment-coordination = { path = "../assignment-coordination" }
+common-alloc = { path = "../../../rust/common/alloc" }
+common-kafka = { path = "../../../rust/common/kafka" }
+common-metrics = { path = "../../../rust/common/metrics" }
+lifecycle = { path = "../../../rust/common/lifecycle" }
+
+axum = { workspace = true }
+chrono = { workspace = true }
+envconfig = { workspace = true }
+futures = { workspace = true }
+metrics = { workspace = true }
+prost = { workspace = true }
+rdkafka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+metrics-util = { workspace = true }
+
+[lints]
+workspace = true

@@ -16,7 +16,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_common::{spawn_pool_monitor, MonitoredPool};
+use common_database::{spawn_pool_monitor, MonitoredPool};
 
 use flags_consumer::benchmark::BenchmarkArgs;
 use flags_consumer::config::Config;

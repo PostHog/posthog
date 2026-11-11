@@ -1,0 +1,110 @@
+# Ingestion's container images. Each service image builds from the repository root with
+# rust/Dockerfile and the crate's binary as BIN. ingestion-images.yml builds
+# and deploys them; the deploy matrix there lists the release each image feeds.
+
+- image: capture
+  dockerfile: ./rust/Dockerfile
+  project: kshskj225r
+
+# Dev/on-demand load generator for the capture /batch endpoint. Built and
+# pushed for use as a Kubernetes Job; not deployed as a standing service, so
+# it has no entry in the deploy matrix of ingestion-images.yml.
+- image: capture-load-gen
+  dockerfile: ./rust/Dockerfile
+  project: wrsq3rsc1b
+
+# Runs the persons database migrations. Not a crate: the image is sqlx-cli plus
+# the migration files, so affected-services triggers it by path.
+- image: persons-migrate
+  dockerfile: ./ingestion/rust/Dockerfile.persons-migrate
+  context: ./ingestion/rust/
+  project: jmsz6gms8g
+
+- image: property-defs-rs
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
+
+- image: property-vals-rs
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
+
+- image: ingestion-consumer
+  dockerfile: ./rust/Dockerfile
+  project: mtvzx98zjn
+
+# Internal web tool for the ingestion team (lag analysis, consumer debug
+# visualizer).
+- image: ingestion-control-plane
+  dockerfile: ./rust/Dockerfile
+  project: x5whcmg6rl
+
+# Postgres telemetry collector: scrapes pg_stat_* /
+# Aurora stats / logs from RDS clusters into a stats Postgres. See ingestion/rust/pgcollector.
+- image: pgcollector
+  dockerfile: ./rust/Dockerfile
+  project: wb2br45dsr # pg-monitoring
+
+# API + MCP server over the pgcollector stats database (Postgres telemetry).
+# Internal, edge-authenticated (Cognito ingress + Tailscale whois). See ingestion/rust/pgapi.
+- image: pgapi
+  dockerfile: ./rust/Dockerfile
+  project: wb2br45dsr # pg-monitoring
+
+- image: kafka-deduplicator
+  dockerfile: ./rust/Dockerfile
+  project: vznmbshh6q
+
+- image: personhog-identity
+  dockerfile: ./rust/Dockerfile
+  project: jfz76fgvqd
+
+# Second binary of the personhog-identity crate: drains the publish outbox
+# identity writes. Shares identity's Depot project.
+- image: personhog-publisher
+  dockerfile: ./rust/Dockerfile
+  project: jfz76fgvqd
+
+- image: personhog-leader
+  dockerfile: ./rust/Dockerfile
+  project: g0kjbvxgqx
+
+- image: personhog-replica
+  dockerfile: ./rust/Dockerfile
+  project: vq4lxdfdv2
+
+- image: personhog-router
+  dockerfile: ./rust/Dockerfile
+  project: wqvvpmzgbk
+
+- image: personhog-writer
+  dockerfile: ./rust/Dockerfile
+  project: hj9nd3cg9w
+
+- image: personhog-changelog-relay
+  dockerfile: ./rust/Dockerfile
+  project: lvsrh6c64c
+
+- image: personhog-test-harness
+  dockerfile: ./rust/Dockerfile
+  project: 6tl5lmb8l8
+
+- image: personhog-parity-monitor
+  dockerfile: ./rust/Dockerfile
+  project: jfz76fgvqd
+
+- image: kafka-assigner
+  dockerfile: ./rust/Dockerfile
+  project: 6kjc85bwm7
+
+# The Node services: event, session replay, error tracking, AI events and AI research modes.
+- image: ingestion-node
+  dockerfile: ./ingestion/node/Dockerfile
+  project: mtvzx98zjn
+
+# The AI research team's Node services, from their own package.
+- image: ingestion-ai-research-node
+  dockerfile: ./ingestion/node/Dockerfile
+  project: mtvzx98zjn
+  build_args:
+      PACKAGE: '@posthog/ingestion-ai-research'
+      PACKAGE_DIR: ingestion/node/packages/ai-research

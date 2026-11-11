@@ -1,7 +1,7 @@
 import { PoolClient } from 'pg'
 
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { logger } from '~/common/utils/logger'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { logger } from '@posthog/node-common/utils/logger'
 
 /** Members read per page. Matches the default page size of the Django audience query. */
 export const REALTIME_COHORT_AUDIENCE_PAGE_SIZE = 5000

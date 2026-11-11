@@ -1,6 +1,6 @@
 import { CODES } from 'node-rdkafka'
 
-import { DependencyUnavailableError } from '~/common/utils/db/error'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
 
 const { err2str } = require('node-rdkafka/librdkafka') as { err2str: (code: number) => string }
 

@@ -9,8 +9,8 @@ import {
     KAFKA_TRACES_INGESTION,
     KAFKA_TRACES_INGESTION_DLQ,
     KAFKA_TRACES_INGESTION_OVERFLOW,
-} from '~/common/config/kafka-topics'
-import { isProdEnv } from '~/common/utils/env-utils'
+} from '@posthog/node-common/config/kafka-topics'
+import { isProdEnv } from '@posthog/node-common/utils/env-utils'
 
 import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
 

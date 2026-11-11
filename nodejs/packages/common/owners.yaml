@@ -1,0 +1,9 @@
+version: 1
+owners: [team-ingestion, team-workflows]
+rules:
+    - match:
+          - '/src/schema-check/*.test.*'
+      owners: team-devex
+    - match:
+          - '/src/usage-ingestion/*.test.*'
+      owners: team-billing

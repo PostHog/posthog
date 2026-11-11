@@ -1,4 +1,4 @@
-import { NativeTemplate } from '~/cdp/types'
+import { NativeTemplate } from '@posthog/hog-engine/cdp/types'
 
 export const template: NativeTemplate = {
     free: false,

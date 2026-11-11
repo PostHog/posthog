@@ -1,5 +1,5 @@
-import { logger } from '~/common/utils/logger'
-import { UUID7 } from '~/common/utils/utils'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUID7 } from '@posthog/node-common/utils/utils'
 
 import { recordInternalLogs } from '../ingestion-otel-metrics'
 import {

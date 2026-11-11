@@ -1,8 +1,12 @@
 //! Serving middleware for PostHog gRPC servers.
 //!
-//! `personhog-common` carries its own copy of this layer alongside personhog's routing
+//! `personhog-common` carries its own copy of the metrics layer alongside personhog's routing
 //! contract. This crate holds the part that is not about personhog, so a service can take
-//! request metrics without taking `personhog-proto`, sqlx, and the persons modules with it.
+//! request metrics, admission control and connection tracking without taking
+//! `personhog-proto`, sqlx, and the persons modules with it.
+
+mod listener;
+mod load_shed;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -10,10 +14,23 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use http::{Request, Response};
+use http::{HeaderValue, Request, Response};
 use metrics::{counter, gauge, histogram};
 use pin_project::{pin_project, pinned_drop};
 use tower::{Layer, Service};
+
+pub use listener::{
+    tracked_tcp_incoming, tracked_tcp_incoming_until, until_incoming_ends, TrackedTcpStream,
+};
+pub use load_shed::{
+    GrpcLoadShedFuture, GrpcLoadShedLayer, GrpcLoadShedService, WaiterSlot, NOT_APPLIED_HEADER,
+};
+
+/// Header name for the replica's processing time, set on responses when
+/// `emit_processing_time_header` is enabled. The router reads this to
+/// compute per-request transport overhead without subtracting independent
+/// histogram quantiles.
+pub const PROCESSING_TIME_HEADER: &str = "x-processing-time-ms";
 
 /// Header a caller sets to name itself. Requests without it are labelled `unknown`.
 const CLIENT_NAME_HEADER: &str = "x-client-name";
@@ -124,19 +141,34 @@ fn response_code(headers: &http::HeaderMap) -> &'static str {
 /// - `grpc_server_request_duration_ms` — histogram with method and client labels
 /// - `grpc_server_requests_in_flight` — gauge with method and client labels
 #[derive(Clone, Default)]
-pub struct GrpcMetricsLayer;
+pub struct GrpcMetricsLayer {
+    emit_processing_time_header: bool,
+}
+
+impl GrpcMetricsLayer {
+    /// Also report the server's processing time on each response, in [`PROCESSING_TIME_HEADER`].
+    pub fn with_processing_time_header(self) -> Self {
+        Self {
+            emit_processing_time_header: true,
+        }
+    }
+}
 
 impl<S> Layer<S> for GrpcMetricsLayer {
     type Service = GrpcMetricsService<S>;
 
     fn layer(&self, service: S) -> Self::Service {
-        GrpcMetricsService { inner: service }
+        GrpcMetricsService {
+            inner: service,
+            emit_processing_time_header: self.emit_processing_time_header,
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct GrpcMetricsService<S> {
     inner: S,
+    emit_processing_time_header: bool,
 }
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for GrpcMetricsService<S>
@@ -162,6 +194,7 @@ where
             method,
             client,
             start: Instant::now(),
+            emit_processing_time_header: self.emit_processing_time_header,
         }
     }
 }
@@ -175,6 +208,7 @@ pub struct GrpcMetricsFuture<F> {
     method: Arc<str>,
     client: Arc<str>,
     start: Instant,
+    emit_processing_time_header: bool,
 }
 
 impl<F, ResBody, E> Future for GrpcMetricsFuture<F>
@@ -185,10 +219,11 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
-        let Poll::Ready(result) = this.inner.poll(cx) else {
+        let Poll::Ready(mut result) = this.inner.poll(cx) else {
             return Poll::Pending;
         };
 
+        let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
         // A transport-level error never reached the handler, so it carries no gRPC status.
         let code = match result {
             Ok(ref response) => response_code(response.headers()),
@@ -202,7 +237,15 @@ where
         histogram!("grpc_server_request_duration_ms",
             "method" => this.method.clone(),
             "client" => this.client.clone())
-        .record(this.start.elapsed().as_secs_f64() * 1000.0);
+        .record(duration_ms);
+
+        if *this.emit_processing_time_header {
+            if let Ok(ref mut response) = result {
+                if let Ok(value) = HeaderValue::from_str(&format!("{duration_ms:.3}")) {
+                    response.headers_mut().insert(PROCESSING_TIME_HEADER, value);
+                }
+            }
+        }
 
         Poll::Ready(result)
     }
@@ -257,7 +300,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_layer_passes_the_response_through_untouched() {
-        let service = GrpcMetricsLayer.layer(FixedService(http::StatusCode::OK, None));
+        let service = GrpcMetricsLayer::default().layer(FixedService(http::StatusCode::OK, None));
 
         let response = service
             .oneshot(grpc_request("/pkg.Svc/Method"))
@@ -296,7 +339,7 @@ mod tests {
             .unwrap();
 
         metrics::with_local_recorder(&recorder, || {
-            let service = GrpcMetricsLayer.layer(StatusService(tonic::Code::NotFound));
+            let service = GrpcMetricsLayer::default().layer(StatusService(tonic::Code::NotFound));
             let request = Request::builder()
                 .uri("/usage_ingestion.v1.UsageIngestion/IngestBillingUsage")
                 .header("x-client-name", "feature-flags")

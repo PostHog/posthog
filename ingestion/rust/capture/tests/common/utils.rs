@@ -1,0 +1,756 @@
+#![allow(dead_code)]
+
+use std::collections::HashMap;
+use std::default::Default;
+use std::net::SocketAddr;
+use std::num::NonZeroU32;
+use std::ops::Add;
+use std::str::FromStr;
+use std::string::ToString;
+use std::sync::Once;
+use std::time::Duration;
+
+use anyhow::bail;
+use once_cell::sync::Lazy;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
+use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
+use rdkafka::config::{ClientConfig, FromClientConfig};
+use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::message::Headers;
+use rdkafka::util::Timeout;
+use rdkafka::{Message, TopicPartitionList};
+use redis::{Client, Commands};
+use time::OffsetDateTime;
+use tokio::net::TcpListener;
+use tokio::time::timeout;
+use tracing::{info, warn, Level};
+
+use capture::config::{CaptureMode, Config, EnvelopeCompression, OutputsConfig};
+use capture::producers::ProducerName;
+use capture::server::serve;
+use capture::setup;
+use common_continuous_profiling::ContinuousProfilingConfig;
+use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
+
+pub const TEST_KAFKA_HOSTS: &str = "kafka:9092";
+
+/// Settings for the `INGESTION` producer every test server publishes through.
+pub fn test_producer_env() -> HashMap<String, String> {
+    [
+        ("METADATA_BROKER_LIST", TEST_KAFKA_HOSTS),
+        ("LINGER_MS", "0"), // Send messages as soon as possible
+        ("QUEUE_BUFFERING_MAX_KBYTES", "10240"),
+        ("MESSAGE_TIMEOUT_MS", "10000"), // 10s, ACKs can be slow on low volumes, should be tuned
+        ("TOPIC_METADATA_REFRESH_INTERVAL_MS", "10000"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (format!("KAFKA_INGESTION_PRODUCER_{k}"), v.to_string()))
+    .collect()
+}
+
+pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
+    print_sink: false,
+    noop_sink: false,
+    address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
+    redis_url: "redis://localhost:6379/".to_string(),
+    redis_response_timeout_ms: 100,
+    redis_connection_timeout_ms: 5000,
+    global_rate_limit_enabled: false,
+    global_rate_limit_dry_run: false,
+    global_rate_limit_window_interval_secs: 60,
+    global_rate_limit_sync_interval_secs: 15,
+    global_rate_limit_tick_interval_ms: 1000,
+    global_rate_limit_token_distinctid_threshold: 10_000,
+    global_rate_limit_token_distinctid_overrides_csv: None,
+    global_rate_limit_token_distinctid_local_cache_max_entries: 300_000,
+    // Integration tests assert on exact limiter behavior at a threshold of
+    // 10_000, so every key syncs and every tick drains fully.
+    global_rate_limit_min_sync_floor: 0,
+    global_rate_limit_max_read_outage_secs: None,
+    global_rate_limit_max_sync_keys_per_tick: 20_000,
+    global_rate_limit_max_keys_per_command: 2_000,
+    global_rate_limit_max_concurrent_commands: 4,
+    global_rate_limit_max_write_batch_entries: 200_000,
+    global_rate_limit_max_pending_sync_entries: 200_000,
+    global_rate_limit_local_cache_ttl_secs: 600,
+    global_rate_limit_local_cache_idle_timeout_secs: 300,
+    global_rate_limit_read_timeout_ms: 250,
+    global_rate_limit_write_timeout_ms: 250,
+    global_rate_limit_token_threshold: 300_000,
+    global_rate_limit_token_overrides_csv: None,
+    global_rate_limit_token_local_cache_max_entries: 300_000,
+    global_rate_limit_redis_url: None,
+    global_rate_limit_redis_shards: 1,
+    global_rate_limit_redis_shard_1_url: None,
+    global_rate_limit_redis_shard_1_reader_url: None,
+    global_rate_limit_redis_reader_url: None,
+    global_rate_limit_redis_response_timeout_ms: None,
+    global_rate_limit_redis_connection_timeout_ms: None,
+    global_rate_limit_custom_threshold_key: None,
+    global_rate_limit_custom_threshold_refresh_secs: 60,
+    event_restrictions_enabled: false,
+    event_restrictions_redis_url: None,
+    event_restrictions_refresh_interval_secs: 30,
+    event_restrictions_fail_open_after_secs: 300,
+    overflow_enabled: false,
+    ai_events_overflow_enabled: false,
+    overflow_preserve_partition_locality: false,
+    overflow_burst_limit: NonZeroU32::new(5).unwrap(),
+    overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
+    ingestion_force_overflow_by_token_distinct_id: None,
+    drop_events_by_token_distinct_id: None,
+    enable_historical_rerouting: false,
+    historical_rerouting_threshold_days: 1_i64,
+    is_mirror_deploy: false,
+    log_level: Level::INFO,
+    verbose_sample_percent: 0.0_f32,
+    outputs: OutputsConfig {
+        analytics_main_topic: "events_plugin_ingestion".to_string(),
+        analytics_main_producer: ProducerName::Ingestion,
+        analytics_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
+        analytics_overflow_producer: ProducerName::Ingestion,
+        analytics_historical_topic: "events_plugin_ingestion_historical".to_string(),
+        analytics_historical_producer: ProducerName::Ingestion,
+        session_replay_main_topic: "events_plugin_ingestion".to_string(),
+        session_replay_main_producer: ProducerName::Ingestion,
+        session_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
+        session_replay_overflow_producer: ProducerName::Ingestion,
+        heatmaps_topic: "events_plugin_ingestion".to_string(),
+        heatmaps_producer: ProducerName::Ingestion,
+        client_warnings_topic: "events_plugin_ingestion".to_string(),
+        client_warnings_producer: ProducerName::Ingestion,
+        error_tracking_topic: "error_tracking_events".to_string(),
+        error_tracking_producer: ProducerName::Ingestion,
+        dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+        dlq_producer: ProducerName::Ingestion,
+        ai_main_topic: "events_plugin_ingestion_ai".to_string(),
+        ai_main_producer: ProducerName::Ingestion,
+        ai_overflow_topic: "events_plugin_ingestion_ai_overflow".to_string(),
+        ai_overflow_producer: ProducerName::Ingestion,
+        custom_producer: ProducerName::Ingestion,
+    },
+    replay_envelope_compression: EnvelopeCompression::None,
+    outputs_completeness_check_enabled: true,
+    otel_url: None,
+    otel_sampling_rate: 0.0,
+    otel_service_name: "capture-testing".to_string(),
+    export_prometheus: false,
+    redis_key_prefix: None,
+    capture_mode: CaptureMode::Events,
+    concurrency_limit: None,
+    s3_fallback_enabled: false,
+    s3_fallback_bucket: None,
+    s3_fallback_endpoint: None,
+    s3_fallback_prefix: String::new(),
+    ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
+    ai_max_event_bytes: 8_388_608,         // 8MiB default
+    ai_gateway_signing_secret: None,
+    http1_header_read_timeout_ms: Some(5000), // 5 seconds default
+    body_chunk_read_timeout_ms: None,         // disabled by default in tests
+    body_read_chunk_size_kb: 256,             // 256KB default
+    continuous_profiling: ContinuousProfilingConfig::default(),
+    capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
+    capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
+    capture_v1_scatter_gather_min_batch: 8,
+    capture_v1_legacy_property_splice: true,
+    capture_ingestion_warnings_enabled: false,
+    capture_ingestion_warnings_kafka_queue_mib: 16,
+    capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
+    capture_ingestion_warnings_kafka_topic: String::new(),
+    capture_ingestion_warnings_kafka_hosts: String::new(),
+    capture_ingestion_warnings_kafka_tls: false,
+    ai_byte_limit_per_second: 0,
+    ai_byte_limit_overrides_csv: None,
+    ai_byte_limit_dry_run: false,
+    ai_byte_limit_window_interval_secs: None,
+    ai_byte_limit_local_cache_max_entries: 300_000,
+});
+
+/// Points the analytics (main, historical, overflow), DLQ, error tracking,
+/// heatmaps and client warnings outputs at one topic. AI and session replay
+/// outputs keep their config values.
+pub fn point_outputs_at(config: &mut Config, topic: &str) {
+    let outputs = &mut config.outputs;
+    for field in [
+        &mut outputs.analytics_main_topic,
+        &mut outputs.analytics_historical_topic,
+        &mut outputs.analytics_overflow_topic,
+        &mut outputs.dlq_topic,
+        &mut outputs.error_tracking_topic,
+        &mut outputs.heatmaps_topic,
+        &mut outputs.client_warnings_topic,
+    ] {
+        *field = topic.to_string();
+    }
+}
+
+static TRACING_INIT: Once = Once::new();
+pub fn setup_tracing() {
+    TRACING_INIT.call_once(|| {
+        tracing_subscriber::fmt()
+            .with_writer(tracing_subscriber::fmt::TestWriter::new())
+            .init()
+    });
+}
+pub struct ServerHandle {
+    pub addr: SocketAddr,
+    shutdown: tokio_util::sync::CancellationToken,
+    client: reqwest::Client,
+    event_restriction_service: Option<event_restrictions::EventRestrictionService>,
+}
+
+impl ServerHandle {
+    pub async fn for_topics(main: &EphemeralTopic, historical: &EphemeralTopic) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.outputs.analytics_main_topic = main.topic_name().to_string();
+        config.outputs.analytics_historical_topic = historical.topic_name().to_string();
+        Self::for_config(config).await
+    }
+    /// Like `for_topics`, with the synthetic ingestion warnings emitter enabled
+    /// and pointed at its own topic via the emitter's dedicated config, so
+    /// legacy-path warning envelopes are readable independently of the events
+    /// that triggered them.
+    pub async fn for_topics_with_warnings(
+        main: &EphemeralTopic,
+        historical: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.outputs.analytics_main_topic = main.topic_name().to_string();
+        config.outputs.analytics_historical_topic = historical.topic_name().to_string();
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = TEST_KAFKA_HOSTS.to_string();
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        Self::for_config(config).await
+    }
+
+    pub async fn for_recordings(main: &EphemeralTopic) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.outputs.session_replay_main_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
+        Self::for_config(config).await
+    }
+
+    /// Like `for_recordings`, with the synthetic ingestion warnings emitter
+    /// enabled and pointed at its own topic via the emitter's dedicated config,
+    /// so replay warning envelopes are readable independently of the events that
+    /// triggered them.
+    pub async fn for_recordings_with_warnings(
+        main: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.outputs.session_replay_main_topic = main.topic_name().to_string();
+        config.capture_mode = CaptureMode::Recordings;
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = TEST_KAFKA_HOSTS.to_string();
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        Self::for_config(config).await
+    }
+
+    /// Boots a server with the outputs [`point_outputs_at`] covers pointed at `topic`. The topics live on the config rather than in
+    /// `std::env`, so parallel tests don't race on distinct ephemeral topics.
+    pub async fn for_v1_topic(topic: &EphemeralTopic) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        point_outputs_at(&mut config, topic.topic_name());
+        Self::for_config(config).await
+    }
+
+    /// Like `for_v1_topic`, with the synthetic ingestion warnings emitter
+    /// enabled and pointed at its own topic via the emitter's dedicated config,
+    /// so warning envelopes are readable independently of the events that
+    /// triggered them.
+    pub async fn for_v1_topic_with_warnings(
+        topic: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        point_outputs_at(&mut config, topic.topic_name());
+        config.capture_ingestion_warnings_enabled = true;
+        // The emitter reads only its own dedicated config now (no v0 KAFKA_*
+        // fallback), so point it at the same ephemeral broker as the main sink.
+        config.capture_ingestion_warnings_kafka_hosts = TEST_KAFKA_HOSTS.to_string();
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        Self::for_config(config).await
+    }
+
+    /// Like `for_v1_topic`, with the AI-gateway signing secret configured so the
+    /// provenance check runs.
+    pub async fn for_v1_topic_with_signing_secret(topic: &EphemeralTopic, secret: &str) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        point_outputs_at(&mut config, topic.topic_name());
+        config.ai_gateway_signing_secret = Some(secret.to_string());
+        // The gateway tests send AI events, which route to the AI topic;
+        // point it at the same ephemeral topic so the consumer sees them.
+        config.outputs.ai_main_topic = topic.topic_name().to_string();
+        Self::for_config(config).await
+    }
+
+    pub async fn for_config(config: Config) -> Self {
+        Self::for_config_with_sink_env(config, std::env::vars().collect()).await
+    }
+
+    pub async fn for_config_with_sink_env(
+        config: Config,
+        mut sink_env: HashMap<String, String>,
+    ) -> Self {
+        for (key, value) in test_producer_env() {
+            sink_env.entry(key).or_insert(value);
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+
+        let mut manager = lifecycle::Manager::builder("capture-test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(shutdown_token.clone())
+            .build();
+
+        let handles = setup::register_components(&mut manager, &config);
+        let _monitor = manager.monitor_background();
+        let components = setup::build_components(config, sink_env, handles).await;
+        let event_restriction_service = components.event_restriction_service.clone();
+
+        tokio::spawn(async move { serve(listener, components).await });
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(3000))
+            .build()
+            .unwrap();
+
+        Self {
+            addr,
+            shutdown: shutdown_token,
+            client,
+            event_restriction_service,
+        }
+    }
+
+    /// Wait for the event restriction service's first successful load. Entries
+    /// written to Redis before boot are guaranteed visible after this returns,
+    /// because a refresh fetches every restriction type and swaps the manager
+    /// atomically.
+    pub async fn wait_for_restrictions_loaded(&self) {
+        let service = self
+            .event_restriction_service
+            .as_ref()
+            .expect("server booted without event restrictions enabled");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !service.has_loaded() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "event restrictions not loaded within 10s"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    pub async fn capture_events<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        self.client
+            .post(format!("http://{:?}/i/v0/e", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    pub async fn capture_to_batch<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        self.client
+            .post(format!("http://{:?}/batch", self.addr))
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    /// POST a v1 analytics batch to `/i/v1/analytics/events` with the full set
+    /// of headers `Context::new` requires (auth + the custom PostHog-* headers).
+    pub async fn capture_v1<T: Into<reqwest::Body>>(
+        &self,
+        token: &str,
+        body: T,
+    ) -> reqwest::Response {
+        self.client
+            .post(format!("http://{:?}/i/v1/analytics/events", self.addr))
+            .header("authorization", format!("Bearer {token}"))
+            .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
+            .header("PostHog-Attempt", "1")
+            .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
+            .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")
+            .header("content-type", "application/json")
+            .header("user-agent", "test-client/1.0")
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    /// Like `capture_v1`, plus the AI-gateway provenance headers.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn capture_v1_with_gateway_headers<T: Into<reqwest::Body>>(
+        &self,
+        token: &str,
+        body: T,
+        signature: &str,
+        signed_at: &str,
+        request_id: &str,
+    ) -> reqwest::Response {
+        self.client
+            .post(format!("http://{:?}/i/v1/analytics/events", self.addr))
+            .header("authorization", format!("Bearer {token}"))
+            .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
+            .header("PostHog-Attempt", "1")
+            .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
+            .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")
+            .header("content-type", "application/json")
+            .header("user-agent", "test-client/1.0")
+            .header("PostHog-Ai-Gateway-Signature", signature)
+            .header("PostHog-Ai-Gateway-Signed-At", signed_at)
+            .header("PostHog-Ai-Gateway-Request-Id", request_id)
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    pub async fn capture_recording<T: Into<reqwest::Body>>(
+        &self,
+        body: T,
+        user_agent: Option<&str>,
+    ) -> reqwest::Response {
+        self.client
+            .post(format!("http://{:?}/s/", self.addr))
+            .body(body)
+            .header("User-Agent", user_agent.unwrap_or("test-client"))
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+}
+
+impl Drop for ServerHandle {
+    fn drop(&mut self) {
+        self.shutdown.cancel()
+    }
+}
+
+pub struct EphemeralTopic {
+    consumer: BaseConsumer,
+    read_timeout: Timeout,
+    topic_name: String,
+}
+
+impl EphemeralTopic {
+    pub async fn new() -> Self {
+        let mut config = ClientConfig::new();
+        let group_id = random_string("capture_it", 12);
+        config.set("group.id", &group_id);
+        config.set("bootstrap.servers", TEST_KAFKA_HOSTS);
+        config.set("debug", "consumer,cgrp,topic,fetch");
+        config.set("socket.timeout.ms", "30000");
+        // RedPanda compatibility settings
+        config.set("enable.auto.commit", "false");
+        config.set("auto.offset.reset", "earliest");
+        config.set("session.timeout.ms", "30000");
+        config.set("heartbeat.interval.ms", "10000");
+        config.set("max.poll.interval.ms", "300000");
+        config.set("connections.max.idle.ms", "540000");
+        // Consumer-specific timeout settings
+        config.set("fetch.wait.max.ms", "500");
+        config.set("fetch.error.backoff.ms", "500");
+        config.set("partition.assignment.strategy", "cooperative-sticky");
+
+        // TODO: check for name collision?
+        let topic_name = random_string("events_", 16);
+        let admin = AdminClient::from_config(&config).expect("failed to create admin client");
+        let created = admin
+            .create_topics(
+                &[NewTopic {
+                    name: &topic_name,
+                    num_partitions: 1,
+                    replication: TopicReplication::Fixed(1),
+                    config: vec![],
+                }],
+                &AdminOptions::default(),
+            )
+            .await
+            .expect("failed to create topic");
+
+        for result in created {
+            result.expect("failed to create topic");
+        }
+
+        // Wait for topic metadata to be fully available across RedPanda cluster
+        let consumer: BaseConsumer = config.create().expect("failed to create consumer");
+
+        // Robust topic readiness check
+        for attempt in 0..100 {
+            match consumer.fetch_metadata(Some(&topic_name), Duration::from_secs(1)) {
+                Ok(metadata) => {
+                    let ready = metadata
+                        .topics()
+                        .iter()
+                        .any(|t| t.name() == topic_name && !t.partitions().is_empty());
+                    if ready {
+                        // Add extra delay to ensure topic is fully ready for production/consumption
+                        std::thread::sleep(Duration::from_millis(200));
+                        break;
+                    }
+                }
+                Err(_) => {
+                    // Metadata fetch failed, continue retrying
+                }
+            }
+
+            if attempt == 99 {
+                panic!("Topic {topic_name} not ready after 100 attempts");
+            }
+
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        let mut assignment = TopicPartitionList::new();
+        assignment.add_partition(&topic_name, 0);
+        consumer
+            .assign(&assignment)
+            .expect("failed to assign topic");
+
+        Self {
+            consumer,
+            read_timeout: Timeout::After(Duration::from_secs(30)),
+            topic_name,
+        }
+    }
+
+    pub fn next_event(&self) -> anyhow::Result<serde_json::Value> {
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    let body = message.payload().expect("empty kafka message");
+                    let event = serde_json::from_slice(body)?;
+                    return Ok(event);
+                }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {err}");
+                }
+                None => bail!("kafka read timeout"),
+            }
+        }
+    }
+    pub fn next_message_key(&self) -> anyhow::Result<Option<String>> {
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    let key = message.key();
+
+                    if let Some(key) = key {
+                        let key = std::str::from_utf8(key)?;
+                        let key = String::from_str(key)?;
+
+                        return Ok(Some(key));
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {err}");
+                }
+                None => bail!("kafka read timeout"),
+            }
+        }
+    }
+
+    pub fn next_message_with_headers(
+        &self,
+    ) -> anyhow::Result<(serde_json::Value, std::collections::HashMap<String, String>)> {
+        let (_key, event, headers) = self.next_message_full()?;
+        Ok((event, headers))
+    }
+
+    /// Like `next_message_with_headers`, also returning the partition key, so
+    /// one consumed message can assert key, payload, and headers together.
+    pub fn next_message_full(
+        &self,
+    ) -> anyhow::Result<(
+        Option<String>,
+        serde_json::Value,
+        std::collections::HashMap<String, String>,
+    )> {
+        use std::collections::HashMap;
+
+        // Retry on transient Kafka errors like NotCoordinator
+        let mut retries = 0;
+        const MAX_RETRIES: u32 = 10;
+
+        loop {
+            match self.consumer.poll(self.read_timeout) {
+                Some(Ok(message)) => {
+                    let key = match message.key() {
+                        Some(key) => Some(String::from_str(std::str::from_utf8(key)?)?),
+                        None => None,
+                    };
+
+                    let body = message.payload().expect("empty kafka message");
+                    let event = serde_json::from_slice(body)?;
+
+                    let mut headers = HashMap::new();
+                    if let Some(message_headers) = message.headers() {
+                        for header in message_headers.iter() {
+                            if let Some(value) = header.value {
+                                if let Ok(value_str) = std::str::from_utf8(value) {
+                                    headers.insert(header.key.to_string(), value_str.to_string());
+                                }
+                            }
+                        }
+                    }
+
+                    return Ok((key, event, headers));
+                }
+                Some(Err(err)) => {
+                    // Check if it's a transient error that should be retried
+                    let err_str = err.to_string();
+                    if (err_str.contains("NotCoordinator") || err_str.contains("Unknown partition"))
+                        && retries < MAX_RETRIES
+                    {
+                        retries += 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    }
+                    bail!("kafka read error: {err}");
+                }
+                None => bail!("kafka read timeout"),
+            }
+        }
+    }
+
+    pub(crate) fn assert_empty(&self) {
+        assert!(
+            self.consumer
+                .poll(Timeout::After(Duration::from_secs(1)))
+                .is_none(),
+            "topic holds more messages"
+        )
+    }
+
+    pub fn topic_name(&self) -> &str {
+        &self.topic_name
+    }
+}
+
+impl Drop for EphemeralTopic {
+    fn drop(&mut self) {
+        info!("dropping EphemeralTopic {}...", self.topic_name);
+
+        // First unsubscribe to stop any ongoing polls
+        self.consumer.unsubscribe();
+
+        // Give some time for any ongoing polls to complete
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Then delete the topic
+        match futures::executor::block_on(timeout(
+            Duration::from_secs(10),
+            delete_topic(self.topic_name.clone()),
+        )) {
+            Ok(_) => info!("dropped topic: {}", self.topic_name.clone()),
+            Err(err) => warn!("failed to drop topic: {}", err),
+        }
+    }
+}
+
+async fn delete_topic(topic: String) {
+    let mut config = ClientConfig::new();
+    config.set("bootstrap.servers", TEST_KAFKA_HOSTS);
+    let admin = AdminClient::from_config(&config).expect("failed to create admin client");
+    admin
+        .delete_topics(&[&topic], &AdminOptions::default())
+        .await
+        .expect("failed to delete topic");
+}
+
+pub struct PrefixedRedis {
+    key_prefix: String,
+    client: Client,
+}
+
+impl PrefixedRedis {
+    pub async fn new() -> Self {
+        Self {
+            key_prefix: random_string("test", 8) + "/",
+            client: Client::open(DEFAULT_CONFIG.redis_url.clone())
+                .expect("failed to create redis client"),
+        }
+    }
+
+    pub fn key_prefix(&self) -> Option<String> {
+        Some(self.key_prefix.to_string())
+    }
+
+    pub fn add_billing_limit(&self, res: QuotaResource, token: &str, until: time::Duration) {
+        let key = format!(
+            "{}{}{}",
+            self.key_prefix,
+            QUOTA_LIMITER_CACHE_KEY,
+            res.as_str()
+        );
+        let score = OffsetDateTime::now_utc().add(until).unix_timestamp();
+        self.client
+            .get_connection()
+            .expect("failed to get connection")
+            .zadd::<String, i64, &str, i64>(key, token, score)
+            .expect("failed to insert in redis");
+    }
+
+    pub fn add_overflow_limit(&self, res: QuotaResource, token: &str, until: time::Duration) {
+        let key = format!(
+            "{}{}{}",
+            self.key_prefix,
+            OVERFLOW_LIMITER_CACHE_KEY,
+            res.as_str()
+        );
+        let score = OffsetDateTime::now_utc().add(until).unix_timestamp();
+        self.client
+            .get_connection()
+            .expect("failed to get connection")
+            .zadd::<String, i64, &str, i64>(key, token, score)
+            .expect("failed to insert in redis");
+    }
+}
+
+pub fn random_string(prefix: &str, length: usize) -> String {
+    let suffix: String = rand::thread_rng()
+        .sample_iter(Alphanumeric)
+        .take(length)
+        .map(char::from)
+        .collect();
+    format!("{prefix}_{suffix}")
+}

@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { DateTime } from 'luxon'
 
-import { safeClickhouseString } from '~/common/utils/db/utils'
+import { safeClickhouseString } from '@posthog/node-common/utils/db/utils'
 import {
     UUID,
     UUID7,
@@ -17,7 +17,7 @@ import {
     sanitizeSqlIdentifier,
     stringify,
     uint32ArrayLEToBuffer,
-} from '~/common/utils/utils'
+} from '@posthog/node-common/utils/utils'
 
 import { ClickHouseTimestamp } from '../src/types'
 
