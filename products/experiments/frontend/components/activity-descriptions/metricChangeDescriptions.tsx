@@ -136,26 +136,18 @@ export const getMetricChanges = (
     }
 
     /**
-     * we need to find the metric that was changed and the value that was changed.
-     * we can use the `fingerprint` to identify the metric that was changed.
-     * There could only be one metric that was changed.
+     * There could only be one metric that was changed. The server restamps the `fingerprint` of every metric when
+     * an experiment setting changes, so a metric counts as changed only when it differs without its fingerprint.
+     * The metric `uuid` pairs the two versions of the changed metric.
      */
-    const metricAfter = after.find(
-        (afterMetric) => !before.some((beforeMetric) => beforeMetric.fingerprint === afterMetric.fingerprint)
-    )
-    const metricBefore = before.find(
-        (beforeMetric) => !after.some((afterMetric) => afterMetric.fingerprint === beforeMetric.fingerprint)
-    )
+    const isUnchanged = (metric: ExperimentMetric, others: ExperimentMetric[]): boolean =>
+        others.some((other) => equal(removeFingerprint(other), removeFingerprint(metric)))
+    const metricAfter = after.find((afterMetric) => !isUnchanged(afterMetric, before))
+    const metricBefore =
+        (metricAfter?.uuid && before.find((beforeMetric) => beforeMetric.uuid === metricAfter.uuid)) ||
+        before.find((beforeMetric) => !isUnchanged(beforeMetric, after))
 
     if (!metricAfter || !metricBefore) {
-        return null
-    }
-
-    /**
-     * there are special cases where the fingerprint is THE only difference between the metrics.
-     * we need to handle these cases.
-     */
-    if (equal(removeFingerprint(metricAfter), removeFingerprint(metricBefore))) {
         return null
     }
 

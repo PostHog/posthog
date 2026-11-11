@@ -137,3 +137,9 @@ def test_input_and_output_read_through_the_io_keys(
     node = node_event(event, properties)
 
     assert (node.input, node.output) == (expected_input, expected_output)
+
+
+def test_custom_properties_drop_dollar_names() -> None:
+    event = node_event("$ai_generation", {"$ai_input": MESSAGES, "$ai_provider": "openai", "plan": "pro", "seats": 3})
+
+    assert event.custom_properties == {"plan": "pro", "seats": 3}

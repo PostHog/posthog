@@ -8,7 +8,6 @@ import { ciExplorerContextLogic } from '../../scenes/ciExplorerContextLogic'
 import { CIExplorerContextComparison } from './CIExplorerContextComparison'
 import { CIExplorerProviderMark } from './CIExplorerProviderMark'
 
-/** The selected workflow, matrix, job, or step against its recent runs on the default branch. */
 export function CIExplorerContext(): JSX.Element {
     const { selection, context, answerLoading, failed } = useValues(ciExplorerContextLogic)
     const { retry } = useActions(ciExplorerContextLogic)

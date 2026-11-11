@@ -534,14 +534,12 @@ product_analytics.Insight posthog.caching.calculate_results isinstance 1
 product_analytics.Insight posthog.caching.warming instance-single 1
 product_analytics.Insight posthog.helpers.dashboard_templates write(create) 2
 product_analytics.Insight posthog.management.commands.backfill_insights_query_metadata instance-many(filter) 1
-product_analytics.Insight posthog.management.commands.backfill_insights_query_metadata write(bulk_update) 1
 product_analytics.Insight posthog.management.commands.migrate_retention_show_mean instance-many(filter) 1
 product_analytics.Insight posthog.middleware instance-many(filter) 1
 product_analytics.Insight posthog.models.file_system.unfiled_file_saver in-collection 1
 product_analytics.Insight posthog.models.product_intent.product_intent instance-many(filter) 2
 product_analytics.Insight posthog.models.resource_transfer.visitors.insight other(Return) 1
 product_analytics.Insight posthog.models.sharing_configuration passed-as-class(cast) 1
-product_analytics.Insight products.actions.backend.presentation.views.action instance-many(extra) 1
 product_analytics.Insight products.alerts.backend.max_tools instance-many(filter) 1
 product_analytics.Insight products.alerts.backend.max_tools passed-as-class(cast) 1
 product_analytics.Insight products.alerts.backend.max_tools write(create) 1

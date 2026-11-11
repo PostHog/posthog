@@ -623,6 +623,8 @@ class SESProvider:
         mail_from_subdomain: str,
         team_id: int,
         org_team_ids: Iterable[int] | None = None,
+        *,
+        keep_existing_mail_from: bool = False,
     ):
         expected_tenant = self._tenant_name_for_team(team_id)
         friendly_tenants = {self._tenant_name_for_team(t) for t in (org_team_ids or [team_id])}
@@ -634,7 +636,7 @@ class SESProvider:
             )
 
         # NOTE: For sesv1, domain Identity creation is done through verification
-        self.verify_email_domain(domain, mail_from_subdomain, team_id)
+        self.verify_email_domain(domain, mail_from_subdomain, team_id, keep_existing_mail_from=keep_existing_mail_from)
 
         # Bounces and complaints already reach the SES webhook through the configuration sets,
         # so a forwarding failure must not fail the add-domain request. The backfill command
@@ -676,7 +678,9 @@ class SESProvider:
         """
         self.ses_v2_client.put_email_identity_feedback_attributes(EmailIdentity=domain, EmailForwardingEnabled=False)
 
-    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
+    def verify_email_domain(
+        self, domain: str, mail_from_subdomain: str, team_id: int, *, keep_existing_mail_from: bool = False
+    ) -> EmailDomainVerification:
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
@@ -702,15 +706,18 @@ class SESProvider:
                 raise
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
-        try:
-            self.ses_client.set_identity_mail_from_domain(
-                Identity=domain,
-                MailFromDomain=f"{mail_from_subdomain}.{domain}",
-                BehaviorOnMXFailure="UseDefaultValue",
-            )
-        except ClientError as e:
-            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
-                raise
+        if keep_existing_mail_from and (ses_mail_from_subdomain := self.get_mail_from_subdomain(domain)) is not None:
+            mail_from_subdomain = ses_mail_from_subdomain
+        else:
+            try:
+                self.ses_client.set_identity_mail_from_domain(
+                    Identity=domain,
+                    MailFromDomain=f"{mail_from_subdomain}.{domain}",
+                    BehaviorOnMXFailure="UseDefaultValue",
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                    raise
 
         # DMARC is in the list too: AWS SES has no method to check its presence, so we do a direct
         # DNS lookup further below and include the result in the overall status.
