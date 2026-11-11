@@ -86,7 +86,7 @@ class ReportText(BaseModel):
                 parts.append(f"[{label}]({item.url})")
             elif item.kind == "change":
                 triangle = "▲" if item.direction == "increase" else "▼"
-                parts.append(_inline_code(f"{triangle} {item.text.strip()}"))
+                parts.append(_inline_code(item.text, prefix=f"{triangle} "))
             elif item.kind in ("name", "value"):
                 parts.append(_inline_code(item.text))
             elif item.kind == "time":
@@ -103,18 +103,18 @@ class ReportText(BaseModel):
         return f"{marker} {content}"
 
 
-def _wrap(text: str, marker: str) -> str:
+def _wrap(text: str, marker: str, prefix: str = "") -> str:
     # Markers go inside the item's surrounding spaces, because "` 18s`" or "_ Nov 4_" do not render as code or italic.
     core = text.strip()
     if not core:
         return text
     start = text.index(core)
-    return f"{text[:start]}{marker}{core}{marker}{text[start + len(core) :]}"
+    return f"{text[:start]}{marker}{prefix}{core}{marker}{text[start + len(core) :]}"
 
 
-def _inline_code(text: str) -> str:
+def _inline_code(text: str, prefix: str = "") -> str:
     # A backtick inside the item would end the code span early.
-    return _wrap(text.replace("`", ""), "`")
+    return _wrap(text.replace("`", ""), "`", prefix)
 
 
 class ReportSummary(BaseModel):

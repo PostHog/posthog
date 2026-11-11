@@ -99,9 +99,14 @@ def test_styled_items_keep_their_spaces_outside_the_markers() -> None:
                 {"kind": "value", "text": " 18s"},
                 {"kind": "text", "text": " on"},
                 {"kind": "time", "text": " Nov 4 "},
-                {"kind": "text", "text": "."},
+                {"kind": "text", "text": "after"},
+                {"kind": "change", "text": " 3s ", "direction": "increase"},
+                {"kind": "text", "text": "in a day."},
             ]
         }
     )
 
-    assert ReportSummary(findings=[finding]).render(slack_formatting=True) == "• `Load time` rose to `18s` on _Nov 4_ ."
+    assert (
+        ReportSummary(findings=[finding]).render(slack_formatting=True)
+        == "• `Load time` rose to `18s` on _Nov 4_ after `▲ 3s` in a day."
+    )
