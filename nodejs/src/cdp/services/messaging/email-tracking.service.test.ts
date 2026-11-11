@@ -606,13 +606,15 @@ describe('EmailTrackingService', () => {
                                 .filter(({ value }) => value.instance_id === sendId)
                                 .map(({ value }) => value.metric_name)
                             expect(metrics).toEqual(expect.arrayContaining(['email_opened', 'email_link_clicked']))
+                            expect(
+                                received
+                                    .filter(
+                                        (event) => event.api_key === team.api_token && event.distinct_id === 'user-1'
+                                    )
+                                    .map((event) => event.event)
+                                    .sort()
+                            ).toEqual(captured)
                         })
-                        expect(
-                            received
-                                .filter((event) => event.api_key === team.api_token && event.distinct_id === 'user-1')
-                                .map((event) => event.event)
-                                .sort()
-                        ).toEqual(captured)
                     } finally {
                         mockInternalFetch.mockImplementation(stubbedFetch)
                         hub.CAPTURE_INTERNAL_URL = captureUrl
