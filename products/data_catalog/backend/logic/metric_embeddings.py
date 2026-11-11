@@ -1,8 +1,8 @@
 """Embeddings for semantic metric search.
 
-The vector lives on the metric row. A metric write schedules a refresh after commit, and the refresh
-calls the shared embedding worker only when the search text changed. The backfill command runs the
-same refresh over metrics that exist already.
+The vector lives on the metric row. A metric write that changes the search text clears the vector and
+schedules a refresh after commit. The backfill sweep and the backfill command run the same refresh over
+metrics with no vector, so a refresh that failed is repaired on the next sweep.
 
 Embedding sends metric text to an outside model provider, so it runs only for organizations that
 approved AI data processing. The read path also needs the semantic search feature flag.
@@ -10,6 +10,7 @@ approved AI data processing. The read path also needs the semantic search featur
 
 import hashlib
 from collections.abc import Iterable
+from enum import StrEnum
 
 from django.db.models import Q
 
@@ -40,11 +41,22 @@ BACKFILL_SPACING_SECONDS = 4
 EMBEDDED_FIELDS = frozenset({"name", "display_name", "description", "unit"})
 
 
+class RefreshOutcome(StrEnum):
+    REFRESHED = "refreshed"
+    CURRENT = "current"
+    CHANGED = "changed"
+    DELETED = "deleted"
+    AI_DATA_PROCESSING_NOT_APPROVED = "ai_data_processing_not_approved"
+
+
 @frozen
 class EmbeddingRefresh:
     metric_id: str
-    refreshed: bool
-    reason: str
+    outcome: RefreshOutcome
+
+    @property
+    def refreshed(self) -> bool:
+        return self.outcome == RefreshOutcome.REFRESHED
 
 
 def metric_search_text(metric: Metric) -> str:
@@ -114,11 +126,11 @@ def refresh_metric_embedding(metric: Metric, *, force: bool = False) -> Embeddin
     """
     metric_id = str(metric.id)
     if metric.deleted:
-        return EmbeddingRefresh(metric_id=metric_id, refreshed=False, reason="deleted")
+        return EmbeddingRefresh(metric_id=metric_id, outcome=RefreshOutcome.DELETED)
     if not can_embed(metric.team):
-        return EmbeddingRefresh(metric_id=metric_id, refreshed=False, reason="ai_data_processing_not_approved")
+        return EmbeddingRefresh(metric_id=metric_id, outcome=RefreshOutcome.AI_DATA_PROCESSING_NOT_APPROVED)
     if not force and embedding_is_current(metric):
-        return EmbeddingRefresh(metric_id=metric_id, refreshed=False, reason="current")
+        return EmbeddingRefresh(metric_id=metric_id, outcome=RefreshOutcome.CURRENT)
 
     text = metric_search_text(metric)
     text_hash = search_text_hash(text)
@@ -137,9 +149,15 @@ def refresh_metric_embedding(metric: Metric, *, force: bool = False) -> Embeddin
         )
         .update(embedding=response.embedding, embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash=text_hash)
     )
-    if not updated:
-        return EmbeddingRefresh(metric_id=metric_id, refreshed=False, reason="changed")
-    return EmbeddingRefresh(metric_id=metric_id, refreshed=True, reason="refreshed")
+    outcome = RefreshOutcome.REFRESHED if updated else RefreshOutcome.CHANGED
+    return EmbeddingRefresh(metric_id=metric_id, outcome=outcome)
+
+
+def clear_stale_embedding(metric: Metric) -> None:
+    """Drop the vector of a metric whose search text changed, so the backfill sweep finds it if the refresh fails."""
+    Metric.objects.for_team(metric.team_id).filter(pk=metric.pk, embedding__isnull=False).update(
+        embedding=None, embedding_text_hash=""
+    )
 
 
 def metrics_needing_embedding(metrics: Iterable[Metric]) -> list[Metric]:
@@ -148,7 +166,8 @@ def metrics_needing_embedding(metrics: Iterable[Metric]) -> list[Metric]:
 
 def metrics_missing_embedding(limit: int) -> list[tuple[str, int]]:
     """``(metric id, team id)`` of live metrics with no vector from the current model, in organizations
-    that approved AI data processing. Random order, so a metric that keeps failing cannot hold a batch.
+    that approved AI data processing. A text change clears the vector, so this also finds failed refreshes.
+    Random order, so a metric that keeps failing cannot hold a batch.
     """
     rows = (
         Metric.objects.unscoped()

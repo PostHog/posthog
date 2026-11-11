@@ -6,16 +6,18 @@ runs only when the caller passes a query embedding: cosine similarity against th
 metric rows. Every hit carries the reason it matched, and the result says whether any hit is a
 confident match.
 
-A team holds a few hundred metrics at most, so the semantic lane ranks in Python with no vector index.
+A team holds a few hundred metrics, so the semantic lane ranks in Python with no vector index. Above
+``SEMANTIC_MAX_CANDIDATES`` it skips itself and logs, so a large catalog costs no more than word matching.
 """
 
 import re
 import math
+import heapq
 from collections.abc import Callable, Sequence
 from enum import IntEnum, StrEnum
 from functools import reduce
 from operator import or_
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from django.contrib.postgres.search import (
@@ -28,6 +30,8 @@ from django.contrib.postgres.search import (
 from django.db.models import BooleanField, Case, Expression, Func, Q, QuerySet, Value, When
 from django.db.models.expressions import CombinedExpression
 from django.db.models.functions import Coalesce, Greatest, Least
+
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.helpers.trigram_search import normalize_search_term
@@ -42,6 +46,8 @@ from .metrics import metrics_visible_to_user
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+logger = structlog.get_logger(__name__)
 
 MAX_SEARCH_PHRASINGS = 5
 MAX_SEARCH_PHRASING_LENGTH = 200
@@ -67,6 +73,10 @@ SEMANTIC_TOP_K = 10
 # A semantic hit this close counts as a confident match. A placeholder until the eval calibrates it.
 SEMANTIC_CONFIDENT_SIMILARITY = 0.55
 
+# Scoring one vector in Python takes about a millisecond, so a team over this many embedded metrics gets
+# word matching only, and a log line says the lane needs a vector index.
+SEMANTIC_MAX_CANDIDATES = 2000
+
 _ACRONYM_MAX_LENGTH = 6
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
@@ -77,7 +87,7 @@ class SearchMode(StrEnum):
 
 
 class MatchTier(IntEnum):
-    """How strongly a lexical hit matches. A higher tier always ranks above a lower one."""
+    """How strongly a lexical hit matches. Among lexical hits, a higher tier always ranks above a lower one."""
 
     SOME_WORDS = 1
     TYPO = 2
@@ -94,8 +104,6 @@ CONFIDENT_TIER = MatchTier.ALL_WORDS
 class MetricSearchHit:
     metric: Metric
     match_reason: str
-    lanes: tuple[str, ...]
-    semantic_similarity: float | None = None
 
 
 @frozen
@@ -282,21 +290,23 @@ def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     return dot / norm if norm else 0.0
 
 
-def _semantic_lane(
-    candidates: QuerySet[Metric], query_embedding: list[float], model: str, top_k: int
-) -> dict[UUID, float]:
+def _semantic_lane(candidates: QuerySet[Metric], query_embedding: list[float], top_k: int) -> dict[UUID, float]:
     """Cosine similarity for the ``top_k`` closest metrics whose vector still matches their text."""
-    rows = candidates.filter(embedding__isnull=False, embedding_model=model).only(
+    embedded = candidates.filter(embedding__isnull=False, embedding_model=METRIC_EMBEDDING_MODEL)
+    count = embedded.count()
+    if count > SEMANTIC_MAX_CANDIDATES:
+        logger.warning("metric_semantic_search_skipped_large_catalog", embedded_metrics=count)
+        return {}
+    rows = embedded.only(
         "id", "name", "display_name", "description", "unit", "embedding", "embedding_model", "embedding_text_hash"
-    )
+    ).iterator(chunk_size=200)
     # A vector made from text that changed since is skipped until the refresh task replaces it.
-    similarities = {
-        metric.id: cosine_similarity(query_embedding, metric.embedding)
+    similarities = (
+        (metric.id, cosine_similarity(query_embedding, cast(list[float], metric.embedding)))
         for metric in rows
-        if metric.embedding is not None and embedding_is_current(metric)
-    }
-    closest = sorted(similarities.items(), key=lambda item: item[1], reverse=True)[:top_k]
-    return dict(closest)
+        if embedding_is_current(metric)
+    )
+    return dict(heapq.nlargest(top_k, similarities, key=lambda item: item[1]))
 
 
 def search_metrics(
@@ -306,7 +316,6 @@ def search_metrics(
     limit: int = SEARCH_DEFAULT_LIMIT,
     offset: int = 0,
     embed_query: Callable[[str], list[float] | None] | None = None,
-    embedding_model: str | None = None,
     semantic_top_k: int = SEMANTIC_TOP_K,
 ) -> MetricSearchResult:
     """Rank ``candidates`` against one or more phrasings of the same need, and load one page of hits.
@@ -320,10 +329,8 @@ def search_metrics(
 
     lexical = _lexical_lane(candidates, phrasings)
 
-    semantic: dict[UUID, float] = {}
-    query_embedding = embed_query("; ".join(phrasings)) if embed_query is not None and embedding_model else None
-    if query_embedding is not None and embedding_model:
-        semantic = _semantic_lane(candidates, query_embedding, embedding_model, semantic_top_k)
+    query_embedding = embed_query("; ".join(phrasings)) if embed_query is not None else None
+    semantic = _semantic_lane(candidates, query_embedding, semantic_top_k) if query_embedding is not None else {}
 
     # Rank on light rows, then load full metrics only for the hits that are returned.
     rows = {
@@ -346,11 +353,16 @@ def search_metrics(
         (metric_id for metric_id in rows if metric_id in semantic),
         key=lambda metric_id: (-semantic[metric_id], rows[metric_id][0]),
     )
+    # A confident word match ranks above every meaning-only hit. The weaker word matches and the semantic
+    # lane interleave by their best rank below them.
+    confident_ids = [metric_id for metric_id in lexical_ranked if lexical[metric_id].tier >= CONFIDENT_TIER]
+    confident_set = set(confident_ids)
     scores: dict[UUID, float] = {}
     for lane_ranked in (lexical_ranked, semantic_ranked):
-        for position, metric_id in enumerate(lane_ranked, start=1):
+        weaker = [metric_id for metric_id in lane_ranked if metric_id not in confident_set]
+        for position, metric_id in enumerate(weaker, start=1):
             scores[metric_id] = max(scores.get(metric_id, 0.0), 1.0 / (RRF_K + position))
-    ranked = sorted(
+    ranked = confident_ids + sorted(
         scores,
         key=lambda metric_id: (
             -scores[metric_id],
@@ -371,16 +383,7 @@ def search_metrics(
             continue
         similarity = semantic.get(metric_id)
         reason = lexical[metric_id].reason if metric_id in lexical else f"similar meaning ({similarity:.2f})"
-        hits.append(
-            MetricSearchHit(
-                metric=metrics[metric_id],
-                match_reason=reason,
-                lanes=tuple(
-                    lane for lane, members in (("lexical", lexical), ("semantic", semantic)) if metric_id in members
-                ),
-                semantic_similarity=None if similarity is None else round(similarity, 4),
-            )
-        )
+        hits.append(MetricSearchHit(metric=metrics[metric_id], match_reason=reason))
 
     confident = any(match.tier >= CONFIDENT_TIER for match in lexical.values()) or any(
         score >= SEMANTIC_CONFIDENT_SIMILARITY for score in semantic.values()
@@ -410,14 +413,12 @@ def search_catalog(
     """
     candidates = metrics_visible_to_user(team, user, user_access_control, filters)
     phrasings = split_search(search)
-    semantic = semantic_search_enabled(team)
     result = search_metrics(
         candidates,
         phrasings,
         limit=limit,
         offset=offset,
-        embed_query=(lambda text: embed_search_query(team, text)) if semantic else None,
-        embedding_model=METRIC_EMBEDDING_MODEL if semantic else None,
+        embed_query=(lambda text: embed_search_query(team, text)) if semantic_search_enabled(team) else None,
     )
     # Later pages of the same search are not new searches.
     if offset > 0:

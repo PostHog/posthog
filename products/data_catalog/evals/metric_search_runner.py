@@ -78,7 +78,6 @@ def run_case(
             case.queries,
             limit=SEARCH_DEFAULT_LIMIT,
             embed_query=embed_query if variant.semantic else None,
-            embedding_model=METRIC_EMBEDDING_MODEL if variant.semantic else None,
             semantic_top_k=variant.semantic_top_k,
         )
     latency_ms = (time.perf_counter() - started) * 1000

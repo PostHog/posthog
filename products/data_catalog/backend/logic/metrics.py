@@ -47,7 +47,7 @@ from .analytics import (
 from .drift import canonical_query_hash, compute_drift, fetch_insight
 from .exceptions import MetricChanged, MetricDrifted, MetricNameTaken, SourceInsightUnavailable
 from .lineage import remove_metric_lineage
-from .metric_embeddings import EMBEDDED_FIELDS, can_embed
+from .metric_embeddings import EMBEDDED_FIELDS, can_embed, clear_stale_embedding
 from .validation import validate_description, validate_metric_definition
 
 if TYPE_CHECKING:
@@ -259,11 +259,12 @@ def _schedule_lineage_sync(metric: Metric) -> None:
 
 
 def _schedule_embedding_refresh(metric: Metric) -> None:
-    """Refresh the search embedding after the write commits, for organizations that allow embedding.
+    """Clear the stale vector, then refresh it after the write commits, for organizations that allow embedding.
 
-    `robust=True` for the same reason as the lineage sync. The embedding backfill command repairs a
+    `robust=True` for the same reason as the lineage sync. The embedding backfill sweep repairs a
     message that never went.
     """
+    clear_stale_embedding(metric)
     if not can_embed(metric.team):
         return
     metric_id, team_id = str(metric.id), metric.team_id
@@ -707,8 +708,8 @@ def _reset_to_proposed(metric: Metric) -> None:
 
 
 def metrics_for_team(team: Team) -> QuerySet[Metric]:
-    """Live (non-deleted) metrics for a team, newest first."""
-    return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
+    """Live (non-deleted) metrics for a team, newest first. The search vector is not loaded."""
+    return Metric.objects.for_team(team.id).filter(deleted=False).defer("embedding").order_by("-created_at")
 
 
 def metrics_visible_to_user(

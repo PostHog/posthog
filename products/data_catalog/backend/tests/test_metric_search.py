@@ -14,6 +14,7 @@ from posthog.models.scoping import team_scope
 
 from products.data_catalog.backend.logic.metric_embeddings import (
     METRIC_EMBEDDING_MODEL,
+    RefreshOutcome,
     metric_search_text,
     refresh_metric_embedding,
     search_text_hash,
@@ -80,18 +81,11 @@ class TestMetricSearchFixtureCatalog(BaseTest):
             _store_vector(candidates, "mrr", [0.0, 1.0])
             _store_vector(candidates, "arr", [0.95, 0.05], text_hash="stale")
 
-            hybrid = search_metrics(
-                candidates,
-                ["loyalty"],
-                embed_query=lambda _text: [0.9, 0.1],
-                embedding_model=METRIC_EMBEDDING_MODEL,
-            )
-            fallback = search_metrics(
-                candidates, ["loyalty"], embed_query=lambda _text: None, embedding_model=METRIC_EMBEDDING_MODEL
-            )
+            hybrid = search_metrics(candidates, ["loyalty"], embed_query=lambda _text: [0.9, 0.1])
+            fallback = search_metrics(candidates, ["loyalty"], embed_query=lambda _text: None)
 
         assert [hit.metric.name for hit in hybrid.hits] == ["nps_score", "mrr"], "arr's vector is stale"
-        assert all(hit.lanes == ("semantic",) for hit in hybrid.hits)
+        assert all(hit.match_reason.startswith("similar meaning") for hit in hybrid.hits)
         assert hybrid.confident_match is True
         assert hybrid.search_mode == "hybrid"
         assert fallback.hits == []
@@ -109,16 +103,23 @@ class TestMetricSearchFixtureCatalog(BaseTest):
             ]:
                 _store_vector(candidates, name, vector)
 
-            result = search_metrics(
-                candidates,
-                ["loyalty rating"],
-                embed_query=lambda _text: [1.0, 0.0],
-                embedding_model=METRIC_EMBEDDING_MODEL,
-            )
+            result = search_metrics(candidates, ["loyalty rating"], embed_query=lambda _text: [1.0, 0.0])
 
         ranked = [hit.metric.name for hit in result.hits]
         assert set(ranked) == {"nps_score", "api_error_rate", "logo_churn_rate"}
         assert ranked.index("nps_score") <= 1, ranked
+
+    def test_confident_word_matches_rank_above_meaning_only_hits(self) -> None:
+        with team_scope(self.team.id):
+            candidates = Metric.objects.for_team(self.team.id).filter(
+                deleted=False, name__in=["mrr", "arr", "nps_score"]
+            )
+            for name, vector in [("mrr", [0.0, 1.0]), ("arr", [0.0, 1.0]), ("nps_score", [1.0, 0.0])]:
+                _store_vector(candidates, name, vector)
+
+            result = search_metrics(candidates, ["recurring revenue"], embed_query=lambda _text: [1.0, 0.0])
+
+        assert [hit.metric.name for hit in result.hits][-1] == "nps_score", [hit.match_reason for hit in result.hits]
 
 
 class TestSplitSearch(SimpleTestCase):
@@ -200,7 +201,7 @@ class TestMetricEmbeddingRefresh(BaseTest):
         generate.side_effect = edit_while_embedding
         refresh = refresh_metric_embedding(metric)
 
-        assert (refresh.refreshed, refresh.reason) == (False, "changed")
+        assert refresh.outcome == RefreshOutcome.CHANGED
         assert self._stored("mrr").embedding is None
 
     def test_org_without_ai_approval_is_never_embedded(self, generate: MagicMock) -> None:
@@ -243,10 +244,22 @@ class TestMetricEmbeddingRefresh(BaseTest):
             embedding=[0.5, 0.5], embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash="any"
         )
 
+        with team_scope(self.team.id):
+            Metric.objects.for_team(self.team.id).create(team=self.team, name="churn", description="churn metric")
+        Metric.objects.for_team(self.team.id).filter(name="churn").update(
+            embedding=[0.5, 0.5],
+            embedding_model=METRIC_EMBEDDING_MODEL,
+            embedding_text_hash=_hash_of(self._stored("churn")),
+        )
+        # The text changes, but the refresh never runs, as when its task fails.
+        with self.captureOnCommitCallbacks(execute=False):
+            update_metric(self._stored("churn"), team=self.team, user=self.user, description="Logo churn")
+
         backfill_metric_embeddings_task()
 
-        assert generate.call_count == 1
+        assert generate.call_count == 2
         assert self._stored("mrr").embedding == [0.1, 0.2]
+        assert self._stored("churn").embedding == [0.1, 0.2]
         with team_scope(other_team.id):
             assert Metric.objects.for_team(other_team.id).get(name="nps").embedding is None
 
@@ -282,6 +295,28 @@ class TestMetricListSearch(APIBaseTest):
         assert results[0]["is_drifted"] is False
         assert {row["match_reason"] for row in plain.json()["results"]} == {None}
 
+    def test_flag_on_adds_meaning_hits_and_falls_back_to_words_when_embedding_fails(self, flag: MagicMock) -> None:
+        flag.return_value = True
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        with team_scope(self.team.id):
+            for name, description in [
+                ("nps_score", "Net promoter score from the in-app survey."),
+                ("mrr", "Monthly recurring revenue."),
+            ]:
+                Metric.objects.for_team(self.team.id).create(team=self.team, name=name, description=description)
+            candidates = Metric.objects.for_team(self.team.id).all()
+            _store_vector(candidates, "nps_score", [1.0, 0.0])
+            _store_vector(candidates, "mrr", [0.0, 1.0])
+
+        with patch(_GENERATE_EMBEDDING, return_value=_embedding([1.0, 0.0])):
+            meaning = self.client.get(self.url, {"search": "loyalty"}).json()["results"]
+        with patch(_GENERATE_EMBEDDING, side_effect=TimeoutError):
+            fallback = self.client.get(self.url, {"search": "loyalty, revenue"}).json()["results"]
+
+        assert (meaning[0]["name"], meaning[0]["match_reason"]) == ("nps_score", "similar meaning (1.00)")
+        assert [(row["name"], row["match_reason"]) for row in fallback] == [("mrr", "all words in the description")]
+
     @parameterized.expand(
         [
             ("name", "mrr", "mrr", "name match"),
@@ -296,7 +331,9 @@ class TestMetricListSearch(APIBaseTest):
             ("one_right_word_is_not_a_typo", "active users", "weekly_active_organizations", "some words in the name"),
         ]
     )
-    def test_match_reason_says_where_the_words_matched(self, _name: str, search: str, metric: str, reason: str) -> None:
+    def test_match_reason_says_where_the_words_matched(
+        self, _flag: MagicMock, _name: str, search: str, metric: str, reason: str
+    ) -> None:
         with team_scope(self.team.id):
             for name, description in [
                 ("mrr", "Monthly recurring revenue from paid subscriptions."),
