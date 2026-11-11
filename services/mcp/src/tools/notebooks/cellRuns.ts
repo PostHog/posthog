@@ -1,7 +1,7 @@
 import type { Schemas } from '@/api/generated'
 import { findRecoverableApiError, PostHogValidationError, wrapError } from '@/lib/errors'
 import { withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
-import type { Context } from '@/tools/types'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
 
 import {
     collectRunRefs,
@@ -203,7 +203,11 @@ function withUnrunUpstreamHint(error: unknown, cells: CellTagBlock[]): unknown {
     if (!upstream) {
         return error
     }
-    const hint = `Cell ${upstream.nodeId} produces ${name}. Run it with notebooks-run-cell, then run this cell again.`
+    const reference = withInformationalResponse(
+        { node_id: upstream.nodeId, return_variable: name },
+        'notebook-upstream-cell'
+    )
+    const hint = `Run the upstream cell with notebooks-run-cell, then run this cell again.\n${reference[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]}`
     if (apiError instanceof PostHogValidationError) {
         // MCP and CLI formatters unwrap errors, so the typed error must carry the safe hint.
         return new PostHogValidationError({ ...apiError, message: `${apiError.message} ${hint}` })
