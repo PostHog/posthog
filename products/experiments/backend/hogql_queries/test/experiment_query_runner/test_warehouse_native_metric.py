@@ -27,7 +27,9 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import OrganizationMembership
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.experiments.backend.facade.dashboard_widgets import experiment_results_widget
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
@@ -196,6 +198,18 @@ class TestWarehouseNativeMetric(APIBaseTest):
             )
 
         self.assertIn("Invalid connectionId", str(raised.exception))
+
+        # The dashboard results widget reads the same cache for the viewer.
+        widget = experiment_results_widget(
+            self.team,
+            UserAccessControl(user=self.user, team=self.team),
+            experiment_id=self.experiment.id,
+            max_metrics_per_section=1,
+        )
+        assert widget is not None and widget.metrics is not None
+        (metric,) = widget.metrics.primary
+        self.assertIsNone(metric.result)
+        self.assertEqual(metric.error, "Could not compute results for this metric.")
         self.warehouse.assert_called_once()
 
     def test_persons_are_not_available(self) -> None:
