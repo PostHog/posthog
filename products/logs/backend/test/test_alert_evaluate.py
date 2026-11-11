@@ -239,7 +239,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         paged = pager is not None
 
         with patch(
-            "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+            "posthoganalytics.feature_enabled",
             side_effect=lambda flag, *args, **kwargs: flag == ROUTING_FLAG,
         ):
             evaluation, _ = self._run(configuration)
