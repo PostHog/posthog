@@ -347,6 +347,12 @@ RUN apt-get update && \
     # psutil is not installed, so joblib's loky kills worker process trees with pgrep.
     # Operators also need ps to find a PID for py-spy.
     "procps" \
+    # The base image digest freezes its tzdata. HogQL prints datetime constants as local time in
+    # the team's timezone, and ClickHouse resolves them with its own tz rules. When a zone's rules
+    # change and this image lags, both sides disagree on the UTC offset and queries shift their
+    # time bounds. Listing tzdata here upgrades it to the newest Debian release whenever this
+    # layer is rebuilt. A cached layer keeps the tzdata it was built with.
+    "tzdata" \
     && \
     rm -rf /var/lib/apt/lists/*
 
