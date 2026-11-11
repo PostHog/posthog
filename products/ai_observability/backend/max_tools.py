@@ -1,7 +1,11 @@
+from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
+from rest_framework.exceptions import Throttled
 
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
@@ -11,6 +15,7 @@ from products.ai_observability.backend.facade import (
     contracts,
 )
 from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH
+from products.ai_observability.backend.presentation.query_concurrency import query_concurrency_slots
 
 from ee.hogai.tool import MaxTool
 
@@ -61,6 +66,7 @@ The user is looking at an AI observability event that renders as raw JSON becaus
 recipe recognizes its shape.
 
 Trace ID: {trace_id}
+Trace timestamp: {trace_timestamp}
 Event UUID: {event_uuid}
 Event type: {event_type}
 Unrecognized sides: {unrecognized}
@@ -87,7 +93,10 @@ The parser recipe DSL reference, with worked examples:
 
 
 class CreateParserRecipeArgs(BaseModel):
-    name: str = Field(description="Short human-readable name for the recipe, e.g. the SDK or format it parses.")
+    # Mirrors the recipe serializer's name rules, which this tool's save does not go through.
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)] = Field(
+        description="Short human-readable name for the recipe, e.g. the SDK or format it parses."
+    )
     yaml_source: str = Field(
         description="The complete recipe YAML (a `rules:` sequence; `id` is not needed). "
         "Write rules for the shapes shown in the sample event."
@@ -98,6 +107,10 @@ class CreateParserRecipeArgs(BaseModel):
     event_uuid: str = Field(
         description="UUID of the event the recipe is written for — echo the `Event UUID` value "
         "from your context exactly. The recipe is tested against this event."
+    )
+    trace_timestamp: str | None = Field(
+        default=None,
+        description="Echo the `Trace timestamp` value from your context exactly, or omit it when the context has none.",
     )
 
 
@@ -111,7 +124,7 @@ class CreateParserRecipeTool(MaxTool):
         return [("llm_analytics", "editor")]
 
     async def _arun_impl(
-        self, name: str, yaml_source: str, trace_id: str, event_uuid: str
+        self, name: str, yaml_source: str, trace_id: str, event_uuid: str, trace_timestamp: str | None = None
     ) -> tuple[str, dict[str, str | None] | None]:
         # Tool args bypass the serializer's length cap, so bound the source before compiling it.
         if len(yaml_source) > MAX_SOURCE_LENGTH:
@@ -120,21 +133,23 @@ class CreateParserRecipeTool(MaxTool):
                 "Write a more concise recipe and call this tool again.",
                 None,
             )
-        return await database_sync_to_async(self._test_and_save)(name, yaml_source, trace_id, event_uuid)
-
-    def _test_and_save(
-        self, name: str, yaml_source: str, trace_id: str, event_uuid: str
-    ) -> tuple[str, dict[str, str | None] | None]:
         try:
-            result = ai_observability_api.run_trace_node_parser_test(
-                self._team, self._user, trace_id, event_uuid, None, yaml_source
-            )()
+            # A ClickHouse read and two normalizer runs would hold the shared thread-sensitive executor for seconds.
+            result = await database_sync_to_async(self._run_parser_test, thread_sensitive=False)(
+                trace_id, event_uuid, _timestamp_hint(trace_timestamp), yaml_source
+            )
         except ai_observability_api.RecipeCompileError as e:
             return (f"The recipe does not compile: {e}. Fix the recipe and call this tool again.", None)
         except ai_observability_api.TraceNodeNotFoundError:
             return (
                 "The event was not found in this trace, or it is past AI events retention. Check `trace_id` and "
                 "`event_uuid` against your context; if they match, tell the user the event can no longer be read.",
+                None,
+            )
+        except Throttled:
+            return (
+                "Too many queries are running for this organization right now. Wait a moment and call this tool "
+                "again with the same arguments.",
                 None,
             )
 
@@ -148,7 +163,9 @@ class CreateParserRecipeTool(MaxTool):
             return (f"The recipe was not saved: {_failure_reason(result)}.", None)
 
         try:
-            recipe_id = ai_observability_api.create_parser_recipe(self._team, self._user, name, yaml_source)
+            recipe_id = await database_sync_to_async(ai_observability_api.create_parser_recipe)(
+                self._team, self._user, name, yaml_source
+            )
         except Exception as e:
             return (
                 "The recipe is correct — it compiled and parsed the event — but saving it failed: "
@@ -162,6 +179,25 @@ class CreateParserRecipeTool(MaxTool):
             "parser recipes. The event now renders with it.",
             {"recipe_id": recipe_id, "name": name, "source": yaml_source},
         )
+
+    def _run_parser_test(
+        self, trace_id: str, event_uuid: str, timestamp_hint: datetime | None, yaml_source: str
+    ) -> contracts.TraceNodeParserTest:
+        tag_queries(feature=Feature.QUERY)
+        # Only the ClickHouse load holds the slot; the returned build normalizes without querying.
+        with query_concurrency_slots(self._team):
+            build = ai_observability_api.run_trace_node_parser_test(
+                self._team, self._user, trace_id, event_uuid, timestamp_hint, yaml_source
+            )
+        return build()
+
+
+def _timestamp_hint(trace_timestamp: str | None) -> datetime | None:
+    # The hint only narrows the read, so a value the agent garbled is dropped rather than failing the tool.
+    try:
+        return datetime.fromisoformat(trace_timestamp) if trace_timestamp else None
+    except ValueError:
+        return None
 
 
 def _failure_reason(result: contracts.TraceNodeParserTest) -> str:

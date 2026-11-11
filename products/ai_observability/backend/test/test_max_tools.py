@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -110,6 +112,12 @@ class TestCreateParserRecipeTool(BaseTest):
         self.assertIsNone(artifact)
         self.assertFalse(await ParserRecipe.objects.unscoped().filter(team=self.team).aexists())
 
+    async def test_the_trace_timestamp_lets_an_old_event_load(self):
+        with patch.object(ai_observability_api, "run_trace_node_parser_test", return_value=lambda: PASSED) as run:
+            await self._create_tool()._arun_impl(**{**ARGS, "trace_timestamp": "2026-01-02T03:04:05Z"})
+
+        self.assertEqual(run.call_args.args[4], datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
+
     async def test_an_event_that_cannot_be_read_names_retention(self):
         missing = ai_observability_api.TraceNodeNotFoundError("event-1")
         with patch.object(ai_observability_api, "run_trace_node_parser_test", side_effect=missing):
@@ -133,6 +141,7 @@ class TestCreateParserRecipeTool(BaseTest):
         tool = self._create_tool()
         context = {
             "trace_id": "trace-1",
+            "trace_timestamp": "2026-01-02T03:04:05Z",
             "event_uuid": "0196f8a0-aaaa-bbbb-cccc-000000000000",
             "event_type": "span",
             "unrecognized": "input",
@@ -148,6 +157,7 @@ class TestCreateParserRecipeTool(BaseTest):
         self.assertIn('{"foo": 1}', rendered)
         self.assertIn("Event type: span", rendered)
         self.assertIn("Trace ID: trace-1", rendered)
+        self.assertIn("Trace timestamp: 2026-01-02T03:04:05Z", rendered)
         self.assertIn(DSL_REFERENCE.strip(), rendered)
         self.assertNotIn("None", rendered)
 
