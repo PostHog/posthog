@@ -6,7 +6,6 @@ import { IconStack, IconStackItem } from '@posthog/quill'
 
 import type { TodayRowIcon } from './todayRowIcons'
 
-/** A row that asks for one action, with its buttons always visible. Render it inside a `TodayRows` list. */
 export function TodayPromptItem({
     icon,
     title,

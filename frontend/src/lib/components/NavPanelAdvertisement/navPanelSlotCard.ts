@@ -23,7 +23,6 @@ export function pickNavPanelSlotCard({
     campaignResolved: boolean
     user: UserType | null
 }): NavPanelSlotCard | null {
-    // Every card promotes a cloud feature, so hobby gets none.
     if (!isCloudOrDev) {
         return null
     }
