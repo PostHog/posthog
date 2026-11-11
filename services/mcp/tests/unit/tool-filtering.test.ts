@@ -1162,6 +1162,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'discussions-slack-sync',
             'ui-customization',
             'warehouse-migration-import',
+            'posthog-support-agent-tickets',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
