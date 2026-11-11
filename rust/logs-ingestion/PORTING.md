@@ -282,6 +282,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **`USAGE_INGESTION_TLS=true`.** The workspace `tonic` has no TLS feature, so the service refuses to start with it.
 - **`LazyLoader` instrumentation.** The OpenTelemetry spans and the hit and miss counters are not ported; `lazy_loader_cache_size` is. Loader retries are not ported, because the logs servers build their loaders without `loaderRetry`.
 - **Rule-cache spans.** The `logs.sampling.*`, `logs.retention.*`, `traces.retention.*` and `logs.patterns.*` span attributes are not ported.
+- **Metric-rule windows.** Node sums metric-rule tallies across batches for teams in `LOGS_METRICS_RULES_WINDOW_TEAMS` (`metrics-rules/metric-rules-window.ts`) and sends the open window on shutdown. The port ignores `LOGS_METRICS_RULES_WINDOW_TEAMS` and `LOGS_METRICS_RULES_WINDOW_MS`, and sends one point per series per batch for every team.
 - **The logs Redis password.** Node never passes `LOGS_REDIS_PASSWORD` to the logs Redis client, and neither does the port.
 
 ## Regenerating references

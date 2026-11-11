@@ -1,0 +1,213 @@
+import type { LogRecord } from '../log-record-avro'
+import { type CompiledMetricRule, type MetricRuleRow, compileMetricRules } from './compile-metric-rules'
+import { MetricRulesEmission, normalizeMetricRulesWindowMs } from './metric-rules-window'
+import { type BatchTallies, createBatchTallies, tallyRecords } from './tally'
+
+const WINDOW_START_MS = 1_700_000_040_000 // a whole minute
+const TEAM = 2
+const OTHER_TEAM = 3
+
+const record = (overrides: Partial<LogRecord> = {}): LogRecord => ({
+    uuid: null,
+    trace_id: null,
+    span_id: null,
+    trace_flags: null,
+    timestamp: null,
+    observed_timestamp: null,
+    body: 'hello',
+    severity_text: 'ERROR',
+    severity_number: 17,
+    service_name: 'api',
+    resource_attributes: {},
+    instrumentation_scope: null,
+    event_name: null,
+    attributes: { route: '"/a"', duration_ms: '12' },
+    ...overrides,
+})
+
+const rule = (overrides: Partial<MetricRuleRow> = {}): CompiledMetricRule =>
+    compileMetricRules([
+        {
+            id: 'rule-1',
+            metric_name: 'log.requests',
+            filter_group: null,
+            value_attribute: null,
+            group_by: ['attributes.route'],
+            version: 1,
+            ...overrides,
+        },
+    ])[0]!
+
+function batch(rules: CompiledMetricRule[], records: LogRecord[], nowMs: number) {
+    const tallies: BatchTallies = createBatchTallies()
+    tallyRecords(rules, records, tallies, nowMs)
+    return { token: 'phc_test', rules, tallies }
+}
+
+type SentPayload = { teamId: number; payload: any }
+
+function setup(windowedTeams: number[] = [TEAM]) {
+    const sent: SentPayload[] = []
+    const emitter = {
+        emit: (_token: string, teamId: number, payload: Record<string, unknown>) => {
+            sent.push({ teamId, payload })
+            return Promise.resolve(true)
+        },
+    }
+    const emission = new MetricRulesEmission(emitter, (teamId) => windowedTeams.includes(teamId), 60_000)
+    return { sent, emission }
+}
+
+function points(sent: SentPayload[]) {
+    return sent.flatMap(({ payload }) =>
+        payload.resourceMetrics.flatMap((rm: any) =>
+            rm.scopeMetrics.flatMap((sm: any) =>
+                sm.metrics.flatMap((m: any) =>
+                    (m.sum ?? m.histogram).dataPoints.map((dp: any) => ({
+                        name: m.name,
+                        route: dp.attributes.find((a: any) => a.key === 'route')?.value.stringValue,
+                        timeMs: Number(BigInt(dp.timeUnixNano) / 1_000_000n),
+                        dp,
+                    }))
+                )
+            )
+        )
+    )
+}
+
+describe('MetricRulesEmission', () => {
+    it('sends one point per series per window with the exact summed count', async () => {
+        const { sent, emission } = setup()
+        const countRule = rule()
+        const batches = [5, 7, 11]
+        for (let i = 0; i < batches.length; i++) {
+            const records = Array.from({ length: batches[i]! }, () => record())
+            await emission.emitBatch(
+                new Map([[TEAM, batch([countRule], records, WINDOW_START_MS)]]),
+                WINDOW_START_MS + i
+            )
+        }
+        expect(sent).toEqual([])
+
+        await emission.emitBatch(new Map(), WINDOW_START_MS + 60_000)
+
+        const sentPoints = points(sent)
+        expect(sentPoints).toHaveLength(1)
+        expect(sentPoints[0]).toMatchObject({ name: 'log.requests', route: '/a', timeMs: WINDOW_START_MS })
+        expect(sentPoints[0]!.dp.asDouble).toBe(23)
+    })
+
+    it('keeps different label sets and teams separate', async () => {
+        const { sent, emission } = setup([TEAM, OTHER_TEAM])
+        const countRule = rule()
+        const records = [
+            record(),
+            record(),
+            record({ attributes: { route: '"/b"' } }),
+            record({ attributes: { route: '"/b"' } }),
+            record({ attributes: { route: '"/b"' } }),
+        ]
+        await emission.emitBatch(
+            new Map([
+                [TEAM, batch([countRule], records, WINDOW_START_MS)],
+                [OTHER_TEAM, batch([countRule], [record()], WINDOW_START_MS)],
+            ]),
+            WINDOW_START_MS
+        )
+        await emission.emitBatch(
+            new Map([[TEAM, batch([countRule], [record()], WINDOW_START_MS)]]),
+            WINDOW_START_MS + 1
+        )
+        await emission.flushAll()
+
+        const byTeam = (teamId: number) =>
+            points(sent.filter((s) => s.teamId === teamId)).map((p) => [p.route, p.dp.asDouble])
+        expect(byTeam(TEAM)).toEqual([
+            ['/a', 3],
+            ['/b', 3],
+        ])
+        expect(byTeam(OTHER_TEAM)).toEqual([['/a', 1]])
+    })
+
+    it('adds histogram bucket counts, sums and counts across batches', async () => {
+        const { sent, emission } = setup()
+        const histogramRule = rule({
+            id: 'rule-h',
+            metric_name: 'log.duration',
+            value_attribute: 'attributes.duration_ms',
+        })
+        const first = [record({ attributes: { route: '"/a"', duration_ms: '3' } })]
+        const second = [
+            record({ attributes: { route: '"/a"', duration_ms: '3' } }),
+            record({ attributes: { route: '"/a"', duration_ms: '400' } }),
+        ]
+        await emission.emitBatch(new Map([[TEAM, batch([histogramRule], first, WINDOW_START_MS)]]), WINDOW_START_MS)
+        await emission.emitBatch(
+            new Map([[TEAM, batch([histogramRule], second, WINDOW_START_MS)]]),
+            WINDOW_START_MS + 1
+        )
+        await emission.flushAll()
+
+        const sentPoints = points(sent)
+        expect(sentPoints).toHaveLength(1)
+        const dp = sentPoints[0]!.dp
+        expect(dp.count).toBe(3)
+        expect(dp.sum).toBe(406)
+        // Bounds start 0, 5, 10, ..., 250, 500: 3 lands in the second bucket, 400 in the bucket up to 500.
+        expect(dp.bucketCounts[1]).toBe(2)
+        expect(dp.bucketCounts[8]).toBe(1)
+        expect(dp.bucketCounts.reduce((a: number, b: number) => a + b, 0)).toBe(3)
+    })
+
+    it('starts a new window for a batch processed after the window ends', async () => {
+        const { sent, emission } = setup()
+        const countRule = rule()
+        await emission.emitBatch(new Map([[TEAM, batch([countRule], [record()], WINDOW_START_MS)]]), WINDOW_START_MS)
+        await emission.emitBatch(
+            new Map([[TEAM, batch([countRule], [record(), record()], WINDOW_START_MS)]]),
+            WINDOW_START_MS + 61_000
+        )
+        await emission.flushAll()
+
+        expect(points(sent).map((p) => [p.timeMs, p.dp.asDouble])).toEqual([
+            [WINDOW_START_MS, 1],
+            [WINDOW_START_MS + 60_000, 2],
+        ])
+    })
+
+    it('keeps a rule edited mid-window from mixing counter and histogram tallies', async () => {
+        const { sent, emission } = setup()
+        const before = rule()
+        const after = rule({ value_attribute: 'attributes.duration_ms' })
+        await emission.emitBatch(new Map([[TEAM, batch([before], [record()], WINDOW_START_MS)]]), WINDOW_START_MS)
+        await emission.emitBatch(new Map([[TEAM, batch([after], [record()], WINDOW_START_MS)]]), WINDOW_START_MS + 1)
+        await emission.flushAll()
+
+        const sentPoints = points(sent)
+        expect(sentPoints.map((p) => [p.dp.asDouble ?? null, p.dp.count ?? null])).toEqual([
+            [1, null],
+            [null, 1],
+        ])
+    })
+
+    it('sends teams outside the allowlist once per batch, as before', async () => {
+        const { sent, emission } = setup([])
+        const countRule = rule()
+        await emission.emitBatch(new Map([[TEAM, batch([countRule], [record()], WINDOW_START_MS)]]), WINDOW_START_MS)
+        await emission.emitBatch(
+            new Map([[TEAM, batch([countRule], [record()], WINDOW_START_MS)]]),
+            WINDOW_START_MS + 1
+        )
+        expect(points(sent).map((p) => p.dp.asDouble)).toEqual([1, 1])
+    })
+
+    it.each([
+        [60_000, 60_000],
+        [15_000, 20_000],
+        [1, 10_000],
+        [0, 60_000],
+        [Number.NaN, 60_000],
+    ])('normalizes a %d ms window to %d ms', (input, expected) => {
+        expect(normalizeMetricRulesWindowMs(input)).toBe(expected)
+    })
+})

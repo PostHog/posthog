@@ -13,6 +13,7 @@ import type { InternalLogsVerifier } from '../internal-logs'
 import { logMessageDlqCounter, teamIdMatchesCsv } from '../logs-ingestion-consumer'
 import type { LogsIngestionConsumerDeps } from '../logs-ingestion-consumer'
 import type { MetricRuleSource } from '../metrics-rules/compile-metric-rules'
+import type { MetricRulesEmission } from '../metrics-rules/metric-rules-window'
 import type { MetricSeriesAdmission } from '../metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT } from '../outputs/outputs'
 import type { RetentionRuleSource } from '../retention/compile-retention-rules'
@@ -114,6 +115,7 @@ export type LogsPipelineContext = {
     samplingService: LogsSamplingService
     internalLogsVerifier: InternalLogsVerifier
     metricSeriesAdmission: MetricSeriesAdmission
+    metricRulesEmission: MetricRulesEmission
     defaultRetentionDays: (teamId: number, logsSettings: LogsSettings) => Promise<number>
 }
 
