@@ -7,6 +7,7 @@ import net from 'net'
 import os from 'os'
 import path from 'path'
 import { setTimeout as nextTimers } from 'timers/promises'
+import { promisify } from 'util'
 
 import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
@@ -649,6 +650,7 @@ describe('scenario environment', () => {
     describe('up and reset', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         const realSpawn = childProcess.spawn
+        const realExecFile = childProcess.execFile as (...args: unknown[]) => ChildProcess
         const stubRolePids = new Set<number>()
         const stubRole =
             "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
@@ -822,6 +824,7 @@ describe('scenario environment', () => {
         let losesItsPort: Role | undefined
         let takesPortOnExit: Role | undefined
         let exitsAfterHealth: Role | undefined
+        let reachedKafka: Error | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
         const healthOf = async (role: Role): Promise<number> =>
@@ -930,6 +933,26 @@ describe('scenario environment', () => {
                 stubRolePids.add(role.pid!)
                 return role
             }) as unknown as typeof childProcess.spawn)
+            const guardedExecFile = jest.spyOn(childProcess, 'execFile').mockImplementation(((
+                file: string,
+                ...rest: unknown[]
+            ) => {
+                if (file !== path.join(fakes, 'docker')) {
+                    reachedKafka ??= new Error(
+                        `The up test ran ${file} ${(rest[0] as string[]).join(' ')} instead of the fake docker.`
+                    )
+                    throw reachedKafka
+                }
+                return realExecFile(file, ...rest)
+            }) as unknown as typeof childProcess.execFile) as unknown as (...args: unknown[]) => ChildProcess
+            Object.defineProperty(guardedExecFile, promisify.custom, {
+                value: (...args: unknown[]) =>
+                    new Promise((resolve, reject) => {
+                        guardedExecFile(...args, (error: Error | null, stdout: string, stderr: string) =>
+                            error ? reject(error) : resolve({ stdout, stderr })
+                        )
+                    }),
+            })
             cacheDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
             process.env.XDG_CACHE_HOME = cacheDir
         })
@@ -957,6 +980,11 @@ describe('scenario environment', () => {
             }
             rmSync(fakes, { recursive: true, force: true })
             rmSync(cacheDir, { recursive: true, force: true })
+            const reached = reachedKafka
+            reachedKafka = undefined
+            if (reached) {
+                throw reached
+            }
         })
 
         it('waits for a dead consumer to leave the events group before it starts the roles', async () => {
