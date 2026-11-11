@@ -16,12 +16,12 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.dashboards.backend.api.dashboard_templates import (
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.presentation.views.dashboard_templates import (
     MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION,
     organization_dashboard_template_limit_detail,
 )
-from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 
 def assert_template_equals(received, expected):
@@ -1328,7 +1328,7 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response
 
-    @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard_templates.report_user_action")
     def test_create_emits_analytics_for_non_global_scope(self, mock_report) -> None:
         self.user.is_staff = True
         self.user.save()
@@ -1469,7 +1469,7 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         retrieve = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}")
         assert retrieve.status_code == status.HTTP_404_NOT_FOUND, retrieve
 
-    @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard_templates.report_user_action")
     def test_scope_change_emits_analytics(self, mock_report) -> None:
         create = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
@@ -1572,7 +1572,7 @@ class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):
         assert len(data["tiles"]) == len(variable_template["tiles"])
         assert data["customization"] == {"groups": {"plans": {"title": "Plans", "color": None}}}
 
-    @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard_templates.report_user_action")
     def test_copy_emits_distinct_analytics_event(self, mock_report: Any) -> None:
         src = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
