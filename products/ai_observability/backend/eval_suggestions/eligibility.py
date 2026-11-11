@@ -1,5 +1,6 @@
 """Who gets suggestions: a flagged organization, a recent visit, and steady AI traffic."""
 
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 
 from django.db.models import Q
@@ -8,11 +9,12 @@ from django.utils import timezone
 import structlog
 from asgiref.sync import async_to_sync
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
+from products.ai_observability.backend.logic.eval_suggestions.eligibility_queries import (
+    GenerationDaysRow,
+    load_generation_days,
+)
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionRun,
     EvalSuggestionRunStatus,
@@ -21,7 +23,6 @@ from products.ai_observability.backend.models.eval_suggestions import (
 
 from .client import TemporalUnreachable, start_first_visit_run
 from .config import SuggestionSettings, is_enabled_for_organization
-from .queries import MAX_EXECUTION_TIME_SECONDS
 
 logger = structlog.get_logger(__name__)
 
@@ -29,20 +30,6 @@ VISIT_LOOKBACK = timedelta(days=14)
 MIN_DAYS_IN_28 = 4
 MIN_DAYS_IN_7 = 2
 TRAFFIC_BATCH = 500
-
-# Cross-team by design: one aggregate over the visited teams instead of one query per team.
-_GENERATION_DAYS_SQL = """
-SELECT
-    team_id,
-    uniqExact(toDate(timestamp)) AS days_28,
-    uniqExactIf(toDate(timestamp), timestamp >= %(week_start)s) AS days_7
-FROM events
-WHERE team_id IN %(team_ids)s
-  AND event = '$ai_generation'
-  AND timestamp >= %(start)s
-  AND timestamp < %(end)s
-GROUP BY team_id
-"""
 
 
 def record_visit(team: Team) -> None:
@@ -86,23 +73,14 @@ def queue_first_visit_run(team: Team) -> None:
         logger.exception("llma.eval_suggestions_first_visit_start_unclear", team_id=team.pk, run_id=str(run.id))
 
 
+def steady_traffic(rows: Iterable[GenerationDaysRow]) -> set[int]:
+    return {row.team_id for row in rows if row.days_28 >= MIN_DAYS_IN_28 and row.days_7 >= MIN_DAYS_IN_7}
+
+
 def steady_traffic_team_ids(team_ids: list[int], now: datetime) -> set[int]:
     if not team_ids:
         return set()
-    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.EVAL_SUGGESTIONS):
-        rows = sync_execute(
-            _GENERATION_DAYS_SQL,
-            {
-                "team_ids": team_ids,
-                "start": now - timedelta(days=28),
-                "week_start": now - timedelta(days=7),
-                "end": now,
-            },
-            workload=Workload.OFFLINE,
-            # Well inside the plan activity's 10 minutes, so a slow batch fails the query, not the activity.
-            settings={"max_execution_time": MAX_EXECUTION_TIME_SECONDS},
-        )
-    return {int(team_id) for team_id, days_28, days_7 in rows if days_28 >= MIN_DAYS_IN_28 and days_7 >= MIN_DAYS_IN_7}
+    return steady_traffic(load_generation_days(team_ids, now))
 
 
 def eligible_team_ids(settings: SuggestionSettings, now: datetime | None = None) -> list[int]:

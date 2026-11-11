@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsNotFoundError
 
-from products.ai_observability.backend.eval_suggestions import queries
+from products.ai_observability.backend.logic.eval_suggestions import queries
 
 
 @parameterized.expand([("not_found", AIEventsNotFoundError), ("expired", AIEventsExpiredError)])

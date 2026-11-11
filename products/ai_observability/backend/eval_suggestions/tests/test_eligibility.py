@@ -1,14 +1,15 @@
-from datetime import timedelta
-
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models.team import Team
 
 from products.ai_observability.backend.eval_suggestions import eligibility
 from products.ai_observability.backend.eval_suggestions.config import SuggestionSettings
+from products.ai_observability.backend.logic.eval_suggestions.eligibility_queries import GenerationDaysRow
 from products.ai_observability.backend.models.eval_suggestions import EvalSuggestionTeamState
 
 
@@ -37,19 +38,13 @@ class TestEligibility(BaseTest):
         assert EvalSuggestionTeamState.objects.for_team(self.team.pk).count() == 1
 
 
-class TestSteadyTraffic(ClickhouseTestMixin, BaseTest):
-    def test_a_team_needs_generations_on_enough_recent_days(self) -> None:
-        now = timezone.now()
-        quiet = Team.objects.create(organization=self.organization, name="quiet")
-        # Steady: 4 days in the last 28, two of them in the last week. Quiet: 3 days, all in the last week.
-        for team, days_ago in ((self.team, (1, 3, 10, 20)), (quiet, (1, 2, 3))):
-            for days in days_ago:
-                _create_event(
-                    team=team,
-                    event="$ai_generation",
-                    distinct_id="user-1",
-                    timestamp=now - timedelta(days=days),
-                    properties={"$ai_trace_id": f"trace-{days}"},
-                )
-
-        assert eligibility.steady_traffic_team_ids([self.team.pk, quiet.pk], now) == {self.team.pk}
+@parameterized.expand(
+    [
+        ("four_days_two_this_week", 4, 2, True),
+        ("three_days_all_this_week", 3, 3, False),
+        ("four_days_one_this_week", 4, 1, False),
+    ]
+)
+def test_a_team_needs_generations_on_enough_recent_days(_name: str, days_28: int, days_7: int, expected: bool) -> None:
+    rows = [GenerationDaysRow(team_id=1, days_28=days_28, days_7=days_7)]
+    assert (eligibility.steady_traffic(rows) == {1}) is expected

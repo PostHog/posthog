@@ -1,15 +1,26 @@
+from unittest.mock import patch
+
 from parameterized import parameterized
 
+from products.ai_observability.backend.eval_suggestions import profile
 from products.ai_observability.backend.eval_suggestions.profile import (
     MAX_SEGMENT_KEYS,
-    MAX_SEGMENT_VALUE_LENGTH,
     StructuredOutput,
+    build_profile,
     find_structured_gaps,
     gap_holds,
     normalize_segment_value,
     parse_structured,
     segments_from_rows,
     short_string_fields,
+)
+from products.ai_observability.backend.logic.eval_suggestions.profile_queries import (
+    MAX_SEGMENT_VALUE_LENGTH,
+    DailyTrafficRow,
+    ErrorPrefixRow,
+    SegmentValueRow,
+    ToolCallsRow,
+    TrafficCounts,
 )
 
 
@@ -141,5 +152,45 @@ def test_segment_values_drop_numeric_suffixes(raw: str, expected: str) -> None:
 
 
 def test_gap_search_keeps_only_the_busiest_segment_keys() -> None:
-    rows = [(f"key_{i:02}", value, 100 + i) for i in range(MAX_SEGMENT_KEYS + 5) for value in ("a", "b")]
+    rows = [
+        SegmentValueRow(key=f"key_{i:02}", value=value, generations=100 + i)
+        for i in range(MAX_SEGMENT_KEYS + 5)
+        for value in ("a", "b")
+    ]
     assert sorted(segments_from_rows(rows)) == [f"key_{i:02}" for i in range(5, MAX_SEGMENT_KEYS + 5)]
+
+
+def _day(days_ago: int, generations: int, *, with_tools: int = 0, with_session: int = 0) -> DailyTrafficRow:
+    return DailyTrafficRow(
+        days_ago=days_ago,
+        generations=generations,
+        traces=generations,
+        with_tools=with_tools,
+        with_session=with_session,
+        input_tokens=0.0,
+        with_input_tokens=0,
+        models=("example-model-mini",),
+    )
+
+
+def test_the_profile_scales_sampled_traffic_tools_and_segments_back_up() -> None:
+    with patch.object(profile, "MIN_SEGMENT_GENERATIONS", 2):
+        result = build_profile(
+            TrafficCounts(generations=8, sessions=1, session_traces=6),
+            [_day(0, 3, with_tools=3, with_session=3), _day(2, 1)],
+            [ToolCallsRow(tool="search", calls=3), ToolCallsRow(tool="fetch", calls=3)],
+            [ErrorPrefixRow(prefix="RateLimitError: slow down", errors=1)],
+            [
+                SegmentValueRow(key="ai_product", value="chat", generations=2),
+                SegmentValueRow(key="ai_product", value="search", generations=2),
+            ],
+            per_mille=500,
+        )
+
+    assert (result.generations, result.traces, result.sessions) == (8, 8, 1)
+    assert result.generations_by_days_ago == {0: 6, 2: 2}
+    assert result.tool_counts == {"search": 6, "fetch": 6}
+    assert result.tool_call_share == 0.75
+    assert result.models == ("example-model-mini",)
+    assert result.error_prefixes == ("RateLimitError: slow down",)
+    assert result.segments == {"ai_product": {"chat": 4, "search": 4}}

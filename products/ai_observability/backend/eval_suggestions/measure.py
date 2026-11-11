@@ -8,8 +8,8 @@ import re
 import json
 import math
 import time
-from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import fields
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -17,12 +17,19 @@ import orjson
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
-from posthog.hogql import ast
-
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.utils import merge_heavy_properties
 from posthog.models.team import Team
 
+from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
+from products.ai_observability.backend.logic.eval_suggestions.sample_queries import (
+    EVENTS_PER_TRACE,
+    TURN_TEXT_CHARS,
+    DiscoveredTrace,
+    HydratedEventRow,
+    load_discovered_traces,
+    load_hydrated_events,
+)
 from products.ai_observability.backend.logic.evaluations.event_io import extract_event_io
 from products.ai_observability.backend.logic.evaluations.hog_runtime import (
     build_hog_event_global,
@@ -32,7 +39,6 @@ from products.ai_observability.backend.logic.evaluations.hog_runtime import (
 
 from .adapters import AdaptedCheck, compile_check
 from .profile import (
-    ProfileWindow,
     StructuredOutput,
     TeamProfile,
     normalize_segment_value,
@@ -40,129 +46,18 @@ from .profile import (
     segment_text,
     short_string_fields,
 )
-from .queries import run_ai_events_query, run_query
 
 MAIN_SAMPLE_TRACES = 250
 HELD_OUT_SAMPLE_TRACES = 150
 # Discovery groups only a slice of the window's traces, sized so the hash order still has room to choose.
 DISCOVERY_OVERSAMPLE = 20
-# Hydration reads every event of a trace, and a check needs a trace's whole history, so discovery only picks
-# traces with at most this many events. Longer ones (a shared or runaway trace id) cost the most to read.
-EVENTS_PER_TRACE = 40
-MAX_OUTPUT_BYTES = 16384
-MAX_INPUT_MESSAGE_BYTES = 8192
-# Agent frameworks such as LangGraph send their whole graph state on every span. Checks don't read a span's state, so
-# a long one is cut rather than dropping the trace, which would leave only short traces in the sample.
-MAX_STATE_BYTES = 16384
 # Hydration reads traces in batches and stops once the sample holds this much text, since each row can be
 # ~130 KB and the per-column caps alone would let a sample grow to gigabytes.
 MAX_SAMPLE_BYTES = 64 * 1024 * 1024
 HYDRATE_BATCH_TRACES = 50
-# Custom metadata past this size marks the event unreadable, which keeps the sample's memory bounded.
-MAX_PROPERTIES_BYTES = 65536
 ROLE_LABEL = re.compile(r"^(assistant|ai|model):\s*", re.IGNORECASE)
 TOOL_CALL_TYPES = frozenset({"tool_use", "function_call", "tool_call", "tool-call"})
-# Screening reads at most 3000 characters, so each part of a turn gets a third.
-TURN_TEXT_CHARS = 1000
 MAX_REASONING_CHARS = 2000
-
-_DISCOVER_SQL = """
-SELECT
-    toString(properties.$ai_trace_id) AS trace_id,
-    uniq(toDate(timestamp)) AS days
-FROM events
-WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
-  AND timestamp >= {read_start}
-  AND timestamp < {read_end}
-  AND notEmpty(toString(properties.$ai_trace_id))
-  AND length(toString(properties.$ai_trace_id)) <= 256
-  AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
-GROUP BY trace_id
-HAVING countIf(event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}) > 0
-   AND count() <= {max_events}
-ORDER BY cityHash64(trace_id)
-LIMIT {limit}
-"""
-
-# Only the last two messages of each input are read: the last is the user's message for the first call of a turn,
-# and the one before it is the assistant reply the user answers. Full histories cost far more than checks need.
-# The query keeps only the end of that reply's text (string content, content blocks, OTel or Gemini parts),
-# since a cut in the raw JSON would make it unreadable.
-# Rows are deduplicated by uuid first, since ingestion can write an event twice, and one row past the cap is kept so
-# a trace with more events than the cap shows up as incomplete.
-_HYDRATE_SQL = """
-SELECT
-    trace_id,
-    event_uuid,
-    event,
-    timestamp,
-    distinct_id,
-    properties,
-    last_input,
-    user_messages,
-    has_tool_results,
-    output_choices,
-    output,
-    unreadable,
-    previous_reply,
-    input_state,
-    output_state
-FROM (
-    SELECT
-        trace_id,
-        toString(uuid) AS event_uuid,
-        event,
-        timestamp,
-        distinct_id,
-        if(length(ai_events.properties) <= {max_properties}, ai_events.properties, '{}') AS properties,
-        if(startsWith(input, '['), concat('[', left(JSONExtractRaw(input, -1), {max_input}), ']'), left(input, {max_input})) AS last_input,
-        if(startsWith(input, '[') AND JSONLength(input) >= 2, JSONExtractRaw(input, -2), '') AS previous_raw,
-        if(
-            JSONExtractString(previous_raw, 'role') IN ('assistant', 'model'),
-            right(
-                arrayStringConcat(
-                    arrayFilter(
-                        part -> part != '',
-                        arrayConcat(
-                            [JSONExtractString(previous_raw, 'content')],
-                            arrayMap(block -> JSONExtractString(block, 'text'), JSONExtractArrayRaw(previous_raw, 'content')),
-                            arrayMap(
-                                block -> if(JSONHas(block, 'content'), JSONExtractString(block, 'content'), JSONExtractString(block, 'text')),
-                                JSONExtractArrayRaw(previous_raw, 'parts')
-                            )
-                        )
-                    ),
-                    ' '
-                ),
-                {turn_chars}
-            ),
-            ''
-        ) AS previous_reply,
-        countMatches(input, '"role":[[:space:]]*"user"') AS user_messages,
-        match(input, '"role":[[:space:]]*"tool"|"type":[[:space:]]*"(tool_result|function_call_output)"') AS has_tool_results,
-        if(length(output_choices) <= {max_output}, output_choices, '') AS output_choices,
-        if(length(output) <= {max_output}, output, '') AS output,
-        left(input_state, {max_state}) AS input_state,
-        left(output_state, {max_state}) AS output_state,
-        length(ai_events.output_choices) > {max_output}
-            OR length(ai_events.output) > {max_output}
-            -- A generation with no other output answers through its state, so a cut there would grade half an answer.
-            OR (event = '$ai_generation' AND empty(coalesce(ai_events.output_choices, ''))
-                AND empty(coalesce(ai_events.output, ''))
-                AND length(ai_events.output_state) > {max_state})
-            OR length(ai_events.properties) > {max_properties} AS unreadable
-    FROM posthog.ai_events AS ai_events
-    WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
-      AND trace_id IN {trace_ids}
-      AND timestamp >= {start}
-      AND timestamp < {end}
-    ORDER BY length(coalesce(ai_events.input, '')) + length(coalesce(ai_events.output_choices, '')) DESC
-    LIMIT 1 BY event_uuid
-)
-ORDER BY trace_id, timestamp DESC
-LIMIT {rows_per_trace} BY trace_id
-LIMIT {max_rows}
-"""
 
 
 @frozen
@@ -199,61 +94,15 @@ def held_out_bucket(profile: TeamProfile) -> int | None:
     return buckets[0] if len(buckets) >= 2 else None
 
 
-@frozen
-class DiscoveredTrace:
-    trace_id: str
-    # Distinct days the trace has generations on.
-    days: int
-
-
 def _discover(
     team: Team, start: datetime, end: datetime, expected_traces: int, limit: int, read: ProfileWindow
 ) -> list[DiscoveredTrace]:
-    """Traces with a generation between `start` and `end`, counting their events over the whole span hydration reads."""
     per_mille = (
         1000
         if expected_traces <= limit * DISCOVERY_OVERSAMPLE
         else math.ceil(1000 * limit * DISCOVERY_OVERSAMPLE / expected_traces)
     )
-    rows = run_query(
-        team,
-        _DISCOVER_SQL,
-        {
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
-            "read_start": ast.Constant(value=read.start),
-            "read_end": ast.Constant(value=read.end),
-            "per_mille": ast.Constant(value=per_mille),
-            "max_events": ast.Constant(value=EVENTS_PER_TRACE),
-            "limit": ast.Constant(value=limit),
-        },
-        "EvalSuggestionsSampleDiscovery",
-    )
-    return [DiscoveredTrace(trace_id=str(row[0]), days=int(row[1])) for row in rows]
-
-
-def _hydrate(team: Team, trace_ids: Sequence[str], start: datetime, end: datetime) -> dict[str, list[tuple[Any, ...]]]:
-    rows = run_ai_events_query(
-        team,
-        _HYDRATE_SQL,
-        {
-            "trace_ids": ast.Constant(value=list(trace_ids)),
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
-            "max_input": ast.Constant(value=MAX_INPUT_MESSAGE_BYTES),
-            "max_output": ast.Constant(value=MAX_OUTPUT_BYTES),
-            "max_state": ast.Constant(value=MAX_STATE_BYTES),
-            "max_properties": ast.Constant(value=MAX_PROPERTIES_BYTES),
-            "turn_chars": ast.Constant(value=TURN_TEXT_CHARS),
-            "rows_per_trace": ast.Constant(value=EVENTS_PER_TRACE + 1),
-            "max_rows": ast.Constant(value=len(trace_ids) * (EVENTS_PER_TRACE + 1)),
-        },
-        "EvalSuggestionsSampleHydration",
-    )
-    by_trace: defaultdict[str, list[tuple[Any, ...]]] = defaultdict(list)
-    for row in rows:
-        by_trace[str(row[0])].append(row)
-    return by_trace
+    return load_discovered_traces(team, start=start, end=end, read=read, per_mille=per_mille, limit=limit)
 
 
 def _has_tool_call(value: Any) -> bool:
@@ -311,43 +160,27 @@ def _tokens(value: Any) -> float:
 
 
 def _sampled_trace(
-    trace_id: str, rows: list[tuple[Any, ...]], *, held_out: bool, spans_days: bool, segment_keys: Sequence[str]
+    trace_id: str, rows: list[HydratedEventRow], *, held_out: bool, spans_days: bool, segment_keys: Sequence[str]
 ) -> SampledTrace | None:
     # A trace with more events than the cap would be graded on part of its history, which can hide a failure.
     if len(rows) > EVENTS_PER_TRACE:
         return None
-    rows = sorted(rows, key=lambda row: row[3])
+    rows = sorted(rows, key=lambda row: row.timestamp)
     events: list[LLMTraceEvent] = []
     previous_replies: list[str] = []
     generations: list[tuple[LLMTraceEvent, int, bool]] = []
-    for (
-        _,
-        event_uuid,
-        event,
-        timestamp,
-        _distinct_id,
-        properties,
-        last_input,
-        user_messages,
-        has_tool_results,
-        output_choices,
-        output,
-        unreadable,
-        previous_reply,
-        input_state,
-        output_state,
-    ) in rows:
+    for row in rows:
         # Any event cut to fit (a long output, state or metadata) would grade the trace on part of its history.
-        if unreadable:
+        if row.unreadable:
             return None
         merged = merge_heavy_properties(
-            properties,
+            row.properties,
             {
-                "input": last_input,
-                "output_choices": output_choices,
-                "output": output,
-                "input_state": input_state,
-                "output_state": output_state,
+                "input": row.last_input,
+                "output_choices": row.output_choices,
+                "output": row.output,
+                "input_state": row.input_state,
+                "output_state": row.output_state,
             },
         )
         try:
@@ -356,12 +189,12 @@ def _sampled_trace(
         except orjson.JSONEncodeError:
             return None
         trace_event = LLMTraceEvent(
-            id=str(event_uuid), event=str(event), createdAt=timestamp.isoformat(), properties=merged
+            id=row.event_uuid, event=row.event, createdAt=row.timestamp.isoformat(), properties=merged
         )
         events.append(trace_event)
-        if event == "$ai_generation":
-            generations.append((trace_event, int(user_messages or 0), bool(has_tool_results)))
-            previous_replies.append(str(previous_reply or ""))
+        if row.event == "$ai_generation":
+            generations.append((trace_event, row.user_messages, row.has_tool_results))
+            previous_replies.append(row.previous_reply)
     if not generations:
         return None
 
@@ -391,7 +224,7 @@ def _sampled_trace(
         trace=LLMTrace(
             id=trace_id,
             createdAt=events[0].createdAt,
-            distinctId=str(rows[0][4]),
+            distinctId=rows[0].distinct_id,
             events=events,
         ),
         held_out=held_out,
@@ -474,8 +307,8 @@ def _read_span(window: ProfileWindow) -> ProfileWindow:
     return ProfileWindow(start=window.start - timedelta(days=1), end=window.end)
 
 
-def _row_bytes(row: tuple[Any, ...]) -> int:
-    return sum(len(value) for value in row if isinstance(value, str))
+def _row_bytes(row: HydratedEventRow) -> int:
+    return sum(len(value) for field in fields(row) if isinstance(value := getattr(row, field.name), str))
 
 
 def _hydrated(
@@ -493,7 +326,7 @@ def _hydrated(
         if used >= budget:
             break
         batch = refs[start : start + HYDRATE_BATCH_TRACES]
-        rows = _hydrate(team, [trace.trace_id for trace in batch], read.start, read.end)
+        rows = load_hydrated_events(team, [trace.trace_id for trace in batch], read)
         used += sum(_row_bytes(row) for trace_rows in rows.values() for row in trace_rows)
         for trace in batch:
             if trace.trace_id not in rows:

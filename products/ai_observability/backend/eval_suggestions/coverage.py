@@ -8,24 +8,28 @@ card only when its reasoning also shows it is broken.
 import copy
 import difflib
 import hashlib
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from django.utils import timezone
 
-from posthog.hogql import ast
-
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.ai_observability.backend.evaluation_conditions import build_condition_filter, runs_on_traffic
+from products.ai_observability.backend.logic.eval_suggestions.coverage_queries import (
+    EvaluationRunCounts,
+    SharedReasoningRow,
+    count_matching_generations,
+    load_evaluation_runs,
+    load_property_values,
+    load_shared_reasoning,
+)
 from products.ai_observability.backend.models.eval_suggestions import EvalSuggestion, EvalSuggestionStatus
-from products.ai_observability.backend.models.evaluation_outcomes import APPLICABLE_PREDICATE, NOT_SKIPPED_PREDICATE
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import catalog
-from .queries import run_query
 
 DEAD_LOOKBACK = timedelta(days=30)
 MAX_SILENT_EVALUATIONS = 10
@@ -220,64 +224,6 @@ def covers(existing: ExistingEval, target: str, filters: Sequence[Mapping[str, A
     )
 
 
-_EVAL_RUNS_SQL = (
-    """
-SELECT
-    toString(properties.$ai_evaluation_id) AS evaluation_id,
-    count() AS runs,
-    countIf(toString(properties.$ai_evaluation_result) = 'true') AS true_runs,
-    countIf(toString(properties.$ai_evaluation_result) = 'false') AS false_runs
-FROM events
-WHERE event = '$ai_evaluation'
-  AND timestamp >= {start}
-  AND toString(properties.$ai_evaluation_id) IN {evaluation_ids}
-  AND """
-    + NOT_SKIPPED_PREDICATE
-    + " AND "
-    + APPLICABLE_PREDICATE
-    + """
-GROUP BY evaluation_id
-LIMIT 10000
-"""
-)
-
-# Runs whose reasoning text, word for word, also explains the opposite outcome somewhere else.
-_SHARED_REASONING_SQL = """
-SELECT evaluation_id, sum(true_runs + false_runs) AS shared_runs
-FROM (
-    SELECT
-        toString(properties.$ai_evaluation_id) AS evaluation_id,
-        cityHash64(toString(properties.$ai_evaluation_reasoning)) AS reasoning,
-        countIf(toString(properties.$ai_evaluation_result) = 'true') AS true_runs,
-        countIf(toString(properties.$ai_evaluation_result) = 'false') AS false_runs
-    FROM events
-    WHERE event = '$ai_evaluation'
-      AND timestamp >= {start}
-      AND toString(properties.$ai_evaluation_id) IN {evaluation_ids}
-      AND length(toString(properties.$ai_evaluation_reasoning)) > 20
-    GROUP BY evaluation_id, reasoning
-)
-WHERE true_runs > 0 AND false_runs > 0
-GROUP BY evaluation_id
-LIMIT 10000
-"""
-
-_MATCHING_GENERATIONS_SQL = """
-SELECT count()
-FROM events
-WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end} AND {condition}
-"""
-
-_PROPERTY_VALUES_SQL = """
-SELECT toString({property}) AS value, count() AS generations
-FROM events
-WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end} AND notEmpty(toString({property}))
-GROUP BY value
-ORDER BY generations DESC
-LIMIT 50
-"""
-
-
 def best_replacement(old: str, values: Mapping[str, int]) -> str | None:
     """The live value a stale filter value most likely became, such as `signals` -> `signals_scout`.
 
@@ -316,19 +262,18 @@ def _clean_conditions(conditions: Iterable[Mapping[str, Any]]) -> list[dict[str,
     ]
 
 
+# Probes a repair search runs against live traffic: generations the conditions match, and a property's top values.
+CountMatching = Callable[[list[dict[str, Any]]], int]
+PropertyValues = Callable[[str], Mapping[str, int]]
+
+
 def _count_matching(team: Team, conditions: list[dict[str, Any]], start: datetime, end: datetime) -> int:
     # A set paused at 0% matches events but grades none, so it never counts as matching traffic.
     condition = build_condition_filter([c for c in conditions if runs_on_traffic(c)], team)
     # The scheduler runs an evaluation with no condition sets on nothing.
     if condition is None:
         return 0
-    rows = run_query(
-        team,
-        _MATCHING_GENERATIONS_SQL,
-        {"start": ast.Constant(value=start), "end": ast.Constant(value=end), "condition": condition},
-        "EvalSuggestionsConditionMatches",
-    )
-    return int(rows[0][0]) if rows else 0
+    return count_matching_generations(team, condition, start, end)
 
 
 @frozen
@@ -339,11 +284,7 @@ class FilterFix:
 
 
 def _filter_fix(
-    team: Team,
-    existing: ExistingEval,
-    start: datetime,
-    end: datetime,
-    values_by_key: dict[str, dict[str, int]],
+    existing: ExistingEval, count_matching: CountMatching, property_values: PropertyValues
 ) -> FilterFix | None:
     """A patch that points a filter value nothing sends any more at the value traffic now carries.
 
@@ -358,19 +299,7 @@ def _filter_fix(
         for prop in condition.get("properties") or []:
             key = str(prop["key"])
             for old in _exact_values(prop):
-                if key not in values_by_key:
-                    rows = run_query(
-                        team,
-                        _PROPERTY_VALUES_SQL,
-                        {
-                            "property": ast.Field(chain=["properties", key]),
-                            "start": ast.Constant(value=start),
-                            "end": ast.Constant(value=end),
-                        },
-                        "EvalSuggestionsPropertyValues",
-                    )
-                    values_by_key[key] = {str(value): int(count) for value, count in rows}
-                values = values_by_key[key]
+                values = property_values(key)
                 if old in values:
                     continue
                 new = best_replacement(old, values)
@@ -380,7 +309,7 @@ def _filter_fix(
                 prop["value"] = (
                     [new if str(item) == old else item for item in value] if isinstance(value, list) else new
                 )
-                matching = _count_matching(team, conditions, start, end)
+                matching = count_matching(conditions)
                 if matching == 0:
                     # Another condition set may still hold the stale value, so undo this guess and keep looking.
                     prop["value"] = value
@@ -397,48 +326,42 @@ def fix_dedupe_key(evaluation_id: str, problem: FixProblem) -> str:
     return f"fix:{evaluation_id}:{problem}"
 
 
-def find_fixes(
-    team: Team,
-    evals: Sequence[ExistingEval],
-    window_start: datetime,
-    window_end: datetime,
-    dismissed: frozenset[str] = frozenset(),
-) -> list[EvalFix]:
-    enabled = {existing.id: existing for existing in evals if existing.enabled}
-    if not enabled:
-        return []
-    now = timezone.now()
-    placeholders: dict[str, ast.Expr] = {
-        "start": ast.Constant(value=now - DEAD_LOOKBACK),
-        "evaluation_ids": ast.Constant(value=sorted(enabled)),
-    }
-    runs = {
-        str(row[0]): (int(row[1]), int(row[2]), int(row[3]))
-        for row in run_query(team, _EVAL_RUNS_SQL, placeholders, "EvalSuggestionsEvaluationRuns")
-    }
-    fixes: list[EvalFix] = []
-    values_by_key: dict[str, dict[str, int]] = {}
+def silent_evaluations(
+    enabled: Mapping[str, ExistingEval],
+    runs: Sequence[EvaluationRunCounts],
+    dismissed: frozenset[str],
+    now: datetime,
+) -> list[ExistingEval]:
+    ran = {row.evaluation_id for row in runs}
     # Each candidate costs a count and possibly repair probes, so a team with many silent evaluations pays for
     # the most recently edited few. Dismissed ones and ones paused at 0% rollout leave room for the rest.
-    silent = sorted(
+    return sorted(
         (
-            (evaluation_id, existing)
+            existing
             for evaluation_id, existing in enabled.items()
-            if evaluation_id not in runs
+            if evaluation_id not in ran
             and fix_dedupe_key(evaluation_id, "no_runs") not in dismissed
             and (not existing.conditions or any(runs_on_traffic(condition) for condition in existing.conditions))
             and now - existing.created_at >= MIN_EVALUATION_AGE
             and now - existing.updated_at >= MIN_QUIET_AFTER_EDIT
         ),
-        key=lambda item: item[1].updated_at,
+        key=lambda existing: existing.updated_at,
         reverse=True,
     )[:MAX_SILENT_EVALUATIONS]
-    window_days = max(round((window_end - window_start) / timedelta(days=1)), 1)
-    for evaluation_id, existing in silent:
+
+
+def no_runs_fixes(
+    silent: Sequence[ExistingEval],
+    window_days: int,
+    count_matching: CountMatching,
+    property_values: PropertyValues,
+) -> list[EvalFix]:
+    fixes: list[EvalFix] = []
+    for existing in silent:
         if not existing.conditions:
             fixes.append(
                 EvalFix(
-                    evaluation_id=evaluation_id,
+                    evaluation_id=existing.id,
                     evaluation_name=existing.name,
                     evaluation_type=existing.evaluation_type,
                     problem="no_runs",
@@ -450,12 +373,12 @@ def find_fixes(
             )
             continue
         # Conditions that match traffic mean the evaluation stopped for another reason, such as its key.
-        if _count_matching(team, _clean_conditions(existing.conditions), window_start, window_end) > 0:
+        if count_matching(_clean_conditions(existing.conditions)) > 0:
             continue
-        fix = _filter_fix(team, existing, window_start, window_end, values_by_key)
+        fix = _filter_fix(existing, count_matching, property_values)
         fixes.append(
             EvalFix(
-                evaluation_id=evaluation_id,
+                evaluation_id=existing.id,
                 evaluation_name=existing.name,
                 evaluation_type=existing.evaluation_type,
                 problem="no_runs",
@@ -465,42 +388,79 @@ def find_fixes(
                 filter_change=fix.change if fix else None,
             )
         )
+    return fixes
 
+
+def suspicious_runs(
+    enabled: Mapping[str, ExistingEval], runs: Sequence[EvaluationRunCounts], now: datetime
+) -> list[EvaluationRunCounts]:
     # Runs before an edit judged an older version, so an evaluation edited within the window waits for clean runs.
-    suspicious = {
-        evaluation_id: counts
-        for evaluation_id, counts in runs.items()
-        if counts[0] >= SUSPICIOUS_MIN_RUNS
-        and max(counts[1], counts[2]) / counts[0] > SUSPICIOUS_SHARE
-        and now - enabled[evaluation_id].updated_at >= DEAD_LOOKBACK
-    }
+    return [
+        row
+        for row in runs
+        if row.runs >= SUSPICIOUS_MIN_RUNS
+        and max(row.true_runs, row.false_runs) / row.runs > SUSPICIOUS_SHARE
+        and now - enabled[row.evaluation_id].updated_at >= DEAD_LOOKBACK
+    ]
+
+
+def one_outcome_fixes(
+    suspicious: Sequence[EvaluationRunCounts],
+    shared: Sequence[SharedReasoningRow],
+    enabled: Mapping[str, ExistingEval],
+    window_days: int,
+) -> list[EvalFix]:
+    shared_runs = {row.evaluation_id: row.shared_runs for row in shared}
+    return [
+        EvalFix(
+            evaluation_id=row.evaluation_id,
+            evaluation_name=enabled[row.evaluation_id].name,
+            evaluation_type=enabled[row.evaluation_id].evaluation_type,
+            problem="one_outcome",
+            patch=None,
+            weekly_units=round(row.runs * 7 / DEAD_LOOKBACK.days),
+            window_days=window_days,
+            dominant_outcome="true" if row.true_runs >= row.false_runs else "false",
+            dominant_share=max(row.true_runs, row.false_runs) / row.runs,
+            graded_runs=row.runs,
+        )
+        for row in suspicious
+        if shared_runs.get(row.evaluation_id, 0) / row.runs >= SHARED_REASONING_SHARE
+    ]
+
+
+def find_fixes(
+    team: Team,
+    evals: Sequence[ExistingEval],
+    window_start: datetime,
+    window_end: datetime,
+    dismissed: frozenset[str] = frozenset(),
+) -> list[EvalFix]:
+    enabled = {existing.id: existing for existing in evals if existing.enabled}
+    if not enabled:
+        return []
+    now = timezone.now()
+    since = now - DEAD_LOOKBACK
+    runs = load_evaluation_runs(team, sorted(enabled), since)
+    values_by_key: dict[str, dict[str, int]] = {}
+
+    def property_values(key: str) -> dict[str, int]:
+        if key not in values_by_key:
+            rows = load_property_values(team, key, window_start, window_end)
+            values_by_key[key] = {row.value: row.generations for row in rows}
+        return values_by_key[key]
+
+    window_days = max(round((window_end - window_start) / timedelta(days=1)), 1)
+    fixes = no_runs_fixes(
+        silent_evaluations(enabled, runs, dismissed, now),
+        window_days,
+        lambda conditions: _count_matching(team, conditions, window_start, window_end),
+        property_values,
+    )
+    suspicious = suspicious_runs(enabled, runs, now)
     if suspicious:
-        shared = {
-            str(row[0]): int(row[1])
-            for row in run_query(
-                team,
-                _SHARED_REASONING_SQL,
-                {"start": placeholders["start"], "evaluation_ids": ast.Constant(value=sorted(suspicious))},
-                "EvalSuggestionsSharedReasoning",
-            )
-        }
-        for evaluation_id, (total, true_runs, false_runs) in suspicious.items():
-            if shared.get(evaluation_id, 0) / total < SHARED_REASONING_SHARE:
-                continue
-            fixes.append(
-                EvalFix(
-                    evaluation_id=evaluation_id,
-                    evaluation_name=enabled[evaluation_id].name,
-                    evaluation_type=enabled[evaluation_id].evaluation_type,
-                    problem="one_outcome",
-                    patch=None,
-                    weekly_units=round(total * 7 / DEAD_LOOKBACK.days),
-                    window_days=window_days,
-                    dominant_outcome="true" if true_runs >= false_runs else "false",
-                    dominant_share=max(true_runs, false_runs) / total,
-                    graded_runs=total,
-                )
-            )
+        shared = load_shared_reasoning(team, sorted(row.evaluation_id for row in suspicious), since)
+        fixes += one_outcome_fixes(suspicious, shared, enabled, window_days)
     return fixes
 
 

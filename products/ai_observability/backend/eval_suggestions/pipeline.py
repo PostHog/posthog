@@ -27,6 +27,7 @@ from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFaile
 from posthog.models.team import Team
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionKind,
@@ -60,7 +61,7 @@ from .measure import (
     run_check,
     structured_outputs,
 )
-from .profile import ProfileWindow, StructuredGap, TeamProfile, fetch_profile, find_structured_gaps, gap_holds
+from .profile import StructuredGap, TeamProfile, fetch_profile, find_structured_gaps, gap_holds
 from .ranking import Proposal
 
 logger = structlog.get_logger(__name__)

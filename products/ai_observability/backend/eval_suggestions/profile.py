@@ -8,24 +8,34 @@ import re
 import json
 import math
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
-from datetime import datetime
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import replace
 from typing import Any, Literal
-
-from posthog.hogql import ast
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
-from .queries import run_query
+from products.ai_observability.backend.logic.eval_suggestions.profile_queries import (
+    MAX_SEGMENT_VALUE_LENGTH,
+    MAX_SEGMENT_VALUES,
+    NUMERIC_SUFFIX_PATTERN,
+    DailyTrafficRow,
+    ErrorPrefixRow,
+    ProfileWindow,
+    SegmentValueRow,
+    ToolCallsRow,
+    TrafficCounts,
+    load_daily_traffic,
+    load_error_prefixes,
+    load_segment_values,
+    load_tool_calls,
+    load_traffic_counts,
+)
+
 from .stats import wilson_interval
 
 # One tool taking this share of all calls routes the agent's work, so calling it often is the design.
 DISPATCHER_SHARE = 0.8
-# A custom property is a segment when it splits traffic into a few named parts.
-MAX_SEGMENT_VALUES = 20
-# Longer values read as ids or free text, not names, and a card or eval name built from one would overflow.
-MAX_SEGMENT_VALUE_LENGTH = 64
 # Gap search tests every segment key against every enum field in Python, so a team that sends thousands of
 # custom properties or output fields must not set its cost. The keys and fields with the most data stay.
 MAX_SEGMENT_KEYS = 10
@@ -35,11 +45,8 @@ MAX_ENUM_FIELDS = 10
 MIN_SEGMENT_GENERATIONS = 50
 # Aggregates that parse `properties` read whole traces from a hash sample of about this many generations,
 # then scale counts back. Shares need no scaling. The largest teams send tens of millions a week.
-PROFILE_SAMPLE_GENERATIONS = 200_000
 # The sample keeps whole traces. `$ai_trace_id` is materialized, so the filter runs before any JSON is parsed.
-# Shared by Python and the segments query, ASCII digits only, so both count the same normalized values.
-# The separator is required, so versions such as `v1` and `v2` stay apart.
-NUMERIC_SUFFIX_PATTERN = "[-_ .#][0-9]+$"
+PROFILE_SAMPLE_GENERATIONS = 200_000
 NUMERIC_SUFFIX = re.compile(NUMERIC_SUFFIX_PATTERN)
 
 # Structured-output gaps: a field value one segment uses far more than its siblings.
@@ -68,12 +75,6 @@ FIELD_MEANINGS: dict[str, FieldMeaning] = {
 CAMEL_CASE_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 SAFE_FIELD_PATH = re.compile(r"^[A-Za-z0-9_]{1,40}(\[\])?(\.[A-Za-z0-9_]{1,40}(\[\])?){0,3}$")
 ENUM_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$")
-
-
-@frozen
-class ProfileWindow:
-    start: datetime
-    end: datetime
 
 
 @frozen
@@ -116,91 +117,6 @@ class TeamProfile:
         )
 
 
-# Reads only sort-key and materialized columns, so it costs little even on the largest teams.
-_COUNT_SQL = """
-SELECT
-    count(),
-    uniqIf(toString(properties.$ai_session_id), notEmpty(toString(properties.$ai_session_id))),
-    uniqIf(toString(properties.$ai_trace_id), notEmpty(toString(properties.$ai_session_id)))
-FROM events
-WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
-"""
-
-_DAILY_SQL = """
-SELECT
-    intDiv(dateDiff('second', timestamp, {end}), 86400) AS days_ago,
-    count() AS generations,
-    uniq(properties.$ai_trace_id) AS traces,
-    countIf(toFloat(properties.$ai_tool_call_count) > 0 OR notEmpty(toString(properties.$ai_tools_called))) AS with_tools,
-    countIf(notEmpty(toString(properties.$ai_session_id))) AS with_session,
-    sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
-    countIf(isNotNull(toFloat(properties.$ai_input_tokens))) AS with_input_tokens,
-    topK(3)(toString(properties.$ai_model)) AS models
-FROM events
-WHERE event = '$ai_generation'
-  AND timestamp >= {start}
-  AND timestamp < {end}
-  AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
-GROUP BY days_ago
-"""
-
-_TOOLS_SQL = """
-SELECT tool, count() AS calls
-FROM (
-    SELECT arrayJoin(arrayMap(name -> trim(name), splitByChar(',', toString(properties.$ai_tools_called)))) AS tool
-    FROM events
-    WHERE event = '$ai_generation'
-      AND timestamp >= {start}
-      AND timestamp < {end}
-      AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
-      AND notEmpty(toString(properties.$ai_tools_called))
-)
-GROUP BY tool
-ORDER BY calls DESC
-LIMIT 50
-"""
-
-_ERRORS_SQL = """
-SELECT left(toString(properties.$ai_error), 60) AS prefix, count() AS errors
-FROM events
-WHERE event IN ('$ai_generation', '$ai_span')
-  AND timestamp >= {start}
-  AND timestamp < {end}
-  AND (toString(properties.$ai_is_error) = 'true' OR notEmpty(toString(properties.$ai_error)))
-GROUP BY prefix
-ORDER BY errors DESC
-LIMIT 20
-"""
-
-# Numeric suffixes are stripped before counting, so `lens-1` and `lens-2` count as one segment.
-# Reads a hash sample of generations, so an ID-like property on a busy team can't grow the GROUP BY with traffic.
-# Keys with too many values are dropped in the query, so no LIMIT can cut one down to a false segment.
-_SEGMENTS_SQL = """
-SELECT key, tupleElement(pair, 1) AS value, tupleElement(pair, 2) AS generations
-FROM (
-    SELECT key, groupArray((value, generations)) AS pairs
-    FROM (
-        SELECT key, value, count() AS generations
-        FROM (
-            SELECT
-                arrayJoin(JSONExtractKeysAndValues(properties, 'String')) AS kv,
-                tupleElement(kv, 1) AS key,
-                replaceRegexpAll(tupleElement(kv, 2), {numeric_suffix}, '') AS value
-            FROM events
-            WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
-              AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
-        )
-        WHERE NOT startsWith(key, '$') AND notEmpty(value) AND length(value) <= {max_value_length}
-        GROUP BY key, value
-    )
-    GROUP BY key
-    HAVING length(pairs) <= {max_values}
-)
-ARRAY JOIN pairs AS pair
-LIMIT 10000
-"""
-
-
 def segment_text(value: Any) -> str:
     """A property value as ClickHouse prints it, so a boolean reads `true` as it does in profiling and filters."""
     return json.dumps(value) if isinstance(value, bool) else str(value)
@@ -221,10 +137,10 @@ def sample_per_mille(generations: int) -> int:
     return max(1, math.ceil(1000 * PROFILE_SAMPLE_GENERATIONS / generations))
 
 
-def segments_from_rows(rows: Iterable[tuple[Any, ...]]) -> dict[str, dict[str, int]]:
+def segments_from_rows(rows: Iterable[SegmentValueRow]) -> dict[str, dict[str, int]]:
     by_key: defaultdict[str, dict[str, int]] = defaultdict(dict)
-    for key, value, count in rows:
-        by_key[str(key)][str(value)] = int(count)
+    for row in rows:
+        by_key[row.key][row.value] = row.generations
     segments = {
         key: values
         for key, values in by_key.items()
@@ -234,67 +150,57 @@ def segments_from_rows(rows: Iterable[tuple[Any, ...]]) -> dict[str, dict[str, i
     return {key: segments[key] for key in kept}
 
 
-def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
-    placeholders: dict[str, ast.Expr] = {
-        "start": ast.Constant(value=window.start),
-        "end": ast.Constant(value=window.end),
-    }
-    count_rows = run_query(team, _COUNT_SQL, placeholders, "EvalSuggestionsProfileCount")
-    generations = int(count_rows[0][0]) if count_rows else 0
-    sessions = int(count_rows[0][1]) if count_rows else 0
-    session_traces = int(count_rows[0][2]) if count_rows else 0
-    if generations == 0:
+def build_profile(
+    counts: TrafficCounts,
+    daily: Sequence[DailyTrafficRow],
+    tools: Sequence[ToolCallsRow],
+    errors: Sequence[ErrorPrefixRow],
+    segments: Sequence[SegmentValueRow],
+    per_mille: int,
+) -> TeamProfile:
+    """The profile from the counts over all traffic and the rows read from a `per_mille` sample of it."""
+    if counts.generations == 0:
         return TeamProfile.empty()
-    per_mille = sample_per_mille(generations)
     scale = 1000 / per_mille
-    sampled = {
-        **placeholders,
-        "per_mille": ast.Constant(value=per_mille),
-    }
-    daily = run_query(team, _DAILY_SQL, sampled, "EvalSuggestionsProfileDaily")
-    sampled_generations = sum(int(row[1]) for row in daily)
-    with_tokens = sum(int(row[6]) for row in daily)
-    models = Counter(model for row in daily for model in row[7] if model)
-    tool_counts = {
-        tool: round(int(calls) * scale)
-        for tool, calls in run_query(team, _TOOLS_SQL, sampled, "EvalSuggestionsProfileTools")
-        if tool
-    }
-    # Errors are rare and filter on a materialized column, so they are counted on every row.
-    error_rows = run_query(team, _ERRORS_SQL, placeholders, "EvalSuggestionsProfileErrors")
-    segment_rows = [
-        (key, value, round(count * scale))
-        for key, value, count in run_query(
-            team,
-            _SEGMENTS_SQL,
-            {
-                **sampled,
-                "max_values": ast.Constant(value=MAX_SEGMENT_VALUES),
-                "numeric_suffix": ast.Constant(value=NUMERIC_SUFFIX_PATTERN),
-                "max_value_length": ast.Constant(value=MAX_SEGMENT_VALUE_LENGTH),
-            },
-            "EvalSuggestionsProfileSegments",
-        )
-    ]
+    sampled_generations = sum(row.generations for row in daily)
+    with_tokens = sum(row.with_input_tokens for row in daily)
+    models = Counter(model for row in daily for model in row.models if model)
+    tool_counts = {row.tool: round(row.calls * scale) for row in tools if row.tool}
 
-    def share(column: int) -> float:
-        return sum(int(row[column]) for row in daily) / sampled_generations if sampled_generations else 0.0
+    def share(column: Callable[[DailyTrafficRow], int]) -> float:
+        return sum(column(row) for row in daily) / sampled_generations if sampled_generations else 0.0
 
     return TeamProfile(
-        generations=generations,
-        sessions=sessions,
-        session_traces=session_traces,
-        traces=round(sum(int(row[2]) for row in daily) * scale),
-        generations_by_days_ago={int(row[0]): round(int(row[1]) * scale) for row in daily},
-        traces_by_days_ago={int(row[0]): round(int(row[2]) * scale) for row in daily},
-        tool_call_share=share(3),
+        generations=counts.generations,
+        sessions=counts.sessions,
+        session_traces=counts.session_traces,
+        traces=round(sum(row.traces for row in daily) * scale),
+        generations_by_days_ago={row.days_ago: round(row.generations * scale) for row in daily},
+        traces_by_days_ago={row.days_ago: round(row.traces * scale) for row in daily},
+        tool_call_share=share(lambda row: row.with_tools),
         tool_counts=tool_counts,
         dispatcher_tools=dispatcher_tools(tool_counts),
-        session_share=share(4),
-        mean_input_tokens=sum(float(row[5] or 0) for row in daily) / with_tokens if with_tokens else None,
+        session_share=share(lambda row: row.with_session),
+        mean_input_tokens=sum(row.input_tokens for row in daily) / with_tokens if with_tokens else None,
         models=tuple(model for model, _ in models.most_common(3)),
-        error_prefixes=tuple(str(row[0]) for row in error_rows if row[0]),
-        segments=segments_from_rows(segment_rows),
+        error_prefixes=tuple(row.prefix for row in errors if row.prefix),
+        segments=segments_from_rows(replace(row, generations=round(row.generations * scale)) for row in segments),
+    )
+
+
+def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
+    counts = load_traffic_counts(team, window)
+    if counts.generations == 0:
+        return TeamProfile.empty()
+    per_mille = sample_per_mille(counts.generations)
+    return build_profile(
+        counts,
+        load_daily_traffic(team, window, per_mille),
+        load_tool_calls(team, window, per_mille),
+        # Errors are rare and filter on a materialized column, so they are counted on every row.
+        load_error_prefixes(team, window),
+        load_segment_values(team, window, per_mille),
+        per_mille,
     )
 
 

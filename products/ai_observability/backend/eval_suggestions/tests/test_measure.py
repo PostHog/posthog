@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -15,12 +16,9 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
-from products.ai_observability.backend.eval_suggestions import measure, profile
+from products.ai_observability.backend.eval_suggestions import measure
 from products.ai_observability.backend.eval_suggestions.adapters import _FINAL_TEXT, AdaptedCheck, compile_check
 from products.ai_observability.backend.eval_suggestions.measure import (
-    EVENTS_PER_TRACE,
-    MAX_OUTPUT_BYTES,
-    MAX_STATE_BYTES,
     ROLE_LABEL,
     SampledTrace,
     _calls_tools,
@@ -29,7 +27,14 @@ from products.ai_observability.backend.eval_suggestions.measure import (
     final_answer,
     run_check,
 )
-from products.ai_observability.backend.eval_suggestions.profile import ProfileWindow, fetch_profile
+from products.ai_observability.backend.eval_suggestions.profile import fetch_profile
+from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
+from products.ai_observability.backend.logic.eval_suggestions.sample_queries import (
+    EVENTS_PER_TRACE,
+    MAX_OUTPUT_BYTES,
+    MAX_STATE_BYTES,
+    HydratedEventRow,
+)
 
 
 class TestSample(ClickhouseTestMixin, APIBaseTest):
@@ -132,31 +137,6 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
 
         assert len(sample.traces) == 1
 
-    def test_the_profile_counts_traffic_tools_errors_and_segments(self) -> None:
-        end = timezone.now() - timedelta(minutes=30)
-        for index, product in enumerate(["chat-1", "chat-2", "search"]):
-            self._generation(
-                f"trace-{index}",
-                end - timedelta(hours=3, minutes=index),
-                properties={"ai_product": product, "$ai_tools_called": "search, fetch", "$ai_session_id": "s1"},
-            )
-        self._generation(
-            "failed",
-            end - timedelta(days=2),
-            properties={"ai_product": "search", "$ai_is_error": True, "$ai_error": "RateLimitError: slow down"},
-        )
-        window = ProfileWindow(start=end - timedelta(days=7), end=end)
-
-        with patch.object(profile, "MIN_SEGMENT_GENERATIONS", 2):
-            result = fetch_profile(self.team, window)
-
-        assert (result.generations, result.traces, result.sessions) == (4, 4, 1)
-        assert result.generations_by_days_ago == {0: 3, 2: 1}
-        assert result.tool_counts == {"search": 3, "fetch": 3}
-        assert result.tool_call_share == 0.75
-        assert result.error_prefixes == ("RateLimitError: slow down",)
-        assert result.segments == {"ai_product": {"chat": 2, "search": 2}}
-
     def test_hydration_reads_each_event_once_and_skips_traces_past_the_cap(self) -> None:
         end = timezone.now() - timedelta(minutes=30)
         # Ingestion can write one event twice. Counted twice, it would double tokens and use up the cap.
@@ -218,25 +198,24 @@ def _row(
     answer: str = "",
     unreadable: bool = False,
     previous: str = "",
-) -> tuple[Any, ...]:
-    """One hydration row, in the column order of _HYDRATE_SQL."""
+) -> HydratedEventRow:
     output = json.dumps([{"role": "assistant", "content": answer}]) if answer else ""
-    return (
-        "t",
-        f"e{index}",
-        "$ai_generation",
-        AT + timedelta(seconds=index),
-        "u",
-        properties or {},
-        "",
-        1,
-        False,
-        output,
-        "",
-        unreadable,
-        previous,
-        "",
-        "",
+    return HydratedEventRow(
+        trace_id="t",
+        event_uuid=f"e{index}",
+        event="$ai_generation",
+        timestamp=AT + timedelta(seconds=index),
+        distinct_id="u",
+        properties=json.dumps(properties or {}),
+        last_input="",
+        user_messages=1,
+        has_tool_results=False,
+        output_choices=output,
+        output="",
+        unreadable=unreadable,
+        previous_reply=previous,
+        input_state="",
+        output_state="",
     )
 
 
@@ -269,15 +248,14 @@ def test_an_event_cut_to_fit_anywhere_in_the_trace_skips_it() -> None:
 @parameterized.expand(
     [
         # orjson refuses past 1024 levels, so the output stays a raw string.
-        ("raw_output", 9, "[" * 2000 + "]" * 2000),
-        ("parsed_output", 9, "[" * 600 + "]" * 600),
-        ("parsed_output_state", 14, "[" * 600 + "]" * 600),
+        ("raw_output", "output_choices", "[" * 2000 + "]" * 2000),
+        ("parsed_output", "output_choices", "[" * 600 + "]" * 600),
+        ("parsed_output_state", "output_state", "[" * 600 + "]" * 600),
     ]
 )
-def test_a_trace_nested_too_deep_to_read_is_skipped(_name: str, column: int, value: str) -> None:
-    deep = list(_row(1))
-    deep[column] = value
-    rows = [_row(0, answer="Short final answer."), tuple(deep)]
+def test_a_trace_nested_too_deep_to_read_is_skipped(_name: str, column: str, value: str) -> None:
+    deep = replace(_row(1), output_state=value) if column == "output_state" else replace(_row(1), output_choices=value)
+    rows = [_row(0, answer="Short final answer."), deep]
     assert _sampled_trace("t", rows, held_out=False, spans_days=False, segment_keys=[]) is None
 
 
@@ -297,10 +275,9 @@ def test_a_trace_survives_malformed_metadata(_name: str, properties: dict[str, A
 
 def test_the_final_text_drops_the_renderers_role_label() -> None:
     answer = json.dumps([{"role": "assistant", "parts": [{"type": "text", "content": '{"status": "done"}'}]}])
-    row = list(_row(0))
-    row[9] = answer
+    row = replace(_row(0), output_choices=answer)
 
-    sampled = _sampled_trace("t", [tuple(row)], held_out=False, spans_days=False, segment_keys=[])
+    sampled = _sampled_trace("t", [row], held_out=False, spans_days=False, segment_keys=[])
 
     assert sampled is not None and not sampled.final_text.lower().startswith("assistant:")
 
