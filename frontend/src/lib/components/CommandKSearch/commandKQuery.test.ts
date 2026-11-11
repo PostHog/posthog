@@ -1,4 +1,5 @@
 import {
+    FILTER_DEFINITIONS,
     FilterKey,
     QueryChip,
     ValueOption,
@@ -114,6 +115,17 @@ describe('commandKQuery', () => {
         const resolved = resolveQuery(text, chips, OPTIONS)
         expect(resolved).toMatchObject({ backendSearch, freeText })
         expect(resolved.filters).toHaveLength(filterCount)
+    })
+
+    test.each(
+        FILTER_DEFINITIONS.filter((definition) => definition.example).flatMap(({ key, example }) => [
+            { text: `${key}:${example}`, key, negated: false },
+            { text: `-${key}:${example}`, key, negated: true },
+        ])
+    )("resolves the input hint's $text to a filter", ({ text, key, negated }) => {
+        const resolved = resolveQuery(text, [], OPTIONS)
+        expect(resolved.filters).toEqual([expect.objectContaining({ key, negated })])
+        expect(resolved.freeText).toBe('')
     })
 
     test.each([

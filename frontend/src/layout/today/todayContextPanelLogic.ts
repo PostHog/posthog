@@ -10,6 +10,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
+import type { SidePanelTicketFilter, TicketsLoadState } from 'products/conversations/frontend/types'
 
 import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'
 import { todayShellLogic } from './todayShellLogic'
@@ -61,6 +62,8 @@ export interface todayContextPanelLogicValues {
     sidePanelOpen: boolean // sidePanelStateLogic
     canAccessTickets: boolean // sidepanelTicketsLogic
     myTicketsUrl: string // sidepanelTicketsLogic
+    ticketFilterCounts: Record<SidePanelTicketFilter, number> // sidepanelTicketsLogic
+    ticketsLoadState: TicketsLoadState // sidepanelTicketsLogic
     onAiPage: boolean // todayShellLogic
     activeTab: SidePanelTab
     canUndock: boolean
@@ -91,6 +94,9 @@ export interface todayContextPanelLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
+    loadTickets: (force?: boolean | undefined) => {
+        force: boolean
+    } // sidepanelTicketsLogic
     close: () => {
         value: true
     }
@@ -182,11 +188,11 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             notebookPanelLogic,
             ['selectedNotebook'],
             sidepanelTicketsLogic,
-            ['canAccessTickets', 'myTicketsUrl'],
+            ['canAccessTickets', 'myTicketsUrl', 'ticketFilterCounts', 'ticketsLoadState'],
             todayShellLogic,
             ['onAiPage'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel'], sidepanelTicketsLogic, ['loadTickets']],
     })),
     actions({
         setFloatingOpen: (open: boolean) => ({ open }),

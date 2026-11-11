@@ -38,7 +38,7 @@ from posthog.api.cohort import (
     CohortSerializer,
     get_flags_blocking_cohort_deletion,
 )
-from posthog.api.utils import ServiceRequest
+from posthog.api.utils import ServiceRequest, parse_id_list
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import (
     ACTIONS,
@@ -4550,6 +4550,10 @@ class ExperimentService:
                 queryset = queryset.filter(archived=archived_bool)
             else:
                 queryset = queryset.filter(archived=False)
+
+            feature_flag_ids = parse_id_list(query_params.get("feature_flag_ids"), name="feature_flag_ids", parse=int)
+            if feature_flag_ids is not None:
+                queryset = queryset.filter(feature_flag_id__in=feature_flag_ids)
 
             feature_flag_id = query_params.get("feature_flag_id")
             if feature_flag_id:
