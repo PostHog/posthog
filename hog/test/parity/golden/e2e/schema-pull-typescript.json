@@ -13,6 +13,6 @@
   ],
   "files": {
     "posthog-typed.ts": "utf8:/**\n * GENERATED FILE - DO NOT EDIT\n * Language: typescript\n */\nexport type EventName = \"sign up\" | \"café ☕\"\n// end",
-    "posthog.json": "utf8:{\n  \"languages\": {\n    \"typescript\": {\n      \"event_count\": 2,\n      \"output_path\": \"posthog-typed.ts\",\n      \"schema_hash\": \"hash-typescript\",\n      \"updated_at\": \"<time>\"\n    }\n  }\n}"
+    "posthog.json": "utf8:{\n  \"languages\": {\n    \"typescript\": {\n      \"event_count\": 2,\n      \"output_path\": \"posthog-typed.ts\",\n      \"schema_hash\": \"hash-typescript\",\n      \"sdk\": \"posthog-js\",\n      \"updated_at\": \"<time>\"\n    }\n  }\n}"
   }
 }

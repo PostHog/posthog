@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from django.db import models
 from django.db.models import QuerySet
 
 import orjson
@@ -7,6 +8,11 @@ import orjson
 from products.event_definitions.backend.models import EventDefinition, SchemaPropertyGroupProperty
 
 from .base import EventDefinitionGenerator
+
+
+class TypeScriptSDK(models.TextChoices):
+    POSTHOG_JS = "posthog-js", "posthog-js"
+    NONE = "none", "None"
 
 
 class TypeScriptGenerator(EventDefinitionGenerator):

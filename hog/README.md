@@ -37,7 +37,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog endpoints list`, `get`, `open`       | List your endpoints a page at a time, show one, or open it in PostHog.                                                   |
 | `hog endpoints run [name]`                | Runs an endpoint, or the query in a local file with `--file`. `--var name=value` sets variables.                         |
 | `hog endpoints pull`, `diff`, `push`      | Keep endpoints as YAML files: pull them, see how they differ, and push changes. `diff` exits with code 1 on drift.       |
-| `hog schema pull`                         | Generates a typed SDK (TypeScript, Go, Python) or TypeScript types from your events, and records it in `posthog.json`.   |
+| `hog schema pull`                         | Generates a typed SDK (TypeScript, Go or Python) from your event definitions, and records it in `posthog.json`.          |
 | `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                         |
 | `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                            |
 | `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                  |
@@ -201,6 +201,7 @@ Point `$schema` at the published schema to get validation in your editor:
 `errorTracking.releaseMode` sets the default for `--release-mode`. `HOG_RELEASE_MODE` overrides it.
 `endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path.
 `hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
+A `typescript` entry with `"sdk": "none"` holds event types only, with no posthog-js import, for posthog-react-native or any other SDK. `--sdk` sets it, and later pulls keep it.
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 
 `posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter @posthog/hog schema`.

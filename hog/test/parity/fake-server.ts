@@ -132,7 +132,7 @@ export function startFakeServer(scenario: Scenario): FakeServer {
 
             // hog reads event definitions through /api/environments/ and posthog-cli through /api/projects/.
             if ((match = path.match(/^\/api\/(?:projects|environments)\/\d+\/event_definitions\/(\w+)$/))) {
-                return respond(json(200, eventDefinitions(match[1]!)))
+                return respond(json(200, eventDefinitions(match[1]!, url.searchParams.get('sdk'))))
             }
             if ((match = path.match(/^\/api\/projects\/\d+\/error_tracking\/releases\/hash\/(.+)$/))) {
                 const release = releases.get(match[1]!)
@@ -264,11 +264,15 @@ export function startFakeServer(scenario: Scenario): FakeServer {
 }
 
 // Non-ASCII names and no final newline, so a CLI that re-encodes or reformats the module fails.
-function eventDefinitions(language: string): { content: string; event_count: number; schema_hash: string } {
+function eventDefinitions(
+    language: string,
+    sdk: string | null
+): { content: string; event_count: number; schema_hash: string } {
+    const variant = sdk ? `${language}-${sdk}` : language
     return {
-        content: `/**\n * GENERATED FILE - DO NOT EDIT\n * Language: ${language}\n */\nexport type EventName = "sign up" | "café ☕"\n// end`,
+        content: `/**\n * GENERATED FILE - DO NOT EDIT\n * Language: ${variant}\n */\nexport type EventName = "sign up" | "café ☕"\n// end`,
         event_count: 2,
-        schema_hash: `hash-${language}`,
+        schema_hash: `hash-${variant}`,
     }
 }
 

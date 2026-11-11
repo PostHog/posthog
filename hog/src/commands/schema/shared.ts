@@ -1,11 +1,11 @@
 import { join } from 'node:path'
 import { z } from 'zod'
 
-import type { LoadedConfig } from '@/core/config'
+import type { LoadedConfig, TypeScriptSdk } from '@/core/config'
 import type { Context } from '@/core/context'
 import { absolutePath } from '@/core/paths'
 
-export const LANGUAGES = ['typescript', 'typescript_types', 'golang', 'python'] as const
+export const LANGUAGES = ['typescript', 'golang', 'python'] as const
 export type Language = (typeof LANGUAGES)[number]
 
 interface LanguageInfo {
@@ -23,14 +23,6 @@ export const LANGUAGE_INFO: Record<Language, LanguageInfo> = {
             `Import PostHog from the generated module: import posthog from './${file}'`,
             "Known events get autocomplete and type checks: posthog.capture('event_name', { property: 'value' })",
             "captureRaw() skips the type checks: posthog.captureRaw('dynamic_event_name', { whatever: 'data' })",
-        ],
-    },
-    typescript_types: {
-        name: 'TypeScript (types only)',
-        defaultFile: 'posthog-events.ts',
-        nextSteps: (file) => [
-            `Import the event types, with no SDK dependency: import type { EventName, EventProperties } from './${file}'`,
-            'Use them to type the calls to any PostHog SDK, such as posthog-react-native: function track<K extends EventName>(event: K, properties: EventProperties<K>) { posthog.capture(event, properties) }',
         ],
     },
     golang: {
@@ -53,6 +45,21 @@ export const LANGUAGE_INFO: Record<Language, LanguageInfo> = {
     },
 }
 
+export const DEFAULT_TYPESCRIPT_SDK: TypeScriptSdk = 'posthog-js'
+
+const TYPES_ONLY_INFO: LanguageInfo = {
+    name: 'TypeScript (types only)',
+    defaultFile: 'posthog-events.ts',
+    nextSteps: (file) => [
+        `Import the event types, with no SDK dependency: import type { EventName, EventProperties } from './${file}'`,
+        'Use them to type the calls to any PostHog SDK, such as posthog-react-native: function track<K extends EventName>(event: K, properties: EventProperties<K>) { posthog.capture(event, properties) }',
+    ],
+}
+
+export function moduleInfo(language: Language, sdk: TypeScriptSdk | undefined): LanguageInfo {
+    return language === 'typescript' && sdk === 'none' ? TYPES_ONLY_INFO : LANGUAGE_INFO[language]
+}
+
 export function isLanguage(value: string): value is Language {
     return (LANGUAGES as readonly string[]).includes(value)
 }
@@ -61,8 +68,13 @@ const Definitions = z.object({ content: z.string(), event_count: z.number(), sch
 
 export type Definitions = z.infer<typeof Definitions>
 
-export function fetchDefinitions(ctx: Context, language: Language): Promise<Definitions> {
-    return ctx.posthog().then((api) => api.get(`event_definitions/${language}/`, Definitions))
+export function fetchDefinitions(
+    ctx: Context,
+    language: Language,
+    sdk: TypeScriptSdk | undefined
+): Promise<Definitions> {
+    const query = language === 'typescript' && sdk === 'none' ? '?sdk=none' : ''
+    return ctx.posthog().then((api) => api.get(`event_definitions/${language}/${query}`, Definitions))
 }
 
 // posthog.json stores paths relative to its own folder. A new file goes in the working folder.
@@ -72,8 +84,13 @@ export function configRoot(ctx: Context, loaded: LoadedConfig | undefined): stri
 
 // Resolves a path the caller typed. A folder, or a path that ends with a slash, gets the
 // language's default file name.
-export async function chosenFile(ctx: Context, path: string, language: Language): Promise<string> {
+export async function chosenFile(
+    ctx: Context,
+    path: string,
+    language: Language,
+    sdk: TypeScriptSdk | undefined
+): Promise<string> {
     const absolute = absolutePath(ctx.runtime.cwd(), path)
     const asFolder = /[\\/]$/.test(path) || (await ctx.runtime.isDirectory(absolute))
-    return asFolder ? join(absolute, LANGUAGE_INFO[language].defaultFile) : absolute
+    return asFolder ? join(absolute, moduleInfo(language, sdk).defaultFile) : absolute
 }

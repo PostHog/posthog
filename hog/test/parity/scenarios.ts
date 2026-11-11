@@ -483,12 +483,18 @@ const schema = (
 
 SCENARIOS.push(
     ...LANGUAGES.map((language) => schema(language, language, { rust: [], hog: [] })),
-    schema('typescript_types-folder', 'typescript_types', { rust: ['-o', 'src/lib/'], hog: ['--file', 'src/lib/'] }),
-    schema('typescript_types-saved', 'typescript_types', { rust: [], hog: [] }, () => ({
+    schema('typescript-sdk-none', 'typescript', { rust: ['--sdk', 'none'], hog: ['--sdk', 'none'] }),
+    schema('typescript-sdk-none-folder', 'typescript', {
+        rust: ['--sdk', 'none', '-o', 'src/lib/'],
+        hog: ['--sdk', 'none', '--file', 'src/lib/'],
+    }),
+    // No --sdk: the saved entry decides, so a later pull keeps the types-only module.
+    schema('typescript-sdk-none-saved', 'typescript', { rust: [], hog: [] }, () => ({
         'posthog.json': JSON.stringify({
             languages: {
-                typescript_types: {
+                typescript: {
                     output_path: 'src/events.ts',
+                    sdk: 'none',
                     schema_hash: 'hash-old',
                     updated_at: '2026-01-01T00:00:00+00:00',
                     event_count: 1,
