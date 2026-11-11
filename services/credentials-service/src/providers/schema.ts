@@ -246,7 +246,13 @@ export const providerSpecSchema = z
                 ])
             }
         }
-        if (spec.mint && 'keyField' in spec.mint && spec.resolveExposes.includes(spec.mint.keyField)) {
+        const keyField = spec.mint && 'keyField' in spec.mint ? spec.mint.keyField : undefined
+        if (
+            keyField &&
+            spec.resolveExposes.some(
+                (field) => field === keyField || keyField.startsWith(`${field}.`) || field.startsWith(`${keyField}.`)
+            )
+        ) {
             issue('must not expose the key that the minter signs with', ['resolveExposes'])
         }
         if (spec.refresh && !spec.token && !spec.mint) {

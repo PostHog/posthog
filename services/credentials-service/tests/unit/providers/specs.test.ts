@@ -128,6 +128,24 @@ describe('provider specs', () => {
             },
             'must not expose the key that the minter signs with',
         ],
+        [
+            'a parent of the minter key field in resolve',
+            {
+                authorize: undefined,
+                authTypes: { default: 'credentials', others: [] },
+                token: undefined,
+                clientSecretKeys: undefined,
+                tokenInfo: undefined,
+                mint: {
+                    type: 'google_sa_jwt',
+                    scope: 'https://www.googleapis.com/auth/devstorage.read_write',
+                    keyField: 'credentials.key_info',
+                    tokenUriAllowlist: ['https://oauth2.googleapis.com/token'],
+                },
+                resolveExposes: ['access_token', 'credentials'],
+            },
+            'must not expose the key that the minter signs with',
+        ],
         ['a region rule with no environment', { regions: { dev: { allowedIn: [] } } }, ''],
         [
             'a backoff cap below its base',
