@@ -141,6 +141,12 @@ export function decodeIntakeMessage(value: Buffer | null | undefined): DecodeRes
         : { status: 'dead_letter', reason: 'schema_invalid' }
 }
 
+// A keyless run claims on its own random run id, so a redelivered message replays it. Its fingerprint is the run id,
+// and the route must claim a keyless run with the same fingerprint, or the consumer reads its claim as a mismatch.
+export function claimFingerprint(runId: string, fingerprint?: string): string {
+    return fingerprint ?? runId.toLowerCase()
+}
+
 export function intakeJobInit({ teamId, job }: IntakeMessage): CyclotronV2JobInit & { id: string } {
     return {
         id: job.id,
