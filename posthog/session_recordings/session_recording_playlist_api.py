@@ -41,6 +41,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.redis import get_client
 from posthog.session_recordings.data_retention import retention_period_in_days
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_api import (
     current_user_viewed,
     list_recordings_from_query,
@@ -162,11 +163,29 @@ def live_playlist_items(
     items: QuerySet[SessionRecordingPlaylistItem], team: Team
 ) -> QuerySet[SessionRecordingPlaylistItem]:
     cutoff = now() - timedelta(days=retention_period_in_days(team.session_recording_retention_period))
-    # Pinning creates the SessionRecording row without a start_time, so for those
-    # we fall back to when the item was added: the recording cannot have started later than that
+    # Rows pinned before we stored start_time at pin time (or not yet ingested when pinned) have none,
+    # so fall back to when the item was added: the recording cannot have started later than that
     return items.exclude(deleted=True).exclude(
         Q(recording__start_time__lt=cutoff) | Q(recording__start_time__isnull=True, created_at__lt=cutoff)
     )
+
+
+def set_missing_start_times(recordings: list[SessionRecording], team: Team) -> None:
+    """Store start_time on pinned recordings so collection counts can drop them once they expire."""
+    missing = [recording for recording in recordings if recording.start_time is None]
+    if not missing:
+        return
+    try:
+        start_times = SessionReplayEvents().get_start_times([recording.session_id for recording in missing], team)
+    except Exception as e:
+        # Pinning must still work when ClickHouse is unavailable; live_playlist_items falls back to created_at
+        logger.warning("pinned_recording_start_time_lookup_failed", team_id=team.id, error=str(e))
+        return
+    for recording in missing:
+        start_time = start_times.get(recording.session_id)
+        if start_time is not None:
+            recording.start_time = start_time
+            recording.save(update_fields=["start_time"])
 
 
 def count_collection_recordings(
@@ -1045,6 +1064,7 @@ class SessionRecordingPlaylistViewSet(
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, recording=recording
             )
+            set_missing_start_times([recording], self.team)
 
             return response.Response({"success": True})
 
@@ -1088,6 +1108,7 @@ class SessionRecordingPlaylistViewSet(
             raise ValidationError("Cannot add recordings to a playlist that is type 'filters'.")
 
         added_count = 0
+        pinned_recordings: list[SessionRecording] = []
         for session_recording_id in session_recording_ids:
             try:
                 recording, _ = SessionRecording.objects.get_or_create(
@@ -1099,6 +1120,7 @@ class SessionRecordingPlaylistViewSet(
                 playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                     playlist=playlist, recording=recording
                 )
+                pinned_recordings.append(recording)
                 if created:
                     added_count += 1
             except Exception as e:
@@ -1108,6 +1130,8 @@ class SessionRecordingPlaylistViewSet(
                     playlist_id=playlist.short_id,
                     error=str(e),
                 )
+
+        set_missing_start_times(pinned_recordings, self.team)
 
         logger.info(
             "bulk_recordings_added_to_playlist",

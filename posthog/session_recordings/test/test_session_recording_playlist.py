@@ -1172,6 +1172,35 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert fs_entry is not None
         assert "Special Folder/Session Recordings" in fs_entry.path
 
+    @parameterized.expand([["single_pin"], ["bulk_add"]])
+    def test_pinning_stores_recording_start_time(self, mode: str) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="pins",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        start_time = (datetime.now(UTC) - timedelta(days=3)).replace(microsecond=0)
+        produce_replay_summary(
+            team_id=self.team.id,
+            session_id="in-clickhouse",
+            distinct_id="123",
+            first_timestamp=start_time,
+            last_timestamp=start_time + timedelta(seconds=5),
+        )
+
+        base_url = f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
+        session_ids = ["in-clickhouse", "not-in-clickhouse"]
+        if mode == "single_pin":
+            for session_id in session_ids:
+                assert self.client.post(f"{base_url}/{session_id}").status_code == status.HTTP_200_OK
+        else:
+            response = self.client.post(f"{base_url}/bulk_add", {"session_recording_ids": session_ids}, format="json")
+            assert response.status_code == status.HTTP_200_OK
+
+        assert SessionRecording.objects.get(team=self.team, session_id="in-clickhouse").start_time == start_time
+        assert SessionRecording.objects.get(team=self.team, session_id="not-in-clickhouse").start_time is None
+
     @parameterized.expand(
         [
             ["single_recording", 1],
