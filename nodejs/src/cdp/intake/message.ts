@@ -20,8 +20,9 @@ const PG_SMALLINT_MAX = 2 ** 15 - 1
 // Any hex UUID, as Postgres takes. Run ids from UUIDT set no RFC version or variant bits, so z.uuid() refuses them.
 const pgUuid = z.guid()
 const pgText = z.string().refine((value) => !value.includes('\u0000'), { message: 'text cannot hold a NUL character' })
-// A B-tree index entry holds at most about 2.7 KB, so an indexed column is held well under that.
-const INDEXED_TEXT_MAX_BYTES = 1024
+// A B-tree index entry holds at most 2704 bytes. This leaves room for the other columns of the widest index that
+// holds a text column, (function_id, action_id, scheduled).
+const INDEXED_TEXT_MAX_BYTES = 2600
 const pgIndexedText = pgText.refine((value) => Buffer.byteLength(value) <= INDEXED_TEXT_MAX_BYTES, {
     message: `an indexed column holds at most ${INDEXED_TEXT_MAX_BYTES} bytes`,
 })
@@ -77,7 +78,11 @@ export type EncodedIntakeMessage = {
     headers: Record<string, string>
 }
 
-export type EncodeResult = { status: 'encoded'; message: EncodedIntakeMessage } | { status: 'too_large'; bytes: number }
+export type EncodeResult =
+    | { status: 'encoded'; message: EncodedIntakeMessage }
+    | { status: 'too_large'; bytes: number }
+    // A value the cyclotron row refuses. Producing it would only dead-letter it.
+    | { status: 'invalid' }
 
 export type DecodeResult =
     | { status: 'decoded'; message: IntakeMessage }
@@ -101,6 +106,9 @@ export function encodeIntakeMessage({ kind, fingerprint, job }: IntakeRun): Enco
             actionId: job.actionId ?? null,
             state: job.state ? parseJSON(job.state.toString('utf-8')) : null,
         },
+    }
+    if (!IntakeMessageSchema.safeParse(message).success) {
+        return { status: 'invalid' }
     }
     const value = Buffer.from(JSON.stringify(message))
     if (value.length > INTAKE_MESSAGE_MAX_BYTES) {

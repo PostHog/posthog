@@ -102,6 +102,22 @@ describe('intake message', () => {
         expect(decoded.status === 'decoded' && decoded.message.fingerprint).toBeUndefined()
     })
 
+    it.each([
+        ['a distinct id that fits every index it lands in', 'x'.repeat(2_000), 'encoded'],
+        ['a distinct id too long for its index', 'x'.repeat(2_700), 'invalid'],
+        ['a function id that is not a UUID', null, 'invalid'],
+    ])('encodes only what the consumer can insert: %s', (_case, distinctId, status) => {
+        const encoded = encodeIntakeMessage({
+            kind: 'transactional-email',
+            job: job(distinctId === null ? { functionId: 'flow-1' } : { distinctId }),
+        })
+
+        expect(encoded.status).toBe(status)
+        if (encoded.status === 'encoded') {
+            expect(decodeIntakeMessage(encoded.message.value).status).toBe('decoded')
+        }
+    })
+
     it('refuses a message over the size limit instead of encoding it', () => {
         const padding = 'x'.repeat(INTAKE_MESSAGE_MAX_BYTES)
         const large = job({ state: Buffer.from(JSON.stringify({ ...jobState, queueMetadata: { padding } })) })
@@ -146,7 +162,7 @@ describe('intake message', () => {
         ['a team id past the INT column', wireValue({ ...validWireMessage, teamId: 2 ** 31 }), 'schema_invalid'],
         [
             'an indexed text column too long for its index entry',
-            wireValue({ ...validWireMessage, job: { ...validWireMessage.job, distinctId: 'x'.repeat(4000) } }),
+            wireValue({ ...validWireMessage, job: { ...validWireMessage.job, distinctId: 'x'.repeat(2_700) } }),
             'schema_invalid',
         ],
         [
