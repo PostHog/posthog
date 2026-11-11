@@ -1178,10 +1178,22 @@ export interface TransactionalEmailActivityEventApi {
      */
     current_url: string | null
     /**
+     * The path of that page, such as `/pricing`.
+     * @nullable
+     */
+    pathname: string | null
+    /**
      * The session the event belongs to. Use it to find the session recording. Null for events captured without a session, such as server-side events.
      * @nullable
      */
     session_id: string | null
+    /**
+     * What an autocaptured event did, such as `click` or `submit`. Null otherwise.
+     * @nullable
+     */
+    event_type: string | null
+    /** The element an autocaptured event happened on, with its parents. Empty for other events. */
+    elements_chain: string
 }
 
 export interface TransactionalEmailActivitySessionApi {

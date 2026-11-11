@@ -216,10 +216,18 @@ class TransactionalEmailActivityEventSerializer(serializers.Serializer):
     event = serializers.CharField(help_text="The event name, such as `$pageview` or a custom event.")
     timestamp = serializers.DateTimeField(help_text="When the event happened.")
     current_url = serializers.CharField(allow_null=True, help_text="The page the person was on. Null when not set.")
+    pathname = serializers.CharField(allow_null=True, help_text="The path of that page, such as `/pricing`.")
     session_id = serializers.CharField(
         allow_null=True,
         help_text="The session the event belongs to. Use it to find the session recording. Null for events "
         "captured without a session, such as server-side events.",
+    )
+    event_type = serializers.CharField(
+        allow_null=True, help_text="What an autocaptured event did, such as `click` or `submit`. Null otherwise."
+    )
+    elements_chain = serializers.CharField(
+        allow_blank=True,
+        help_text="The element an autocaptured event happened on, with its parents. Empty for other events.",
     )
 
 
