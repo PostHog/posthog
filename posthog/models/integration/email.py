@@ -20,6 +20,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
 from posthog.integrations.contracts import IntegrationConflict, IntegrationPatch, IntegrationRecord
+from posthog.integrations.lifecycle import register_delete_hook, sdk_runs_hooks
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -365,8 +366,6 @@ def cleanup_ses_identity_of_integration(row: IntegrationRecord) -> None:
 
     transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))
 
-
-from posthog.integrations.lifecycle import register_delete_hook, sdk_runs_hooks  # noqa: E402
 
 register_delete_hook(clear_default_email_sender_of_integration)
 register_delete_hook(cleanup_ses_identity_of_integration)
