@@ -1,9 +1,11 @@
-from dataclasses import replace
+from dataclasses import asdict, replace
+from datetime import datetime, timedelta
 from functools import cache, cached_property
 from typing import Any, Final, Literal, cast
 from uuid import UUID
 
-from django.db import transaction
+from django.db import models, transaction
+from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
@@ -18,6 +20,7 @@ from posthog import permissions
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, as_drf_validation_error
 from posthog.models import Team, User
@@ -39,6 +42,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertEventKind,
+    ControlChangeKind,
     DestinationType,
     Grouping,
     GroupingMode,
@@ -68,6 +72,10 @@ from products.alerts_platform.backend.presentation.views.platform_alert_destinat
     PlatformAlertDestinationSerializer,
     check_slack_workspace,
     serialized_destination,
+)
+from products.alerts_platform.backend.presentation.views.platform_alert_list_extras import (
+    ConfigurationExtras,
+    list_extras,
 )
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 
@@ -151,6 +159,15 @@ class GroupingSerializer(serializers.Serializer):
             return Grouping.from_stored(attrs)
         except ValueError as error:
             raise ValidationError(str(error)) from error
+
+
+class PlatformAlertStateIntervalSerializer(serializers.Serializer):
+    start = serializers.DateTimeField(help_text="Interval start, inclusive.")
+    end = serializers.DateTimeField(help_text="Interval end, exclusive.")
+    state = serializers.ChoiceField(
+        choices=PlatformAlertState.choices, help_text="The whole alert's state during the interval."
+    )
+    enabled = serializers.BooleanField(help_text="Whether the alert was enabled during the interval.")
 
 
 class PlatformAlertConfigurationSerializer(serializers.Serializer):
@@ -259,6 +276,58 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
         read_only=True,
         help_text=RULE_ANNOTATIONS_HELP,
     )
+    created_by = serializers.SerializerMethodField(
+        help_text="Who created the alert. Null when it was created by a system or the user is gone. Set on reads "
+        "of the list and of one alert."
+    )
+    last_checked_at = serializers.SerializerMethodField(
+        help_text="When the alert was last checked. Null when it has not been checked, or when its check history "
+        "could not be read."
+    )
+    last_error_message = serializers.SerializerMethodField(
+        help_text="Error from the alert's last check in the past day, or null when that check succeeded."
+    )
+    state_timeline = serializers.SerializerMethodField(
+        help_text="The whole alert's state over the past 24 hours, oldest first. Each interval holds one state and "
+        "one enabled setting. Empty on a create or an edit."
+    )
+    destination_types = serializers.SerializerMethodField(
+        help_text="Types of the alert's enabled notification destinations, such as slack. Empty when it has none."
+    )
+
+    def _extras(self, obj: PlatformAlertConfigurationView) -> ConfigurationExtras | None:
+        return self.context.get("extras", {}).get(obj.id)
+
+    @extend_schema_field(UserBasicSerializer(allow_null=True))
+    def get_created_by(self, obj: PlatformAlertConfigurationView) -> dict[str, Any] | None:
+        extras = self._extras(obj)
+        return UserBasicSerializer(extras.created_by).data if extras and extras.created_by else None
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_last_checked_at(self, obj: PlatformAlertConfigurationView) -> datetime | None:
+        extras = self._extras(obj)
+        return extras.last_checked_at if extras else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_last_error_message(self, obj: PlatformAlertConfigurationView) -> str | None:
+        extras = self._extras(obj)
+        return extras.last_error_message if extras else None
+
+    @extend_schema_field(PlatformAlertStateIntervalSerializer(many=True))
+    def get_state_timeline(self, obj: PlatformAlertConfigurationView) -> list[dict[str, Any]]:
+        extras = self._extras(obj)
+        if extras is None:
+            return []
+        return list(
+            PlatformAlertStateIntervalSerializer(
+                [asdict(interval) for interval in extras.state_timeline], many=True
+            ).data
+        )
+
+    @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=DestinationType.choices)))
+    def get_destination_types(self, obj: PlatformAlertConfigurationView) -> list[str]:
+        extras = self._extras(obj)
+        return list(extras.destination_types) if extras else []
 
 
 class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
@@ -270,6 +339,10 @@ class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
         required=False,
         choices=PlatformAlertConfigurationSourceKind.choices,
         help_text="Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.",
+    )
+    created_by = serializers.UUIDField(
+        required=False,
+        help_text="Only alerts created by the user with this UUID.",
     )
 
 
@@ -447,6 +520,56 @@ class PlatformAlertGroupSnoozeSerializer(serializers.Serializer):
     )
 
 
+# The same bound a group's snooze has, so the whole alert and one group mute for as long as each other.
+MAX_ALERT_SNOOZE: Final = timedelta(days=30)
+EVENTS_LOOKBACK: Final = timedelta(days=30)
+MAX_EVENTS: Final = 100
+
+
+class PlatformAlertSnoozeSerializer(serializers.Serializer):
+    snooze_until = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Time until which every group's notifications are muted. Must be in the future and at most "
+        "30 days away. Null clears the snooze. The alert keeps being checked.",
+    )
+
+
+class PlatformAlertEventKind(models.TextChoices):
+    CHECK = "check", "Check"
+    ENABLE = "enable", "Enable"
+    DISABLE = "disable", "Disable"
+    SNOOZE = "snooze", "Snooze"
+    UNSNOOZE = "unsnooze", "Unsnooze"
+    RESET = "reset", "Reset"
+    CONFIG_CHANGE = "config_change", "Config change"
+
+
+class PlatformAlertEventSerializer(serializers.Serializer):
+    occurred_at = serializers.DateTimeField(help_text="When it happened.")
+    kind = serializers.ChoiceField(
+        choices=PlatformAlertEventKind.choices,
+        help_text="check for a check that moved the alert's state or failed, else the change a person made.",
+    )
+    previous_state = serializers.ChoiceField(
+        choices=PlatformAlertState.choices, help_text="The alert's state before it."
+    )
+    state = serializers.ChoiceField(choices=PlatformAlertState.choices, help_text="The alert's state after it.")
+    value = serializers.FloatField(
+        allow_null=True, help_text="What a check measured. Null for a change, or a check that measured nothing."
+    )
+    error_message = serializers.CharField(allow_null=True, help_text="Why a check failed. Null otherwise.")
+
+
+class PlatformAlertEventsQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=MAX_EVENTS,
+        help_text=f"Most events to return, newest first. Up to {MAX_EVENTS}.",
+    )
+
+
 EDIT_RESPONSES = {
     200: PlatformAlertConfigurationSerializer,
     403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
@@ -497,7 +620,7 @@ class PlatformAlertsFlagPermission(BasePermission):
 
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "alert"
-    scope_object_read_actions = ["list", "retrieve", "destinations"]
+    scope_object_read_actions = ["list", "retrieve", "destinations", "events"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -766,6 +889,125 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise NotFound()
         return Response(PlatformAlertSerializer(group).data)
 
+    @validated_request(
+        PlatformAlertSnoozeSerializer,
+        responses={
+            200: PlatformAlertConfigurationSerializer,
+            400: OpenApiResponse(description="The time is not in the future, or is more than 30 days away."),
+            403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+            409: OpenApiResponse(description="The source product owns this alert, so only its own API changes it."),
+        },
+        summary="Snooze a whole alert",
+    )
+    @action(detail=True, methods=["post"], required_scopes=["alert:write"])
+    def snooze(self, request: ValidatedRequest, pk: str, **kwargs) -> Response:
+        configuration_id = serializers.UUIDField().run_validation(pk)
+        team_id = self._canonical_team_id()
+        current = self._writable_configuration(team_id, configuration_id, "snooze")
+        if current.owner != PlatformAlertOwner.PLATFORM:
+            raise Conflict(f"This alert is managed by the {current.source_kind} product. Snooze it there.")
+        snooze_until = request.validated_data["snooze_until"]
+        now = timezone.now()
+        if snooze_until is not None and snooze_until <= now:
+            raise ValidationError({"snooze_until": "Pick a time in the future, or send null to unsnooze."})
+        if snooze_until is not None and snooze_until > now + MAX_ALERT_SNOOZE:
+            raise ValidationError({"snooze_until": f"An alert can be snoozed for up to {MAX_ALERT_SNOOZE.days} days."})
+        try:
+            updated = platform_api.update_configuration(
+                team_id=team_id,
+                source_kinds=self._writable_source_kinds,
+                configuration_id=configuration_id,
+                change=lambda stored: stored,
+                snooze_until=snooze_until,
+                snooze_changed=True,
+            )
+        except PlatformAlertNotEditable as error:
+            raise Conflict(str(error)) from error
+        except InvalidPlatformAlertEdit as error:
+            raise ValidationError({error.field_name: str(error)}) from error
+        if updated is None:
+            raise NotFound()
+        return Response(PlatformAlertConfigurationSerializer(updated).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: PlatformAlertConfigurationSerializer,
+            400: OpenApiResponse(description="The alert is not broken."),
+            403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+            409: OpenApiResponse(description="The source product owns this alert, so only its own API resets it."),
+        },
+        summary="Reset a broken alert",
+        description="Clears a broken alert's failure count so it is checked again.",
+    )
+    @action(detail=True, methods=["post"], required_scopes=["alert:write"])
+    def reset(self, request: Request, pk: str, **kwargs) -> Response:
+        configuration_id = serializers.UUIDField().run_validation(pk)
+        team_id = self._canonical_team_id()
+        current = self._writable_configuration(team_id, configuration_id, "reset")
+        if current.owner != PlatformAlertOwner.PLATFORM:
+            raise Conflict(f"This alert is managed by the {current.source_kind} product. Reset it there.")
+        if platform_api.reset_broken(team_id=team_id, public_id=configuration_id, at=timezone.now()) is None:
+            raise ValidationError({"state": "Only broken alerts can be reset."})
+        return Response(
+            PlatformAlertConfigurationSerializer(self._readable_configuration(team_id, configuration_id)).data
+        )
+
+    @extend_schema(
+        parameters=[PlatformAlertEventsQuerySerializer],
+        responses={
+            200: PlatformAlertEventSerializer(many=True),
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+        },
+        summary="List an alert's history",
+        description=(
+            "The alert's history over the past 30 days, newest first: checks that moved its state or failed, "
+            "and the changes people made to it. Checks that changed nothing are left out."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="events", pagination_class=None)
+    def events(self, request: Request, pk: str, **kwargs) -> Response:
+        query = PlatformAlertEventsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        limit = query.validated_data["limit"]
+        configuration_id = serializers.UUIDField().run_validation(pk)
+        team_id = self._canonical_team_id()
+        self._readable_configuration(team_id, configuration_id)
+        checks = platform_api.notable_checks_by_public_id(
+            team_id=team_id, public_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit
+        )
+        changes = platform_api.control_changes_by_public_id(
+            team_id=team_id, public_id=configuration_id, kinds=tuple(ControlChangeKind), limit=limit
+        )
+        events: list[dict[str, Any]] = [
+            *(
+                {
+                    "occurred_at": check.occurred_at,
+                    "kind": PlatformAlertEventKind.CHECK,
+                    "previous_state": check.previous_state,
+                    "state": check.state,
+                    "value": check.value,
+                    "error_message": check.error_message,
+                }
+                for check in (checks.events if checks else ())
+            ),
+            *(
+                {
+                    "occurred_at": change.occurred_at,
+                    "kind": change.kind.value,
+                    "previous_state": change.previous_state,
+                    "state": change.state,
+                    "value": None,
+                    "error_message": None,
+                }
+                for change in (changes.changes if changes else ())
+            ),
+        ]
+        events.sort(key=lambda event: event["occurred_at"], reverse=True)
+        return Response(PlatformAlertEventSerializer(events[:limit], many=True).data)
+
     def _destination_configuration(self, pk: str, *, write: bool) -> PlatformAlertConfigurationView:
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
@@ -936,10 +1178,13 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             limit=limit,
             offset=paginator.get_offset(request),
             legacy_configuration_id=query.validated_data.get("legacy_configuration_id"),
+            created_by_uuid=query.validated_data.get("created_by"),
         )
         paginator.set_count(page.total)
+        configurations = self.paginate_queryset(page.configurations) or []
+        extras = list_extras(team_id=self._canonical_team_id(), configurations=configurations)
         return self.get_paginated_response(
-            PlatformAlertConfigurationSerializer(self.paginate_queryset(page.configurations), many=True).data
+            PlatformAlertConfigurationSerializer(configurations, many=True, context={"extras": extras}).data
         )
 
     @extend_schema(responses=PlatformAlertConfigurationSerializer)
@@ -953,4 +1198,5 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         )
         if configuration is None:
             raise NotFound()
-        return Response(PlatformAlertConfigurationSerializer(configuration).data)
+        extras = list_extras(team_id=self._canonical_team_id(), configurations=[configuration])
+        return Response(PlatformAlertConfigurationSerializer(configuration, context={"extras": extras}).data)
