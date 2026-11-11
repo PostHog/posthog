@@ -14,7 +14,7 @@ import * as zod from 'zod'
  */
 export const platformAlertReceiversCreateBodyNameMax = 255
 
-export const platformAlertReceiversCreateBodyIncidentIoAlertSourceConfigIdRegExp = new RegExp('[0-9A-Za-z]{26}')
+export const platformAlertReceiversCreateBodyIncidentIoAlertSourceConfigIdRegExp = new RegExp('^[0-9A-Za-z]{26}$')
 
 export const PlatformAlertReceiversCreateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -80,7 +80,9 @@ export const PlatformAlertReceiversCreateBody = /* @__PURE__ */ zod.object({
  */
 export const platformAlertReceiversPartialUpdateBodyNameMax = 255
 
-export const platformAlertReceiversPartialUpdateBodyIncidentIoAlertSourceConfigIdRegExp = new RegExp('[0-9A-Za-z]{26}')
+export const platformAlertReceiversPartialUpdateBodyIncidentIoAlertSourceConfigIdRegExp = new RegExp(
+    '^[0-9A-Za-z]{26}$'
+)
 
 export const PlatformAlertReceiversPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod

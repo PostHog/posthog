@@ -14742,7 +14742,7 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
       /**
          * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
-         * @pattern [0-9A-Za-z]{26}
+         * @pattern ^[0-9A-Za-z]{26}$
          */
       incident_io_alert_source_config_id?: string;
       /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
@@ -83562,7 +83562,7 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
       /**
          * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
-         * @pattern [0-9A-Za-z]{26}
+         * @pattern ^[0-9A-Za-z]{26}$
          */
       incident_io_alert_source_config_id?: string;
       /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
