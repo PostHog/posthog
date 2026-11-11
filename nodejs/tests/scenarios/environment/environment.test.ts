@@ -411,9 +411,10 @@ describe('scenario environment', () => {
             })
             await once(stranger, 'spawn')
             const environment = createEnvironment()
+            const refusal = { stopCommand: expect.stringMatching(new RegExp(`^kill (\\d+ )*${stranger.pid}( \\d+)*$`)) }
 
-            await expect(environment.up()).rejects.toThrow(`kill ${stranger.pid}`)
-            await expect(environment.up()).rejects.toThrow(`kill ${stranger.pid}`)
+            await expect(environment.up()).rejects.toMatchObject(refusal)
+            await expect(environment.up()).rejects.toMatchObject(refusal)
         }, 20_000)
     })
 })
