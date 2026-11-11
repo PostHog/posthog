@@ -4,6 +4,8 @@ import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import { ContentAutopilotAnswerMentionList } from './ContentAutopilotAnswerMentionList'
+import { ContentAutopilotAnswerText } from './ContentAutopilotAnswerText'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
@@ -13,8 +15,16 @@ import { checkPromptVersion, engineLabel } from './utils'
 const isWebUrl = (url: string): boolean => /^https?:\/\//i.test(url)
 
 export const ContentAutopilotPromptAnswer = (): JSX.Element => {
-    const { engines, activeEngine, shownCheck, selectedCheck, latestChecksLoading, latestChecksFailed, promptId } =
-        useValues(contentAutopilotPromptDetailLogic)
+    const {
+        engines,
+        activeEngine,
+        shownCheck,
+        shownAnswerMentions,
+        selectedCheck,
+        latestChecksLoading,
+        latestChecksFailed,
+        promptId,
+    } = useValues(contentAutopilotPromptDetailLogic)
     const { selectEngine, loadAeoPromptLatestChecks } = useActions(contentAutopilotPromptDetailLogic)
 
     return (
@@ -68,8 +78,12 @@ export const ContentAutopilotPromptAnswer = (): JSX.Element => {
                             {shownCheck.error ? ` Error: ${shownCheck.error}` : ''}
                         </p>
                     ) : (
-                        <div className="whitespace-pre-wrap break-words text-sm bg-surface-secondary rounded p-3 max-h-96 overflow-y-auto">
-                            {shownCheck.answer_text || 'The engine returned an empty answer.'}
+                        <div className="grid grid-cols-1 @3xl/prompt-report:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
+                            <ContentAutopilotAnswerText
+                                text={shownCheck.answer_text ?? ''}
+                                mentions={shownAnswerMentions}
+                            />
+                            <ContentAutopilotAnswerMentionList mentions={shownAnswerMentions?.mentions ?? []} />
                         </div>
                     )}
 
