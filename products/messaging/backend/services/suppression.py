@@ -1,6 +1,6 @@
 from django.db import transaction
-from django.db.models import F, QuerySet
-from django.db.models.functions import Coalesce, Now
+from django.db.models import F, QuerySet, Value
+from django.db.models.functions import Coalesce, Greatest, Least, Now
 from django.utils import timezone
 
 from products.messaging.backend.models.email_hard_bounce import GLOBAL_HARD_BOUNCE_MAX_HOLD, EmailHardBounce
@@ -97,13 +97,19 @@ def _remove(rows: QuerySet[MessageSuppression]) -> None:
 
 
 def add_global_hard_bounces(emails: list[str]) -> None:
-    """Add addresses to the global hard-bounce list that every team's sends skip. Keeps existing entries as they are."""
+    """Hold each address on the global hard-bounce list, which every team's sends skip, for the longest hold from now."""
     identifiers = sorted({email.strip().lower() for email in emails if email.strip()})
     now = timezone.now()
     # The source list keeps no bounce history, so each address gets the longest hold rather than the one-day hold of a
-    # single bounce. An existing row came from a real bounce and carries better times, so it wins.
+    # single bounce.
     first_bounced_at = now - GLOBAL_HARD_BOUNCE_MAX_HOLD
     EmailHardBounce.objects.bulk_create(
         [EmailHardBounce(email=email, first_bounced_at=first_bounced_at, last_bounced_at=now) for email in identifiers],
         ignore_conflicts=True,
+    )
+    # An existing row can have a lapsed hold, and the source list still blocks the address, so renew it. LEAST and
+    # GREATEST keep times that are already earlier or later, like the upsert in the Node `EmailSuppressionService`.
+    EmailHardBounce.objects.filter(email__in=identifiers).update(
+        first_bounced_at=Least(F("first_bounced_at"), Value(first_bounced_at)),
+        last_bounced_at=Greatest(F("last_bounced_at"), Value(now)),
     )

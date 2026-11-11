@@ -323,6 +323,18 @@ export const AiObservabilityTracesExportsCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
+ * Tests a custom parser recipe against one node without saving it: the node's input and output as they would render with the parser saved, and whether it parses every side that the project's saved parsers leave unparsed.
+ */
+export const aiObservabilityTracesNodesParserTestCreateBodySourceMax = 100000
+
+export const AiObservabilityTracesNodesParserTestCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .string()
+        .max(aiObservabilityTracesNodesParserTestCreateBodySourceMax)
+        .describe('The parser recipe to test, as raw YAML in the custom parser DSL.'),
+})
+
+/**
  * Request an AI summary of the trace. A ready summary is returned as is unless `regenerate` is set; otherwise a job starts writing one, or the request joins the job already writing it.
  */
 export const aiObservabilityTracesSummaryCreateBodyRegenerateDefault = false
