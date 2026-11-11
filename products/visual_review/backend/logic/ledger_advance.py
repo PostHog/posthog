@@ -584,6 +584,9 @@ class _LedgerAdvancer:
                         state=BaselineApprovalState.ABANDONED, detail=detail, resolved_at=self.now, updated_at=self.now
                     )
             self._read_open_approvals()
+            # The landing table judges each approval against the entries at and above its position,
+            # so merges have to land in the order they reached the default branch.
+            late_landings.sort(key=lambda late_landing: late_landing[0].position)
             for commit, landing in late_landings:
                 approvals = self.landing_set(landing.pr_number)
                 # Changed since the read outside the lock. The next pass reads it again.

@@ -638,6 +638,21 @@ class TestReconcileOpenApprovals:
         assert _state(closed) == (BaselineApprovalState.ABANDONED, ledger_advance.DETAIL_CLOSED_WITHOUT_MERGE)
         assert _state(unreadable)[0] == BaselineApprovalState.OPEN
 
+    def test_late_landings_apply_in_ledger_position_order(self, repo, github) -> None:
+        github.push("s1", "chore: no pull request named")
+        github.push("s2", "chore: no pull request named")
+        ledger_advance.advance(repo)
+        earlier_merge = approve(repo, 9, "Button", "b9")
+        later_merge = approve(repo, 5, "Button", "b5")
+        github.mark_merged(9, "s1")
+        github.mark_merged(5, "s2")
+
+        ledger_advance.reconcile_open_approvals(repo)
+
+        assert _state(earlier_merge) == (BaselineApprovalState.PROMOTED, ledger_advance.DETAIL_UNVERIFIED)
+        assert _state(later_merge) == (BaselineApprovalState.CONFLICTED, ledger_advance.DETAIL_BASELINE_MOVED)
+        assert _ledger(repo)["Button"] == "b9"
+
     @pytest.mark.parametrize(
         ("name", "approved_hash", "ancestry", "expected_state", "expected_detail"),
         [
