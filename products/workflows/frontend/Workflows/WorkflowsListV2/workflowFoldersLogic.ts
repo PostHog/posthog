@@ -28,7 +28,7 @@ import type { FacetSearchValue } from './FacetSearchBar/facetQuery'
 import { workflowFilesByRef } from './workflowFilesByRef'
 import { ancestorFolders, displayedFolder, folderScopes, workflowFolderFacet } from './workflowListFacets'
 import type { WorkflowListRow } from './workflowListRows'
-import { type ServerSearchStatus, workflowsListV2Logic } from './workflowsListV2Logic'
+import { addListQueryFacet, type ServerSearchStatus, workflowsListV2Logic } from './workflowsListV2Logic'
 
 export type WorkflowFolderFileRow = { id: string; name: string; path: string } & (
     | { kind: 'workflow'; row: WorkflowListRow }
@@ -260,6 +260,9 @@ export type workflowFoldersLogicType = MakeLogicType<
     Record<string, any>,
     workflowFoldersLogicMeta
 >
+
+// The list opens before this logic connects to it, so the folder pill must parse from the URL from the start.
+addListQueryFacet(workflowFolderFacet(null, false))
 
 const WORKFLOW_FILE_TYPES = ['hog_flow', 'message_template']
 const MAX_INDEX_LOADS = 3

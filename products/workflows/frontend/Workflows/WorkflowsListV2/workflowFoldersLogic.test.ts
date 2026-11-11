@@ -791,6 +791,25 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).toContain('Billing/Cards')
     })
 
+    it('opens the folder a workflows link scopes to, and keeps an opened folder in the URL', async () => {
+        logic.unmount()
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Billing' })
+        logic = workflowFoldersLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentFolder).toBe('Billing')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
+
+        logic.actions.openFolder('Billing/Cards')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.searchParams.q).toBe('in:Billing/Cards')
+        expect(logic.values.currentFolder).toBe('Billing/Cards')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
+    })
+
     it('reveals the scoped folder and its subfolders when opened from a link', async () => {
         logic.unmount()
         projectTreeDataLogic.mount()
