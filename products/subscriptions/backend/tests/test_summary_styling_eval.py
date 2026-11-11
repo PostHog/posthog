@@ -41,8 +41,18 @@ def _output(rendered: str, *, source: str | None = None) -> dict:
             "• *Upgrades this week* hit *1,463*, see `*18%*`.",
             {"values_styled": 1.0, "dates_styled": None, "names_tagged": 1.0, "not_misstyled": 0.0},
         ),
+        (
+            "• *Weekly signups* reached *1,463* over the last _7 days_.",
+            {"values_styled": 1.0, "dates_styled": 1.0, "names_tagged": 1.0, "not_misstyled": 1.0},
+        ),
     ],
-    ids=["untagged", "fully_styled", "bold_date_and_unstyled_value", "date_word_in_name_and_styled_code"],
+    ids=[
+        "untagged",
+        "fully_styled",
+        "bold_date_and_unstyled_value",
+        "date_word_in_name_and_styled_code",
+        "window_qualifier_outside_italic",
+    ],
 )
 def test_scorers_read_styles_as_slack_renders_them(rendered: str, expected: dict) -> None:
     output = _output(rendered)

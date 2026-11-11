@@ -8,8 +8,8 @@ Arms, scored side by side on the same invented cases:
 - markdown_normalised: the markdown arm passed through the same normaliser.
 
 The raw and normalised arms share one model call per case because they differ only in rendering.
-Stub mode returns canned replies, so the suite runs without AI gateway credentials. Set
-SUMMARY_STYLING_EVAL_LIVE=1 (with AI_GATEWAY_URL and AI_GATEWAY_API_KEY) to call the model.
+Stub mode returns canned replies, so the suite runs without model credentials. Set
+SUMMARY_STYLING_EVAL_LIVE=1 to call OpenAI directly with OPENAI_API_KEY, using the production prompt, model and parameters.
 
 Results stay local: the suite compares design options for one decision, so it is not enrolled in
 PostHog offline reporting.
@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import os
 import asyncio
+
+from openai import OpenAI
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -76,8 +78,20 @@ def _markdown_messages(case: SummaryCase) -> list[dict]:
     return messages
 
 
+def _direct_openai_client() -> OpenAI:
+    # The gateway only proxies the request, so calling OpenAI directly returns the same model
+    # output without a local gateway. OpenAI() reads OPENAI_API_KEY and OPENAI_BASE_URL itself.
+    return OpenAI(max_retries=1)
+
+
 def _live_structured(case: SummaryCase) -> str:
-    summary = generate_report_summary(case.previous_states, case.current_states, case.subscription_title, team=None)
+    summary = generate_report_summary(
+        case.previous_states,
+        case.current_states,
+        case.subscription_title,
+        team=None,
+        client=_direct_openai_client(),
+    )
     return summary.model_dump_json() if summary else ""
 
 
@@ -88,6 +102,7 @@ def _live_markdown(case: SummaryCase) -> str:
         delivery_id=None,
         user_tag=summary_user_tag(0, None),
         response_format=None,
+        client=_direct_openai_client(),
     )
 
 

@@ -47,6 +47,7 @@ _DATE_PATTERN = re.compile(
     ),
     re.IGNORECASE,
 )
+_WINDOW_QUALIFIER = re.compile(r"(?:the )?(?:(?:last|past|previous|prior|next) (?=\d))?", re.IGNORECASE)
 _DURATION_VALUE = re.compile(r"^\d+(?:\.\d+)?\s?[a-z]+(?: \d+(?:\.\d+)?\s?[a-z]+)*$")
 _MARKDOWN_LINK = re.compile(r"\[[^\]\n]*\]\(([^()\s]+)\)")
 _BARE_URL = re.compile(r"https?://[^\s)\]>]+")
@@ -219,7 +220,10 @@ def dates_styled(view: SlackView, names: list[str]) -> Ratio:
     hits, misses = 0, []
     matches = _date_matches(view, names)
     for match in matches:
-        if view.covered(match.start(), match.end(), italic=True):
+        # "the last _30 days_" is styled: the window qualifier may sit outside the italic span.
+        qualifier = _WINDOW_QUALIFIER.match(match.group())
+        start = match.start() + (qualifier.end() if qualifier else 0)
+        if view.covered(start, match.end(), italic=True):
             hits += 1
         else:
             misses.append(match.group())

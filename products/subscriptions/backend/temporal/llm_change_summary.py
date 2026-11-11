@@ -495,8 +495,10 @@ def request_summary_completion(
     delivery_id: str | None,
     user_tag: str,
     response_format: dict | None,
+    client: OpenAI | None = None,
 ) -> str:
-    client = _get_openai_client(team=team, delivery_id=delivery_id, user_tag=user_tag)
+    if client is None:
+        client = _get_openai_client(team=team, delivery_id=delivery_id, user_tag=user_tag)
     extra: dict = {"response_format": response_format} if response_format is not None else {}
 
     prompt_tokens, completion_tokens = 0, 0
@@ -538,6 +540,7 @@ def generate_report_summary(
     insight_images: dict[int, bytes] | None = None,
     core_memory_text: str = "",
     annotations_section: str = "",
+    client: OpenAI | None = None,
 ) -> ReportSummary | None:
     team_id = team.id if team else 0
 
@@ -569,6 +572,7 @@ def generate_report_summary(
         delivery_id=delivery_id,
         user_tag=summary_user_tag(team_id, delivery_id),
         response_format=summary_response_format(),
+        client=client,
     )
     return ReportSummary.model_validate_json(content) if content else None
 
