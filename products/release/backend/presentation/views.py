@@ -19,6 +19,7 @@ from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes import scopes_not_covered
@@ -201,6 +202,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def import_all(self, request: Request, **kwargs) -> Response:
         """Set up releases for the whole project once: one per active flag. Later calls create nothing."""
         created_count = api.import_all(self.team_id, self._import_flags)
+        report_user_action(request.user, "release import completed", {"created_count": created_count}, request=request)
         return Response(
             ImportAllResponseSerializer({"created_count": created_count}).data, status=status.HTTP_201_CREATED
         )
