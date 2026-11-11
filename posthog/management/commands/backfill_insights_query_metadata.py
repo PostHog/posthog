@@ -11,6 +11,7 @@ import structlog
 
 from posthog.hogql_queries.query_metadata import InsightQueryMetadata
 
+from products.product_analytics.backend.facade.api import store_backfilled_query_metadata
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -82,10 +83,10 @@ class Command(BaseCommand):
         """
         # Regenerate when metadata is missing entirely or predates the properties key. A queryless
         # insight has nothing to regenerate from.
-        needs_metadata = (
-            Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True)
+        base_query = Insight.objects_including_soft_deleted.filter(
+            Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True),
+            query__isnull=False,
         )
-        base_query = Insight.objects_including_soft_deleted.filter(needs_metadata, query__isnull=False)
 
         if team_id:
             base_query = base_query.filter(team_id=team_id)
@@ -154,10 +155,14 @@ class Command(BaseCommand):
                     batch_updated += 1
                     continue
 
-                # A save since the read changed the row or its query, so the filter skips it and the save wins.
-                batch_updated += Insight.objects_including_soft_deleted.filter(
-                    needs_metadata, id=insight.id, query=query_at_read
-                ).update(query_metadata=insight.query_metadata)
+                if (
+                    query_at_read is not None
+                    and insight.query_metadata is not None
+                    and store_backfilled_query_metadata(
+                        insight_id=insight.id, query_at_read=query_at_read, query_metadata=insight.query_metadata
+                    )
+                ):
+                    batch_updated += 1
 
             total_updated += batch_updated
             total_processed += len(insights)
