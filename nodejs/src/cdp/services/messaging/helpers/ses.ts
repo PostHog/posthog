@@ -832,7 +832,6 @@ export class SesWebhookHandler {
             // other than the action or invocation (see buildLinkInstanceId).
             instanceIdOverride?: string
             properties?: Record<string, any>
-            // Set for feedback on a transactional email sent before sends carried their template tags.
             templateFromStepConfig?: boolean
             timestamp?: string
             workflowVersion?: number
@@ -901,7 +900,6 @@ export class SesWebhookHandler {
             metricName: MinimalAppMetric['metric_name']
             instanceIdOverride?: string
             properties?: Record<string, any>
-            // Set for feedback on a transactional email sent before sends carried their template tags.
             templateFromStepConfig?: boolean
             timestamp?: string
             workflowVersion?: number
