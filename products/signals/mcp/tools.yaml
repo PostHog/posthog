@@ -42,12 +42,11 @@ tools:
             `include_profile` only for the few people worth reading, or pass their `user_uuids` with no query to read
             them directly. Page with `offset` while it is below `total`. `hybrid` (the default) merges keyword and
             semantic ranking; `matched_on` says why each member matched, and `objects` lists the owned and watched
-            objects that matched. A result is a
-            lead, not an owner. Check it against the report before you select the person. If you select someone because
-            they open an object often, the `reason` must say so, such as "opens this dashboard most days", and must not
-            claim ownership. Ownership rules and human reviewer corrections take priority over this search.
-            `not_ready_count` is the number of members with no summary, whom the search cannot find. A 404 means the
-            search is not available for this project.
+            objects that matched. A result is a lead, not an owner. Check it against the report before you select the
+            person. If you select someone because they open an object often, the `reason` must say so, such as "opens
+            this dashboard most days", and must not claim ownership. Ownership rules and human reviewer corrections take
+            priority over this search. `not_ready_count` is the number of members with no summary, whom the search
+            cannot find. A 404 means the search is not available for this project.
         feature_flag: activity-summary-search
     activity-summary-versions-list:
         operation: signals_activity_summary_versions_retrieve
