@@ -942,12 +942,14 @@ export class EmailService {
                 : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
             const ownershipCheckRetries: number = invocation.queueMetadata?.ownershipCheckRetries ?? 0
+            const checkTimeout = AbortSignal.timeout(
+                this.sesConfig.ownershipCheckTimeoutMs ?? OWNERSHIP_CHECK_TIMEOUT_MS
+            )
             const ownership = isTest
                 ? 'owner'
                 : await this.jobOwnershipBeforeSend(
                       invocation,
-                      deadline ??
-                          AbortSignal.timeout(this.sesConfig.ownershipCheckTimeoutMs ?? OWNERSHIP_CHECK_TIMEOUT_MS)
+                      deadline ? AbortSignal.any([deadline, checkTimeout]) : checkTimeout
                   )
             const sendsAfterFailedChecks =
                 ownership === 'check_failed' && ownershipCheckRetries >= MAX_OWNERSHIP_CHECK_RETRIES
