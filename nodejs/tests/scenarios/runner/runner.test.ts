@@ -288,6 +288,7 @@ describe('runner through seed, drive and judge', () => {
     let cacheHome: string
     let env: NodeJS.ProcessEnv
     let edge: ProviderEdge
+    let api: FakeProjectApi
     let roles: DeliveringRoles | undefined
     let results: RunResult[]
 
@@ -358,12 +359,14 @@ describe('runner through seed, drive and judge', () => {
     })
 
     beforeEach(async () => {
+        api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
             ...process.env,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: defaultConfig.DATABASE_URL,
             CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
+            ...api.credentials,
         }
         edge = await startProviderEdge({ port: 0, trackingKeys: secretsOf(env).encryptionSaltKeys })
         results = []
@@ -401,6 +404,7 @@ describe('runner through seed, drive and judge', () => {
             await client.query('DELETE FROM posthog_organization WHERE id = ANY($1)', [organizations])
         }, defaultConfig.DATABASE_URL)
         rmSync(cacheHome, { recursive: true, force: true })
+        await api.close()
     })
 
     const run = async (delivering: Parameters<typeof environmentOf>[0]): Promise<RunResult> => {
@@ -467,6 +471,13 @@ describe('runner through seed, drive and judge', () => {
             )
             expect(result).toMatchObject(verdict)
             expect(evidenceOf(result, 'scorecard.json')).toEqual(result)
+            expect(api.captured.map(({ properties }) => properties)).toEqual([
+                expect.objectContaining({
+                    run_id: result.runId,
+                    status: result.status,
+                    status_reason: result.statusReason,
+                }),
+            ])
             expect(deliveriesOf(evidenceOf(result, 'truth.json') as TruthRecord[])).toEqual(
                 delivered ? offered.map(({ unitId }) => `${unitId}/email/200`).sort() : []
             )
