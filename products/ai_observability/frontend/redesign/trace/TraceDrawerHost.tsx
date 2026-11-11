@@ -77,6 +77,7 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
                     onPrevious={previousTrace ? () => stepTo('previous') : null}
                     onNext={nextTrace ? () => stepTo('next') : null}
                     fullPageHref={fullPageHref}
+                    fullPageInNewTab={TRACE_DRAWER_LISTS[listId].fullPageInNewTab}
                     onClose={close}
                 />
             }
