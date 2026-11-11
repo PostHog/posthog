@@ -10,7 +10,7 @@ describe('WorkflowsActivationReporter', () => {
     let getTeam: jest.Mock
     let analytics: FakePostHog
     let reporter: WorkflowsActivationReporter
-    let unreachablePostgres: PostgresRouter & { query: jest.Mock }
+    let unreachablePostgres: PostgresRouter
 
     const received = async (): Promise<Record<string, unknown>[]> => {
         await analytics.client.flush()
@@ -51,8 +51,8 @@ describe('WorkflowsActivationReporter', () => {
         analytics = await startFakePostHog()
         getTeam = jest.fn((teamId: number) => Promise.resolve([team, otherTeam].find((t) => t.id === teamId) ?? null))
         unreachablePostgres = {
-            query: jest.fn(() => Promise.reject(new Error('connect ECONNREFUSED'))),
-        } as unknown as PostgresRouter & { query: jest.Mock }
+            query: () => Promise.reject(new Error('connect ECONNREFUSED')),
+        } as unknown as PostgresRouter
         reporter = new WorkflowsActivationReporter({ getTeam }, unreachablePostgres, analytics.client)
     })
 
@@ -149,19 +149,6 @@ describe('WorkflowsActivationReporter', () => {
         })
 
         expect(await received()).toEqual([])
-    })
-
-    it('reports no email sent for a minute after the organization members cannot be read', async () => {
-        unreachablePostgres.query
-            .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
-            .mockResolvedValue({ rows: [{ organization_id: 'org-id', email: 'member@example.com' }] })
-
-        await reporter.reportEmailSent(2, 'flow-1', ['outsider@example.com'])
-        await reporter.reportEmailSent(2, 'flow-2', ['outsider@example.com'])
-        jest.setSystemTime(new Date('2026-10-03T10:01:00Z'))
-        await reporter.reportEmailSent(2, 'flow-3', ['outsider@example.com'])
-
-        expect(await received()).toEqual([sent('team-uuid', 'flow-3', 'email', true)])
     })
 
     it.each([

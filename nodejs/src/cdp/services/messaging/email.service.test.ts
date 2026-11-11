@@ -2242,6 +2242,10 @@ describe('EmailService', () => {
                 },
             })
 
+            const droppedEmailReports = async (): Promise<number> =>
+                (await register.getSingleMetric('cdp_workflows_activation_email_reports_dropped')?.get())?.values[0]
+                    ?.value ?? 0
+
             beforeEach(async () => {
                 const members = await hub.postgres.query<{ email: string }>(
                     PostgresUse.COMMON_READ,
@@ -2341,6 +2345,7 @@ describe('EmailService', () => {
             })
 
             it('reports no email sent beyond the pending limit while member reads are in flight', async () => {
+                const droppedBefore = await droppedEmailReports()
                 const pending = Array.from({ length: MAX_PENDING_EMAIL_REPORTS }, (_, index) =>
                     workflowsActivationReporter.reportEmailSent(team.id, `flow-${index}`, [memberEmail])
                 )
@@ -2354,6 +2359,46 @@ describe('EmailService', () => {
                         team: team.uuid,
                         event: 'workflows message sent',
                         properties: { workflow_id: 'flow-0', channel: 'email', recipient_outside_org: false },
+                    },
+                ])
+                expect(await droppedEmailReports()).toBe(droppedBefore + 1)
+            })
+
+            it('reports no email sent for a minute after the organization members cannot be read', async () => {
+                let membersUnreadable = true
+                const membersDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => membersUnreadable)
+                const reporter = new WorkflowsActivationReporter(hub.teamManager, membersDb.postgres, analytics.client)
+                jest.useFakeTimers({
+                    now: Date.now(),
+                    doNotFake: [
+                        'nextTick',
+                        'queueMicrotask',
+                        'setImmediate',
+                        'clearImmediate',
+                        'setTimeout',
+                        'clearTimeout',
+                        'setInterval',
+                        'clearInterval',
+                        'hrtime',
+                        'performance',
+                    ],
+                })
+                try {
+                    await reporter.reportEmailSent(team.id, 'flow-unreadable', ['outsider@example.com'])
+                    membersUnreadable = false
+                    await reporter.reportEmailSent(team.id, 'flow-paused', ['outsider@example.com'])
+                    jest.setSystemTime(Date.now() + 60_000)
+                    await reporter.reportEmailSent(team.id, 'flow-recovered', [memberEmail])
+                } finally {
+                    jest.useRealTimers()
+                    await membersDb.close()
+                }
+
+                expect(await settledActivationEvents()).toEqual([
+                    {
+                        team: team.uuid,
+                        event: 'workflows message sent',
+                        properties: { workflow_id: 'flow-recovered', channel: 'email', recipient_outside_org: false },
                     },
                 ])
             })

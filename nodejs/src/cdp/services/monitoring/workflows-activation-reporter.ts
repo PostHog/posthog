@@ -1,5 +1,6 @@
 import { LRUCache } from 'lru-cache'
 import { PostHog } from 'posthog-node'
+import { Counter } from 'prom-client'
 
 import { unquoteMailbox } from '~/cdp/services/messaging/helpers/suppressed-recipients'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
@@ -18,6 +19,11 @@ const REPORT_INTERVAL_MS = 60 * 60 * 1000
 const ORGANIZATION_MEMBERS_REFRESH_MS = 10 * 60 * 1000
 export const MAX_PENDING_EMAIL_REPORTS = 1000
 const ORGANIZATION_MEMBERS_RETRY_MS = 60 * 1000
+
+const counterEmailReportsDropped = new Counter({
+    name: 'cdp_workflows_activation_email_reports_dropped',
+    help: 'Email sends that got no workflows message sent event because too many organization member reads were pending.',
+})
 
 export class WorkflowsActivationReporter {
     private lastReportedAt = new LRUCache<string, number>({ max: 50_000 })
@@ -39,6 +45,7 @@ export class WorkflowsActivationReporter {
 
     public async reportEmailSent(teamId: number, workflowId: string, recipients: string[]): Promise<void> {
         if (this.pendingEmailReports >= MAX_PENDING_EMAIL_REPORTS) {
+            counterEmailReportsDropped.inc()
             return
         }
         this.pendingEmailReports++
