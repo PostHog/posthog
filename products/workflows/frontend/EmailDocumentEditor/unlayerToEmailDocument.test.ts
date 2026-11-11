@@ -352,6 +352,8 @@ describe('unlayerToEmailDocument', () => {
                 },
                 { type: 'emailButton', attrs: { href: 'https://example.com/start' }, content: [text('Get started')] },
                 { type: 'horizontalRule' },
+                { type: 'emailSpacer', attrs: { height: 16 } },
+                { type: 'emailSpacer', attrs: { height: 20, backgroundColor: '#123456' } },
                 {
                     type: 'emailColumns',
                     attrs: { emailStyle: { backgroundColor: '#ffeecc' } },
@@ -374,11 +376,15 @@ describe('unlayerToEmailDocument', () => {
             'emailImage',
             'emailButton',
             'horizontalRule',
+            'emailSpacer',
+            'emailSpacer',
             'emailColumns',
             'emailHtml',
         ])
         expect(back?.attrs?.page.bodyBackgroundColor).toEqual('#fafafa')
-        expect(back?.content?.[6].attrs?.emailStyle.backgroundColor).toEqual('#ffeecc')
+        expect(back?.content?.[6].attrs).toEqual({ height: 16 })
+        expect(back?.content?.[7].attrs).toEqual({ height: 20, backgroundColor: '#123456' })
+        expect(back?.content?.[8].attrs?.emailStyle.backgroundColor).toEqual('#ffeecc')
         expect(back?.content?.[0].attrs?.emailStyle.padding).toEqual({ top: 32, right: 24, bottom: 8, left: 24 })
         expect(back?.content?.[3].attrs?.emailStyle.width).toEqual(101)
         for (const expected of [

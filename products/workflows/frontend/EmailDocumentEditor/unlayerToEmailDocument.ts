@@ -612,6 +612,25 @@ function menuBlocks(values: Record<string, any>): JSONContent[] {
     return height ? [{ type: 'emailSpacer', attrs: { height } }] : []
 }
 
+// The markup this editor writes for a spacer, which the old editor keeps as an HTML block.
+const EXPORTED_SPACER =
+    /^<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td height="(\d+)"(?: bgcolor="([^"]+)")? style="[^"]*">&nbsp;<\/td><\/tr><\/table>$/
+
+function exportedSpacer(values: Record<string, any>): JSONContent | null {
+    const match = EXPORTED_SPACER.exec(String(values.html ?? '').trim())
+    if (!match) {
+        return null
+    }
+    const padding = containerPadding(values)
+    const height = Number(match[1]) + (padding?.top ?? 0) + (padding?.bottom ?? 0)
+    return { type: 'emailSpacer', attrs: { height, ...(match[2] ? { backgroundColor: match[2] } : {}) } }
+}
+
+function isSpacerRow(row: any): boolean {
+    const contents = row.columns?.length === 1 ? (row.columns[0].contents ?? []) : []
+    return contents.length === 1 && contents[0].type === 'html' && !!exportedSpacer(contents[0].values ?? {})
+}
+
 function mostCommon(values: string[]): string {
     const counts = new Map<string, number>()
     for (const value of values) {
@@ -750,7 +769,11 @@ function convertContent(
                 },
             ]
         }
-        case 'html':
+        case 'html': {
+            const spacer = exportedSpacer(values)
+            if (spacer) {
+                return [spacer]
+            }
             return [
                 {
                     type: 'emailHtml',
@@ -760,6 +783,7 @@ function convertContent(
                     },
                 },
             ]
+        }
         case 'social':
             return [
                 {
@@ -807,9 +831,10 @@ export function unlayerToEmailDocument(
 
     const rowBackgrounds = new Set(rows.map((row) => row.values?.backgroundColor ?? ''))
     const sharedRowBackground = rowBackgrounds.size === 1 ? [...rowBackgrounds][0] : ''
-    const columnBackgrounds: string[] = rows.flatMap((row) =>
-        (row.columns ?? []).map((column: any) => column.values?.backgroundColor ?? '')
-    )
+    // A spacer's row takes the color around it, so it says nothing about the body's color.
+    const columnBackgrounds: string[] = rows
+        .filter((row) => !isSpacerRow(row))
+        .flatMap((row) => (row.columns ?? []).map((column: any) => column.values?.backgroundColor ?? ''))
     // When every column is colored, the most common color is the body's and only the others keep a color of their own.
     const sharedColumnBackground =
         new Set(columnBackgrounds).size === 1 || columnBackgrounds.every(Boolean) ? mostCommon(columnBackgrounds) : ''
@@ -906,6 +931,13 @@ export function unlayerToEmailDocument(
         })
 
         const plain = converted.length === 1 && !converted[0].style && !sectionBackground && !rowHasPadding
+        const onlyColor = converted.length === 1 && Object.keys(converted[0].style ?? {}).join() === 'backgroundColor'
+        if (isSpacerRow(row) && onlyColor && !sectionBackground && !rowHasPadding) {
+            const spacer = converted[0].blocks[0]
+            const backgroundColor = spacer.attrs?.backgroundColor ?? converted[0].style?.backgroundColor
+            content.push({ ...spacer, attrs: { ...spacer.attrs, backgroundColor } })
+            continue
+        }
         if (paddingAsSpacers) {
             content.push(...spacer(rowPadding?.top ?? 0))
         }
