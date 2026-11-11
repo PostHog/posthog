@@ -70,6 +70,7 @@ from products.stamphog.backend.facade.review_evidence import (
     get_review_evidence_providers,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
+from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import (
     DECISION_FINGERPRINT_OUTPUT_KEY,
@@ -518,7 +519,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
         # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
-        check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
+        check_runs_future = submit("check_runs", get_check_runs_with_pins, client, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
         policy_futures = {
@@ -988,6 +989,14 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
             return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files
+        # A newer run of the check behind a deny lift may have failed since the context fetch, so
+        # the check runs are read again. A failed read lifts nothing, which refuses only the
+        # approvals that need a lift.
+        try:
+            context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
+        except Exception:
+            activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
+            context["check_runs"] = []
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
             manifest_contents = fetch_manifest_contents(
@@ -1961,11 +1970,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # A retry after the approval posted skips this, because the gates attested before that post.
     if parsed.verdict == ReviewVerdict.APPROVED and not parsed.gate_blocked and run.posted_review_id is None:
         stored = output.get("gate_attestation")
-        if isinstance(stored, dict):
-            # A retry reuses the first answer. Another check could attest where the first did not,
-            # and post an approval over the escalation that the first attempt already delivered.
+        if isinstance(stored, dict) and stored.get("attested") is not True:
+            # A retry reuses a first answer that did not attest, because a second check that attests
+            # would post an approval over the escalation the first attempt delivered. A retry checks
+            # an answer that attested again, because a deny lift can stop holding between attempts.
             attestation = GateAttestation(
-                attested=stored.get("attested") is True,
+                attested=False,
                 reason=str(stored.get("reason") or ""),
                 gates=list(stored.get("gates") or []),
             )
@@ -1978,6 +1988,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
                         "attested": attestation.attested,
                         "reason": attestation.reason,
                         "gates": attestation.gates,
+                        "lifted": attestation.lifted,
                     }
                 },
             )

@@ -22,7 +22,7 @@ pub use pull::pull_endpoints;
 pub use push::push_endpoints;
 pub use run::run_endpoint;
 
-use crate::invocation_context::context;
+use crate::{invocation_context::context, utils::ci::detailed_diagnostics};
 
 // ============================================================================
 // Debug logging utilities
@@ -36,13 +36,27 @@ pub fn debug_request(debug: bool, method: &str, path: &str) {
     }
 }
 
-/// Log a debug response body. Only prints if debug is true.
+pub fn debug_request_body<T: serde::Serialize>(debug: bool, body: &T) {
+    if debug {
+        debug_payload("Request body", body);
+    }
+}
+
 #[inline]
 pub fn debug_response_body<T: serde::Serialize>(debug: bool, body: &T) {
     if debug {
-        if let Ok(json) = serde_json::to_string_pretty(body) {
-            crate::safe_eprintln!("  Response:\n{}", json.dimmed());
-        }
+        debug_payload("Response body", body);
+    }
+}
+
+fn debug_payload<T: serde::Serialize>(label: &str, body: &T) {
+    if !detailed_diagnostics() {
+        crate::safe_eprintln!("  {label} omitted from debug output in CI");
+        return;
+    }
+
+    if let Ok(json) = serde_json::to_string_pretty(body) {
+        crate::safe_eprintln!("  {label}:\n{}", json.dimmed());
     }
 }
 
@@ -805,19 +819,14 @@ pub fn fetch_insight_variables(debug: bool) -> Result<Vec<InsightVariable>> {
 }
 
 /// Create a new insight variable
-/// If debug is true, prints the request body and any error response
 pub fn create_insight_variable(
     request: &CreateInsightVariableRequest,
     debug: bool,
 ) -> Result<InsightVariable> {
     let client = &context().client;
 
-    if debug {
-        crate::safe_eprintln!("  {} POST insight_variables/", "DEBUG".cyan().bold());
-        if let Ok(json) = serde_json::to_string_pretty(request) {
-            crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
-        }
-    }
+    debug_request(debug, "POST", "insight_variables/");
+    debug_request_body(debug, request);
 
     let result = client.send_post(client.env_url("insight_variables/")?, |req| {
         req.json(request)

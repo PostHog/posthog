@@ -1255,7 +1255,9 @@ class InsightSerializer(InsightBasicSerializer):
         is_shared = self.context.get("is_shared", False)
         dashboard_filters_override = filters_override_requested_by_client(request, dashboard, is_shared=is_shared)
         dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
-        tile_filters_override = tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared)
+        tile_filters_override = tile_filters_override_requested_by_client(
+            request, dashboard_tile.filters_overrides if dashboard_tile else None, is_shared=is_shared
+        )
         dashboard_filters = (
             dashboard_filters_override
             if dashboard_filters_override is not None
@@ -1312,7 +1314,11 @@ class InsightSerializer(InsightBasicSerializer):
         # different filter set than the chart.
         dashboard_tile = self.dashboard_tile_from_context(instance, dashboard)
         tile_filters_override = (
-            tile_filters_override_requested_by_client(request, dashboard_tile, is_shared=is_shared) if request else {}
+            tile_filters_override_requested_by_client(
+                request, dashboard_tile.filters_overrides if dashboard_tile else None, is_shared=is_shared
+            )
+            if request
+            else {}
         )
 
         if instance.query is not None:
@@ -1426,7 +1432,9 @@ class InsightSerializer(InsightBasicSerializer):
 
                 dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
                 tile_filters_override = tile_filters_override_requested_by_client(
-                    self.context["request"], dashboard_tile, is_shared=is_shared
+                    self.context["request"],
+                    dashboard_tile.filters_overrides if dashboard_tile else None,
+                    is_shared=is_shared,
                 )
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
