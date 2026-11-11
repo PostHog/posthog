@@ -215,6 +215,13 @@ def test_blocked_reason_refuses_patterns_it_cannot_read(pattern: str) -> None:
         policy.blocked_reason("left-pad", {"minimumReleaseAgeExclude": [pattern]})
 
 
+def test_a_setting_that_allows_every_build_blocks_every_package() -> None:
+    patterns = policy.blocked_patterns({}, {"pnpm": {"dangerouslyAllowAllBuilds": True}}, None)
+    assert policy.blocked_reason("@scope/left-pad@1.3.1", patterns) == (
+        "@scope/left-pad is named in dangerouslyAllowAllBuilds"
+    )
+
+
 @pytest.mark.parametrize(
     ("metadata", "reason"),
     [
@@ -280,6 +287,11 @@ PEER_ONLY_CHANGE = DirectChange(name="react-dom", old="18.3.0", new="18.3.0", ra
         (
             importers("^1.3.0", "1.3.0", peer="18.3.0", kea="4.0.1"),
             [DirectChange(name="kea", old="4.0.0", new="4.0.1", range_changed=False)],
+            None,
+        ),
+        (
+            importers("^1.3.0", "1.3.0", peer="18.3.0", catalog="^4.0.1"),
+            [DirectChange(name="kea", old="4.0.0", new="4.0.0", range_changed=True)],
             None,
         ),
         (importers("^1.3.0", "left-pad@1.3.1"), None, "not a plain registry"),

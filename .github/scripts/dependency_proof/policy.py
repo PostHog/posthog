@@ -201,7 +201,10 @@ def _moved_ranges(path: str, field: str, base: Mapping[str, Any], head: Mapping[
 
 
 def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> list[DirectChange]:
-    """Each workspace project dependency whose lockfile entry changes. A version may move only as `check_bump` allows."""
+    """Each workspace project dependency whose lockfile entry or catalog range changes.
+
+    A version may move only as `check_bump` allows.
+    """
     before_importers, after_importers = base_lock.get("importers") or {}, head_lock.get("importers") or {}
     if before_importers.keys() != after_importers.keys():
         raise Refused("the lockfile adds or removes a workspace project")
@@ -214,12 +217,12 @@ def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -
                 raise Refused(f"{importer} adds or removes a package in {field}")
             for name, entry in new_deps.items():
                 old = old_deps[name]
-                if old == entry:
+                range_changed = _range(base_lock, name, old) != _range(head_lock, name, entry)
+                if old == entry and not range_changed:
                     continue
                 old_version, new_version = _resolved(old), _resolved(entry)
                 if old_version != new_version:
                     check_bump(f"{importer} {name}", old_version, new_version)
-                range_changed = _range(base_lock, name, old) != _range(head_lock, name, entry)
                 changes.append(DirectChange(name=name, old=old_version, new=new_version, range_changed=range_changed))
     return changes
 
@@ -260,6 +263,8 @@ def blocked_patterns(
     """Package patterns the settings exempt from a policy or allow to run scripts, keyed by setting."""
     patterns: dict[str, list[str]] = {}
     for settings in (workspace, manifest.get("pnpm") or {}):
+        if str(settings.get("dangerouslyAllowAllBuilds", False)).lower() != "false":
+            patterns["dangerouslyAllowAllBuilds"] = ["*"]
         for key in BLOCKING_SETTINGS:
             entries = settings.get(key) or ()
             if isinstance(entries, Mapping):
