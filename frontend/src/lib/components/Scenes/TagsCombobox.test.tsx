@@ -52,4 +52,11 @@ describe('TagsCombobox', () => {
             expect(onParentKeyDown).toHaveBeenCalledWith(expect.objectContaining({ key: 'Escape' }))
         }
     )
+
+    it('shows a value that starts like the create prefix as its own chip', () => {
+        render(<TagsCombobox value={['__create__:paid', 'refunded']} onChange={jest.fn()} />)
+
+        expect(screen.getByText('__create__:paid')).toBeInTheDocument()
+        expect(screen.getByText('refunded')).toBeInTheDocument()
+    })
 })
