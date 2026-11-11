@@ -10,7 +10,11 @@ rules:
     - match: ['/dependabot.yml', '/pull_request_template.md', '/workflows/']
       owners: team-devex
     # The dependency proof decides which bot updates stamphog may approve on its own.
-    - match: '/scripts/dependency_proof/'
+    - match:
+          - '/scripts/dependency_proof/'
+          - '/workflows/dependency-proof.yml'
+          - '/workflows/dependency-proof-trigger.yml'
+          - '/actions/setup-uv/'
       owners: team-devex
       sensitive: true
     - match: '/shared-image-releases.yaml'
