@@ -19,6 +19,7 @@ from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
+from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 
 from products.signals.backend.artefact_schemas import (
@@ -86,6 +87,8 @@ SET_REPOSITORY_PATH = "products.signals.backend.scout_harness.tools.report.set_s
 REVISION_COUNT_PATH = "products.signals.backend.scout_harness.tools.report.get_content_revision_count"
 REFUSAL_COUNTER_PATH = "products.signals.backend.scout_report.judge.increment_scout_report_safety_refusal"
 _CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
+_MERGED_PR = {"state": "closed", "merged": True, "merged_at": "2026-01-15T10:00:00Z"}
+_DRAFT_PR = {"state": "open", "draft": True}
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
 
@@ -521,6 +524,43 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [created["report_id"]]
 
+    def test_emit_and_edit_repair_over_escaped_summary_and_return_hints(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(CAPTURE_PATH) as capture:
+            emitted = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(
+                    title="fix(checkout): p99 regressed", summary="## Problem\\n\\nThe \\`/checkout\\` p99 doubled."
+                ),
+                format="json",
+            ).json()
+            report = SignalReport.objects.get(id=emitted["report_id"])
+            assert report.summary == "## Problem\n\nThe `/checkout` p99 doubled."
+            assert [(h["check_id"], h["severity"]) for h in emitted["quality_hints"]] == [
+                ("literal_newline_escapes", "repair"),
+                ("escaped_backticks", "repair"),
+                ("pr_style_title", "hint"),
+            ]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": emitted["report_id"], "summary": "Line one\\nLine two"},
+                format="json",
+            ).json()
+        report.refresh_from_db()
+        assert report.summary == "Line one\nLine two"
+        assert [h["check_id"] for h in edited["quality_hints"]] == ["literal_newline_escapes"]
+        hint_events = [
+            c.kwargs["properties"]
+            for c in capture.call_args_list
+            if c.kwargs["event"] == "signals_scout_report_quality_hint"
+        ]
+        assert [(e["tool"], e["check_id"], e["skill_name"]) for e in hint_events] == [
+            ("emit_report", "literal_newline_escapes", run.skill_name),
+            ("emit_report", "escaped_backticks", run.skill_name),
+            ("emit_report", "pr_style_title", run.skill_name),
+            ("edit_report", "literal_newline_escapes", run.skill_name),
+        ]
+
     def test_edit_report_writes_typed_links_and_rejects_a_cycle(self) -> None:
         # A scout that splits one finding into a stack has to be able to record the order, and the
         # cycle guard has to hold on this path too, not only on the REST action.
@@ -638,12 +678,12 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ready", "immediately_actionable", True),
-            ("pending input", "requires_human_input", False),
+            ("ready", "immediately_actionable"),
+            ("pending input", "requires_human_input"),
         ]
     )
-    def test_source_issues_are_recorded_once_and_start_the_writeback_for_a_ready_report(
-        self, _name: str, actionability: str, writes_back: bool
+    def test_source_issues_are_recorded_once_and_start_the_writeback_for_a_visible_report(
+        self, _name: str, actionability: str
     ) -> None:
         run = _make_run(self.team)
         issue_42 = "https://github.com/Acme/Widgets/issues/42"
@@ -661,7 +701,7 @@ class TestScoutReportAPI(APIBaseTest):
                 )
             assert created.status_code == status.HTTP_200_OK, created.json()
             report_id = created.json()["report_id"]
-            assert writeback.delay.call_count == (1 if writes_back else 0)
+            assert writeback.delay.call_count == 1
 
             # Naming the held issue again writes nothing and comments on nothing; only #43 is new.
             with self.captureOnCommitCallbacks(execute=True):
@@ -672,7 +712,7 @@ class TestScoutReportAPI(APIBaseTest):
                 )
             assert edited.status_code == status.HTTP_200_OK, edited.json()
             assert edited.json()["source_issues_appended"] == 1
-            assert writeback.delay.call_count == (2 if writes_back else 0)
+            assert writeback.delay.call_count == 2
 
         stored = SignalReportArtefact.objects.filter(
             report_id=report_id, type=SignalReportArtefact.ArtefactType.SOURCE_ISSUE
@@ -681,6 +721,148 @@ class TestScoutReportAPI(APIBaseTest):
             "https://github.com/acme/widgets/issues/42",
             "https://github.com/acme/widgets/issues/43",
         ]
+
+    @parameterized.expand(
+        [
+            ("merged", [_MERGED_PR], "resolved"),
+            ("draft", [_DRAFT_PR, _DRAFT_PR], "ready"),
+            # The pull request merges between the edit's lookup and its commit, so its webhook found no link.
+            ("merged after the lookup", [_DRAFT_PR, _MERGED_PR], "resolved"),
+        ]
+    )
+    def test_edit_report_links_an_existing_pull_request_without_touching_it(
+        self, _name: str, pr_reads: list[dict], expected_status: str
+    ) -> None:
+        run = _make_run(self.team)
+        pr_url = "https://github.com/acme/widgets/pull/7"
+        github = MagicMock()
+        github.get_pull_request.side_effect = [{"success": True, "url": pr_url, **read} for read in pr_reads]
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+            patch("products.signals.backend.tasks.label_implementation_pr.delay") as label,
+            patch("products.signals.backend.tasks.open_implementation_pr_for_review.delay") as ready_for_review,
+            patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay") as assign_reviewers,
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(already_addressed=True), format="json"
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+
+            # The second call repeats the pull request under another URL form, as a retried edit would.
+            for pull_requests, linked in (([pr_url, f"{pr_url}/files"], 1), ([pr_url], 0)):
+                with self.captureOnCommitCallbacks(execute=True):
+                    edited = self.client.post(
+                        self._edit_url(str(run.id)),
+                        data={"report_id": report_id, "repository": "acme/widgets", "pull_requests": pull_requests},
+                        format="json",
+                    )
+                assert edited.status_code == status.HTTP_200_OK, edited.json()
+                assert edited.json()["pull_requests_linked"] == linked
+
+        assert [read.args for read in github.get_pull_request.call_args_list] == [("acme/widgets", 7)] * len(pr_reads)
+        label.assert_not_called()
+        ready_for_review.assert_not_called()
+        assign_reviewers.assert_not_called()
+        report = SignalReport.objects.get(id=report_id)
+        assert report.status == expected_status
+        links = SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False)
+        assert list(links.values_list("pull_request__number", "claim_id", "actor_kind")) == [(7, None, "agent")]
+        assert not links.filter(task__isnull=False).exists()
+
+    @parameterized.expand(
+        [
+            ("another repository", "https://github.com/acme/gadgets/pull/7", {"success": True, "state": "open"}, True),
+            ("unreadable on GitHub", "https://github.com/acme/widgets/pull/7", {"success": False}, True),
+            (
+                "closed without merging",
+                "https://github.com/acme/widgets/pull/7",
+                {"success": True, "state": "closed"},
+                True,
+            ),
+            (
+                "inferred repository",
+                "https://github.com/acme/widgets/pull/7",
+                {"success": True, "state": "open"},
+                False,
+            ),
+        ]
+    )
+    def test_edit_report_refuses_a_pull_request_that_cannot_settle_the_report(
+        self, _name: str, pr_url: str, github_pr: dict, names_repository: bool
+    ) -> None:
+        run = _make_run(self.team)
+        github = MagicMock()
+        github.get_pull_request.return_value = {"url": pr_url, **github_pr}
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(already_addressed=True), format="json"
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(
+                    repository="acme/widgets", reason="Read from the report text.", autostart_eligible=False
+                ),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            edit: dict = {"report_id": report_id, "pull_requests": [pr_url]}
+            if names_repository:
+                edit["repository"] = "acme/widgets"
+            edited = self.client.post(self._edit_url(str(run.id)), data=edit, format="json")
+
+        assert edited.status_code == status.HTTP_400_BAD_REQUEST, edited.json()
+        assert not SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False).exists()
+
+    def test_edit_report_refuses_a_pull_request_when_the_report_is_repointed_during_the_lookup(self) -> None:
+        run = _make_run(self.team)
+        pr_url = "https://github.com/acme/widgets/pull/7"
+
+        def repoint_then_read(repository: str, number: int) -> dict:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(repository="acme/gadgets", reason="Another edit repointed it."),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            return {"success": True, "url": pr_url, **_MERGED_PR}
+
+        github = MagicMock()
+        github.get_pull_request.side_effect = repoint_then_read
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(already_addressed=True), format="json"
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(repository="acme/widgets", reason="Named by a scout."),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            edited = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, "pull_requests": [pr_url]}, format="json"
+            )
+
+        assert edited.status_code == status.HTTP_400_BAD_REQUEST, edited.json()
+        assert not SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False).exists()
+        assert SignalReport.objects.get(id=report_id).status != "resolved"
 
     @parameterized.expand(
         [

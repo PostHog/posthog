@@ -280,6 +280,9 @@ function UnifiedNavigationStory({ viewMode = 'new' }: { viewMode?: 'new' | 'lega
     return <App />
 }
 
+// The list and composer need PostHog AI 2.0 access, or the scene sends the user to classic PostHog AI.
+const WITH_POSTHOG_AI_ACCESS = [FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_SANDBOX_MODE]
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Tasks',
@@ -310,7 +313,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Composer: Story = {}
+export const Composer: Story = {
+    parameters: {
+        featureFlags: WITH_POSTHOG_AI_ACCESS,
+    },
+}
 
 export const UnifiedNavigation: Story = {
     render: () => <UnifiedNavigationStory />,
@@ -391,13 +398,14 @@ export const PiTaskSelected: Story = {
 export const NewTask: Story = {
     parameters: {
         pageUrl: taskNewUrl(),
+        featureFlags: WITH_POSTHOG_AI_ACCESS,
     },
 }
 
 export const NewTaskQuill: Story = {
     parameters: {
         pageUrl: taskNewUrl(),
-        featureFlags: [FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_QUILL],
+        featureFlags: [...WITH_POSTHOG_AI_ACCESS, FEATURE_FLAGS.PHAI_QUILL],
     },
 }
 
@@ -406,6 +414,7 @@ export const NewTaskQuill: Story = {
 export const NewTaskWithRepository: Story = {
     parameters: {
         pageUrl: taskNewUrl(),
+        featureFlags: WITH_POSTHOG_AI_ACCESS,
     },
     decorators: [
         mswDecorator({
@@ -578,7 +587,10 @@ const MOBILE_PARAMETERS = {
 }
 
 export const MobileComposer: Story = {
-    parameters: MOBILE_PARAMETERS,
+    parameters: {
+        ...MOBILE_PARAMETERS,
+        featureFlags: WITH_POSTHOG_AI_ACCESS,
+    },
 }
 
 // Mobile: the new-task composer is the single full-screen column.
@@ -586,6 +598,7 @@ export const MobileNewTask: Story = {
     parameters: {
         ...MOBILE_PARAMETERS,
         pageUrl: taskNewUrl(),
+        featureFlags: WITH_POSTHOG_AI_ACCESS,
     },
 }
 

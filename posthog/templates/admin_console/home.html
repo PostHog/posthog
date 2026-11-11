@@ -23,7 +23,7 @@
                            type="search"
                            name="q"
                            value="{{ query|default:'' }}"
-                           placeholder="Team ID, project API token, or team or organization name"
+                           placeholder="Team ID, project API token, user email, or team or organization name"
                            aria-describedby="team-search-hint"
                            autofocus />
                     <button type="submit"
@@ -32,7 +32,7 @@
                     </button>
                 </form>
                 <p id="team-search-hint" class="m-0 mt-2 text-xs text-muted-foreground">
-                    A team ID, an API token or a name with one match opens the team right away. Press / on any page to jump here.
+                    A team ID, an API token or a name with one match opens the team right away, and a user's email opens the user. Press / on any page to jump here.
                 </p>
             </div>
         </section>

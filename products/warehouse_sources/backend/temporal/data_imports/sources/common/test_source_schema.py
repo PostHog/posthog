@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     _select_incremental_field,
     build_default_schemas,
     build_endpoint_schemas,
+    rank_incremental_fields,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -28,6 +29,103 @@ class TestSelectIncrementalField:
     def test_selection(self, _name: str, field_names: list[str], expected: str | None) -> None:
         chosen = _select_incremental_field([_field(n) for n in field_names])
         assert (chosen["field"] if chosen else None) == expected
+
+
+def _column(
+    name: str,
+    field_type: IncrementalFieldType = IncrementalFieldType.Timestamp,
+    *,
+    indexed: bool = True,
+    nullable: bool = False,
+) -> IncrementalField:
+    return {
+        "label": name,
+        "type": field_type,
+        "field": name,
+        "field_type": field_type,
+        "nullable": nullable,
+        "is_indexed": indexed,
+    }
+
+
+class TestRankIncrementalFields:
+    @parameterized.expand(
+        [
+            (
+                "update_tracking_beats_indexed_created",
+                [_column("created_at"), _column("updated_at", indexed=False, nullable=True)],
+                ["updated_at", "created_at"],
+            ),
+            (
+                "indexed_beats_unindexed_in_same_tier",
+                [_column("modified_at", indexed=False), _column("last_updated_on")],
+                ["last_updated_on", "modified_at"],
+            ),
+            (
+                "non_nullable_beats_nullable_in_same_tier",
+                [_column("created_at", nullable=True), _column("inserted_at")],
+                ["inserted_at", "created_at"],
+            ),
+            (
+                "integer_named_like_update_is_not_update_tracking",
+                [_column("modified_by", IncrementalFieldType.Integer), _column("created_at")],
+                ["created_at", "modified_by"],
+            ),
+            (
+                "uppercase_and_camel_case_names",
+                [_column("ID", IncrementalFieldType.Integer), _column("LAST_UPDATE_DATE"), _column("CreatedAt")],
+                ["LAST_UPDATE_DATE", "CreatedAt", "ID"],
+            ),
+            (
+                "id_beats_unknown_timestamp",
+                [_column("event_time"), _column("id", IncrementalFieldType.Integer)],
+                ["id", "event_time"],
+            ),
+            (
+                "integer_epoch_updated_at_beats_id",
+                [_column("id", IncrementalFieldType.Integer), _column("updated_at", IncrementalFieldType.Integer)],
+                ["updated_at", "id"],
+            ),
+            (
+                "synthetic_xmin_stays_last",
+                [
+                    {
+                        "label": "xmin",
+                        "type": IncrementalFieldType.XID,
+                        "field": "xmin",
+                        "field_type": IncrementalFieldType.XID,
+                        "is_indexed": False,
+                    },
+                    _column("event_time", indexed=False, nullable=True),
+                ],
+                ["event_time", "xmin"],
+            ),
+            (
+                "keeps_table_order_on_ties",
+                [_column("event_time"), _column("seen_at")],
+                ["event_time", "seen_at"],
+            ),
+        ]
+    )
+    def test_order(self, _name: str, fields: list[IncrementalField], expected: list[str]) -> None:
+        assert [f["field"] for f in rank_incremental_fields(fields)] == expected
+
+    def test_marks_first_as_recommended_and_explains_trade_offs(self) -> None:
+        ranked = rank_incremental_fields([_column("created_at"), _column("updated_at", indexed=False, nullable=True)])
+
+        assert [(f["field"], f["recommended"], f["notes"]) for f in ranked] == [
+            (
+                "updated_at",
+                True,
+                [
+                    "Changes when a row is updated, so edited rows sync again.",
+                    "Not indexed, so each sync scans the whole table.",
+                    "Can be empty. Rows where it's empty never sync.",
+                ],
+            ),
+            ("created_at", False, ["Only marks new rows. Edits to existing rows don't sync."]),
+        ]
+        assert _select_incremental_field(ranked) == ranked[0]
 
 
 class TestBuildDefaultSchemas:

@@ -363,14 +363,16 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.checksStatus).toEqual(expectedStatus)
     })
 
-    it('does not claim every check passed when the checks fill the page', async () => {
+    it('does not claim every check passed when the checks fill the page, and says the list is cut short', async () => {
         ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            count: 742,
             results: Array.from({ length: 500 }, (_, index) => buildCheck(`check-${index}`, 'orders', 'passed')),
         })
         ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
         await mountLogic()
 
         expect(logic.values.checksStatus).toEqual('unknown')
+        expect(logic.values.checksTruncated).toBe(true)
     })
 
     it('sends no ids when running everything', async () => {
@@ -413,16 +415,21 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.runningSubjectKey).toEqual('view:uuid-orders')
     })
 
-    it('offers a retry instead of a toast when a run cannot start', async () => {
+    it('offers a retry instead of a toast when a run cannot start, and retries the same checks', async () => {
         ;(dataQualityRunsCreate as jest.Mock).mockRejectedValue(new Error('down'))
         await mountLogic()
 
-        logic.actions.runChecks({ kind: 'all' })
+        logic.actions.runChecks({ kind: 'all' }, ['check-1', 'check-2'])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.runError).toEqual("Couldn't run checks.")
         expect(logic.values.startingRun).toBe(false)
         expect(logic.values.runningSubjectKey).toBeNull()
+
+        logic.actions.retryRun()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityRunsCreate).toHaveBeenLastCalledWith('1', { check_ids: ['check-1', 'check-2'] })
     })
 
     it('removes a deleted check and refreshes the snapshot', async () => {

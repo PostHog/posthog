@@ -545,6 +545,7 @@ class TestSandboxGithubIdentityGate:
             (PrAuthorshipMode.BOT, None),
             (PrAuthorshipMode.USER, {"github_read_access": True}),
             (PrAuthorshipMode.BOT, {"github_read_access": True}),
+            (PrAuthorshipMode.USER, {"github_token_scope": "push"}),
         ],
     )
     def test_shared_installation_credentials_skip_actor_rebinding(

@@ -9,7 +9,7 @@ import type {
 
 import { EMAIL_STATUS_LABEL, emailReasonText } from './emailLogStatus'
 
-export type DeliveryStepState = 'done' | 'failed' | 'pending'
+export type DeliveryStepState = 'done' | 'failed' | 'pending' | 'untracked'
 
 export interface DeliveryStep {
     key: string
@@ -43,6 +43,19 @@ function step(
 
 function repeated(count: number, verb: string): string | null {
     return count > 1 ? `${verb} ${count} times` : null
+}
+
+function clickedStep(email: TransactionalEmailLogDetailApi, previousAt: string | null): DeliveryStep {
+    const clicked = firstOf(email.timeline, 'clicked')
+    const clickStep = step(
+        'clicked',
+        'Clicked',
+        clicked,
+        previousAt,
+        repeated(countOf(email.timeline, 'clicked'), 'Clicked')
+    )
+    // A send from before an email was marked sensitive can still have a recorded click.
+    return email.sensitive && !clicked ? { ...clickStep, state: 'untracked' } : clickStep
 }
 
 /** The steps an email went through, ending where it stopped. */
@@ -96,13 +109,7 @@ export function buildDeliverySteps(email: TransactionalEmailLogDetailApi): Deliv
         sentStep,
         deliveredStep,
         step('opened', 'Opened', opened, delivered?.at ?? null, repeated(countOf(timeline, 'opened'), 'Opened')),
-        step(
-            'clicked',
-            'Clicked',
-            firstOf(timeline, 'clicked'),
-            opened?.at ?? delivered?.at ?? null,
-            repeated(countOf(timeline, 'clicked'), 'Clicked')
-        ),
+        clickedStep(email, opened?.at ?? delivered?.at ?? null),
     ]
 }
 

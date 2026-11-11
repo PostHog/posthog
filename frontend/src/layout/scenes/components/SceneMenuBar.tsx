@@ -61,7 +61,7 @@ function captureSceneMenuBar(event: string, properties: Record<string, unknown> 
 const PADDED_LAYOUTS = new Set(['app', 'app-container', 'app-full-scene-height'])
 
 type SceneMenuBarProps = {
-    children: ReactNode
+    children?: ReactNode
     className?: string
 }
 

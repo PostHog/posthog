@@ -87,7 +87,6 @@ export function QuillSummarizeButton({
 
     const button = (
         <Button
-            size="sm"
             variant={hasSummary ? 'outline' : 'primary'}
             loading={summarizePending}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
@@ -135,7 +134,7 @@ export function QuillSummarizeButton({
                 <DropdownMenuTrigger
                     render={
                         <Button
-                            size="icon-sm"
+                            size="icon"
                             variant={hasSummary ? 'outline' : 'primary'}
                             aria-label="Choose a summarizer"
                             disabledReason={inFlightDisabledReason ?? undefined}

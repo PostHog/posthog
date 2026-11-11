@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from django.core.cache import cache
 
 import numpy as np
+import anthropic
 import structlog
 
 from posthog.llm.gateway_client import build_ai_gateway_anthropic_client
@@ -145,6 +146,16 @@ def _is_over_ai_credit_budget(team: "Team") -> bool:
         return False
 
 
+def _is_gateway_credit_refusal(error: Exception) -> bool:
+    # The gateway marks its own credit refusals with X-PostHog-Denial. A 402 without that header is the
+    # provider blocking the gateway's workspace, which more credits for the organization cannot fix.
+    return (
+        isinstance(error, anthropic.APIStatusError)
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
+
+
 def _memoized_verdict(memo_key: str | None) -> LLMDetectionVerdict | None:
     if not memo_key:
         return None
@@ -266,6 +277,10 @@ class LLMSeriesJudge:
                 )
                 verdict = response.parsed_output
             except LLM_API_EXCEPTIONS as error:
+                # The in-app budget check above fails open and can read a stale budget, so the gateway's
+                # refusal is the backstop and pauses the check the same way.
+                if _is_gateway_credit_refusal(error):
+                    raise LLMDetectorPausedError(LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE) from error
                 # Provider credentials, permissions, and model availability are shared across
                 # alerts. Disabling an individual alert cannot fix a provider failure.
                 raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error

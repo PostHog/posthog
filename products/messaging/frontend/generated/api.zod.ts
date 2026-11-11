@@ -589,16 +589,48 @@ export const MessagingSuppressionsAddSuppressionCreateBody = /* @__PURE__ */ zod
 })
 
 /**
+ * Remove up to 100 addresses from the suppression list so they can receive messages again.
+ * @summary Remove several email addresses from the suppression list
+ */
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax = 512
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax = 100
+
+export const messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault = false
+
+export const MessagingSuppressionsBulkRemoveSuppressionsCreateBody = /* @__PURE__ */ zod.object({
+    identifiers: zod
+        .array(zod.string().max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersItemMax))
+        .min(1)
+        .max(messagingSuppressionsBulkRemoveSuppressionsCreateBodyIdentifiersMax)
+        .describe('The email addresses to remove, at most 100 per request.'),
+    confirm_complaints: zod
+        .boolean()
+        .default(messagingSuppressionsBulkRemoveSuppressionsCreateBodyConfirmComplaintsDefault)
+        .describe(
+            'Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400.'
+        ),
+})
+
+/**
  * Remove an address from the suppression list so it can receive messages again.
  * @summary Remove an email address from the suppression list
  */
 export const messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax = 512
 
+export const messagingSuppressionsRemoveSuppressionCreateBodyConfirmComplaintsDefault = false
+
 export const MessagingSuppressionsRemoveSuppressionCreateBody = /* @__PURE__ */ zod.object({
     identifier: zod
         .string()
         .max(messagingSuppressionsRemoveSuppressionCreateBodyIdentifierMax)
-        .describe('The email address to suppress. Will not receive any messages until removed.'),
+        .describe('The email address to remove.'),
+    confirm_complaints: zod
+        .boolean()
+        .default(messagingSuppressionsRemoveSuppressionCreateBodyConfirmComplaintsDefault)
+        .describe(
+            'Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400.'
+        ),
 })
 
 export const messagingTemplatesCreateBodyNameMax = 400

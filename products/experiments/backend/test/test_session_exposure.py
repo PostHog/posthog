@@ -8,9 +8,9 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 
-from posthog.models import EventProperty
 from posthog.models.team import Team
 
+from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend.facade import replay as facade_replay
 from products.experiments.backend.facade.contracts import InSessionExposureSemantics
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY

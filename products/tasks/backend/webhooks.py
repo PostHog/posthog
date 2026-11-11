@@ -1,5 +1,7 @@
+from uuid import UUID
+
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 import structlog
 
@@ -43,6 +45,10 @@ def _run_repository_filter(repository: str) -> Q:
     )
 
 
+def _indexed_candidate_ids(queryset: QuerySet[TaskRun]) -> list[UUID]:
+    return list(queryset.order_by().values_list("id", flat=True))
+
+
 def find_task_run(
     pr_url: str | None = None,
     branch: str | None = None,
@@ -65,6 +71,7 @@ def find_task_run(
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
         return None
 
+    indexed_candidates = TaskRun.objects.filter(team_id__in=team_ids)
     candidates = TaskRun.objects.filter(team_id__in=team_ids)
     # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
     # leg below may return one. The exclusion belongs here rather than on each leg: a stale
@@ -82,7 +89,7 @@ def find_task_run(
         verified_filter = Q(state__verified_pr_urls__contains=[pr_url])
         if verified_url is not None:
             verified_filter |= Q(state__verified_pr_urls__contains=[verified_url])
-        runs = candidates.filter(verified_filter)
+        runs = candidates.filter(id__in=_indexed_candidate_ids(indexed_candidates.filter(verified_filter)))
         if repository:
             runs = runs.filter(_run_repository_filter(repository))
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
@@ -115,7 +122,7 @@ def find_task_run(
         task_run = (
             candidates.filter(
                 _run_repository_filter(repository),
-                state__self_driving_head_branch=branch,
+                id__in=_indexed_candidate_ids(indexed_candidates.filter(state__self_driving_head_branch=branch)),
                 task__deleted=False,
             )
             .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
@@ -133,7 +140,7 @@ def find_task_run(
         task_run = (
             candidates.filter(
                 _run_repository_filter(repository),
-                output__head_branches__contains=[head_branch],
+                id__in=_indexed_candidate_ids(indexed_candidates.filter(output__head_branches__contains=[head_branch])),
                 state__wizard_head_branch__isnull=True,
             )
             .order_by("-created_at", "-id")
@@ -151,7 +158,7 @@ def find_task_run(
             task_run = (
                 candidates.filter(
                     _run_repository_filter(repository),
-                    state__wizard_head_branch=branch,
+                    id__in=_indexed_candidate_ids(indexed_candidates.filter(state__wizard_head_branch=branch)),
                     task__deleted=False,
                 )
                 .exclude(status__in=_TERMINAL_RUN_STATUSES)
@@ -163,13 +170,19 @@ def find_task_run(
 
         # Desktop clients can attach a PR URL and branch without reporting head_branches.
         if pr_url:
+            reported_candidates = indexed_candidates.filter(
+                branch=branch,
+                state__wizard_head_branch__isnull=True,
+                state__self_driving_head_branch__isnull=True,
+            )
+            reported_candidate_ids = set(_indexed_candidate_ids(reported_candidates.filter(output__pr_url=pr_url)))
+            reported_candidate_ids.update(
+                _indexed_candidate_ids(reported_candidates.filter(output__pr_urls__contains=[pr_url]))
+            )
             return (
                 candidates.filter(
                     _run_repository_filter(repository),
-                    Q(output__pr_url=pr_url) | Q(output__pr_urls__contains=[pr_url]),
-                    branch=branch,
-                    state__wizard_head_branch__isnull=True,
-                    state__self_driving_head_branch__isnull=True,
+                    id__in=reported_candidate_ids,
                 )
                 .order_by("-created_at", "-id")
                 .select_related(*TASK_RUN_SELECT_RELATED)

@@ -428,6 +428,12 @@ const QueryLogTags = z.object({
 })
 
 const MarketingAnalyticsRecommendationsQuery = z.object({
+    conversionActions: z
+        .array(z.string())
+        .describe(
+            'Resource names of the Google Ads conversion actions that count as conversions, such as `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an account with none of them counts its primary actions. Selected actions count every conversion, including secondary actions and conversions outside campaign goals. Omit to count the primary actions only.'
+        )
+        .optional(),
     dateRange: DateRange.optional(),
     kind: z.literal('MarketingAnalyticsRecommendationsQuery').default('MarketingAnalyticsRecommendationsQuery'),
     tags: QueryLogTags.optional(),

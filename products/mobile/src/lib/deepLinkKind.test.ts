@@ -17,6 +17,7 @@ describe('deepLinkKind', () => {
         ['https://eu.posthog.com/project/2/replay/0192-abc?t=42', 'replay'],
         ['posthog://errors/0192-abc', 'error_tracking'],
         ['https://us.posthog.com/project/2/views', 'other'],
+        ['https://us.posthog.com/project/2/inbox/reports/0192-abc?link_source=slack', 'inbox'],
     ])('%s', (path, expected) => {
         expect(deepLinkKind(path)).toBe(expected)
     })
@@ -37,6 +38,22 @@ describe('deepLinkKind', () => {
         ['https://us.posthog.com/project/2/replay/playlists/abc', null],
         ['https://us.posthog.com/project/2/insights/abc', null],
         ['posthog://replay/0192-abc?from=push', null],
+        [
+            'https://us.posthog.com/project/2/inbox/reports/0192-abc?link_source=slack',
+            '/report/0192-abc?from=slack&project=2&host=us.posthog.com',
+        ],
+        [
+            'https://us.posthog.com/project/2/inbox/reports/0192-abc?link_source=slack_scout',
+            '/report/0192-abc?from=slack&project=2&host=us.posthog.com',
+        ],
+        [
+            'https://eu.posthog.com/project/7/inbox/reports/0192-abc',
+            '/report/0192-abc?from=link&project=7&host=eu.posthog.com',
+        ],
+        ['posthog://project/7/inbox/reports/0192-abc', '/report/0192-abc?from=link&project=7'],
+        ['https://us.posthog.com/project/2/inbox/reports/triage', null],
+        ['https://us.posthog.com/project/2/inbox/reports/0192-abc/details', null],
+        ['https://us.posthog.com/project/2/inbox/reports/..%2Fsettings', null],
     ])('opens %s in the app at %s', (path, expected) => {
         expect(webLinkTarget(path)).toBe(expected)
     })

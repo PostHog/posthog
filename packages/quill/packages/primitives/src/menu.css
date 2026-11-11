@@ -61,8 +61,26 @@
     }
 
     .quill-menu__content[data-flush] .quill-menu__scroller {
+        display: flex;
+        flex-direction: column;
+        max-height: min(calc(var(--spacing, 0.25rem) * 72), var(--available-height));
         padding: 0;
         overflow: hidden;
+    }
+
+    .quill-menu__input {
+        flex-shrink: 0;
+        padding: 0.25rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .quill-menu__list {
+        flex: 1;
+        min-height: 0;
+        padding: 0.25rem;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scroll-padding-block: 0.25rem;
     }
 
     .quill-menu__content[data-closed] .quill-menu__scroller,
@@ -135,7 +153,12 @@
     }
 
     /* A leading avatar in a menu row takes the row's icon size, so avatars and icons line up down the menu. */
-    :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger'], .quill-menu-item__title)
+    :is(
+            [data-slot='dropdown-menu-item'],
+            [data-slot='dropdown-menu-checkbox-item'],
+            [data-slot='dropdown-menu-sub-trigger'],
+            .quill-menu-item__title
+        )
         > [data-slot='avatar'][data-size] {
         --avatar-size: 0.875rem;
 

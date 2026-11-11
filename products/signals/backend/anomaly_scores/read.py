@@ -43,6 +43,9 @@ DEFAULT_PRIOR_RATE = 0.05
 SCORED_INTERVALS = frozenset(DEFAULT_PROFILE.intervals)
 # The event scan reaches this far past the range, so a row whose timestamp ingestion moved stays in the scan.
 TIMESTAMP_DRIFT = datetime.timedelta(hours=1)
+# A project's scores are ready to rely on once this many days of the window have a scored daily bucket.
+SCORED_HISTORY_WINDOW = datetime.timedelta(days=28)
+SCORED_HISTORY_READY_DAYS = 14
 
 _LATEST_BUCKETS = """
 SELECT
@@ -100,6 +103,22 @@ FROM ({_LATEST_BUCKETS})
 WHERE bucket_start >= {{date_from}} AND {{keep}}
 ORDER BY bucket_start DESC, series_key
 LIMIT {{limit}}
+"""
+
+
+_SCORED_DAYS_QUERY = """
+SELECT count(DISTINCT toDate(toTimeZone(bucket_start, 'UTC')))
+FROM (
+    SELECT coalesce(toDateTime(properties.$anomaly_bucket_start), timestamp) AS bucket_start
+    FROM events
+    WHERE event = {event}
+        AND properties.$anomaly_source = {source}
+        AND properties.$anomaly_interval = {interval}
+        AND toFloat(properties.$anomaly_score) IS NOT NULL
+        AND timestamp >= {scan_since}
+        AND timestamp <= {scan_until}
+)
+WHERE bucket_start >= {since} AND bucket_start <= {until}
 """
 
 
@@ -349,6 +368,23 @@ def series_summaries(
             )
         )
     return SeriesSummaries(series=series, truncated=len(rows) > MAX_SERIES)
+
+
+def scored_days(team: Team, *, now: datetime.datetime) -> int:
+    """Distinct UTC days with a scored daily bucket of any insight series from ``SCORED_HISTORY_WINDOW`` before ``now``."""
+    tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
+    response = execute_hogql_query(
+        _SCORED_DAYS_QUERY,
+        team,
+        query_type="AnomalyScoresScoredDays",
+        placeholders={
+            **_placeholders(since=now - SCORED_HISTORY_WINDOW, until=now, insight_ids=None, series_key=None),
+            "interval": ast.Constant(value=IntervalType.DAY.value),
+        },
+        ch_user=ClickHouseUser.DEFAULT,
+    )
+    rows = cast(list[tuple[Any, ...]], response.results or [])
+    return int(rows[0][0]) if rows else 0
 
 
 def latest_buckets(

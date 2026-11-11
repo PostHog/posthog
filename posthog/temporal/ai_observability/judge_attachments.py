@@ -4,14 +4,11 @@ import re
 import base64
 from collections import Counter
 from collections.abc import Callable
-from functools import lru_cache
 from typing import Any, Literal
 
 import structlog
-import posthoganalytics
 
 from posthog.dataclasses import frozen
-from posthog.models.team import Team
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.ai_observability.backend.facade.blobs import BlobPointer
@@ -30,8 +27,6 @@ from products.ai_observability.backend.llm.attachments import (
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, MediaMarker
 
 logger = structlog.get_logger(__name__)
-
-JUDGE_ATTACHMENTS_FLAG = "llm-analytics-judge-images"
 
 # Each attachment costs tokens on the customer's key, and above 20 images Anthropic tightens its per-image dimension limit.
 MAX_ATTACHMENTS = 20
@@ -296,35 +291,6 @@ def _normalize_mime_type(mime_type: str | None) -> str | None:
     return _MIME_ALIASES.get(normalized, normalized)
 
 
-@lru_cache(maxsize=4096)
-def _project_uuid(team_id: int) -> str | None:
-    project_uuid = Team.objects.filter(pk=team_id).values_list("uuid", flat=True).first()
-    return str(project_uuid) if project_uuid else None
-
-
-def judge_sees_attachments(evaluation: dict[str, Any]) -> bool:
-    if evaluation["evaluation_config"].get("include_media") is False:
-        return False
-    # Local evaluation keeps the check off the network. An inconclusive result means off.
-    try:
-        # Team ids repeat across regions and self-hosted instances, so the flag targets the project uuid.
-        project_uuid = _project_uuid(evaluation["team_id"])
-        if project_uuid is None:
-            return False
-        return bool(
-            posthoganalytics.feature_enabled(
-                JUDGE_ATTACHMENTS_FLAG,
-                project_uuid,
-                groups={"project": project_uuid},
-                group_properties={"project": {"id": str(evaluation["team_id"]), "uuid": project_uuid}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
-
-
 def build_attachment_prompt(
     evaluation: dict[str, Any], plain_prompt: str | None, render: Callable[[MediaMarker], str | None]
 ) -> AttachmentPrompt | None:
@@ -332,7 +298,7 @@ def build_attachment_prompt(
 
     `render` builds the same transcript as the plain prompt, with media blocks rendered by the marker it gets.
     """
-    if not judge_sees_attachments(evaluation):
+    if evaluation["evaluation_config"].get("include_media") is False:
         return None
     attachments = JudgeAttachments(evaluation["team_id"])
     marked = render(attachments.marker)
