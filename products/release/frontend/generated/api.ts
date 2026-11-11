@@ -9,9 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BroadcastOptionApi,
     PaginatedReleaseDTOListApi,
     PatchedUpdateReleaseApi,
     ReleaseDTOApi,
+    ReleasesBroadcastSearchRetrieveParams,
     ReleasesListParams,
     WriteReleaseApi,
 } from './api.schemas'
@@ -98,5 +100,38 @@ export const releasesDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getReleasesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getReleasesBroadcastSearchRetrieveUrl = (
+    projectId: string,
+    params?: ReleasesBroadcastSearchRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/releases/broadcast_search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/releases/broadcast_search/`
+}
+
+/**
+ * Search the broadcasts a release can link, returning only their ID, name and status.
+ */
+export const releasesBroadcastSearchRetrieve = async (
+    projectId: string,
+    params?: ReleasesBroadcastSearchRetrieveParams,
+    options?: RequestInit
+): Promise<BroadcastOptionApi[]> => {
+    return apiMutator<BroadcastOptionApi[]>(getReleasesBroadcastSearchRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

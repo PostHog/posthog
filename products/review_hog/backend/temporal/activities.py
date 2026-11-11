@@ -2986,8 +2986,8 @@ def _finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> Non
 @scoped_temporal()
 @close_db_connections
 async def finish_standard_automatic_turn_activity(input: FinishedStandardAutomaticTurn) -> None:
-    """Record on the turn marker whether the turn was clean with full coverage, and start a silent stamphog
-    review when the turn's own event marked the PR ready.
+    """Record on the turn marker whether the turn was clean with full coverage, and queue the silent stamphog
+    review for a clean turn that the queue does not answer for.
 
     The workflow catches the final failure. The turn then stays unrecorded, which never counts as clean.
     """
