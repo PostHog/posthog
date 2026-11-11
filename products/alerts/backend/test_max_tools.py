@@ -141,7 +141,9 @@ class TestUpsertAlertTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_alert_in_a_team_creating_native_alerts_writes_only_the_platform(self):
+    async def test_an_alert_created_in_a_team_creating_native_alerts_is_only_on_the_platform_and_updates_there(
+        self,
+    ):
         insight = await self._create_insight()
         tool = self._setup_tool()
 
@@ -179,6 +181,22 @@ class TestUpsertAlertTool(BaseTest):
             self.user.id,
         )
         assert subscribers == {alert_id: (self.user.id,)}
+
+        updated_content, _ = await tool._arun_impl(
+            action=UpdateAlertAction(
+                alert_id=str(alert_id),
+                name="Daily signups below 50",
+                lower_threshold=50.0,
+                calculation_interval=AlertCalculationInterval.DAILY,
+            )
+        )
+
+        assert "updated successfully" in updated_content, updated_content
+        updated, _ = await sync_to_async(_stored)()
+        assert updated is not None
+        assert (updated.name, updated.check_interval_minutes) == ("Daily signups below 50", 60 * 24)
+        assert updated.source_config["condition"]["threshold"]["bounds"]["lower"] == 50.0
+        assert not await AlertConfiguration.objects.filter(team=self.team).aexists()
 
     @parameterized.expand(
         [
