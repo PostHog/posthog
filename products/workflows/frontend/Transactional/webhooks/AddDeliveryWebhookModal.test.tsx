@@ -146,6 +146,21 @@ describe('AddDeliveryWebhookModal', () => {
         expect(input).toHaveValue('https://example.com/hooks')
     })
 
+    it('closes only the email picker on Escape, keeping the dialog and the typed URL', async () => {
+        openModal()
+        const url = screen.getByPlaceholderText('https://example.com/webhooks/email')
+        fireEvent.change(url, { target: { value: 'https://example.com/hooks' } })
+        const picker = screen.getByPlaceholderText('All transactional emails')
+        fireEvent.click(picker)
+        expect(await screen.findByText('Receipt')).toBeInTheDocument()
+
+        fireEvent.keyDown(picker, { key: 'Escape', keyCode: 27 })
+
+        await waitFor(() => expect(screen.queryByText('Receipt')).not.toBeInTheDocument())
+        expect(isDialogOpen()).toBe(true)
+        expect(url).toHaveValue('https://example.com/hooks')
+    })
+
     it('says when the transactional emails fail to load, and loads them again on retry', async () => {
         templatesLoad = 'fails'
         openModal()
