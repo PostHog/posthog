@@ -14,7 +14,7 @@ import {
     createKafkaMessage,
     createSweepFloorRecord,
 } from '../_tests/fixtures'
-import { CdpCohortMembershipConsumer } from './cdp-cohort-membership.consumer'
+import { CdpCohortMembershipConsumer, isCohortMembershipControlRecord } from './cdp-cohort-membership.consumer'
 
 describe('CdpCohortMembershipConsumer', () => {
     let hub: Hub
@@ -556,6 +556,7 @@ describe('CdpCohortMembershipConsumer', () => {
             })
 
             await sweepConsumer['handleBatch']([change(personId1, 3, 10), floor, change(personId2, 7, 5)])
+            await sweepConsumer['handleBatch']([{ ...floor, partition: 7, offset: 6 }])
 
             const members = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
@@ -566,7 +567,7 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(members.rows.map((row) => row.person_id).sort()).toEqual([personId1, personId2].sort())
             expect(await readProgress()).toEqual([
                 { partition: 3, next_offset: '12' },
-                { partition: 7, next_offset: '6' },
+                { partition: 7, next_offset: '7' },
             ])
         })
 
@@ -619,7 +620,10 @@ describe('CdpCohortMembershipConsumer', () => {
                 { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
             )
 
-            const [change] = sweepConsumer['_parseAndValidateBatch']([message])
+            const [change] = sweepConsumer['_parseAndValidateBatch']([
+                message,
+                createKafkaMessage(createCohortMembershipEvent({ last_updated: VERSION })),
+            ])
 
             expect(change.last_updated).toBeUndefined()
             expect(await versionlessChanges()).toBe(before + 1)
@@ -790,5 +794,11 @@ describe('CdpCohortMembershipConsumer', () => {
             )
             expect(result.rows).toHaveLength(0)
         })
+    })
+})
+
+describe('isCohortMembershipControlRecord', () => {
+    it.each([5, null])('should not treat a change with a %p type as a control record', (type) => {
+        expect(isCohortMembershipControlRecord({ ...createCohortMembershipEvent(), type })).toBe(false)
     })
 })
