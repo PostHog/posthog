@@ -379,7 +379,7 @@ class BulkUpdateStatusRequestSerializer(serializers.Serializer):
     )
     status = serializers.ChoiceField(
         choices=Status.choices,
-        help_text="New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.",
+        help_text="New status to apply to all selected tickets: new, open, pending, on_hold, escalated, or resolved.",
     )
 
 
@@ -529,7 +529,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
                     "(e.g. created before this signal existed)."
                 )
             },
-            "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
+            "status": {"help_text": "Ticket status: new, open, pending, on_hold, escalated, or resolved"},
             "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
@@ -636,7 +636,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "tags",
         ]
         extra_kwargs = {
-            "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
+            "status": {"help_text": "Ticket status: new, open, pending, on_hold, escalated, or resolved."},
             "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Pass null to clear it."},
             "anonymous_traits": {"help_text": "Customer details such as name and email."},
             "ai_resolved": {"help_text": "Whether AI resolved the ticket."},
@@ -1080,7 +1080,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 location=OpenApiParameter.QUERY,
                 description=(
                     "Filter by status. Accepts a single value or a comma-separated list "
-                    "(e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`."
+                    "(e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `escalated`, `resolved`."
                 ),
             ),
             OpenApiParameter(

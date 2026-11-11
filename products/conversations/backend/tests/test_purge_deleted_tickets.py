@@ -23,6 +23,7 @@ from products.conversations.backend.models.ticket import TICKET_HARD_DELETE_AFTE
 from products.conversations.backend.services.attachments import CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
 from products.conversations.backend.tasks.maintenance import purge_deleted_tickets
 from products.conversations.backend.temporal.zendesk_import.activities import _partition_new_tickets
+from products.signals.backend.models import SignalAgentRun, SignalReport, SignalReportEntityLink
 
 
 @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
@@ -113,6 +114,21 @@ class TestPurgeDeletedTickets(BaseTest):
             source_team_id=self.team.id,
             analysis_version="v1",
         )
+        agent_entity = {"source_product": "conversations", "source_type": "ticket", "source_id": str(ticket.id)}
+        SignalAgentRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            agent=SignalAgentRun.Agent.RESEARCH,
+            pass_number=1,
+            status=SignalAgentRun.Status.DONE,
+            output={"private_note": "The customer cannot export."},
+            **agent_entity,
+        )
+        SignalReportEntityLink.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            report=SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY),
+            relation=SignalReportEntityLink.Relation.CREATED,
+            **agent_entity,
+        )
         deleted_at = timezone.now() - TICKET_HARD_DELETE_AFTER - timedelta(days=1)
         Ticket.all_objects.filter(id=ticket.id).update(
             created_at=deleted_at - timedelta(days=1),
@@ -124,6 +140,8 @@ class TestPurgeDeletedTickets(BaseTest):
 
         purge_deleted_tickets()
 
+        self.assertFalse(SignalAgentRun.objects.for_team(self.team.id).filter(**agent_entity).exists())
+        self.assertFalse(SignalReportEntityLink.objects.for_team(self.team.id).filter(**agent_entity).exists())
         retract.assert_called_once_with(
             team=self.team,
             source_product="conversations",

@@ -46,6 +46,7 @@ import {
     type TicketStatus,
     priorityOptions,
     statusOptionsWithoutAll,
+    ticketStatusLabels,
 } from '../../types'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
@@ -75,6 +76,13 @@ export const scene: SceneExport<{ ticketId: string; id: string }> = {
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new', id: ticketId || 'new' }),
 }
 
+// Shown in the status select only while the ticket is escalated, so the select can display the current status.
+const ESCALATED_STATUS_OPTION = {
+    value: 'escalated' as const,
+    label: ticketStatusLabels.escalated,
+    disabledReason: 'Only a Self-driving agent can set this status.',
+}
+
 // The rendered label is "<Send|Attach> and set <statusLabel>", depending on the private note checkbox
 const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[] = [
     { value: 'pending', statusLabel: 'pending' },
@@ -93,7 +101,7 @@ export function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): S
     const customerText = customer === null || typeof customer === 'string' ? customer : JSON.stringify(customer)
     return {
         recipient: ticket.channel_source === 'email' ? emailRecipients : customerText,
-        statusLabel: statusOptionsWithoutAll.find((option) => option.value === ticket.status)?.label,
+        statusLabel: ticketStatusLabels[ticket.status],
     }
 }
 
@@ -533,7 +541,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <LemonSelect
                                     size="small"
                                     value={status}
-                                    options={statusOptionsWithoutAll}
+                                    options={
+                                        status === 'escalated'
+                                            ? [...statusOptionsWithoutAll, ESCALATED_STATUS_OPTION]
+                                            : statusOptionsWithoutAll
+                                    }
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
                                     dropdownMatchSelectWidth={false}
                                     disabledReason={sendDisabledReason}

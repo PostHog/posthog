@@ -449,7 +449,7 @@
                 "$type": "integer"
             },
             "status": {
-                "$enum": ["all", "new", "on_hold", "open", "pending", "resolved"]
+                "$enum": ["all", "escalated", "new", "on_hold", "open", "pending", "resolved"]
             },
             "priorities": {
                 "$array": {

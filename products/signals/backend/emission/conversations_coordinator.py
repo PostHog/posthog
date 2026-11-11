@@ -78,6 +78,15 @@ async def emit_conversations_signals_activity(inputs: EmitConversationsSignalsIn
         except Team.DoesNotExist:
             log.warning("Team no longer exists, skipping")
             return {"status": "skipped", "reason": "team_deleted", "signals_emitted": 0}
+        from products.conversations.backend.facade.api import (
+            escalates_directly,  # noqa: PLC0415 — Support's facade loads chat clients that this module does not need
+        )
+
+        # Each ticket of such a project already reaches an agent run, so reading it here too would
+        # investigate it twice.
+        if await database_sync_to_async(escalates_directly, thread_sensitive=False)(team.id):
+            log.info("Tickets go to agent runs, skipping the scheduled read")
+            return {"status": "skipped", "reason": "tickets_go_to_agent_runs", "signals_emitted": 0}
         source_config = await afetch_source_config(team.id, config.source_product, config.source_type)
         # Completion time would hide messages arriving while this snapshot is being processed.
         snapshot_at = timezone.now()

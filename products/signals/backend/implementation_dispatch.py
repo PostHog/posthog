@@ -21,6 +21,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.auto_start import AutostartOutcome, maybe_autostart_from_report_artefacts
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.spend import scout_implementation_spend_kind
 from products.signals.backend.supersession import decision_is_current
 
 logger = structlog.get_logger(__name__)
@@ -185,7 +186,7 @@ class ImplementationDispatcher:
                 dispatch=reservation,
                 ch_user=ClickHouseUser.SIGNALS,
                 implementation_spend_kind=(
-                    "scout_triggered_implementation"
+                    scout_implementation_spend_kind(reservation.source_skill)
                     if reservation.source_skill
                     else "reviewer_triggered_implementation"
                 ),

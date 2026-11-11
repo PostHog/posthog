@@ -91,8 +91,8 @@
             "description": "Time to reopen the ticket. Pass null to reopen it now."
         },
         "status": {
-            "description": "Ticket status: new, open, pending, on_hold, or resolved.\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `resolved` - Resolved",
-            "enum": ["new", "open", "pending", "on_hold", "resolved"],
+            "description": "Ticket status: new, open, pending, on_hold, escalated, or resolved.\n\n* `new` - New\n* `open` - Open\n* `pending` - Pending\n* `on_hold` - On hold\n* `escalated` - Escalated to Self-driving\n* `resolved` - Resolved",
+            "enum": ["new", "open", "pending", "on_hold", "escalated", "resolved"],
             "type": "string"
         },
         "tags": {

@@ -1,0 +1,53 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Support ticket result",
+    "description": "The one record a support ticket run returns to Support. Teammates who can read the ticket read every text field here, so no field may quote an inbox report.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["ticket_type", "verdict", "summary", "private_note"],
+    "properties": {
+        "ticket_type": {
+            "enum": ["how_to", "diagnostic", "account_billing", "bug", "unactionable"],
+            "description": "The one type the ticket was triaged into."
+        },
+        "verdict": {
+            "enum": ["actionable", "not_actionable", "needs_input"],
+            "description": "`actionable` when a report holds something an engineer can act on. `needs_input` when the customer must answer the clarifying questions before the ticket can move. `not_actionable` for everything else, including a question that the private note answers."
+        },
+        "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "One or two sentences that say what the customer asks for and what this run concluded."
+        },
+        "unknowns": {
+            "type": "array",
+            "maxItems": 10,
+            "items": { "type": "string", "maxLength": 300 },
+            "description": "Facts the ticket does not give and that would change the answer."
+        },
+        "clarifying_questions": {
+            "type": "array",
+            "maxItems": 5,
+            "items": { "type": "string", "maxLength": 300 },
+            "description": "Questions for the customer, in the order a teammate should ask them. Empty unless the verdict is `needs_input`."
+        },
+        "private_note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 6000,
+            "description": "Markdown for the team, posted on the ticket as a private note. It ends with a link to the report."
+        },
+        "suggested_reply": {
+            "type": "string",
+            "maxLength": 6000,
+            "description": "A reply a teammate could send to the customer as it is. Omit it when no grounded reply exists."
+        },
+        "knowledge_gap_topics": {
+            "type": "array",
+            "maxItems": 10,
+            "items": { "type": "string", "maxLength": 200 },
+            "description": "Topics the customer asked about that business knowledge search could not answer."
+        }
+    }
+}

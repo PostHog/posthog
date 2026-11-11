@@ -849,6 +849,7 @@ export interface ConversationsSettings {
     github_repos?: string[] | null
     ai_suggestions_enabled?: boolean
     ai_diagnostics_enabled?: boolean
+    ai_escalation_covers_fix_run?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
     ai_reply_custom_instructions?: string | null

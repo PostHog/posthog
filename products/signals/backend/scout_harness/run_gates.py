@@ -49,6 +49,9 @@ from products.tasks.backend.facade import api as tasks_facade
 
 # Metadata key the runner stamps the trigger source under, read here for the workflow cooldown.
 TRIGGERED_BY_METADATA_KEY = "triggered_by"
+# Metadata keys the runner stamps on a run that another product asked for on one of its records.
+AGENT_RUN_ID_METADATA_KEY = "agent_run_id"
+AGENT_RUN_ENTITY_METADATA_KEY = "agent_run_entity"
 
 
 class ScoutRunRejectionKind(Enum):
@@ -160,8 +163,13 @@ def lane_has_live_run(lane_runs: QuerySet[SignalScoutRun]) -> bool:
     ).exists()
 
 
-def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | None:
+def check_run_in_flight(
+    team_id: int, skill_name: str, *, agent_run_entity: str | None = None
+) -> ScoutRunRejection | None:
     """Reject when a *live* run for this `(canonical team, skill)` is already QUEUED or IN_PROGRESS.
+
+    `agent_run_entity` narrows the check to the runs of one record. A skill that another product
+    starts once per record has many live runs at a time, and only two runs for the same record overlap.
 
     Mirrors the runner's authoritative single-flight (`runner._has_running_run`) so a trigger fails
     fast instead of dispatching a workflow the runner would only skip. Status flows from the linked
@@ -175,6 +183,8 @@ def check_run_in_flight(team_id: int, skill_name: str) -> ScoutRunRejection | No
     lane_runs = (
         SignalScoutRun.objects.for_team(team_id).filter(skill_name=skill_name).exclude(metadata__has_key="scout_trial")
     )
+    if agent_run_entity is not None:
+        lane_runs = lane_runs.filter(metadata__contains={AGENT_RUN_ENTITY_METADATA_KEY: agent_run_entity})
     if not lane_has_live_run(lane_runs):
         return None
     return ScoutRunRejection(

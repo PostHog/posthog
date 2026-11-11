@@ -490,6 +490,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_SUPPORT_AI_SUGGESTION_ORGS: 'product-support-ai-suggestion-orgs', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS: 'support-reply-file-attachments', // owner: #team-conversations, attach any file type to in-app ticket replies
+    PRODUCT_SUPPORT_SELF_DRIVING_ESCALATION: 'product-support-self-driving-escalation', // owner: #team-self-driving, a Self-driving agent handles the project's tickets in place of the Support AI agent (also checked server-side)
     PRODUCT_SUPPORT_SIMPLIFIED_REPLIES: 'conversations-simplified-replies', // owner: @jonmcwest #team-conversations, composer header + one Send menu in place of draft mode
     PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS: 'product-support-slack-notify-on-members', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_TEAMS_ENABLED: 'product-support-teams-enabled', // owner: @veryayskiy #team-conversations
@@ -822,3 +823,5 @@ export const SDK_KEY_TO_SNIPPET_LANGUAGE: Partial<Record<SDKKey, string>> = {
 }
 
 export const FIRST_REPORT_SCOUT_NAME = 'signals-scout-first-report'
+// Scouts that Self-driving starts itself. Kept in sync with SYSTEM_SCOUT_NAMES in products/signals/backend/constants.py.
+export const SYSTEM_SCOUT_NAMES: readonly string[] = [FIRST_REPORT_SCOUT_NAME, 'signals-scout-support-ticket']

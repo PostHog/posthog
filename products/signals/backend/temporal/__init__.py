@@ -21,6 +21,11 @@ from products.signals.backend.personal_ranking.tick import (
     plan_personal_ranking_tick_activity,
 )
 from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
+from products.signals.backend.temporal.agent_run import (
+    SignalsAgentRunWorkflow,
+    finish_agent_run_activity,
+    prepare_agent_run_activity,
+)
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
@@ -175,6 +180,7 @@ WORKFLOWS = [
     EmitEvalSignalWorkflow,
     CustomSignalAgentWorkflow,
     RunSignalsScoutWorkflow,
+    SignalsAgentRunWorkflow,
     RunScoutTrialEvaluationWorkflow,
     RunScoutTrialJudgeWorkflow,
     RunScoutTrialComparisonWorkflow,
@@ -253,6 +259,8 @@ ACTIVITIES = [
     run_custom_signal_agent_activity,
     run_signal_semantic_search_activity,
     run_signals_scout_activity,
+    prepare_agent_run_activity,
+    finish_agent_run_activity,
     finalize_monitoring_scout_run_activity,
     evaluate_signals_scout_precheck_activity,
     check_signals_scout_config_runnable_activity,

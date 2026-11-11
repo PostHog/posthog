@@ -19,13 +19,18 @@ with workflow.unsafe.imports_passed_through():
     from django.utils import timezone
 
     import structlog
-    import posthoganalytics
 
     from posthog.models.comment import Comment
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
     from products.business_knowledge.backend.logic import has_ready_sources
+    from products.conversations.backend.ai_gates import (
+        MASTER_FLAG,
+        SELF_DRIVING_ESCALATION_FLAG,
+        is_main_environment,
+        organization_flag_enabled,
+    )
     from products.conversations.backend.models import Ticket
     from products.conversations.backend.models.constants import Status
     from products.conversations.backend.temporal.ai_reply.constants import MAX_CLARIFICATION_ROUNDS
@@ -53,8 +58,6 @@ TICKET_LOOKBACK_MINUTES = 5
 # Anything over the cap simply rolls to the next tick (the lookback window keeps it eligible).
 MAX_TICKETS_PER_TEAM_PER_RUN = 10
 MAX_TICKETS_PER_RUN = 50
-
-MASTER_FLAG = "product-support-ai-suggestion-orgs"
 
 # Minimum number of READY BK sources required before the coordinator will draft replies.
 # Set to 0 locally to skip the BK readiness check entirely.
@@ -110,38 +113,85 @@ class CollectEligibleTicketsOutput:
 
 
 def _is_master_flag_enabled(team: Team) -> bool:
-    # The flag is targeted by organization group, the same as `product-business-knowledge`. The headless
-    # worker only sends the group properties listed here (unlike posthog-js, which auto-attaches full
-    # group properties), so a release condition on any other organization property never matches.
+    return organization_flag_enabled(team, MASTER_FLAG)
+
+
+def _hand_to_self_driving(team_id: int, ticket_id: str) -> bool:
+    """Ask Self-driving to look at the ticket. True when the request started an agent run."""
+    from products.conversations.backend.self_driving import (
+        hand_ticket_to_self_driving,  # noqa: PLC0415 — only a project that escalates directly needs Self-driving loaded
+    )
+
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                MASTER_FLAG,
-                str(team.organization_id),
-                groups={"organization": str(team.organization_id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
+        return hand_ticket_to_self_driving(team_id=team_id, ticket_id=ticket_id)
     except Exception:
-        # A flag-service blip must skip the ticket, not throw inside the scan loop and fail the
-        # whole coordinator tick. Fail closed: treat as disabled.
-        logger.warning("support_reply coordinator: master flag eval failed", team_id=team.id, exc_info=True)
+        # One ticket that cannot be handed over must not fail the tick for every other ticket.
+        logger.exception("support_reply coordinator: self-driving hand-over failed", ticket_id=ticket_id)
         return False
 
 
+def _escalates_directly(team: Team, escalation_flag_by_org: dict[str, bool]) -> bool:
+    """Whether the project's tickets go to a Self-driving agent. The caller has checked Support's own AI gates."""
+    if not is_main_environment(team):
+        return False
+    org_key = str(team.organization_id)
+    if org_key not in escalation_flag_by_org:
+        escalation_flag_by_org[org_key] = organization_flag_enabled(team, SELF_DRIVING_ESCALATION_FLAG)
+    return escalation_flag_by_org[org_key]
+
+
+def _hand_over_direct_tickets(
+    tickets: list[tuple[int, str, datetime]],
+    *,
+    first_customer_msg: dict[str, datetime],
+    latest_customer_msg: dict[str, datetime],
+    latest_human_msg: dict[str, datetime],
+    settle_cutoff: datetime,
+) -> tuple[int, list[str]]:
+    """Ask Self-driving to read each settled ticket of the projects that escalate directly.
+
+    `tickets` holds (team id, ticket id, created at). Returns how many agent runs started, and the
+    tickets that a teammate already answered. The same caps bound agent runs and reply workflows.
+    """
+    started = 0
+    per_team_counts: dict[int, int] = {}
+    team_replied: list[str] = []
+    for team_id, ticket_id, created_at in tickets:
+        # The agent reads the public thread, so it waits for a customer message. Its own notes are
+        # private and never make a ticket engaged, which lets a later message reach it too.
+        first_customer = first_customer_msg.get(ticket_id)
+        if first_customer is None:
+            continue
+        last_human = latest_human_msg.get(ticket_id)
+        if last_human is not None and last_human > first_customer:
+            team_replied.append(ticket_id)
+            continue
+        if max(created_at, latest_customer_msg[ticket_id]) > settle_cutoff:
+            continue
+        if started >= MAX_TICKETS_PER_RUN or per_team_counts.get(team_id, 0) >= MAX_TICKETS_PER_TEAM_PER_RUN:
+            continue
+        if _hand_to_self_driving(team_id, ticket_id):
+            per_team_counts[team_id] = per_team_counts.get(team_id, 0) + 1
+            started += 1
+    return started, team_replied
+
+
 def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[EligibleTicket]:
-    """Sync DB scan for eligible tickets. Runs in a worker thread."""
+    """Sync DB scan for eligible tickets. Runs in a worker thread.
+
+    A ticket of a project that escalates directly is handed to Self-driving here and is not returned.
+    """
     now = timezone.now()
     cutoff = now - timedelta(minutes=lookback_minutes)
     # last_message_at is the debounce axis; fall back to created_at for tickets whose denormalized
     # timestamp hasn't landed yet (set via a post-commit signal, so there's a brief null window).
     # Pending is included only when the AI asked a public question and is waiting; a human-snoozed
-    # pending ticket has no awaiting_clarification and stays out.
+    # pending ticket has no awaiting_clarification and stays out. Escalated is included for the
+    # projects whose tickets go to a Self-driving agent, where a new message is one more thing to read.
     recent_tickets = Ticket.objects.filter(
         Q(last_message_at__gte=cutoff) | Q(last_message_at__isnull=True, created_at__gte=cutoff),
-        Q(status__in=[Status.NEW, Status.OPEN]) | Q(status=Status.PENDING, ai_triage__status="awaiting_clarification"),
+        Q(status__in=[Status.NEW, Status.OPEN, Status.ESCALATED])
+        | Q(status=Status.PENDING, ai_triage__status="awaiting_clarification"),
     ).select_related("team__organization")
 
     # First pass: the cheap per-ticket gates that don't touch the comments table. We keep
@@ -152,6 +202,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     skipped_ticket_ids_by_result: dict[str, list[str]] = {SKIPPED_TEAM_REPLIED: [], SKIPPED_CHANNEL_EXCLUDED: []}
     # The flag is org-keyed, so evaluate it once per org per scan instead of once per ticket.
     master_flag_by_org: dict[str, bool] = {}
+    escalation_flag_by_org: dict[str, bool] = {}
+    direct_tickets: list[tuple[int, str, datetime]] = []
     for ticket in recent_tickets:
         team = ticket.team
 
@@ -171,6 +223,10 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         if MIN_READY_BK_SOURCES > 0 and not has_ready_sources(team.id):
             continue
 
+        direct = _escalates_directly(team, escalation_flag_by_org)
+        if ticket.status == Status.ESCALATED and not direct:
+            continue
+
         is_untriaged = not ticket.ai_triage
         allowed_channels = settings_dict.get("ai_resolution_channels")
         if allowed_channels is not None and ticket.channel_source not in allowed_channels:
@@ -181,13 +237,17 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         if is_untriaged:
             untriaged_ticket_ids.add(str(ticket.id))
 
+        if direct:
+            direct_tickets.append((team.id, str(ticket.id), ticket.created_at))
+            continue
+
         awaiting, clarification_round = _awaiting_clarification_round(ticket)
         if awaiting and clarification_round > MAX_CLARIFICATION_ROUNDS:
             continue
 
         candidates.append((team.id, str(ticket.id), ticket.created_at, awaiting, clarification_round))
 
-    if not candidates:
+    if not candidates and not direct_tickets:
         _record_skipped_tickets(skipped_ticket_ids_by_result, now=now)
         return []
 
@@ -204,6 +264,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     #   2. Settle/debounce: the latest customer comment timestamp per ticket.
     by_team: dict[int, list[str]] = {}
     for team_id, ticket_id_str, _created_at, _awaiting, _round in candidates:
+        by_team.setdefault(team_id, []).append(ticket_id_str)
+    for team_id, ticket_id_str, _created_at in direct_tickets:
         by_team.setdefault(team_id, []).append(ticket_id_str)
 
     engaged: set[str] = set()
@@ -248,6 +310,14 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     settle_cutoff = now - timedelta(minutes=TICKET_SETTLE_MINUTES)
     eligible: list[EligibleTicket] = []
     per_team_counts: dict[int, int] = {}
+    started_agent_runs, team_replied = _hand_over_direct_tickets(
+        direct_tickets,
+        first_customer_msg=first_customer_msg,
+        latest_customer_msg=latest_customer_msg,
+        latest_human_msg=latest_human_msg,
+        settle_cutoff=settle_cutoff,
+    )
+    skipped_ticket_ids_by_result[SKIPPED_TEAM_REPLIED].extend(untriaged_ticket_ids.intersection(team_replied))
     for team_id, ticket_id_str, created_at, awaiting, clarification_round in candidates:
         if awaiting:
             last_customer = latest_customer_msg.get(ticket_id_str)
@@ -285,7 +355,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             last_activity = max(created_at, latest_customer_msg.get(ticket_id_str, created_at))
             if last_activity > settle_cutoff:
                 continue
-        if len(eligible) >= MAX_TICKETS_PER_RUN:
+        if len(eligible) + started_agent_runs >= MAX_TICKETS_PER_RUN:
             continue
         if per_team_counts.get(team_id, 0) >= MAX_TICKETS_PER_TEAM_PER_RUN:
             continue

@@ -2,12 +2,12 @@ import type { AccessControlLevel } from '~/types'
 
 import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
 import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
-import type { AiTriageResultEnumApi, TicketViewFiltersApi } from './generated/api.schemas'
+import type { AiTriageResultEnumApi, TicketStatusEnumApi, TicketViewFiltersApi } from './generated/api.schemas'
 
 export type { AssigneeFilterEntry }
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
-export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
+export type TicketStatus = TicketStatusEnumApi
 export type TicketChannel = 'widget' | 'slack' | 'email' | 'teams' | 'github'
 export type TicketChannelDetail =
     | 'slack_channel_message'
@@ -263,6 +263,8 @@ export const sidePanelTicketFilterLabels: Record<SidePanelTicketFilter, string> 
     open: 'Open',
     pending: 'Pending',
     on_hold: 'On hold',
+    // The side panel is read by the person who filed the ticket, so it does not name Self-driving.
+    escalated: 'Being investigated',
     resolved: 'Resolved',
 }
 
@@ -274,33 +276,46 @@ export const sidePanelTicketFilterOrder: SidePanelTicketFilter[] = [
     'open',
     'pending',
     'on_hold',
+    'escalated',
     'resolved',
 ]
 
+export const ticketStatusLabels: Record<TicketStatus, string> = {
+    new: 'New',
+    open: 'Open',
+    pending: 'Pending',
+    on_hold: 'On hold',
+    escalated: 'Escalated to Self-driving',
+    resolved: 'Resolved',
+}
+
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
     { value: 'all', label: 'All statuses' },
-    { value: 'new', label: 'New' },
-    { value: 'open', label: 'Open' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'on_hold', label: 'On hold' },
-    { value: 'resolved', label: 'Resolved' },
+    { value: 'new', label: ticketStatusLabels.new },
+    { value: 'open', label: ticketStatusLabels.open },
+    { value: 'pending', label: ticketStatusLabels.pending },
+    { value: 'on_hold', label: ticketStatusLabels.on_hold },
+    { value: 'escalated', label: ticketStatusLabels.escalated },
+    { value: 'resolved', label: ticketStatusLabels.resolved },
 ]
 
+// The statuses a person can set. `escalated` is not one of them: only a Self-driving agent sets it.
 export const statusOptionsWithoutAll: { value: TicketStatus; label: string }[] = [
-    { value: 'new', label: 'New' },
-    { value: 'open', label: 'Open' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'on_hold', label: 'On hold' },
-    { value: 'resolved', label: 'Resolved' },
+    { value: 'new', label: ticketStatusLabels.new },
+    { value: 'open', label: ticketStatusLabels.open },
+    { value: 'pending', label: ticketStatusLabels.pending },
+    { value: 'on_hold', label: ticketStatusLabels.on_hold },
+    { value: 'resolved', label: ticketStatusLabels.resolved },
 ]
 
 // Multiselect-compatible options for LemonInputSelect
 export const statusMultiselectOptions: { key: TicketStatus; label: string }[] = [
-    { key: 'new', label: 'New' },
-    { key: 'open', label: 'Open' },
-    { key: 'pending', label: 'Pending' },
-    { key: 'on_hold', label: 'On hold' },
-    { key: 'resolved', label: 'Resolved' },
+    { key: 'new', label: ticketStatusLabels.new },
+    { key: 'open', label: ticketStatusLabels.open },
+    { key: 'pending', label: ticketStatusLabels.pending },
+    { key: 'on_hold', label: ticketStatusLabels.on_hold },
+    { key: 'escalated', label: ticketStatusLabels.escalated },
+    { key: 'resolved', label: ticketStatusLabels.resolved },
 ]
 
 export const priorityOptions: { value: TicketPriority; label: string }[] = [

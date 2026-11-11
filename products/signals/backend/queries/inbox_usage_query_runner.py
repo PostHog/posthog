@@ -50,7 +50,7 @@ _SPEND_REPORTS = PostgresTable(
 
 
 def _scout_usage(team_id: int, receipts: QuerySet[SignalSpend]) -> list[InboxUsageScout]:
-    scout_receipts = receipts.filter(kind=SignalSpend.Kind.SCOUT_RUN)
+    scout_receipts = receipts.filter(kind__in=SignalSpend.SCOUT_RUN_KINDS)
     reports_by_scout: dict[tuple[UUID | None, str], set[str]] = {}
     for config_id, skill, report_ids in (
         SignalScoutRun.objects.for_team(team_id)
@@ -179,7 +179,7 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
                     SELECT signal_id, report_id, kind, credits, billing_exempt, accounting_failed
                     FROM system.signal_spend
                     WHERE finalized_at >= {period_start} AND finalized_at < {period_end}
-                      AND kind != 'scout_run'
+                      AND kind NOT IN {scout_run_kinds}
                 ) AS receipt
                 LEFT JOIN (
                     SELECT id, triggering_signal_id FROM _inbox_usage_reports
@@ -191,7 +191,7 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
                    nullIf(JSONExtractString(source.metadata, 'source_type'), '') AS source_type,
                    sumIf(spend.credits, spend.kind = 'ad-hoc'),
                    sumIf(spend.credits, spend.kind IN ('research', 'repo_selection')),
-                   sumIf(spend.credits, spend.kind IN ('reviewer_triggered_implementation', 'scout_triggered_implementation')),
+                   sumIf(spend.credits, spend.kind IN {implementation_kinds}),
                    sum(spend.credits), sumIf(spend.credits, spend.exempt), countIf(spend.failed) > 0
             FROM spend
             LEFT JOIN ({signals}) AS source ON spend.source_signal_id = source.document_id
@@ -204,6 +204,8 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
                 "period_end": ast.Constant(value=min(self.period_end, self.as_of)),
                 "signals": signals,
                 "report_ids": ast.Constant(value=report_ids),
+                "scout_run_kinds": ast.Constant(value=[kind.value for kind in SignalSpend.SCOUT_RUN_KINDS]),
+                "implementation_kinds": ast.Constant(value=[kind.value for kind in SignalSpend.IMPLEMENTATION_KINDS]),
             },
         )
 
@@ -216,7 +218,7 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
         return query
 
     def _sources(self) -> list[InboxUsageSource]:
-        if not self.settled.exclude(kind=SignalSpend.Kind.SCOUT_RUN).exists():
+        if not self.settled.exclude(kind__in=SignalSpend.SCOUT_RUN_KINDS).exists():
             return []
         context = _signals_query_context(self.team)
         with tags_context(product=Product.SIGNALS, feature=Feature.QUERY):
@@ -260,7 +262,7 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
             SignalScoutRun.objects.for_team(self.team.id)
             .filter(created_at__gte=self.period_start, created_at__lt=min(self.period_end, self.as_of))
             .exclude(metadata__has_key="scout_trial")
-            .filter(~Exists(self.receipts.filter(kind=SignalSpend.Kind.SCOUT_RUN, scout_run_id=OuterRef("pk"))))
+            .filter(~Exists(self.receipts.filter(kind__in=SignalSpend.SCOUT_RUN_KINDS, scout_run_id=OuterRef("pk"))))
             .count()
         )
         buckets: list[InboxUsageSource | InboxUsageScout] = [*sources, *scouts]

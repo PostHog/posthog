@@ -14,7 +14,7 @@ Column | Type | Nullable | Description
 `channel_source` | varchar(20) | NOT NULL | Origin channel: `widget`, `email`, or `slack`
 `channel_detail` | varchar(30) | NULL | Sub-type: `slack_channel_message`, `slack_bot_mention`, `slack_emoji_reaction`, `widget_embedded`, `widget_api`
 `distinct_id` | varchar(400) | NOT NULL | PostHog distinct_id linking the ticket to a person
-`status` | varchar(20) | NOT NULL | `new`, `open`, `pending`, `on_hold`, or `resolved`
+`status` | varchar(20) | NOT NULL | `new`, `open`, `pending`, `on_hold`, `escalated`, or `resolved`
 `priority` | varchar(20) | NULL | `low`, `medium`, or `high`
 `anonymous_traits` | jsonb | NOT NULL | Customer-provided traits (name, email, etc.)
 `message_count` | integer | NOT NULL | Total number of messages in the ticket
@@ -40,6 +40,7 @@ Column | Type | Nullable | Description
 ### Important Notes
 
 - The `status` field follows a lifecycle: `new` -> `open` -> `pending`/`on_hold` -> `resolved`
+- `escalated` is set while a Self-driving agent works on the ticket, and the ticket then returns to `open`
 - The `anonymous_traits` field contains customer-provided key-value pairs, commonly including `name` and `email`
 - The `session_context` field may contain `session_replay_url`, `current_url`, and other session metadata
 - Tickets are never deleted; filter by `status` to exclude resolved tickets

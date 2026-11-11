@@ -24,7 +24,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import StringDatabaseField
 
 from posthog.exceptions import QuotaLimitExceeded
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.models.comment import Comment
 from posthog.sync import database_sync_to_async
 
@@ -590,6 +590,37 @@ class TestEmissionRetryIdentity:
             records = await fetch(team, config, {})
             assert [record["id"] for record in records] == [ticket.id]
             assert ("customer", "A new detail") in records[0]["messages"]
+
+    @pytest.mark.asyncio
+    async def test_conversations_read_leaves_a_project_whose_tickets_go_to_agent_runs(self, team: Team) -> None:
+        module = "products.signals.backend.emission.conversations_coordinator"
+        read_at = datetime(2026, 1, 10, 12, tzinfo=UTC)
+        with patch("products.conversations.backend.events.capture_internal"):
+            ticket = await database_sync_to_async(Ticket.objects.create_with_number)(
+                team=team, widget_session_id="agent-run-test", distinct_id="test-user", channel_source="widget"
+            )
+            await Comment.objects.acreate(
+                team=team, scope="conversations_ticket", item_id=str(ticket.id), content="Export does not finish"
+            )
+        # Old and quiet enough for the scheduled read to pick the ticket up.
+        await Ticket.objects.filter(id=ticket.id).aupdate(
+            created_at=read_at - timedelta(days=2), last_message_at=read_at - timedelta(hours=2)
+        )
+        await Team.objects.filter(id=team.id).aupdate(conversations_settings={"ai_suggestions_enabled": True})
+        await Organization.objects.filter(id=team.organization_id).aupdate(is_ai_data_processing_approved=True)
+        support_flags = {"product-support-ai-suggestion-orgs", "product-support-self-driving-escalation"}
+
+        with (
+            time_machine.travel(read_at, tick=False),
+            patch(f"{module}.Heartbeater"),
+            patch("posthoganalytics.feature_enabled", side_effect=lambda key, *a, **kw: key in support_flags),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit,
+        ):
+            result = await emit_conversations_signals_activity(EmitConversationsSignalsInputs(team_id=team.id))
+
+        assert result == {"status": "skipped", "reason": "tickets_go_to_agent_runs", "signals_emitted": 0}
+        emit.assert_not_awaited()
+        assert not await SignalEmissionRecord.objects.filter(team=team).aexists()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("limit", ["billing", "daily"])

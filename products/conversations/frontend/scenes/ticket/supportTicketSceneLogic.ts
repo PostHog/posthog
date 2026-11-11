@@ -83,6 +83,7 @@ import type { Assignee, TicketAssignee } from '../../components/Assignee'
 import { aiDraftAction, aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
 import { macroContextFromTicket, renderMacro } from '../../components/Macros/renderMacro'
 import { supportMacrosLogic } from '../../components/Macros/supportMacrosLogic'
+import type { TicketStatusEnumApi } from '../../generated/api.schemas'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
@@ -497,7 +498,7 @@ export interface supportTicketSceneLogicActions {
         isPrivate: boolean
         onSuccess: (() => void) | undefined
         richContent: Record<string, unknown> | null
-        statusAfterSend: TicketStatus | undefined
+        statusAfterSend: TicketStatusEnumApi | undefined
     }
     setAiDraftApplying: (applying: boolean) => {
         applying: boolean
@@ -542,7 +543,7 @@ export interface supportTicketSceneLogicActions {
         snoozedUntil: string | null
     }
     setStatus: (status: TicketStatus) => {
-        status: TicketStatus
+        status: TicketStatusEnumApi
     }
     setTags: (tags: string[]) => {
         tags: string[]
@@ -603,7 +604,7 @@ export interface supportTicketSceneLogicMeta {
         replyRecipientDescription: (ticket: Ticket | null) => string
         deleteDisabledReason: (
             ticket: Ticket | null,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => string | undefined
         unsavedTicketChanges: (
             priority: TicketPriority | null,
@@ -611,10 +612,10 @@ export interface supportTicketSceneLogicMeta {
             tags: string[],
             snoozedUntil: string | null,
             ticket: Ticket | null,
-            resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
+            resolveAssignee: (assignee: TicketAssignee) => Assignee
         ) => string[]
         hasUnsavedChanges: (
-            status: TicketStatus | null,
+            status: TicketStatusEnumApi | null,
             ticket: Ticket | null,
             unsavedTicketChanges: string[]
         ) => boolean

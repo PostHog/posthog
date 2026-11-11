@@ -12,7 +12,7 @@ import {
 } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
-const SUPPORT_STATUS_VALUES = ['new', 'open', 'pending', 'on_hold', 'resolved'] as const
+const SUPPORT_STATUS_VALUES = ['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved'] as const
 type SupportStatusValue = (typeof SUPPORT_STATUS_VALUES)[number]
 
 function getEventId(config: EventTriggerConfig): string | null {
@@ -67,6 +67,7 @@ function StepTriggerConfigurationSupportStatusChanged({ node }: { node: any }): 
                         { label: 'Open', value: 'open' },
                         { label: 'Pending', value: 'pending' },
                         { label: 'On hold', value: 'on_hold' },
+                        { label: 'Escalated to Self-driving', value: 'escalated' },
                         { label: 'Resolved', value: 'resolved' },
                     ]}
                     onChange={(value) =>

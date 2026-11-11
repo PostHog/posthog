@@ -50,6 +50,7 @@ from products.signals.backend.activity_summary.search import (
     MatchKind as MatchKind,
     search_summaries,
 )
+from products.signals.backend.agent_run_requests import request_agent_run as request_agent_run
 from products.signals.backend.anomaly_scores import search as anomaly_search
 from products.signals.backend.anomaly_scores.search import (
     AnomalyDashboardNotFound as AnomalyDashboardNotFound,

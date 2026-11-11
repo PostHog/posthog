@@ -435,6 +435,8 @@ rules:
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
                               |SignalScoutPendingTrigger
+                              |SignalAgentRun
+                              |SignalReportEntityLink
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
@@ -953,6 +955,8 @@ rules:
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
                         |SignalScoutPendingTrigger
+                        |SignalAgentRun
+                        |SignalReportEntityLink
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend

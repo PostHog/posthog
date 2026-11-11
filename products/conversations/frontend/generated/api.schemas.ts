@@ -265,6 +265,7 @@ export const ChannelDetailEnumApi = {
  * * `open` - Open
  * * `pending` - Pending
  * * `on_hold` - On hold
+ * * `escalated` - Escalated to Self-driving
  * * `resolved` - Resolved
  */
 export type TicketStatusEnumApi = (typeof TicketStatusEnumApi)[keyof typeof TicketStatusEnumApi]
@@ -274,6 +275,7 @@ export const TicketStatusEnumApi = {
     Open: 'open',
     Pending: 'pending',
     OnHold: 'on_hold',
+    Escalated: 'escalated',
     Resolved: 'resolved',
 } as const
 
@@ -349,12 +351,13 @@ export interface TicketApi {
     readonly channel_source: ChannelEnumApi
     readonly channel_detail: ChannelDetailEnumApi | null
     readonly distinct_id: string
-    /** Ticket status: new, open, pending, on_hold, or resolved
+    /** Ticket status: new, open, pending, on_hold, escalated, or resolved
      *
      * * `new` - New
      * * `open` - Open
      * * `pending` - Pending
      * * `on_hold` - On hold
+     * * `escalated` - Escalated to Self-driving
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
     /** Ticket priority: low, medium, high, or critical. Null if unset.
@@ -484,12 +487,13 @@ export type TicketAssigneeRequestApi = UserTicketAssigneeRequestApi | RoleTicket
  * Fields accepted when updating a ticket.
  */
 export interface TicketUpdateRequestApi {
-    /** Ticket status: new, open, pending, on_hold, or resolved.
+    /** Ticket status: new, open, pending, on_hold, escalated, or resolved.
      *
      * * `new` - New
      * * `open` - Open
      * * `pending` - Pending
      * * `on_hold` - On hold
+     * * `escalated` - Escalated to Self-driving
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
     /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
@@ -528,12 +532,13 @@ export interface TicketUpdateRequestApi {
  * Fields accepted when updating a ticket.
  */
 export interface PatchedTicketUpdateRequestApi {
-    /** Ticket status: new, open, pending, on_hold, or resolved.
+    /** Ticket status: new, open, pending, on_hold, escalated, or resolved.
      *
      * * `new` - New
      * * `open` - Open
      * * `pending` - Pending
      * * `on_hold` - On hold
+     * * `escalated` - Escalated to Self-driving
      * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
     /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
@@ -756,12 +761,13 @@ export interface BulkUpdateStatusRequestApi {
      * @maxItems 500
      */
     ids: string[]
-    /** New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.
+    /** New status to apply to all selected tickets: new, open, pending, on_hold, escalated, or resolved.
      *
      * * `new` - New
      * * `open` - Open
      * * `pending` - Pending
      * * `on_hold` - On hold
+     * * `escalated` - Escalated to Self-driving
      * * `resolved` - Resolved */
     status: TicketStatusEnumApi
 }
@@ -1254,7 +1260,7 @@ export type ConversationsTicketsListParams = {
      */
     snoozed?: boolean
     /**
-     * Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `resolved`.
+     * Filter by status. Accepts a single value or a comma-separated list (e.g. `new,open,pending`). Valid values: `new`, `open`, `pending`, `on_hold`, `escalated`, `resolved`.
      */
     status?: string
     /**

@@ -14,6 +14,7 @@ import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/Chan
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketPreviewPopover } from '../../components/TicketPreview/TicketPreviewPopover'
+import { ticketStatusTagLabel } from '../../ticketStatusTagLabel'
 import { type Ticket, aiTriageProcessingLabel, aiTriageTicketTypeLabel, ticketListAiTriage } from '../../types'
 
 export type TicketColumnKey =
@@ -126,7 +127,7 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                             ticket.status === 'resolved' ? 'success' : ticket.status === 'new' ? 'primary' : 'default'
                         }
                     >
-                        {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
+                        {ticketStatusTagLabel(ticket.status, 'team')}
                     </LemonTag>
                     {ticket.snoozed_until && (
                         <TZLabel time={ticket.snoozed_until} title="Snoozed until" showSeconds>

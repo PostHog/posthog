@@ -28,7 +28,7 @@ export const ConversationsRecentTicketsWidgetConfig = /* @__PURE__ */ zod.object
         .default(conversationsRecentTicketsWidgetConfigLimitDefault)
         .describe('Maximum number of tickets to return.'),
     status: zod
-        .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
+        .enum(['new', 'open', 'pending', 'on_hold', 'escalated', 'resolved', 'all'])
         .default(conversationsRecentTicketsWidgetConfigStatusDefault)
         .describe('Ticket status filter.'),
     priorities: zod

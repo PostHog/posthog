@@ -81,7 +81,7 @@ class SpendReporting:
         )
         run_counts = dict(runs.values("skill_name").annotate(count=Count("id")).values_list("skill_name", "count"))
         receipts = SignalSpend.objects.for_team(team.id).filter(
-            kind=SignalSpend.Kind.SCOUT_RUN, scout_run_id__in=runs.values("id")
+            kind__in=SignalSpend.SCOUT_RUN_KINDS, scout_run_id__in=runs.values("id")
         )
         totals = list(
             receipts.values("scout_run__skill_name").annotate(

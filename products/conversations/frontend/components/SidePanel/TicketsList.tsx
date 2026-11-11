@@ -7,6 +7,7 @@ import { LemonBadge, LemonButton, LemonSelect, LemonTag, Link, Spinner } from '@
 import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
 
+import { ticketStatusTagLabel } from '../../ticketStatusTagLabel'
 import {
     type ConversationTicket,
     type SidePanelTicketFilter,
@@ -165,7 +166,7 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
                                             }
                                             size="small"
                                         >
-                                            {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
+                                            {ticketStatusTagLabel(ticket.status, 'customer')}
                                         </LemonTag>
                                         {(ticket.unread_count ?? 0) > 0 && (
                                             <LemonBadge.Number

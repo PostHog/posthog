@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportEntityLink
 from products.signals.backend.temporal.signal_queries import fetch_live_report_ids_for_source_ids
 
 VIEWS_FETCH = "products.signals.backend.views.fetch_live_report_ids_for_source_ids"
@@ -68,6 +68,22 @@ class TestReportsSourceIdFilter(APIBaseTest):
         assert response.status_code == 400
         assert "source_product" in str(response.json())
         fetch.assert_not_called()
+
+    def test_includes_reports_an_agent_run_linked_to_the_source_record(self) -> None:
+        for report, source_product in ((self.linked, "conversations"), (self.unlinked, "zendesk")):
+            SignalReportEntityLink.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=report,
+                source_product=source_product,
+                source_type="ticket",
+                source_id=TICKET_ID,
+                relation=SignalReportEntityLink.Relation.CREATED,
+            )
+
+        with patch(VIEWS_FETCH, return_value={}), patch(VIEWS_FETCH_BY_PRODUCT):
+            response = self.client.get(self._url(f"source_id={TICKET_ID}&source_product=conversations"))
+
+        assert [r["id"] for r in response.json()["results"]] == [str(self.linked.id)]
 
     def test_unknown_source_id_returns_nothing_rather_than_everything(self) -> None:
         with patch(VIEWS_FETCH, return_value={}), patch(VIEWS_FETCH_BY_PRODUCT):

@@ -2650,7 +2650,7 @@ support_tickets: PostgresTable = PostgresTable(
             name="distinct_id", description="Distinct id of the person who opened the ticket."
         ),
         "status": StringDatabaseField(
-            name="status", description="Ticket status: 'new', 'open', 'pending', 'on_hold', or 'resolved'."
+            name="status", description="Ticket status: 'new', 'open', 'pending', 'on_hold', 'escalated', or 'resolved'."
         ),
         "priority": StringDatabaseField(
             name="priority", nullable=True, description="Ticket priority, e.g. 'low', 'high'."
@@ -3394,7 +3394,7 @@ signal_spend = PostgresTable(
         "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "kind": StringDatabaseField(
             name="kind",
-            description="ad-hoc (signal processing), research, repo_selection, scout_run, reviewer_triggered_implementation, or scout_triggered_implementation.",
+            description="ad-hoc (signal processing), research, repo_selection, scout_run, agent_run (a run another product asked for on one record), reviewer_triggered_implementation, scout_triggered_implementation, or agent_run_triggered_implementation.",
         ),
         "credits": DecimalDatabaseField(
             name="spend",

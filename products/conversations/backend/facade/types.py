@@ -57,6 +57,29 @@ class SupportTicketMessage:
     created_at: datetime
 
 
+@frozen
+class TicketAgentMessage:
+    author_type: str
+    content: str
+    created_at: datetime
+
+
+@frozen
+class TicketForAgent:
+    """One ticket as an agent may read it. `messages` is the public thread, oldest first."""
+
+    id: str
+    ticket_number: int
+    subject: str
+    channel: str
+    priority: str | None
+    status: str
+    url: str
+    messages: tuple[TicketAgentMessage, ...]
+    # Changes when the subject or the public thread changes, and for nothing else.
+    content_hash: str
+
+
 @dataclass(frozen=True, kw_only=True)
 class ResolvedTicketRevision:
     ticket_id: UUID

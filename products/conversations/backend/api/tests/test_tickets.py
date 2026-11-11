@@ -517,6 +517,13 @@ class TestTicketAPI(APIBaseTest):
             distinct_id="resolved-user",
             status=Status.RESOLVED,
         )
+        escalated_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="escalated-session",
+            distinct_id="escalated-user",
+            status=Status.ESCALATED,
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=new,open")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -525,6 +532,9 @@ class TestTicketAPI(APIBaseTest):
         self.assertIn(str(self.ticket.id), ticket_ids)
         self.assertIn(str(open_ticket.id), ticket_ids)
         self.assertNotIn(str(resolved_ticket.id), ticket_ids)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?status=escalated")
+        self.assertEqual([t["id"] for t in response.json()["results"]], [str(escalated_ticket.id)])
 
     def test_filter_by_multiple_priorities(self, mock_on_commit):
         """Test filtering tickets by multiple priorities (comma-separated)."""
@@ -1032,11 +1042,12 @@ class TestBulkUpdateStatus(APIBaseTest):
     def _bulk_url(self) -> str:
         return f"/api/projects/{self.team.id}/conversations/tickets/bulk_update_status/"
 
-    def test_bulk_update_status(self, mock_on_commit):
+    @parameterized.expand([("open",), ("escalated",)])
+    def test_bulk_update_status(self, mock_on_commit, new_status):
         ids = [str(t.id) for t in self.tickets]
         response = self.client.post(
             self._bulk_url(),
-            {"ids": ids, "status": "open"},
+            {"ids": ids, "status": new_status},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -1045,7 +1056,7 @@ class TestBulkUpdateStatus(APIBaseTest):
         self.assertEqual(set(data["ids"]), set(ids))
         for t in self.tickets:
             t.refresh_from_db()
-            self.assertEqual(t.status, Status.OPEN)
+            self.assertEqual(t.status, new_status)
 
     def test_skips_tickets_already_in_target_status(self, mock_on_commit):
         self.tickets[0].status = Status.OPEN

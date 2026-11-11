@@ -81,6 +81,8 @@ export interface supportSettingsLogicValues {
     aiDiagnosticsEnabled: boolean
     aiDiagnosticsLoading: boolean
     aiEnabledChannels: TicketChannel[]
+    aiEscalationCoversFixRun: boolean
+    aiEscalationCoversFixRunLoading: boolean
     aiReplyCustomized: boolean
     aiReplyModes: Record<string, Record<string, 'bot_reply' | 'private_note'>>
     aiResolutionChannels: TicketChannel[]
@@ -121,6 +123,7 @@ export interface supportSettingsLogicValues {
     playbookError: string | null
     playbookLoading: boolean
     playbookSaving: boolean
+    selfDrivingEscalationAvailable: boolean
     settingDefaultEmailConfigId: string | null
     slackAlertChannelId: string | null
     slackBotDisplayName: string | null
@@ -504,6 +507,12 @@ export interface supportSettingsLogicActions {
     setAiDiagnosticsLoading: (loading: boolean) => {
         loading: boolean
     }
+    setAiEscalationCoversFixRun: (enabled: boolean) => {
+        enabled: boolean
+    }
+    setAiEscalationCoversFixRunLoading: (loading: boolean) => {
+        loading: boolean
+    }
     setAiReplyMode: (
         channel: string,
         ticketType: string,
@@ -667,6 +676,8 @@ export interface supportSettingsLogicMeta {
         githubSelectedRepos: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiSuggestionsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         aiDiagnosticsEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        aiEscalationCoversFixRun: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        selfDrivingEscalationAvailable: (featureFlags: FeatureFlagsSet) => boolean
         aiContextAccountPropertyIds: (currentTeam: TeamPublicType | TeamType | null) => string[]
         aiEnabledChannels: (
             currentTeam: TeamPublicType | TeamType | null,
@@ -811,6 +822,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
         setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
         setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
+        setAiEscalationCoversFixRun: (enabled: boolean) => ({ enabled }),
+        setAiEscalationCoversFixRunLoading: (loading: boolean) => ({ loading }),
         setAiResolutionChannels: (channels: TicketChannel[]) => ({ channels }),
         setAiReplyMode: (channel: string, ticketType: string, mode: 'private_note' | 'bot_reply') => ({
             channel,
@@ -1042,6 +1055,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiDiagnosticsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
+        aiEscalationCoversFixRunLoading: [
+            false,
+            {
+                setAiEscalationCoversFixRunLoading: (_, { loading }) => loading,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -1372,6 +1393,16 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
+        ],
+        aiEscalationCoversFixRun: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
+                !!currentTeam?.conversations_settings?.ai_escalation_covers_fix_run,
+        ],
+        selfDrivingEscalationAvailable: [
+            (s) => [s.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SELF_DRIVING_ESCALATION],
         ],
         aiContextAccountPropertyIds: [
             (s) => [s.currentTeam],
@@ -1892,6 +1923,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ai_diagnostics_enabled: enabled,
+                },
+            })
+        },
+        setAiEscalationCoversFixRun: ({ enabled }) => {
+            actions.setAiEscalationCoversFixRunLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_escalation_covers_fix_run: enabled,
                 },
             })
         },

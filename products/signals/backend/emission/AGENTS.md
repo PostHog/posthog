@@ -100,6 +100,9 @@ Triggered by a Temporal schedule (hourly):
 1. **Coordinator workflow** (`conversations_coordinator.py`) queries teams with conversations signals enabled and spawns per-team child workflows (batched, ~50 concurrent).
 2. **Per-team workflow** runs the activity that fetches eligible tickets (>1 hour old, not resolved, not yet emitted) with their full message threads, then runs the shared pipeline.
 
+The per-team activity skips a project whose Support settings hand every settled ticket to an agent run (`escalates_directly` in Support's facade).
+Each ticket of such a project already reaches Self-driving through `request_agent_run` (see "Agent runs" in `scout_harness/AGENTS.md`), so reading it here too would investigate it twice.
+
 ### Gating
 
 All sources are gated behind AI consent (`organization.is_ai_data_processing_approved`) and a `SignalSourceConfig` row with `enabled=True` for the matching `source_product`/`source_type`.

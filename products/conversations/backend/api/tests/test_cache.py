@@ -177,7 +177,7 @@ class TestTicketsCacheOperations(SimpleTestCase):
         assert any("open" in k for k in deleted_keys)
         assert any("resolved" in k for k in deleted_keys)
         assert any("new" in k for k in deleted_keys)
-        assert len(deleted_keys) == 6  # None + 5 statuses
+        assert len(deleted_keys) == 7  # None + 6 statuses
 
     @patch("products.conversations.backend.cache.cache")
     def test_invalidate_tickets_cache_swallows_exception(self, mock_cache):

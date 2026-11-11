@@ -68,6 +68,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportCheck,
+    SignalReportEntityLink,
     SignalReportPullRequest,
     SignalReportTask,
     SignalScoutConfig,
@@ -4726,6 +4727,26 @@ class TestSignalReportMergeAPI(APIBaseTest):
 
         assert SignalReportArtefact.objects.get(id=artefact.id).report_id == survivor.id
         assert implementation_pr_needed_by_another_report(team_id=self.team.id, report_id=str(source.id), pr_url=pr.url)
+
+    def test_merge_moves_entity_links_the_survivor_does_not_already_have(self):
+        survivor = self._report()
+        source = self._report()
+        for report, source_id in ((survivor, "shared-ticket"), (source, "shared-ticket"), (source, "moved-ticket")):
+            SignalReportEntityLink.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=report,
+                source_product="conversations",
+                source_type="ticket",
+                source_id=source_id,
+                relation=SignalReportEntityLink.Relation.CREATED,
+            )
+
+        assert self._merge(survivor, source).status_code == status.HTTP_200_OK
+
+        links = SignalReportEntityLink.objects.for_team(self.team.id).values_list("report_id", "source_id")
+        assert sorted(links) == sorted(
+            [(survivor.id, "shared-ticket"), (survivor.id, "moved-ticket"), (source.id, "shared-ticket")]
+        )
 
     @parameterized.expand([("another_actor", False), ("the_caller", True)])
     def test_merge_releases_the_sources_claim_whoever_holds_it(self, _name, caller_owns):

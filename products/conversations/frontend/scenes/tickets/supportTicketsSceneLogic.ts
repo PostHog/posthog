@@ -31,6 +31,7 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } f
 import { assigneeSelectLogic } from '../../components/Assignee'
 import { conversationsTicketsBulkUpdateStatusCreate, conversationsViewsRetrieve } from '../../generated/api'
 import type { AiTriageResultEnumApi } from '../../generated/api.schemas'
+import type { TicketStatusEnumApi } from '../../generated/api.schemas'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { normalizeAssigneeFilter } from '../../types'
 import type {
@@ -258,7 +259,7 @@ export interface supportTicketsSceneLogicActions {
         status: TicketStatus
     ) => {
         ids: string[]
-        status: TicketStatus
+        status: TicketStatusEnumApi
     }
     clearActiveView: () => {
         value: true
@@ -326,7 +327,7 @@ export interface supportTicketsSceneLogicActions {
         sorting: Sorting | null
     }
     setStatusFilter: (statuses: TicketStatus[]) => {
-        statuses: TicketStatus[]
+        statuses: TicketStatusEnumApi[]
     }
     setTagsExcludeFilter: (tags: string[]) => {
         tags: string[]
@@ -359,7 +360,7 @@ export interface supportTicketsSceneLogicMeta {
         editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
-            statusFilter: TicketStatus[],
+            statusFilter: TicketStatusEnumApi[],
             priorityFilter: TicketPriority[],
             channelFilter: TicketChannel | 'all',
             slaFilter: TicketSlaState | 'all',
@@ -371,7 +372,7 @@ export interface supportTicketsSceneLogicMeta {
             dateTo: string | null
         ) => boolean
         currentFilters: (
-            statusFilter: TicketStatus[],
+            statusFilter: TicketStatusEnumApi[],
             priorityFilter: TicketPriority[],
             channelFilter: TicketChannel | 'all',
             slaFilter: TicketSlaState | 'all',

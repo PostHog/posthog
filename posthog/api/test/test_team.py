@@ -2401,6 +2401,17 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["conversations_settings"]["widget_color"] == "#ff0000"
 
+        @parameterized.expand([(1, True), (0, False), (True, True)])
+        def test_conversations_settings_stores_the_escalation_toggle_as_a_boolean(self, sent, stored):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_escalation_covers_fix_run": sent}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["ai_escalation_covers_fix_run"] is stored
+            self.team.refresh_from_db()
+            assert self.team.conversations_settings["ai_escalation_covers_fix_run"] is stored
+
         def test_conversations_settings_change_reports_event_per_setting(self):
             with patch("posthog.api.team.conversations_settings.report_user_action") as mock_report:
                 response = self.client.patch(
