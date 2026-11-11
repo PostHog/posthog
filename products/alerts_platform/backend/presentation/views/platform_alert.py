@@ -23,7 +23,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, as_drf_validation_error
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.permissions import (
     FEATURE_FLAG_REQUIRED_ERROR_CODE,
     get_authenticator_client,
@@ -42,7 +44,6 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     AlertEventKind,
-    ControlChangeKind,
     DestinationType,
     Grouping,
     GroupingMode,
@@ -558,6 +559,16 @@ class PlatformAlertEventSerializer(serializers.Serializer):
         allow_null=True, help_text="What a check measured. Null for a change, or a check that measured nothing."
     )
     error_message = serializers.CharField(allow_null=True, help_text="Why a check failed. Null otherwise.")
+    grouping_key = serializers.CharField(
+        allow_blank=True,
+        help_text="Key of the group a check moved, as the grouping_key of the alert's instances. Empty for a "
+        "change, or for an alert that does not group.",
+    )
+    condition = serializers.DictField(
+        child=serializers.JSONField(),
+        help_text="The condition the check was evaluated against, as it was then, so its value reads in that "
+        "condition's unit. Empty for a change.",
+    )
 
 
 class PlatformAlertEventsQuerySerializer(serializers.Serializer):
@@ -683,6 +694,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             organization_id=self.organization_id,
         )
 
+    def _serialized(self, configuration: PlatformAlertConfigurationView) -> dict[str, Any]:
+        """One alert as every response returns it, with what the list shows beside it."""
+        extras = list_extras(team_id=self._canonical_team_id(), configurations=[configuration])
+        return PlatformAlertConfigurationSerializer(configuration, context={"extras": extras}).data
+
     def _canonical_team_id(self) -> int:
         return self.canonical_team.id
 
@@ -751,7 +767,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise ValidationError({error.field_name: str(error)}) from error
         if updated is None:
             raise NotFound()
-        return Response(PlatformAlertConfigurationSerializer(updated).data)
+        return Response(self._serialized(updated))
 
     @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_CREATE, responses=CREATE_RESPONSES)
     def create(self, request: Request, **kwargs) -> Response:
@@ -791,7 +807,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise ValidationError(str(error)) from error
         # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
         transaction.on_commit(lambda: self._track("created", created), robust=True)
-        return Response(PlatformAlertConfigurationSerializer(created).data, status=status.HTTP_201_CREATED)
+        return Response(self._serialized(created), status=status.HTTP_201_CREATED)
 
     def _check_rollout_flag(self, source_kind: SourceKind) -> None:
         spec = editable_source_configs().get(source_kind)
@@ -928,7 +944,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise ValidationError({error.field_name: str(error)}) from error
         if updated is None:
             raise NotFound()
-        return Response(PlatformAlertConfigurationSerializer(updated).data)
+        return Response(self._serialized(updated))
 
     @extend_schema(
         request=None,
@@ -949,11 +965,41 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         current = self._writable_configuration(team_id, configuration_id, "reset")
         if current.owner != PlatformAlertOwner.PLATFORM:
             raise Conflict(f"This alert is managed by the {current.source_kind} product. Reset it there.")
-        if platform_api.reset_broken(team_id=team_id, public_id=configuration_id, at=timezone.now()) is None:
+        # The facade looks an alert up by its public id, which a migrated copy keeps from its source row.
+        public_id = current.legacy_configuration_id or current.id
+        cleared = platform_api.reset_broken(team_id=team_id, public_id=public_id, at=timezone.now())
+        if cleared is None:
             raise ValidationError({"state": "Only broken alerts can be reset."})
-        return Response(
-            PlatformAlertConfigurationSerializer(self._readable_configuration(team_id, configuration_id)).data
+        # The reset writes only runtime fields, which the model's own activity signal leaves out.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+            item_id=configuration_id,
+            scope="PlatformAlertConfiguration",
+            activity="reset",
+            detail=Detail(
+                name=current.name,
+                changes=[
+                    Change(
+                        type="PlatformAlertConfiguration",
+                        action="changed",
+                        field="check_status",
+                        before="broken",
+                        after="ok",
+                    ),
+                    Change(
+                        type="PlatformAlertConfiguration",
+                        action="changed",
+                        field="consecutive_failures",
+                        before=cleared,
+                        after=0,
+                    ),
+                ],
+            ),
         )
+        return Response(self._serialized(self._readable_configuration(team_id, configuration_id)))
 
     @extend_schema(
         parameters=[PlatformAlertEventsQuerySerializer],
@@ -975,11 +1021,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
         self._readable_configuration(team_id, configuration_id)
-        checks = platform_api.notable_checks_by_public_id(
-            team_id=team_id, public_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit
-        )
-        changes = platform_api.control_changes_by_public_id(
-            team_id=team_id, public_id=configuration_id, kinds=tuple(ControlChangeKind), limit=limit
+        checks, changes = platform_api.alert_events(
+            team_id=team_id, configuration_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit
         )
         events: list[dict[str, Any]] = [
             *(
@@ -990,8 +1033,10 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                     "state": check.state,
                     "value": check.value,
                     "error_message": check.error_message,
+                    "grouping_key": check.grouping_key,
+                    "condition": check.condition,
                 }
-                for check in (checks.events if checks else ())
+                for check in checks.events
             ),
             *(
                 {
@@ -1001,8 +1046,10 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                     "state": change.state,
                     "value": None,
                     "error_message": None,
+                    "grouping_key": "",
+                    "condition": {},
                 }
-                for change in (changes.changes if changes else ())
+                for change in changes.changes
             ),
         ]
         events.sort(key=lambda event: event["occurred_at"], reverse=True)
@@ -1198,5 +1245,4 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         )
         if configuration is None:
             raise NotFound()
-        extras = list_extras(team_id=self._canonical_team_id(), configurations=[configuration])
-        return Response(PlatformAlertConfigurationSerializer(configuration, context={"extras": extras}).data)
+        return Response(self._serialized(configuration))

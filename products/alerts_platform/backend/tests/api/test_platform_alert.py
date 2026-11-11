@@ -696,13 +696,18 @@ class TestPlatformAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("broken", PlatformAlertConfiguration.CheckStatus.BROKEN, status.HTTP_200_OK),
-            ("not broken", PlatformAlertConfiguration.CheckStatus.OK, status.HTTP_400_BAD_REQUEST),
+            ("broken", PlatformAlertConfiguration.CheckStatus.BROKEN, False, status.HTTP_200_OK),
+            ("broken migrated copy", PlatformAlertConfiguration.CheckStatus.BROKEN, True, status.HTTP_200_OK),
+            ("not broken", PlatformAlertConfiguration.CheckStatus.OK, False, status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_resetting_an_alert(self, _name: str, check_status: str, expected: int) -> None:
+    def test_resetting_an_alert(self, _name: str, check_status: str, migrated: bool, expected: int) -> None:
         self._set_flag(True)
-        configuration = self._native_traces_alert(check_status=check_status, consecutive_failures=5)
+        configuration = self._native_traces_alert(
+            check_status=check_status,
+            consecutive_failures=5,
+            **({"legacy_configuration_id": uuid4()} if migrated else {}),
+        )
 
         response = self.client.post(f"/api/projects/{self.team.id}/platform_alerts/{configuration.id}/reset/")
 
@@ -711,3 +716,5 @@ class TestPlatformAlertAPI(APIBaseTest):
             expected,
             PlatformAlertConfiguration.CheckStatus.OK,
         ), response.json()
+        logged = ActivityLog.objects.filter(scope="PlatformAlertConfiguration", activity="reset", user=self.user)
+        assert logged.count() == (1 if expected == status.HTTP_200_OK else 0)

@@ -29,15 +29,6 @@ logger = structlog.get_logger(__name__)
 
 STATE_TIMELINE_LOOKBACK: Final = timedelta(hours=24)
 
-# The state that speaks for the whole alert when its groups differ, most urgent first.
-_STATE_PRIORITY: Final = (
-    PlatformAlertState.BROKEN,
-    PlatformAlertState.ERRORED,
-    PlatformAlertState.FIRING,
-    PlatformAlertState.SNOOZED,
-    PlatformAlertState.NOT_FIRING,
-)
-
 
 @frozen
 class ConfigurationExtras:
@@ -46,11 +37,6 @@ class ConfigurationExtras:
     last_error_message: str | None
     state_timeline: tuple[StateInterval, ...]
     destination_types: tuple[str, ...]
-
-
-def _whole_alert_state(configuration: PlatformAlertConfigurationView) -> PlatformAlertState:
-    states = {PlatformAlertState(alert.state) for alert in configuration.alerts}
-    return next((state for state in _STATE_PRIORITY if state in states), PlatformAlertState.NOT_FIRING)
 
 
 def list_extras(
@@ -71,10 +57,8 @@ def list_extras(
     histories: dict[UUID, PlatformAlertHistory] = {}
     controls: dict[UUID, PlatformControlHistory] = {}
     try:
-        last_checks = platform_api.last_check_by_public_id(team_id=team_id, public_ids=ids)
-        histories = platform_api.history_by_public_id(team_id=team_id, public_ids=ids, since=window[0], until=window[1])
-        controls = platform_api.control_history_by_public_id(
-            team_id=team_id, public_ids=ids, since=window[0], until=window[1]
+        last_checks, histories, controls = platform_api.alert_list_history(
+            team_id=team_id, configuration_ids=ids, since=window[0], until=window[1]
         )
     except Exception as error:
         logger.warning("platform_alert_list_history_unavailable", team_id=team_id)
@@ -90,8 +74,11 @@ def list_extras(
             state_timeline=platform_api.state_timeline(
                 history=histories.get(configuration.id),
                 control=controls.get(configuration.id),
-                current_state=_whole_alert_state(configuration),
+                current_group_states={
+                    alert.grouping_key: PlatformAlertState(alert.state) for alert in configuration.alerts
+                },
                 current_enabled=configuration.enabled,
+                snooze_until=configuration.snooze_until,
                 window=window,
             ),
             destination_types=destination_types.get(configuration.id, ()),
