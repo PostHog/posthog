@@ -107,6 +107,52 @@ tools:
             is 14 or more. Use `group_by: insight` for one row per insight. A 404 means anomaly search is not available
             for this project.
         feature_flag: anomalies-search
+    inbox-my-settings-get:
+        operation: users_signal_autonomy_retrieve
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get your inbox overrides
+        description: >
+            Get the personal inbox overrides of the authenticated user. These overrides replace the project defaults for
+            this user only: the minimum priority at which PostHog opens pull requests for reports that suggest the user
+            as reviewer (`autostart_priority`), whether those pull requests open ready for review
+            (`github_open_pull_request_ready`), whether the user becomes a GitHub assignee on them
+            (`github_assign_on_pull_request`), and where and from which priority PostHog sends the user Slack pings
+            (`slack_notification_integration_id`, `slack_notification_channel`, `slack_notification_min_priority`). A
+            null field follows the project default. `has_overrides: false` means the user saved no overrides, so the
+            project defaults apply to every setting.
+        param_overrides:
+            user_id:
+                description: Always `@me`. The tool reads the settings of the authenticated user and ignores other values.
+                default: '@me'
+        hooks: signals/inboxMySettingsHooks
+    inbox-my-settings-update:
+        operation: users_signal_autonomy_create
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update your inbox overrides
+        description: >
+            Change the personal inbox overrides of the authenticated user, for example "open pull requests for me only
+            at P1 or higher" (`autostart_priority: P1`) or "send my inbox pings to this channel". This is a partial
+            update: only the fields you send change, and the other fields keep their values. Send null on a field to
+            make it follow the project default again. The API checks `slack_notification_integration_id` against the
+            current project of the user, so take the id from integrations-list in that project. Read
+            inbox-my-settings-get first and confirm the change with the user.
+        param_overrides:
+            user_id:
+                description: Always `@me`. The tool changes the settings of the authenticated user and ignores other values.
+                default: '@me'
+        hooks: signals/inboxMySettingsHooks
     inbox-ranking-outcomes-list:
         operation: signals_reports_ranking_outcomes_list
         enabled: true
