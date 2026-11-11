@@ -30,6 +30,7 @@ import type {
     AccountViewCreateApi,
     AccountViewUpdateApi,
     AccountViewsDestroyParams,
+    AccountsAutomationsListParams,
     AccountsByExternalIdRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
@@ -99,6 +100,7 @@ import type {
     FeatureRequestsListParams,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
+    PaginatedAccountAutomationListApi,
     PaginatedAccountChannelSummaryListApi,
     PaginatedAccountEmailThreadListApi,
     PaginatedAccountEmailThreadMessageListApi,
@@ -949,6 +951,38 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsAutomationsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AccountsAutomationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/automations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/automations/`
+}
+
+export const accountsAutomationsList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsAutomationsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountAutomationListApi> => {
+    return apiMutator<PaginatedAccountAutomationListApi>(getAccountsAutomationsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
