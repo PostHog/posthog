@@ -5,6 +5,7 @@ import { urls } from 'scenes/urls'
 
 import type { TraceClusterApi } from '../../../generated/api.schemas'
 import { ChipButton } from './ChipButton'
+import { ChipTag } from './ChipTag'
 import { LabeledChipValue } from './LabeledChipValue'
 
 export interface TraceClustersChipProps {
@@ -41,9 +42,9 @@ export function TraceClustersChip({ clusters }: TraceClustersChipProps): JSX.Ele
                     className="inline-flex min-w-0"
                     data-attr="trace-view-cluster-chip"
                 >
-                    <LemonTag weight="normal" type={first.isOutlier ? 'caution' : 'default'} className="max-w-full">
+                    <ChipTag weight="normal" type={first.isOutlier ? 'caution' : 'default'} className="max-w-full">
                         <LabeledChipValue label="Cluster">{first.label}</LabeledChipValue>
-                    </LemonTag>
+                    </ChipTag>
                 </Link>
             </Tooltip>
             {others.length > 0 ? (
