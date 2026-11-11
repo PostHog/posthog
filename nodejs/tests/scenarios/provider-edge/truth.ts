@@ -1,6 +1,12 @@
-import { SesMessage } from './ses'
+import { createHash } from 'crypto'
+
+import { SesAttachment, SesMessage } from './ses'
 
 export const TRUTH_PAGE_LIMIT = 1000
+
+export type TruthAttachment = Omit<SesAttachment, 'bytes'> & { size: number; sha256: string }
+
+export type TruthMessage = Omit<SesMessage, 'attachments'> & { attachments: TruthAttachment[] }
 
 export type TruthRecord = {
     seq: number
@@ -10,10 +16,21 @@ export type TruthRecord = {
     actionId?: string
     status: number
     fault?: string
-    detail: { message?: SesMessage; error?: string }
+    detail: { message?: TruthMessage; error?: string }
 }
 
 export type TruthPage = { records: TruthRecord[]; next: number }
+
+export function truthMessageOf({ attachments, ...message }: SesMessage): TruthMessage {
+    return {
+        ...message,
+        attachments: attachments.map(({ bytes, ...attachment }) => ({
+            ...attachment,
+            size: bytes.length,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+        })),
+    }
+}
 
 export class Truth {
     readonly records: TruthRecord[] = []
