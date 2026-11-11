@@ -10,6 +10,7 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PubSub } from '~/common/utils/pubsub'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { RedisPool } from '~/types'
 
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../../../types'
@@ -18,20 +19,19 @@ import { HogFlowExecutorService } from '../../hogflows/hogflow-executor.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
+import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
 import { useSandboxWorld } from './_tests/sandbox-world'
 import { claimSandboxCaps } from './sandbox-caps'
-import { SandboxEventProperties, SandboxTerminalOutcome } from './sandbox-email-events'
+import { SandboxEmailEvents } from './sandbox-email-events'
 import { MAX_SANDBOX_RETRIES, SandboxEmailSendStep } from './sandbox-email-step'
-
-type RecordedEvent = { teamId: number; outcome: SandboxTerminalOutcome; properties: SandboxEventProperties }
 
 describe('SandboxEmailSendStep', () => {
     const world = useSandboxWorld()
     const tokens = new RecipientTokensService('00beef0000beef0000beef0000beef00', 'http://localhost:8000')
     const caps = { team: 5, recipient: 1 }
     let hogFlow: HogFlow
-    let events: RecordedEvent[]
+    let events: SandboxEmailEvents
     let pubSubPool: RedisPool
     let pubSub: PubSub
 
@@ -39,6 +39,7 @@ describe('SandboxEmailSendStep', () => {
     const frequencyCapKeys = () => `@posthog/workflows-frequency-cap/${world.team.id}/`
 
     beforeAll(async () => {
+        events = sandboxEventsCapturedInMemory(world.postgres)
         pubSubPool = createRedisPoolFromConfig({
             connection: { url: defaultConfig.REDIS_URL },
             poolMinSize: 1,
@@ -60,7 +61,7 @@ describe('SandboxEmailSendStep', () => {
 
     beforeEach(async () => {
         await world.addMember(member())
-        events = []
+        capturedAnalytics.length = 0
         hogFlow = new FixtureHogFlowBuilder()
             .withExitCondition('exit_only_at_end')
             .withWorkflow({
@@ -111,12 +112,7 @@ describe('SandboxEmailSendStep', () => {
                     getCyclotronPerson: () => Promise.reject(new Error('a sandbox email caps the run person')),
                 },
             }),
-            events: {
-                capture: (teamId, outcome, properties) => {
-                    events.push({ teamId, outcome, properties })
-                    return Promise.resolve()
-                },
-            },
+            events,
         })
         return new HogFlowExecutorService(
             {} as any,
@@ -209,13 +205,19 @@ describe('SandboxEmailSendStep', () => {
         ])
         expect(sent.invocation.queue).toBe('hogflow')
         expect(metricNames([sent])).toEqual([['email_sandbox_sent', 'email']])
-        expect(events).toEqual([
-            {
-                teamId: world.team.id,
-                outcome: 'accepted',
-                properties: { workflow_id: hogFlow.id, action_id: 'email', is_test: false },
-            },
-        ])
+        await waitForExpect(() =>
+            expect(capturedAnalytics).toEqual([
+                expect.objectContaining({
+                    distinctId: world.team.uuid,
+                    event: 'workflows sandbox email sent',
+                    properties: { team: world.team.uuid, workflow_id: hogFlow.id, action_id: 'email', is_test: false },
+                    groups: expect.objectContaining({
+                        project: world.team.uuid,
+                        organization: world.team.organization_id,
+                    }),
+                }),
+            ])
+        )
 
         const finished = await executor.execute(nextDequeue(sent.invocation))
         expect(world.ses.delivered).toHaveLength(1)
