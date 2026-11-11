@@ -30,13 +30,6 @@ export type Supervisor = {
     exits(): RoleExit[]
 }
 
-function spawned(child: ChildProcess): Promise<void> {
-    return new Promise((resolve) => {
-        child.once('spawn', resolve)
-        child.once('error', () => resolve())
-    })
-}
-
 export function createSupervisor(options: SupervisorOptions): Supervisor {
     const children = new Map<Role, ChildProcess>()
     const restarts = new Set<NodeJS.Timeout>()
@@ -97,7 +90,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
     return {
         async start(specs) {
             stopping = false
-            await Promise.all(specs.map((spec) => spawned(launch(spec))))
+            await Promise.all(specs.map((spec) => once(launch(spec), 'spawn').catch(() => undefined)))
         },
 
         async stop() {

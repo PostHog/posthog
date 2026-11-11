@@ -1,6 +1,7 @@
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
 import { mkdirSync, mkdtempSync, readFileSync, rmdirSync } from 'fs'
+import http from 'http'
 import net from 'net'
 import os from 'os'
 import path from 'path'
@@ -181,12 +182,13 @@ describe('scenario environment', () => {
             expect(ports['cdp-api']).toBe('6738')
         })
 
-        it.each(CdpRole.options)('runs %s as itself, marked, against the edge, without AWS_PROFILE', (role) => {
+        it.each(CdpRole.options)('runs %s as itself in dev, marked, against the edge, without AWS_PROFILE', (role) => {
             const { env } = specs.find((spec) => spec.role === role)!
 
             expect(env).not.toHaveProperty('AWS_PROFILE')
             expect(env).toMatchObject({
                 PATH: '/usr/bin',
+                NODE_ENV: 'dev',
                 PLUGIN_SERVER_MODE: role,
                 SES_ENDPOINT: 'http://127.0.0.1:4566',
                 SCENARIO_RUNNER: '1',
@@ -596,7 +598,7 @@ describe('scenario environment', () => {
         }, 15_000)
     })
 
-    describe('up', () => {
+    describe('up and reset', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         const realSpawn = childProcess.spawn
         const stubRolePids = new Set<number>()
@@ -604,17 +606,31 @@ describe('scenario environment', () => {
             "require('http').createServer((_request, response) => response.end()).listen(Number(process.env.HTTP_SERVER_PORT))"
         let stranger: ChildProcess | undefined
         let environment: Environment | undefined
-        let portHolder: net.Server | undefined
+        const exitsAfterFirstAnswer =
+            "require('http').createServer((_request, response) => { response.end(); setTimeout(() => process.exit(1), 100) }).listen(Number(process.env.HTTP_SERVER_PORT))"
+        let portHolder: http.Server | undefined
         let unspawnable: Role | undefined
+        let losesItsPort: Role | undefined
+        let exitsOnce: Role | undefined
+        let exitedOnce: Promise<unknown> | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
         const healthOf = async (role: Role): Promise<number> =>
             (await internalFetch(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`)).status
+        const holdPort = async (role: Role): Promise<void> => {
+            portHolder = http.createServer((_request, response) => response.end())
+            await new Promise<void>((resolve) => portHolder!.listen(ROLE_PORTS[role], '127.0.0.1', resolve))
+        }
         const stubTheStack = (consumerGroupMembers: number[]): void => {
             jest.spyOn(stack, 'startStack').mockResolvedValue()
             jest.spyOn(stack, 'missingTemplates').mockResolvedValue([])
             const members = jest.spyOn(stack, 'groupMembers').mockResolvedValue(0)
             consumerGroupMembers.forEach((count) => members.mockResolvedValueOnce(count))
+        }
+        const stubTheReset = (): void => {
+            jest.spyOn(stack, 'deleteUnfinishedJobs').mockResolvedValue()
+            jest.spyOn(stack, 'forgetSesBucket').mockResolvedValue()
+            jest.spyOn(stack, 'seekToEnd').mockResolvedValue()
         }
 
         beforeEach(() => {
@@ -637,8 +653,14 @@ describe('scenario environment', () => {
                 if (options.env?.PLUGIN_SERVER_MODE === unspawnable) {
                     return realSpawn(path.join(NODEJS_DIR, 'no-such-tsx'), args, options)
                 }
-                const role = realSpawn(process.execPath, ['-e', stubRole], options)
+                if (options.env?.PLUGIN_SERVER_MODE === losesItsPort) {
+                    void holdPort(losesItsPort!)
+                }
+                const exitsNow = options.env?.PLUGIN_SERVER_MODE === exitsOnce
+                exitsOnce = exitsNow ? undefined : exitsOnce
+                const role = realSpawn(process.execPath, ['-e', exitsNow ? exitsAfterFirstAnswer : stubRole], options)
                 stubRolePids.add(role.pid!)
+                exitedOnce = exitsNow ? once(role, 'exit') : exitedOnce
                 return role
             }) as unknown as typeof childProcess.spawn)
             process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
@@ -650,6 +672,9 @@ describe('scenario environment', () => {
             portHolder?.close()
             portHolder = undefined
             unspawnable = undefined
+            losesItsPort = undefined
+            exitsOnce = undefined
+            exitedOnce = undefined
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             if (cacheHome === undefined) {
@@ -659,8 +684,15 @@ describe('scenario environment', () => {
             }
         })
 
-        it('waits for a dead consumer to leave the events group, then brings every role up healthy', async () => {
+        it('waits for a dead consumer to leave the events group instead of refusing it', async () => {
             stubTheStack([1, 1])
+            environment = createEnvironment()
+
+            await expect(environment.up()).resolves.toBeUndefined()
+        }, 30_000)
+
+        it('brings every role up healthy', async () => {
+            stubTheStack([])
             environment = createEnvironment()
 
             await environment.up()
@@ -671,13 +703,21 @@ describe('scenario environment', () => {
 
         it.each<[string, Role, () => Promise<void> | void]>([
             [
-                'cannot bind its port',
+                'loses its port to another server that answers /_health',
                 'cdp-processed-events',
-                async () => {
-                    portHolder = net.createServer((socket) => socket.destroy())
-                    await new Promise<void>((resolve) =>
-                        portHolder!.listen(ROLE_PORTS['cdp-processed-events'], resolve)
-                    )
+                () => {
+                    losesItsPort = 'cdp-processed-events'
+                },
+            ],
+            [
+                'exits after it answered /_health',
+                'cdp-api',
+                () => {
+                    exitsOnce = 'cdp-api'
+                    jest.spyOn(stack, 'missingTemplates').mockImplementation(async () => {
+                        await exitedOnce
+                        return []
+                    })
                 },
             ],
             [
@@ -704,6 +744,100 @@ describe('scenario environment', () => {
             },
             30_000
         )
+
+        it('refuses a role port another server already answers on, naming the port and how to see its holder', async () => {
+            stubTheStack([])
+            await holdPort('cdp-processed-events')
+            environment = createEnvironment()
+
+            await expect(environment.up()).rejects.toMatchObject({
+                exitCode: 2,
+                message: expect.stringMatching(
+                    /6760 \(cdp-processed-events\)\. Find what holds them with `ss -ltnp 'sport = :6760'`, stop it,/
+                ),
+                stopCommand: "ss -ltnp 'sport = :6760'",
+            })
+        }, 30_000)
+
+        it.each<[string, () => Promise<void>]>([
+            ['', async () => {}],
+            [
+                ' after a role crashed during the card',
+                async () => {
+                    process.kill([...stubRolePids].at(-1)!, 'SIGKILL')
+                    await waitForExpect(() => expect(environment!.exits()).toHaveLength(1), 5_000)
+                },
+            ],
+        ])(
+            'brings every role back healthy on reset%s',
+            async (_name, arrange) => {
+                stubTheStack([])
+                stubTheReset()
+                environment = createEnvironment()
+                await environment.up()
+                await arrange()
+
+                await environment.reset({})
+
+                const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
+                expect(Object.fromEntries(health)).toEqual(
+                    Object.fromEntries(CdpRole.options.map((role) => [role, 200]))
+                )
+            },
+            30_000
+        )
+
+        it.each<[string, Role, string, () => void]>([
+            [
+                'loses its port to another server that answers /_health',
+                'cdp-processed-events',
+                'code 1',
+                () => {
+                    losesItsPort = 'cdp-processed-events'
+                },
+            ],
+            [
+                'cannot be spawned',
+                'cdp-cyclotron-worker-email',
+                'ENOENT',
+                () => {
+                    unspawnable = 'cdp-cyclotron-worker-email'
+                },
+            ],
+        ])(
+            'fails a reset at once naming a role that %s, why, and its log',
+            async (_name, role, why, arrange) => {
+                stubTheStack([])
+                stubTheReset()
+                environment = createEnvironment()
+                await environment.up()
+                arrange()
+
+                const failure = await environment.reset({}).then(
+                    () => null,
+                    (error: Error) => error.message
+                )
+
+                expect(failure).toMatch(new RegExp(`^${role} `))
+                expect(failure).toContain(why)
+                expect(failure).toContain(logOf(role))
+            },
+            30_000
+        )
+
+        it('refuses a reset when another server takes a role port while the roles are stopped', async () => {
+            stubTheStack([])
+            stubTheReset()
+            environment = createEnvironment()
+            await environment.up()
+            jest.spyOn(stack, 'deleteUnfinishedJobs').mockImplementation(() => holdPort('cdp-processed-events'))
+
+            await expect(environment.reset({})).rejects.toMatchObject({
+                exitCode: 2,
+                message: expect.stringContaining('6760 (cdp-processed-events)'),
+                stopCommand: "ss -ltnp 'sport = :6760'",
+            })
+        }, 30_000)
 
         it('refuses a stranger again when retried after a refused up, instead of reporting itself as the holder', async () => {
             const {

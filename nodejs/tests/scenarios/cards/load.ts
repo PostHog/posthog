@@ -15,6 +15,7 @@ export const ROLE_RESTART_BACKOFF_MS = 2000
 const JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS = 5000
 const STALLING_VALVES = ['role.kill', 'role.freeze', 'pg.drop_connections']
 const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
+export const PRODUCER_SETTING = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 
@@ -148,7 +149,12 @@ function checkProfile(
     const queue = 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     return [
         ...Object.keys(profile.settings)
-            .filter((name) => !Object.hasOwn(defaults, name) && !PROCESS_ENV_SETTINGS.includes(name))
+            .filter(
+                (name) =>
+                    !Object.hasOwn(defaults, name) &&
+                    !PROCESS_ENV_SETTINGS.includes(name) &&
+                    !name.startsWith(PRODUCER_SETTING)
+            )
             .map((name) => `profile.settings.${name}: not a setting the roles read`),
         ...(profile.name === card.profile
             ? []

@@ -8,7 +8,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
-import { CdpRole, LoadedCard } from '../cards'
+import { CdpRole, LoadedCard, PRODUCER_SETTING } from '../cards'
 import { durationMs } from '../duration'
 import { EDGE_URL, Environment, defaultStateDir } from '../environment/environment'
 import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
@@ -48,7 +48,6 @@ export interface Runner {
 }
 
 const HEALTH_INTERVAL_MS = 5000
-const PRODUCER_SETTING = 'KAFKA_PRODUCER_'
 const DELIVERY_TIMEOUT_MS = 10_000
 
 type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants'>
@@ -124,18 +123,6 @@ function withEvidenceError(result: RunResult, error: string | undefined): RunRes
 
 export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
     const stateDir = defaultStateDir(env)
-    let kafka: { config: string; producer: KafkaProducerWrapper } | undefined
-
-    const producerFor = async (config: ProducerGlobalConfig): Promise<KafkaProducerWrapper> => {
-        const wanted = JSON.stringify(config)
-        if (kafka?.config !== wanted) {
-            const previous = kafka
-            kafka = undefined
-            await previous?.producer.disconnect()
-            kafka = { config: wanted, producer: await KafkaProducerWrapper.createWithConfig(undefined, config) }
-        }
-        return kafka.producer
-    }
 
     return {
         async up() {
@@ -164,8 +151,9 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             )
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
+            let producer: KafkaProducerWrapper | undefined
             try {
-                const producer = await producerFor(producerConfigOf(specs[0].env))
+                producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
                 await environment.reset(profile.settings)
                 const seeded = await seed(loaded, postgres)
                 await judge.open(seeded)
@@ -187,7 +175,11 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 }
             } finally {
                 await stopHealth?.()
-                await postgres.end()
+                try {
+                    await producer?.disconnect()
+                } finally {
+                    await postgres.end()
+                }
             }
             const base: RunResult = {
                 runId,
@@ -228,12 +220,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
         },
 
         async down() {
-            try {
-                await kafka?.producer.disconnect()
-            } finally {
-                kafka = undefined
-                await environment.down()
-            }
+            await environment.down()
         },
     }
 }
