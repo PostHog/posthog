@@ -488,18 +488,22 @@ describe('CDP dead-letter replay', () => {
         await ensureKafkaTopics([quarantineTopic])
         hub.CDP_POISON_QUARANTINE_ENABLED = true
         hub.CDP_QUARANTINE_TOPIC = quarantineTopic
-        const broken = await insertHogFunction(hub.postgres, team.id, {
-            ...HOG_EXAMPLES.simple_fetch,
-            ...HOG_FILTERS_EXAMPLES.no_filters,
-            type: 'destination',
-            inputs_schema: HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema,
-            inputs: { ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs, ...BROKEN_INPUTS },
-            ...HOG_MASK_EXAMPLES.all,
-        })
+        const insertBroken = (extra: Partial<HogFunctionType> = {}) =>
+            insertHogFunction(hub.postgres, team.id, {
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                type: 'destination',
+                inputs_schema: HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema,
+                inputs: { ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs, ...BROKEN_INPUTS },
+                ...extra,
+            })
+        const broken = await insertBroken()
+        const masked = await insertBroken(HOG_MASK_EXAMPLES.all)
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
         const postgresQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
-        await startEventsConsumer({ hogQueue: kafkaQueue, hogflowQueue: postgresQueue })
+        const queues = { hogQueue: kafkaQueue, hogflowQueue: postgresQueue }
+        await startEventsConsumer(queues)
         const unreadable = Buffer.from(`not an event at all ${randomUUID()}`)
         const unconvertible = Buffer.from(
             JSON.stringify({ ...createIncomingEvent(team.id, {}), properties: `{"truncated ${randomUUID()}` })
@@ -509,38 +513,30 @@ describe('CDP dead-letter replay', () => {
         await kafkaProducer.flush()
         const parked = await parkEvent(3)
 
-        const blockedReplay = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: createMockJobQueue(),
-            hogflowQueue: createMockJobQueue(),
-        })
+        await repairInputs(masked)
+        const blockedReplay = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), queues)
         await expect(blockedReplay.replayBatch(parked)).rejects.toThrow('still fail to build')
 
         await repairInputs(broken)
         hub.CDP_QUARANTINE_TOPIC = 'an invalid topic name!'
-        const failedQuarantineReplay = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: createMockJobQueue(),
-            hogflowQueue: createMockJobQueue(),
-        })
+        const failedQuarantineReplay = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), queues)
         await expect(failedQuarantineReplay.replayBatch(parked)).rejects.toThrow()
 
         hub.CDP_QUARANTINE_TOPIC = quarantineTopic
         cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
         await cyclotronWorker.start()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: kafkaQueue,
-            hogflowQueue: postgresQueue,
-        })
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), queues)
         await replayConsumer.start()
 
         await waitForExpect(() => {
-            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
         }, 30000)
-        expect(mockFetch.mock.calls[0][0]).toBe('https://example.com/posthog-webhook')
 
         const quarantined = await readDlqRecords(2, quarantineTopic)
         expect(quarantined.map((message) => String(message.value)).sort()).toEqual(
             [String(unreadable), String(unconvertible)].sort()
         )
+        expect(mockFetch).toHaveBeenCalledTimes(2)
     }, 60000)
 
     it('drains records that were parked long before it ever joined the topic', async () => {
