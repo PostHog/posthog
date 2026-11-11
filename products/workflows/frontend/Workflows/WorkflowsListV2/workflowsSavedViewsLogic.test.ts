@@ -21,7 +21,7 @@ import { FacetFilter, createFacetCounter } from './FacetSearchBar/facetQuery'
 import { DEFAULT_COLUMNS } from './workflowListLabels'
 import { FIXTURE_METRICS, FIXTURE_USERS, FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
-import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
+import { SAVED_VIEWS_REQUEST_TIMEOUT_MS, workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
 
 const VIEW_ID = '00000000-0000-4000-8000-000000000001'
 const savedView: WorkflowViewApi = {
@@ -1497,6 +1497,23 @@ describe('workflowsSavedViewsLogic', () => {
         useMocks({ get: { '/api/projects/:team_id/workflow_views/': () => [200, paginated([savedView])] } })
         await logic.asyncActions.loadSavedViews()
         expect(logic.values.savedViewsLoadFailed).toBe(false)
+    })
+
+    it.each([
+        ['the saved views list', 'get', '/api/projects/:team_id/workflow_views/'],
+        ['creating the default view', 'post', '/api/projects/:team_id/workflow_views/initialize/'],
+    ])('shows the failure with a retry when %s stalls', async (_name, method, stalled) => {
+        useMocks({ [method]: { [stalled]: () => new Promise(() => {}) } })
+        jest.useFakeTimers()
+        try {
+            logic = workflowsSavedViewsLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
+            expect(logic.values.savedViewsLoadFailed).toBe(true)
+            expect(logic.values.viewsResolving).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('lets a viewer select shared views but prevents all shared writes', async () => {

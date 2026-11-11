@@ -19,6 +19,7 @@ import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { withTimeout } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -292,6 +293,9 @@ interface EditsWhileViewsLoad {
     columns?: OptionalColumn[]
 }
 
+// A stalled request would hide every workflow row behind the loading state with no way to retry, so each one fails after this long.
+export const SAVED_VIEWS_REQUEST_TIMEOUT_MS = 10_000
+
 export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'WorkflowsListV2', 'workflowsSavedViewsLogic']),
     connect(() => ({
@@ -359,10 +363,16 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         const all: WorkflowViewApi[] = []
                         let offset = 0
                         for (let pageIndex = 0; pageIndex < 40; pageIndex++) {
-                            const page = await api.workflowViewsList(String(values.currentTeamId), {
-                                limit: 100,
-                                offset,
-                            })
+                            const page = await withTimeout(
+                                (signal) =>
+                                    api.workflowViewsList(
+                                        String(values.currentTeamId),
+                                        { limit: 100, offset },
+                                        { signal }
+                                    ),
+                                SAVED_VIEWS_REQUEST_TIMEOUT_MS,
+                                'workflowsSavedViewsLogic: listing saved views timed out'
+                            )
                             breakpoint()
                             if (!values.enabled) {
                                 return null
@@ -374,8 +384,13 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                                     actions.setDefaultView(defaultView)
                                 } else {
                                     try {
-                                        const initialized = await api.workflowViewsInitializeCreate(
-                                            String(values.currentTeamId)
+                                        const initialized = await withTimeout(
+                                            (signal) =>
+                                                api.workflowViewsInitializeCreate(String(values.currentTeamId), {
+                                                    signal,
+                                                }),
+                                            SAVED_VIEWS_REQUEST_TIMEOUT_MS,
+                                            'workflowsSavedViewsLogic: creating the default view timed out'
                                         )
                                         breakpoint()
                                         if (!values.enabled) {
