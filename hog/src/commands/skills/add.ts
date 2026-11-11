@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { SkillAssetStatus, SkillsLibrary, SkillsRelease } from '@posthog/mcp/src/cli/library-types'
 
-import { downloadWarnings } from '@/commands/learn'
 import { KNOWN_AGENTS, knownAgent } from '@/core/agent'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
@@ -12,7 +11,7 @@ import { findGitRoot, isInside, realWritePath } from '@/core/paths'
 import type { Env, Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 
-import { LIST_HINT, SHARED_SKILL_FOLDER, SKILL_FOLDERS, skillName, skillsError } from './shared'
+import { downloadWarnings, LIST_HINT, SHARED_SKILL_FOLDER, SKILL_FOLDERS, skillName, skillsError } from './shared'
 
 const AgentName = z.enum(KNOWN_AGENTS, { error: (issue) => `Unknown agent "${String(issue.input)}".` })
 

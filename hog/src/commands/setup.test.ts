@@ -233,8 +233,8 @@ describe('hog setup', () => {
             next: {
                 kind: 'read',
                 read: [
-                    'hog learn posthog:instrument-integration',
-                    'hog learn posthog:instrument-integration references/COMMANDMENTS.md',
+                    'hog skills read posthog:instrument-integration',
+                    'hog skills read posthog:instrument-integration references/COMMANDMENTS.md',
                 ],
             },
             context: { host: EU, projectId: '42', token: TOKEN, apiHost: 'https://eu.i.posthog.com' },
@@ -255,12 +255,19 @@ describe('hog setup', () => {
             properties: { $anon_distinct_id: installId },
         })
 
-        await machine.run(['learn', 'posthog:instrument-integration'])
-        await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md', '--lines', '1:5'])
+        await machine.run(['skills', 'read', 'posthog:instrument-integration'])
+        await machine.run([
+            'skills',
+            'read',
+            'posthog:instrument-integration',
+            'references/COMMANDMENTS.md',
+            '--lines',
+            '1:5',
+        ])
         const halfRead = await machine.run(['setup', 'next'])
         expect(halfRead.json()).toMatchObject({ step: 'install', code: 'setup_skill_not_read' })
 
-        await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
+        await machine.run(['skills', 'read', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
         const installed = await machine.run(['setup', 'next'])
         expect(installed.json()).toMatchObject({
             step: 'review',
@@ -296,8 +303,8 @@ describe('hog setup', () => {
         expect(polls.length).toBeGreaterThan(1)
         expect(polls.every((request) => (request.body as { refresh: string }).refresh === 'force_blocking')).toBe(true)
         expect((reviewed.json() as any).context.products.slice(0, 2)).toMatchObject([
-            { id: 'session-replay', chosen: true, command: 'hog learn -s "session replay"' },
-            { id: 'feature-flags', chosen: true, command: 'hog learn posthog:instrument-feature-flags' },
+            { id: 'session-replay', chosen: true, command: 'hog skills read -s "session replay"' },
+            { id: 'feature-flags', chosen: true, command: 'hog skills read posthog:instrument-feature-flags' },
         ])
 
         const agentsMd = machine.files['/work/AGENTS.md'] ?? ''
@@ -305,7 +312,7 @@ describe('hog setup', () => {
         expect(agentsMd).not.toContain('in progress')
         expect(agentsMd).toContain(`project 42 on ${EU}`)
         expect(agentsMd).toContain(
-            '- Logs, metrics, and tracing (APM): `hog learn -s "logs"`, `hog learn posthog:instrument-metrics`'
+            '- Logs, metrics, and tracing (APM): `hog skills read -s "logs"`, `hog skills read posthog:instrument-metrics`'
         )
         expect(agentsMd.indexOf('Session replay')).toBeLessThan(agentsMd.indexOf('Debugging errors'))
 
@@ -354,8 +361,8 @@ describe('hog setup', () => {
         expect(result.stdout).not.toContain('\u001b')
         expect(result.stdout).toContain('Next: Run both commands')
 
-        await machine.run(['learn', 'posthog:instrument-integration'])
-        await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
+        await machine.run(['skills', 'read', 'posthog:instrument-integration'])
+        await machine.run(['skills', 'read', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
         const notReviewed = await machine.run(['setup', 'next'], { person: ['no'] })
         expect(notReviewed.stdout).toContain('Next: Read the rules again')
 
@@ -388,8 +395,8 @@ describe('hog setup', () => {
             const machine = world({ ...files })
             await machine.run(['setup', 'next', ...ONE_PRODUCT])
             await machine.run(['setup', 'next'])
-            await machine.run(['learn', 'posthog:instrument-integration'])
-            await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
+            await machine.run(['skills', 'read', 'posthog:instrument-integration'])
+            await machine.run(['skills', 'read', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
             await machine.run(['setup', 'next'])
             machine.events.push(START + 60_000)
 
@@ -540,10 +547,10 @@ describe('hog setup', () => {
         expect(result.error()).toMatchObject({ code, hint: expect.stringContaining(hint) })
     })
 
-    test('hog learn records nothing without a setup in the folder', async () => {
+    test('hog skills read records nothing without a setup in the folder', async () => {
         const machine = world()
 
-        const result = await machine.run(['learn', 'posthog:instrument-integration'])
+        const result = await machine.run(['skills', 'read', 'posthog:instrument-integration'])
 
         expect(result.exitCode).toBe(0)
         expect(Object.keys(machine.files).filter((path) => path.includes('/setup/'))).toEqual([])

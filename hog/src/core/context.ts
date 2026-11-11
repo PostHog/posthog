@@ -102,7 +102,7 @@ export class Context {
     skills(): Promise<SkillsLibrary> {
         this.skillsLibrary ??= this.runtime.loadSkills({
             cacheDir: posthogPath(this.runtime, 'skills'),
-            learnCommand: 'hog learn',
+            learnCommand: 'hog skills read',
             listCommand: 'hog skills list',
             // The downloads go to GitHub, not PostHog, so --rate-limit doesn't count them.
             fetch: (url, init) => this.runtime.fetch(url, { ...init, skipRateLimit: true }),

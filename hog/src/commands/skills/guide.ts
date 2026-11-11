@@ -6,7 +6,7 @@ interface SkillsGuide {
 
 const COMMANDS: SkillsGuide['commands'] = [
     { command: 'hog skills list', description: 'See every skill, for using PostHog and for adding it to your code' },
-    { command: 'hog learn <skill>', description: 'Read a skill without adding it' },
+    { command: 'hog skills read <skill>', description: 'Read a skill without adding it' },
     {
         command: 'hog skills add <skill...>',
         description: 'Add skills to this repository, in the folder your agent reads',

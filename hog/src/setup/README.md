@@ -45,8 +45,8 @@ sequenceDiagram
     hog->>hog: Write posthog.json and the PostHog section in AGENTS.md
 
     Note over You,PH: 5. install
-    hog->>You: Read the install skill with two hog learn commands
-    You->>hog: hog learn posthog:instrument-integration (and its COMMANDMENTS.md)
+    hog->>You: Read the install skill with two hog skills read commands
+    You->>hog: hog skills read posthog:instrument-integration (and its COMMANDMENTS.md)
     You->>You: Install PostHog in the app
     You->>hog: hog setup next
 
@@ -97,8 +97,8 @@ sequenceDiagram
     hog->>hog: Write posthog.json and the PostHog section in AGENTS.md
 
     Note over You,PH: 5. install
-    hog-->>Agent: read, with two hog learn commands
-    Agent->>hog: hog learn posthog:instrument-integration (and its COMMANDMENTS.md)
+    hog-->>Agent: read, with two hog skills read commands
+    Agent->>hog: hog skills read posthog:instrument-integration (and its COMMANDMENTS.md)
     Agent->>Agent: Install PostHog in the app
     Agent->>hog: hog setup next
 

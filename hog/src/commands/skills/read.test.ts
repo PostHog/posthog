@@ -27,7 +27,7 @@ const NETWORK: SkillAssetStatus[] = [
 ]
 
 const SKILL_TEXT =
-    'Skill: posthog:instrument-integration\n\nRead a file with `hog learn posthog:instrument-integration <path>`.'
+    'Skill: posthog:instrument-integration\n\nRead a file with `hog skills read posthog:instrument-integration <path>`.'
 
 const READ: LearnResult = {
     output: {
@@ -71,14 +71,14 @@ function fakeSkills(answer: LearnResult | SkillsError = READ): FakeSkills {
     }
 }
 
-function learn(argv: string[], skills: FakeSkills, caller: 'agent' | 'person' = 'agent'): Promise<HogRun> {
-    return runHog(['learn', ...argv], {
+function read(argv: string[], skills: FakeSkills, caller: 'agent' | 'person' = 'agent'): Promise<HogRun> {
+    return runHog(['skills', 'read', ...argv], {
         ...(caller === 'person' ? { env: { NO_COLOR: '1' }, stdoutIsTTY: true } : { env: { CLAUDECODE: '1' } }),
         skills: skills.library,
     })
 }
 
-describe('hog learn', () => {
+describe('hog skills read', () => {
     test.each<[string[], LearnRequest]>([
         [[], { paths: [] }],
         [['skills'], { skill: 'skills', paths: [] }],
@@ -105,9 +105,9 @@ describe('hog learn', () => {
             ['posthog:funnels', 'SKILL.md', '-s', 'conversion', 'rate'],
             { skill: 'posthog:funnels', paths: ['SKILL.md'], search: 'conversion rate' },
         ],
-    ])('hog learn %j asks the library for %j', async (argv, request) => {
+    ])('hog skills read %j asks the library for %j', async (argv, request) => {
         const skills = fakeSkills()
-        const result = await learn(argv, skills)
+        const result = await read(argv, skills)
         expect(result.exitCode).toBe(0)
         expect(skills.calls).toEqual([request])
     })
@@ -115,7 +115,7 @@ describe('hog learn', () => {
     test('a person reads the skill text without logging in, and the skills cache in ~/.posthog/skills', async () => {
         const skills = fakeSkills()
 
-        const result = await learn(['posthog:instrument-integration'], skills, 'person')
+        const result = await read(['posthog:instrument-integration'], skills, 'person')
 
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toBe(`${SKILL_TEXT}\n`)
@@ -123,7 +123,7 @@ describe('hog learn', () => {
         expect(skills.options).toEqual([
             {
                 cacheDir: '/home/test/.posthog/skills',
-                learnCommand: 'hog learn',
+                learnCommand: 'hog skills read',
                 listCommand: 'hog skills list',
                 fetch: expect.any(Function),
             },
@@ -137,7 +137,7 @@ describe('hog learn', () => {
         ]
         const skills = fakeSkills({ ...READ, assets: cached })
 
-        const result = await learn(['posthog:instrument-integration'], skills, 'person')
+        const result = await read(['posthog:instrument-integration'], skills, 'person')
 
         expect(result.stdout).toBe(
             [
@@ -151,7 +151,7 @@ describe('hog learn', () => {
     })
 
     test('an agent gets the result as JSON, with the files read and where the skills came from', async () => {
-        const result = await learn(['posthog:instrument-integration'], fakeSkills())
+        const result = await read(['posthog:instrument-integration'], fakeSkills())
 
         expect(result.json()).toEqual(READ)
     })
@@ -182,25 +182,25 @@ describe('hog learn', () => {
             1,
         ],
         [
-            { code: 'usage', message: 'Usage: hog learn <source>:<skill> <path> --lines <start>:<end>' },
-            'invalid_learn_command',
-            'Run `hog learn` to see the commands.',
+            { code: 'usage', message: 'Usage: hog skills read <source>:<skill> <path> --lines <start>:<end>' },
+            'invalid_read_command',
+            'Run `hog skills read` to see how to read skills.',
             2,
         ],
     ] as const)('a %j failure is the HogError %s', async (error, code, hint, exitCode) => {
-        const result = await learn(['posthog:instrument-integration', 'nope.md'], fakeSkills(error))
+        const result = await read(['posthog:instrument-integration', 'nope.md'], fakeSkills(error))
 
         expect(result.exitCode).toBe(exitCode)
         expect(result.error()).toMatchObject({ code, message: expect.stringContaining(error.message), hint })
     })
 
     test.each([
-        [['-s', 'replay', '--lines', '1:2'], 'invalid_learn_command'],
+        [['-s', 'replay', '--lines', '1:2'], 'invalid_read_command'],
         [['posthog:funnels', 'SKILL.md', '--lines', 'ten'], 'invalid_input'],
-    ])('hog learn %j fails before it loads the skills', async (argv, code) => {
+    ])('hog skills read %j fails before it loads the skills', async (argv, code) => {
         const skills = fakeSkills()
 
-        const result = await learn(argv, skills)
+        const result = await read(argv, skills)
 
         expect(result.exitCode).toBe(2)
         expect(result.error().code).toBe(code)
@@ -208,17 +208,25 @@ describe('hog learn', () => {
     })
 
     test('the usage event names the skills read and how, but not the search keywords', async () => {
-        const result = await runHog(['learn', 'posthog:instrument-integration', 'SKILL.md', '-s', 'secret-keywords'], {
-            env: { CLAUDECODE: '1' },
-            telemetryToken: 'phc_test',
-            skills: fakeSkills({
-                ...READ,
-                reads: [
-                    { source: 'posthog', skill: 'instrument-integration', path: 'SKILL.md', readKind: 'file_search' },
-                ],
-            }).library,
-            respond: () => ({ status: 200, body: {} }),
-        })
+        const result = await runHog(
+            ['skills', 'read', 'posthog:instrument-integration', 'SKILL.md', '-s', 'secret-keywords'],
+            {
+                env: { CLAUDECODE: '1' },
+                telemetryToken: 'phc_test',
+                skills: fakeSkills({
+                    ...READ,
+                    reads: [
+                        {
+                            source: 'posthog',
+                            skill: 'instrument-integration',
+                            path: 'SKILL.md',
+                            readKind: 'file_search',
+                        },
+                    ],
+                }).library,
+                respond: () => ({ status: 200, body: {} }),
+            }
+        )
 
         const batch = result.requests
             .filter((request) => request.url === 'https://us.i.posthog.com/batch/')
@@ -227,7 +235,7 @@ describe('hog learn', () => {
             expect.objectContaining({
                 event: 'posthog cli command run',
                 properties: expect.objectContaining({
-                    command_path: 'learn',
+                    command_path: 'skills read',
                     options: ['search'],
                     learn_kind: 'text',
                     skills_read: ['posthog:instrument-integration'],

@@ -1,20 +1,17 @@
 import { z } from 'zod'
 
-import type { LearnRequest, LearnResult, SkillAssetStatus, SkillsError } from '@posthog/mcp/src/cli/library-types'
+import type { LearnRequest, LearnResult, SkillsError } from '@posthog/mcp/src/cli/library-types'
 
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
 
+import { downloadWarnings, offlineError } from './shared'
+
 const LineRange = z
     .string()
     .regex(/^[1-9]\d*:[1-9]\d*$/, { error: 'Pass the lines as `<start>:<end>`, such as `10:40`.' })
-
-const ASSET_NAMES: Record<SkillAssetStatus['name'], string> = {
-    'product-skills': 'the PostHog product skills',
-    'context-mill': 'the setup skills, such as posthog:instrument-integration',
-}
 
 function learnRequest(
     skill: string | undefined,
@@ -26,9 +23,9 @@ function learnRequest(
 
     if (modeCount > 1) {
         throw new HogError(
-            'invalid_learn_command',
+            'invalid_read_command',
             'Pass only one of `--search`, `--describe`, or `--lines`.',
-            'Run `hog learn` to see how each one works.',
+            'Run `hog skills read` to see how each one works.',
             EXIT_USAGE
         )
     }
@@ -37,7 +34,7 @@ function learnRequest(
         return { skill, paths, describe, lines }
     }
 
-    // Unquoted keywords after the first one arrive as arguments, as `replay` in `hog learn -s session
+    // Unquoted keywords after the first one arrive as arguments, as `replay` in `hog skills read -s session
     // replay`. They belong to the query. A file search keeps its skill and the path after it, and a
     // skill may come without its `posthog:` prefix, so a path-shaped second word marks one too.
     if (skill?.includes(':') || /[/.]/.test(paths[0] ?? '')) {
@@ -47,7 +44,7 @@ function learnRequest(
     return { paths: [], search: [search, ...(skill === undefined ? [] : [skill]), ...paths].join(' ') }
 }
 
-const DEFAULT_HINT = 'Run `hog learn` to see the commands.'
+const DEFAULT_HINT = 'Run `hog skills read` to see how to read skills.'
 const LIST_HINT = 'Run `hog skills list` to see every skill.'
 
 // `offline` has its own error, whose message lists the downloads that failed.
@@ -56,20 +53,7 @@ const ERRORS: Partial<Record<SkillsError['code'], { code?: string; hint?: string
     unknown_topic: { hint: LIST_HINT },
     unknown_file: { hint: 'Pass the path relative to the skill folder, such as `references/COMMANDMENTS.md`.' },
     unavailable: { code: 'skills_unavailable', hint: LIST_HINT },
-    usage: { code: 'invalid_learn_command', exitCode: EXIT_USAGE },
-}
-
-export function offlineError(error: SkillsError): HogError {
-    const assets = error.assets ?? []
-    const failures = assets.map((asset) => `\n  ${asset.url}: ${asset.failure}`).join('')
-
-    return new HogError(
-        'skills_offline',
-        `${error.message}${failures}`,
-        'Check your internet connection, then run the command again.',
-        undefined,
-        { assets }
-    )
+    usage: { code: 'invalid_read_command', exitCode: EXIT_USAGE },
 }
 
 function toHogError(error: SkillsError): HogError {
@@ -79,25 +63,6 @@ function toHogError(error: SkillsError): HogError {
 
     const { code = error.code, hint = DEFAULT_HINT, exitCode } = ERRORS[error.code] ?? {}
     return new HogError(code, error.message, hint, exitCode)
-}
-
-// Why the skills may be out of date, shown after the command's result.
-export function downloadWarnings(assets: readonly SkillAssetStatus[]): string[] {
-    const warnings: string[] = []
-    for (const asset of assets) {
-        const outcome =
-            asset.origin === 'cache' && asset.fetchedAt
-                ? `. Using the copy saved on ${asset.fetchedAt.slice(0, 16).replace('T', ' ')} UTC`
-                : asset.origin === 'unavailable'
-                  ? ", and there's no saved copy"
-                  : undefined
-
-        if (outcome) {
-            const failure = escapeControls(asset.failure ?? '')
-            warnings.push(`hog couldn't download ${ASSET_NAMES[asset.name]} (${failure})${outcome}.`)
-        }
-    }
-    return warnings
 }
 
 export default defineCommand({
@@ -128,13 +93,13 @@ export default defineCommand({
             description: 'Read only these lines of a file',
         },
     },
-    notes: 'Skills are public, so `hog learn` needs no login. hog downloads the latest skills on every run, and uses the copy saved in `~/.posthog/skills` only when the download fails.',
+    notes: 'Skills are public, so `hog skills read` needs no login. hog downloads the latest skills on every run, and uses the copy saved in `~/.posthog/skills` only when the download fails.',
     examples: [
-        'hog learn -s "session replay"',
-        'hog learn instrument-integration',
-        'hog learn instrument-integration references/COMMANDMENTS.md',
-        'hog learn instrument-integration references/django.md -s middleware',
-        'hog learn instrument-integration references/django.md --lines 1:40',
+        'hog skills read -s "session replay"',
+        'hog skills read instrument-integration',
+        'hog skills read instrument-integration references/COMMANDMENTS.md',
+        'hog skills read instrument-integration references/django.md -s middleware',
+        'hog skills read instrument-integration references/django.md --lines 1:40',
     ],
 
     async run({ args, options, ctx }): Promise<LearnResult> {

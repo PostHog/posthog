@@ -1,10 +1,9 @@
 import type { CatalogSkill, SkillAssetStatus, SkillKind } from '@posthog/mcp/src/cli/library-types'
 
-import { downloadWarnings } from '@/commands/learn'
 import { defineCommand } from '@/core/command'
 import { plural } from '@/core/text'
 
-import { skillsError } from './shared'
+import { downloadWarnings, skillsError } from './shared'
 
 interface SkillsList {
     skills: CatalogSkill[]
@@ -48,13 +47,13 @@ export default defineCommand({
         }
 
         out.line(
-            `${plural(result.skills.length, 'skill')}. Read one with ${out.style('hog learn <skill>', 'bold')}, or add it to this repository with ${out.style('hog skills add <skill...>', 'bold')}.`
+            `${plural(result.skills.length, 'skill')}. Read one with ${out.style('hog skills read <skill>', 'bold')}, or add it to this repository with ${out.style('hog skills add <skill...>', 'bold')}.`
         )
         out.notes({ warnings: downloadWarnings(result.assets) })
     },
 
     // Names only, grouped by kind, so the whole list stays small enough for an agent's context.
-    // `hog learn -d <skill>` describes one. A download that fell back to the saved copy is reported.
+    // `hog skills read -d <skill>` describes one. A download that fell back to the saved copy is reported.
     agent({ result, out }) {
         const stale = result.assets.filter((asset) => asset.origin !== 'network')
         out.json({

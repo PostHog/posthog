@@ -211,7 +211,7 @@ describe('hog skills', () => {
         expect(lines.find((line) => line.includes('analyzing-funnels'))).toContain('Find where people drop off.')
         expect(lines).toContain('Skills for adding PostHog to your code (1)')
         expect(lines.at(-2)).toBe(
-            '2 skills. Read one with hog learn <skill>, or add it to this repository with hog skills add <skill...>.'
+            '2 skills. Read one with hog skills read <skill>, or add it to this repository with hog skills add <skill...>.'
         )
         expect(agent.json()).toEqual({ learning: ['analyzing-funnels'], implementation: ['tracing-nodejs'] })
     })

@@ -11,39 +11,38 @@ It is not published yet.
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
 
-| Command                                        | Status                                                                                                                   |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `hog setup`, `hog setup next`                  | Takes this folder from nothing to PostHog installed and events arriving, one step at a time. See [Setup](#setup).        |
-| `hog auth login`                               | Logs in through the browser to one project, and names it in `posthog.json`. Agents finish with `hog auth login --wait`.  |
-| `hog auth add <scope...>`                      | Adds scopes to your login, approved in the browser. Agents finish with `hog auth add --wait`.                            |
-| `hog auth status`                              | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key. |
-| `hog auth logout`                              | Removes the login commands in this folder use. `--all` removes every login.                                              |
-| `hog auth migrate`                             | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                             |
-| `hog ci setup`                                 | Asks an admin to trust this repository's CI jobs, so they use their OIDC token instead of a stored key.                  |
-| `hog query run <query>`                        | Runs a HogQL query. `-` reads the query from stdin.                                                                      |
-| `hog query check <query>`                      | Checks a query without running it. Exits with code 1 when the query has errors.                                          |
-| `hog api groups`, `hog api tools [group]`      | List the PostHog MCP tools by group, with the scopes the key is missing for each.                                        |
-| `hog api search`, `info`, `schema`             | Find a tool, see what it does and the input it takes.                                                                    |
-| `hog api call <tool> [input]`                  | Calls a tool with JSON input. `--dry-run` only checks the input, and destructive tools need `--confirm`.                 |
-| `hog api access`                               | Shows the key's scopes and the missing scopes that block the most tools.                                                 |
-| `hog learn [skill] [path...]`                  | Reads the PostHog agent skills, with the grammar of the MCP server's `learn` command. Needs no login.                    |
-| `hog skills list`, `hog skills add <skill...>` | List every PostHog skill, and add skills to this repository in the folder your agent reads. See [Skills](#skills).       |
-| `hog mcp add`                                  | Connects PostHog's MCP server to your agent, with OAuth and no key in the file. See [MCP server](#mcp-server).           |
-| `hog error-tracking inject [paths...]`         | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.                |
-| `hog error-tracking clone <from> <to>`         | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                       |
-| `hog error-tracking upload [paths...]`         | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.   |
-| `hog error-tracking process [paths...]`        | Runs `inject`, then `upload`. Use it in CI after the build.                                                              |
-| `hog error-tracking release`                   | Finds or creates the release for this build. `-o text` prints just its ID.                                               |
-| `hog error-tracking download <id/ref>`         | Downloads a symbol set from PostHog and unpacks it.                                                                      |
-| `hog error-tracking extract <file>`            | Unpacks a symbol set file.                                                                                               |
-| `hog endpoints list`, `get`, `open`            | List your endpoints a page at a time, show one, or open it in PostHog.                                                   |
-| `hog endpoints run [name]`                     | Runs an endpoint, or the query in a local file with `--file`. `--var name=value` sets variables.                         |
-| `hog endpoints pull`, `diff`, `push`           | Keep endpoints as YAML files: pull them, see how they differ, and push changes. `diff` exits with code 1 on drift.       |
-| `hog schema pull`                              | Generates a typed SDK (TypeScript, Go or Python) from your event definitions, and records it in `posthog.json`.          |
-| `hog schema status`                            | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                         |
-| `hog config check`, `hog config schema`        | Check `posthog.json` against its schema, or print the schema.                                                            |
-| `hog commands`                                 | Lists every command, its arguments, options and scopes.                                                                  |
-| Everything else                                | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.          |
+| Command                                   | Status                                                                                                                            |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `hog setup`, `hog setup next`             | Takes this folder from nothing to PostHog installed and events arriving, one step at a time. See [Setup](#setup).                 |
+| `hog auth login`                          | Logs in through the browser to one project, and names it in `posthog.json`. Agents finish with `hog auth login --wait`.           |
+| `hog auth add <scope...>`                 | Adds scopes to your login, approved in the browser. Agents finish with `hog auth add --wait`.                                     |
+| `hog auth status`                         | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key.          |
+| `hog auth logout`                         | Removes the login commands in this folder use. `--all` removes every login.                                                       |
+| `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                                      |
+| `hog ci setup`                            | Asks an admin to trust this repository's CI jobs, so they use their OIDC token instead of a stored key.                           |
+| `hog query run <query>`                   | Runs a HogQL query. `-` reads the query from stdin.                                                                               |
+| `hog query check <query>`                 | Checks a query without running it. Exits with code 1 when the query has errors.                                                   |
+| `hog api groups`, `hog api tools [group]` | List the PostHog MCP tools by group, with the scopes the key is missing for each.                                                 |
+| `hog api search`, `info`, `schema`        | Find a tool, see what it does and the input it takes.                                                                             |
+| `hog api call <tool> [input]`             | Calls a tool with JSON input. `--dry-run` only checks the input, and destructive tools need `--confirm`.                          |
+| `hog api access`                          | Shows the key's scopes and the missing scopes that block the most tools.                                                          |
+| `hog skills list`, `read`, `add`          | List every PostHog agent skill, read one, or add skills to this repository in the folder your agent reads. See [Skills](#skills). |
+| `hog mcp add`                             | Connects PostHog's MCP server to your agent, with OAuth and no key in the file. See [MCP server](#mcp-server).                    |
+| `hog error-tracking inject [paths...]`    | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.                         |
+| `hog error-tracking clone <from> <to>`    | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                                |
+| `hog error-tracking upload [paths...]`    | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.            |
+| `hog error-tracking process [paths...]`   | Runs `inject`, then `upload`. Use it in CI after the build.                                                                       |
+| `hog error-tracking release`              | Finds or creates the release for this build. `-o text` prints just its ID.                                                        |
+| `hog error-tracking download <id/ref>`    | Downloads a symbol set from PostHog and unpacks it.                                                                               |
+| `hog error-tracking extract <file>`       | Unpacks a symbol set file.                                                                                                        |
+| `hog endpoints list`, `get`, `open`       | List your endpoints a page at a time, show one, or open it in PostHog.                                                            |
+| `hog endpoints run [name]`                | Runs an endpoint, or the query in a local file with `--file`. `--var name=value` sets variables.                                  |
+| `hog endpoints pull`, `diff`, `push`      | Keep endpoints as YAML files: pull them, see how they differ, and push changes. `diff` exits with code 1 on drift.                |
+| `hog schema pull`                         | Generates a typed SDK (TypeScript, Go or Python) from your event definitions, and records it in `posthog.json`.                   |
+| `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                                  |
+| `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                                     |
+| `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                           |
+| Everything else                           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.                   |
 
 ## What's left
 
@@ -100,7 +99,7 @@ Agents get JSON: `{ step, status, code, done, next: { kind, command, ask, read, 
 | `login`     | Starts a browser login to the chosen host, where new users can sign up, and returns. The next `hog setup next` waits for the approval.                                        | A login for this folder's host and project    |
 | `project`   | Names the project in `posthog.json` and tells PostHog which products were picked. A failure there only warns.                                                                 | Always, once it ran                           |
 | `agents-md` | Adds a note to `AGENTS.md`, and to `CLAUDE.md` when it doesn't import `AGENTS.md`, so a later session continues the setup.                                                    | Always, once it ran                           |
-| `install`   | Returns the project token and host, and the two `hog learn` commands that read the install skill and its rules.                                                               | Both files were read, and `next` ran after it |
+| `install`   | Returns the project token and host, and the two `hog skills read` commands that read the install skill and its rules.                                                         | Both files were read, and `next` ran after it |
 | `review`    | Asks the agent to check its changes against the rules.                                                                                                                        | `--reviewed`, or yes at the terminal          |
 | `verify`    | Looks for events PostHog received since the setup started. Exits with code 1 while there are none.                                                                            | An event arrived                              |
 | `products`  | Lists the other products and the command that starts each, and the PostHog skills that could help later, which `hog skills add <skill...>` adds.                              | `--products-ack`, or shown at the terminal    |
@@ -108,36 +107,33 @@ Agents get JSON: `{ step, status, code, done, next: { kind, command, ask, read, 
 | `connected` | Rewrites the note in `AGENTS.md` with the commands for later PostHog work. From then on `hog setup` shows a summary.                                                          | Always                                        |
 
 The setup belongs to the folder of the closest `posthog.json`, or to the working folder when there is none, so each app in a monorepo has its own.
-The answers, the start time, the skill files `hog learn` served in that folder and the finished steps live in `~/.posthog/setup/`, one file per folder. Everything else is checked on each run.
+The answers, the start time, the skill files `hog skills read` served in that folder and the finished steps live in `~/.posthog/setup/`, one file per folder. Everything else is checked on each run.
 Without that file, as in a fresh clone, the setup starts at the first step it can't prove done, and a clone whose `AGENTS.md` has the final note counts as set up.
 The note sits between `<!-- posthog:setup:start -->` and `<!-- posthog:setup:end -->`, and nothing outside the markers changes.
 
-## Agent skills
-
-`hog learn` serves PostHog's agent skills, the step-by-step guides agents follow for PostHog tasks, with the grammar of the `learn` command in the PostHog MCP server's `exec` tool:
-
-```bash
-hog learn                                   # the commands below
-hog learn -s "session replay"               # find skills by keywords
-hog learn -d instrument-integration         # what a skill is for
-hog learn instrument-integration            # read a skill and list its files
-hog learn instrument-integration references/COMMANDMENTS.md
-hog learn instrument-integration references/django.md -s middleware
-hog learn instrument-integration references/django.md --lines 1:40
-```
-
-Skills are public, so `hog learn` needs no login.
-It downloads the latest PostHog product skills and the latest context-mill release, the same assets the MCP server serves, every time it runs.
-It saves them in `~/.posthog/skills/` (`HOG_HOME` moves the folder), and serves that copy only when a download fails, saying when the copy was saved.
-Commands in the skill text read `hog learn ...`, and `hog skills list` lists every skill. A skill name works with or without its `posthog:` prefix. Project skills are only available through the MCP server.
-
 ## Skills
 
-`hog skills list` lists every skill, and `hog skills add <skill...>` copies skills into the repository, so later agent sessions find them without `hog learn`.
-`hog skills` alone shows these commands. None of them needs a login.
+PostHog's agent skills are the step-by-step guides agents follow for PostHog tasks. `hog skills` alone shows the commands, and none of them needs a login.
+
+```bash
+hog skills list                                   # every skill
+hog skills read -s "session replay"               # find skills by keywords
+hog skills read -d instrument-integration         # what a skill is for
+hog skills read instrument-integration            # read a skill and list its files
+hog skills read instrument-integration references/COMMANDMENTS.md
+hog skills read instrument-integration references/django.md -s middleware
+hog skills read instrument-integration references/django.md --lines 1:40
+hog skills add instrument-integration             # copy it into this repository
+```
+
+`hog skills read` takes the arguments of the `learn` command in the PostHog MCP server's `exec` tool. A skill name works with or without its `posthog:` prefix, and commands in the skill text read `hog skills read ...`.
+hog downloads the latest PostHog product skills and the latest context-mill release, the same assets the MCP server serves, every time it runs.
+It saves them in `~/.posthog/skills/` (`HOG_HOME` moves the folder), and serves that copy only when a download fails, saying when the copy was saved. Project skills are only available through the MCP server.
+
+`hog skills add <skill...>` copies skills into the repository, so later agent sessions find them without hog.
 
 - The list splits the skills into two kinds: skills for using PostHog, such as analyzing a funnel, from the PostHog product skills, and skills for adding PostHog to code, such as an SDK for one framework, from context-mill.
-- Agents get the names only, grouped by kind, as `{ learning: [...], implementation: [...] }`. `hog learn -d <skill>` describes one.
+- Agents get the names only, grouped by kind, as `{ learning: [...], implementation: [...] }`. `hog skills read -d <skill>` describes one.
 - The output starts with the result, then the folders written, then any notes.
 - They go in the closest git repository, or in the working folder outside of one. The output names which.
 - Claude Code reads `.claude/skills/<id>/` and Augment reads `.augment/skills/<id>/`. Every other agent reads `.agents/skills/<id>/`, as in the agent table of [`npx skills add`](https://skills.sh).
@@ -204,7 +200,7 @@ A CI job that uses its OIDC token counts as its workload instead: events carry a
 Without a key, with a self-hosted PostHog, or with a key that can't read those, events belong to a random ID in `~/.posthog/hog-telemetry-id`.
 Usage events never carry argument or option values or API keys, except the setup answer above.
 When you log in, hog ties the random ID's earlier events to your PostHog user, so what you did before logging in, such as the first `hog setup` answers, counts with your sign-up.
-`hog learn` adds the names of the PostHog skills it served, how it read them, and whether each release came from the network or the saved copy. A name counts only once it matched a published skill, so the event never carries what you typed, such as search keywords or a skill that doesn't exist.
+`hog skills read` adds the names of the PostHog skills it served, how it read them, and whether each release came from the network or the saved copy. A name counts only once it matched a published skill, so the event never carries what you typed, such as search keywords or a skill that doesn't exist.
 
 Telemetry is on by default and goes to the same PostHog project as posthog-cli's.
 Turn it off with `--no-telemetry`, `HOG_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `"cli": { "telemetry": false }` in `posthog.json`.

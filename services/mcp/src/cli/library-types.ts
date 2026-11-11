@@ -108,7 +108,7 @@ export interface SkillRead {
 }
 
 /**
- * A `learn` command, in the parts `hog learn` takes it as. Give at most one of `search` (keywords),
+ * A `learn` command, in the parts `hog skills read` takes it as. Give at most one of `search` (keywords),
  * `describe` and `lines`. Without any of them, `skill` and `paths` read files, and nothing is the overview.
  */
 export interface LearnRequest {
@@ -186,7 +186,7 @@ export interface SkillsLibraryOptions {
      * reads this folder only when the download fails, or to answer a 304. Without it, nothing is cached.
      */
     cacheDir?: string
-    /** The command that served text names, such as `hog learn`. Defaults to `learn`. */
+    /** The command that served text names, such as `hog skills read`. Defaults to `learn`. */
     learnCommand?: string
     /** The command that lists every skill, such as `hog skills list`. `learn skills` in served text points there. */
     listCommand?: string

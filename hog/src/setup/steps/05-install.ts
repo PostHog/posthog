@@ -13,7 +13,7 @@ export const RULES_READ: SkillFile = { skill: INSTALL_SKILL, path: 'references/C
 const ProjectSchema = z.looseObject({ api_token: ProjectTokenSchema })
 
 export function readCommand({ skill, path }: SkillFile): string {
-    return path === 'SKILL.md' ? `hog learn ${skill}` : `hog learn ${skill} ${path}`
+    return path === 'SKILL.md' ? `hog skills read ${skill}` : `hog skills read ${skill} ${path}`
 }
 
 async function fillInstallContext(run: SetupRun): Promise<void> {
@@ -25,7 +25,7 @@ async function fillInstallContext(run: SetupRun): Promise<void> {
     run.context.apiHost = region ? INGESTION_HOSTS[region] : host
 }
 
-// `hog learn` records the reads. Both files count only when read whole.
+// `hog skills read` records the reads. Both files count only when read whole.
 export const install: Step = {
     summary: () => 'Installed PostHog with the install skill',
 
