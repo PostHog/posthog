@@ -315,13 +315,13 @@ class NodeSerializer(serializers.ModelSerializer):
     def get_upstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
-            return counts[str(node.id)][0]
+            return counts[str(node.id)].upstream
         return len(_get_upstream_nodes(node, hidden_types=self._hidden_types()))
 
     def get_downstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
-            return counts[str(node.id)][1]
+            return counts[str(node.id)].downstream
         return len(_get_downstream_nodes(node, hidden_types=self._hidden_types()))
 
     def _hidden_types(self) -> frozenset[str]:

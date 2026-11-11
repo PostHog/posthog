@@ -83,6 +83,14 @@ class Dependent:
 
 
 @frozen
+class NodeLineageCounts:
+    """How many nodes sit upstream and downstream of one node."""
+
+    upstream: int
+    downstream: int
+
+
+@frozen
 class UpstreamTableRef:
     name: str
     warehouse_table_id: str | None = None
