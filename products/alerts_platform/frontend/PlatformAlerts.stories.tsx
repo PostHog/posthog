@@ -15,6 +15,11 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     enabled: true,
     labels: {},
     annotations: {},
+    created_by: null,
+    last_checked_at: null,
+    last_error_message: null,
+    state_timeline: [],
+    destination_types: [],
     source_kind: 'logs',
     source_config: {
         filters: { serviceNames: ['checkout'], severityLevels: ['error'] },
