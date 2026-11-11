@@ -394,7 +394,7 @@ export interface todayLogicMeta {
             featureFlags: FeatureFlagsSet,
             isCloudOrDev: boolean | undefined,
             activeCampaign: ProductPushCampaignApi | null,
-            activeCampaignResolved: any,
+            activeCampaignResolved: boolean,
             user: UserType | null
         ) => NavPanelSlotCard | null
         forYouProductPush: (
