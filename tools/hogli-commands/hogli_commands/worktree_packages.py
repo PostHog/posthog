@@ -19,9 +19,9 @@ from hogli.manifest import REPO_ROOT
 from hogli_commands.git_dirs import git_common_dir
 
 
-def _editable_import_roots(site_dirs: Iterable[str]) -> list[Path]:
-    # An editable install writes its import root as a bare absolute path line in a .pth file.
-    # Lines that start with `import` run code and are never paths.
+def _editable_import_roots(site_dirs: Iterable[str]) -> list[str]:
+    # An editable install writes its import root as a bare absolute path line in a .pth file,
+    # and `site` adds it to sys.path as os.path.abspath(line). Lines that start with `import` run code.
     roots = []
     for site_dir in site_dirs:
         for pth in sorted(Path(site_dir).glob("*.pth")):
@@ -30,38 +30,40 @@ def _editable_import_roots(site_dirs: Iterable[str]) -> list[Path]:
             except OSError:
                 continue
             for line in lines:
-                path = Path(line.strip())
-                if path.is_absolute() and path.is_dir():
-                    roots.append(path.resolve())
+                if os.path.isabs(line.strip()) and os.path.isdir(line.strip()):
+                    roots.append(os.path.abspath(line.strip()))
     return roots
 
 
-def worktree_import_roots(repo_root: Path, site_dirs: Iterable[str]) -> list[str]:
+def worktree_import_roots(repo_root: Path, site_dirs: Iterable[str]) -> dict[str, str]:
+    """Map each sys.path entry that an editable install points into the main clone to the worktree's copy."""
     if not (repo_root / ".git").is_file():
-        return []
+        return {}
     common_dir = git_common_dir(repo_root)
     if common_dir is None:
-        return []
+        return {}
     main_clone = common_dir.parent
     worktree = repo_root.resolve()
-    roots = []
+    roots = {}
     for root in _editable_import_roots(site_dirs):
-        # The main clone root itself would put every top-level repo directory ahead of site-packages.
-        if root == main_clone or not root.is_relative_to(main_clone):
+        resolved = Path(root).resolve()
+        # The main clone root itself would put every top-level repo directory on sys.path.
+        if resolved == main_clone or not resolved.is_relative_to(main_clone):
             continue
-        ours = worktree / root.relative_to(main_clone)
+        ours = worktree / resolved.relative_to(main_clone)
         if ours.is_dir():
-            roots.append(str(ours))
+            roots[root] = str(ours)
     return roots
 
 
 def _prefer_worktree_packages() -> None:
-    roots = [root for root in worktree_import_roots(REPO_ROOT, site.getsitepackages()) if root not in sys.path]
-    if not roots:
-        return
-    sys.path[:0] = roots
-    # Child processes, such as a check that runs pytest or a script, need the same packages.
-    os.environ["PYTHONPATH"] = os.pathsep.join([*roots, *filter(None, [os.environ.get("PYTHONPATH")])])
+    # Each entry keeps its position after site-packages, as the editable install placed it, so a
+    # package root cannot shadow the standard library. PYTHONPATH stays unset, because it would put
+    # this branch's code ahead of the standard library in child processes, including ones that run
+    # another venv. A nested hogli runs this module again.
+    roots = worktree_import_roots(REPO_ROOT, site.getsitepackages())
+    if roots:
+        sys.path[:] = [roots.get(entry, entry) for entry in sys.path]
 
 
 _prefer_worktree_packages()

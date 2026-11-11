@@ -47,13 +47,13 @@ def test_a_worktree_imports_its_own_copy_of_each_package_the_main_clone_venv_ins
     )
     (main_clone / "untracked-only-in-main").mkdir()
 
-    assert worktree_import_roots(worktree, [site_dir]) == [
-        str(worktree.resolve() / "packages/owners-yaml"),
-        str(worktree.resolve() / "tools/hogli/src"),
-    ]
+    assert worktree_import_roots(worktree, [site_dir]) == {
+        str(main_clone / "packages/owners-yaml"): str(worktree.resolve() / "packages/owners-yaml"),
+        str(main_clone / "tools/hogli/src"): str(worktree.resolve() / "tools/hogli/src"),
+    }
 
 
 def test_the_main_clone_keeps_its_editable_installs(tmp_path: Path, main_clone: Path) -> None:
     site_dir = _site_dir(tmp_path, str(main_clone / "packages/owners-yaml"))
 
-    assert worktree_import_roots(main_clone, [site_dir]) == []
+    assert worktree_import_roots(main_clone, [site_dir]) == {}
