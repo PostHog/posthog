@@ -39,10 +39,9 @@ export const scene: SceneExport<ScorerLogicProps> = {
     }),
 }
 
-export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element {
-    const logic = scorerLogic(props)
+export function AIObservabilityScorerScene(): JSX.Element {
     const { definition, definitionLoading, draft, isNew, hasChanges, willCreateVersion, saving, error, loadError } =
-        useValues(logic)
+        useValues(scorerLogic)
     const {
         loadDefinition,
         save,
@@ -52,7 +51,7 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
         updateOptionLabel,
         addOption,
         removeOption,
-    } = useActions(logic)
+    } = useActions(scorerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const editDisabledReason = getAccessControlDisabledReason(
@@ -99,7 +98,7 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
                     </h2>
                 </nav>
                 {todayRailNav ? (
-                    <QuillAIObservabilityScorerActions {...props} />
+                    <QuillAIObservabilityScorerActions />
                 ) : (
                     <div className="flex flex-wrap items-center gap-2">
                         {!isNew && definition && (

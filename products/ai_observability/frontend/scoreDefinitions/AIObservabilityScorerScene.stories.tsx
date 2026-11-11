@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -7,6 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import { AIObservabilityScorerScene } from './AIObservabilityScorerScene'
+import { ScorerLogicProps, scorerLogic } from './scorerLogic'
 
 const definition: ScoreDefinitionApi = {
     tags: [],
@@ -30,7 +32,7 @@ const definition: ScoreDefinitionApi = {
     team: 997,
 }
 
-const meta: Meta<typeof AIObservabilityScorerScene> = {
+const meta: Meta<ScorerLogicProps> = {
     title: 'AI observability/Scorer editor',
     component: AIObservabilityScorerScene,
     args: { scorerId: definition.id },
@@ -39,6 +41,11 @@ const meta: Meta<typeof AIObservabilityScorerScene> = {
         featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
     },
     decorators: [
+        (Story, { args }) => (
+            <BindLogic logic={scorerLogic} props={args}>
+                <Story />
+            </BindLogic>
+        ),
         mswDecorator({
             get: { '/api/projects/:team/llm_analytics/score_definitions/:id/': definition },
             patch: {
@@ -63,7 +70,7 @@ const meta: Meta<typeof AIObservabilityScorerScene> = {
     ],
 }
 export default meta
-type Story = StoryObj<typeof AIObservabilityScorerScene>
+type Story = StoryObj<ScorerLogicProps>
 
 export const Numeric: Story = {}
 export const NewScorer: Story = {

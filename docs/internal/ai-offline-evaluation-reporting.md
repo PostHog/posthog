@@ -77,7 +77,8 @@ Opening a scorer's history preserves the author and date filters and selects the
 The scorer list shows each scorer's creator and last editor, and can be filtered by creator.
 By default, scorers are sorted by last updated, newest first.
 Creating and editing scorers stays under Evaluations → Scorers, with a detail heading and a back link to the list.
-Successful creation and edits return to the scorer list; failed saves keep the form open with your changes.
+Successful creation and edits return to the scorer list with the saved changes visible immediately; failed saves keep the form open with your changes.
+Duplicating a scorer opens a new draft with its scoring rules, including a composite's formula and pinned input versions. Saving the copy creates a separate scorer.
 The scorer editor's **Version history** opens saved scoring rules in a read-only view. Selecting an older version does not change the editor's draft. Changes to scoring rules always create a new version.
 
 Online evals, offline experiments, datasets, and scorers have independent setup states. The Evaluations tabs

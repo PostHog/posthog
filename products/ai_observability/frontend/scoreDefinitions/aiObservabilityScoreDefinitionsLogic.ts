@@ -429,7 +429,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
     })),
 
     urlToAction(({ actions, values }) => ({
-        [urls.aiObservabilityScorers()]: (_, searchParams, __, { method }) => {
+        [urls.aiObservabilityScorers()]: (_, searchParams, __, { method, pathname }, previousLocation) => {
             if (!values.currentTeamId) {
                 return
             }
@@ -440,7 +440,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
 
             if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
-            } else if (method !== 'REPLACE') {
+            } else if (method !== 'REPLACE' || previousLocation?.pathname !== pathname) {
                 actions.setFilters(newFilters, false)
                 actions.loadScoreDefinitions(false)
             }
