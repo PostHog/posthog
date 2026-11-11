@@ -38,6 +38,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import {
@@ -1146,6 +1147,71 @@ describe('EmailTrackingService', () => {
                 })
             })
 
+            const sendEmail = async ({
+                teamCaptures,
+                captureEngagement,
+                transactional = false,
+            }: {
+                teamCaptures: boolean
+                captureEngagement?: boolean
+                transactional?: boolean
+            }): Promise<{ hogFlowId: string; headerCode: string; tags: Record<string, string[]> }> => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, $2, 'off', '', '', 0)`,
+                    [team.id, teamCaptures],
+                    'test-set-engagement-capture'
+                )
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                const integration = await insertIntegration(hub.postgres, team.id, {
+                    kind: 'email',
+                    config: {
+                        email: 'sender@posthog-test.com',
+                        name: 'Sender',
+                        domain: 'posthog-test.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                const emailService = api['hogExecutorAsync']['deps'].emailService
+                const sesSend = jest
+                    .spyOn(emailService.sesV2Client!, 'send')
+                    .mockResolvedValue({ MessageId: 'ses-message-id' } as never)
+                const invocation = createExampleInvocation({ id: hogFlow.id, team_id: team.id })
+                invocation.state.globals.event.distinct_id = 'user-1'
+                if (transactional) {
+                    invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                }
+                if (captureEngagement !== undefined) {
+                    invocation.state.send = { tracking: { captureEngagement } }
+                }
+                invocation.queueParameters = {
+                    type: 'email',
+                    to: { email: 'user@example.com', name: 'User' },
+                    from: { integrationId: integration.id },
+                    subject: 'Reset your password',
+                    text: 'Hi',
+                    html: '<p>Hi</p>',
+                }
+
+                expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
+                const input = (sesSend.mock.calls[0][0] as any).input
+                const headers: { Name: string; Value: string }[] = input.Content.Simple.Headers
+                const emailTags: { Name: string; Value: string }[] = input.EmailTags
+                mockInternalFetch.mockClear()
+                return {
+                    hogFlowId: hogFlow.id,
+                    headerCode: headers.find((header) => header.Name === TRACKING_CODE_HEADER_NAME)!.Value,
+                    tags: Object.fromEntries(emailTags.map((tag) => [tag.Name, [tag.Value]])),
+                }
+            }
+
             it.each([
                 { captureEngagement: true, teamCaptures: true, captured: 1 },
                 { captureEngagement: undefined, teamCaptures: true, captured: 1 },
@@ -1154,57 +1220,9 @@ describe('EmailTrackingService', () => {
             ])(
                 "captures the bounce of a sent email by the send's choice $captureEngagement and the team switch $teamCaptures",
                 async ({ captureEngagement, teamCaptures, captured }) => {
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        `INSERT INTO workflows_teamworkflowsconfig
-                            (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
-                             email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
-                         VALUES ($1, $2, 'off', '', '', 0)`,
-                        [team.id, teamCaptures],
-                        'test-set-engagement-capture'
-                    )
-                    const hogFlow = await insertHogFlow(
-                        hub.postgres,
-                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
-                    )
-                    const integration = await insertIntegration(hub.postgres, team.id, {
-                        kind: 'email',
-                        config: {
-                            email: 'sender@posthog-test.com',
-                            name: 'Sender',
-                            domain: 'posthog-test.com',
-                            verified: true,
-                            provider: 'ses',
-                        },
-                    })
-                    const emailService = api['hogExecutorAsync']['deps'].emailService
-                    const sesSend = jest
-                        .spyOn(emailService.sesV2Client!, 'send')
-                        .mockResolvedValue({ MessageId: 'ses-message-id' } as never)
-                    const invocation = createExampleInvocation({
-                        id: hogFlow.id,
-                        team_id: team.id,
-                    })
-                    invocation.state.globals.event.distinct_id = 'user-1'
-                    if (captureEngagement !== undefined) {
-                        invocation.state.send = { tracking: { captureEngagement } }
-                    }
-                    invocation.queueParameters = {
-                        type: 'email',
-                        to: { email: 'user@example.com', name: 'User' },
-                        from: { integrationId: integration.id },
-                        subject: 'Reset your password',
-                        text: 'Hi',
-                        html: '<p>Hi</p>',
-                    }
+                    const { hogFlowId, headerCode } = await sendEmail({ teamCaptures, captureEngagement })
 
-                    expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
-                    const headers: { Name: string; Value: string }[] = (sesSend.mock.calls[0][0] as any).input.Content
-                        .Simple.Headers
-                    const headerCode = headers.find((header) => header.Name === TRACKING_CODE_HEADER_NAME)!.Value
-                    mockInternalFetch.mockClear()
-
-                    await recordBounce({ functionId: hogFlow.id, headerCode })
+                    await recordBounce({ functionId: hogFlowId, headerCode })
 
                     const capturedEvents = mockInternalFetch.mock.calls.map(
                         ([, options]) => parseJSON(String(options?.body)).event
@@ -1212,6 +1230,42 @@ describe('EmailTrackingService', () => {
                     expect(capturedEvents.filter((event) => event === '$workflows_email_bounced')).toHaveLength(
                         captured
                     )
+                }
+            )
+
+            it.each([
+                ['a transactional email', true],
+                ['an email from a workflow step', false],
+            ])(
+                'marks the delivery of %s as transactional only for a transactional send',
+                async (_name, transactional) => {
+                    const { headerCode, tags } = await sendEmail({ teamCaptures: true, transactional })
+
+                    const res = await postEnvelope({
+                        Type: 'Notification',
+                        MessageId: new UUIDT().toString(),
+                        TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                        Message: JSON.stringify({
+                            eventType: 'Delivery',
+                            mail: {
+                                timestamp: '2024-01-01T00:00:00.000Z',
+                                source: 'sender@posthog-test.com',
+                                messageId: 'ses-message-id',
+                                destination: ['user@example.com'],
+                                headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode }],
+                                tags,
+                            },
+                            delivery: { timestamp: '2024-01-01T00:05:00.000Z', recipients: ['user@example.com'] },
+                        }),
+                    })
+                    expect(res.status).toBe(200)
+                    await consumer.processBatch(queuedSesNotifications())
+
+                    const captured = mockInternalFetch.mock.calls.map(([, options]) => parseJSON(String(options?.body)))
+                    expect(captured.map((event) => [event.event, event.timestamp])).toEqual([
+                        ['$workflows_email_delivered', '2024-01-01T00:05:00.000Z'],
+                    ])
+                    expect(captured[0].properties.$email_transactional).toEqual(transactional ? true : undefined)
                 }
             )
 
