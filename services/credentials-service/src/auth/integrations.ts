@@ -1,20 +1,39 @@
-// Tokens for the `/v1/integrations/*` routes. Same HS256 keys and deployment identity as the
-// secrets route (jwt.ts), with a separate audience and a much shorter life. Unlike a secrets
-// token, the claims carry the owner, so every query a route runs binds the owner from here and
-// never from the request.
+// Tokens for the `/v1/integrations/*` routes. Each caller deployment signs with its own Ed25519
+// private key, and the service verifies with that deployment's public key (integration-keys.ts).
+// The platform-secrets HS256 keys never verify these tokens, and these keys never verify a
+// secrets token. The deployment is still whichever key verifies, never a claim.
+//
+// Unlike a secrets token, the claims carry the owner, so every query a route runs binds the
+// owner from here and never from the request.
 
-import type { JWTPayload } from 'jose'
+import { type JWTPayload, decodeProtectedHeader } from 'jose'
 
 import { logger } from '../lib/logging'
 import { integrationAuthTotal } from '../metrics'
+import type { IntegrationKeyLoader } from './integration-keys'
 import { type VerifiedToken, verifyDeploymentToken } from './jwt'
-import { type CrossTeamOp, type IntegrationOp, deploymentAllows, isCrossTeamOp, isIntegrationOp } from './policy'
-import type { SigningKeyLoader } from './registry'
-import { ReplayCache } from './replay'
+import {
+    ALL_KINDS,
+    type CrossTeamOp,
+    type DeploymentPolicy,
+    type IntegrationOp,
+    type KindAllowlist,
+    SINGLE_REF_OPS,
+    isCrossTeamOp,
+    isIntegrationOp,
+    policyFor,
+} from './policy'
+import { MemoryReplayStore, type ReplayStore } from './replay'
 import { AuthError, type AuthFailureReason, INTEGRATIONS_AUDIENCE } from './types'
 
 export const MAX_TOKEN_LIFETIME_SECONDS = 60
 export const CLOCK_SKEW_SECONDS = 30
+
+/**
+ * Both names mean Ed25519 here, because every key in the registry is an Ed25519 key. `EdDSA` is
+ * the RFC 8037 name, `Ed25519` the RFC 9864 one. HS256, `none` and every other algorithm fail.
+ */
+export const INTEGRATION_ALGORITHMS: readonly string[] = ['EdDSA', 'Ed25519']
 
 const MAX_LIST_ITEMS = 200
 const KIND_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
@@ -27,6 +46,7 @@ const ALLOWED_CLAIMS = new Set(['aud', 'exp', 'iat', 'jti', 'owner', 'ops', 'kin
 
 export type IntegrationAuthErrorCode =
     | Exclude<AuthFailureReason, 'no_keys_claim'>
+    | 'bad_algorithm'
     | 'invalid_claims'
     | 'lifetime_too_long'
     | 'not_yet_valid'
@@ -60,7 +80,7 @@ export interface Owner {
 }
 
 export interface IntegrationClaims {
-    /** Null only when every op in the token is a cross-team op. */
+    /** Null exactly when every op in the token is a cross-team op. */
     owner: Owner | null
     ops: readonly IntegrationOp[]
     /** Null means the token does not narrow by kind. */
@@ -80,21 +100,34 @@ export interface IntegrationAuth<O extends IntegrationOp = IntegrationOp> {
     op: O
     deployment: string
     caller: string
-    /** Bind `owner.id` into every query. A cross-team op may have no owner. */
-    owner: O extends CrossTeamOp ? Owner | null : Owner
+    /** Bind `owner.id` into every query. A cross-team op never has an owner. */
+    owner: O extends CrossTeamOp ? null : Owner
     userId: number | null
     jti: string
-    /** When set, a route that lists rows must only return these kinds. */
+    /**
+     * The kinds this request may touch: the token's `kinds` narrowed by the deployment's policy.
+     * Null means any kind. When set, a route that lists rows must only return these kinds.
+     */
     kinds: readonly string[] | null
-    /** When set, a route that lists rows must only return these refs. */
+    /**
+     * Whether the request may touch warehouse source rows, and of which kinds (null means any).
+     * Null when it may touch none. A route that lists rows must leave source rows out then.
+     */
+    sourceRows: { kinds: readonly string[] | null } | null
+    /** When set, the request may only touch these refs. */
     refs: readonly string[] | null
 }
 
 export interface IntegrationScope {
     /** The kind (or kinds) the request touches, when the route knows it. */
     kind?: string | readonly string[] | undefined
-    /** The ref (or refs) the request touches. A ref-narrowed token needs this. */
+    /**
+     * The ref (or refs) the request touches. A route that names refs needs a token whose `refs`
+     * covers them. A ref-narrowed token fails on a route that names none.
+     */
     ref?: string | readonly string[] | undefined
+    /** True when the rows the request touches are warehouse source rows. */
+    sourceRow?: boolean | undefined
 }
 
 function invalid(message: string): IntegrationAuthError {
@@ -132,6 +165,9 @@ function parseOwner(value: unknown): Owner {
  * Check every claim's shape. `exp`, `aud` and the signature are already checked by jose.
  * An unknown claim is rejected, so a token minted for the secrets route (with `keys`)
  * cannot pass here by accident.
+ *
+ * A token has exactly one owner, or none when every op is cross-team. It never mixes the two.
+ * A token with an op that always acts on one ref (`SINGLE_REF_OPS`) must carry `refs`.
  */
 export function parseIntegrationClaims(payload: JWTPayload, nowSeconds: number): IntegrationClaims {
     for (const name of Object.keys(payload)) {
@@ -171,15 +207,26 @@ export function parseIntegrationClaims(payload: JWTPayload, nowSeconds: number):
     }
     const ops: IntegrationOp[] = [...new Set<IntegrationOp>(rawOps)]
 
+    const crossTeam = ops.filter(isCrossTeamOp)
+    if (crossTeam.length > 0 && crossTeam.length < ops.length) {
+        throw invalid('a token holds cross-team ops or team ops, never both')
+    }
     let owner: Owner | null = null
-    if (payload['owner'] !== undefined) {
-        owner = parseOwner(payload['owner'])
-    } else if (!ops.every(isCrossTeamOp)) {
+    if (crossTeam.length > 0) {
+        if (payload['owner'] !== undefined) {
+            throw invalid('a cross-team token carries no owner')
+        }
+    } else if (payload['owner'] === undefined) {
         throw invalid('owner is required unless every op is a cross-team op')
+    } else {
+        owner = parseOwner(payload['owner'])
     }
 
     const kinds = payload['kinds'] === undefined ? null : stringList('kinds', payload['kinds'], KIND_PATTERN)
     const refs = payload['refs'] === undefined ? null : stringList('refs', payload['refs'], REF_PATTERN)
+    if (refs === null && ops.some((op) => (SINGLE_REF_OPS as readonly IntegrationOp[]).includes(op))) {
+        throw invalid('refs is required for an op that acts on one ref')
+    }
 
     let userId: number | null = null
     const rawUserId = payload['user_id']
@@ -191,6 +238,25 @@ export function parseIntegrationClaims(payload: JWTPayload, nowSeconds: number):
     }
 
     return { owner, ops, kinds, refs, userId, caller, jti, iat, exp }
+}
+
+/** The token's kinds narrowed by the policy. Null means any kind. */
+function effectiveKinds(token: readonly string[] | null, policy: KindAllowlist): readonly string[] | null {
+    if (policy === ALL_KINDS) {
+        return token
+    }
+    return token === null ? policy : token.filter((kind) => policy.includes(kind))
+}
+
+/** Null when the policy gives no source rows. */
+function sourceRowAccess(token: readonly string[] | null, policy: DeploymentPolicy): IntegrationAuth['sourceRows'] {
+    return policy.kinds === ALL_KINDS || policy.sourceRows === true ? { kinds: token } : null
+}
+
+function kindsAllow(allowed: readonly string[] | null, requested: readonly string[]): boolean {
+    // An empty list names nothing, so `every` would pass vacuously. Refuse it rather than let a
+    // route treat it as "all".
+    return allowed === null || (requested.length > 0 && requested.every((kind) => allowed.includes(kind)))
 }
 
 function asList(value: string | readonly string[] | undefined): readonly string[] | null {
@@ -218,11 +284,13 @@ export class IntegrationGrant {
 
     /**
      * Allow `op` on `scope`, or throw an IntegrationAuthError. The op must be in the token
-     * and in the deployment's policy. A token that names kinds or refs allows only those.
+     * and in the deployment's policy. The kinds are the token's kinds narrowed by the policy's
+     * kinds. A route that names refs needs a token that names them.
      */
     authorize<O extends IntegrationOp>(op: O, scope: IntegrationScope = {}): IntegrationAuth<O> {
+        let access: Pick<IntegrationAuth, 'kinds' | 'sourceRows'>
         try {
-            this.check(op, scope)
+            access = this.check(op, scope)
         } catch (err) {
             if (err instanceof IntegrationAuthError) {
                 recordRejection(err)
@@ -230,49 +298,61 @@ export class IntegrationGrant {
             throw err
         }
         record(this.deployment, 'ok')
-        const { owner, userId, jti, kinds, refs, caller } = this.claims
+        const { owner, userId, jti, refs, caller } = this.claims
         return {
             op,
             deployment: this.deployment,
             caller,
-            // check() rejects a null owner for every op that is not cross-team.
+            // parseIntegrationClaims gives a cross-team token no owner and every other token one.
             owner: owner as unknown as IntegrationAuth<O>['owner'],
             userId,
             jti,
-            kinds,
+            ...access,
             refs,
         }
     }
 
-    private check(op: IntegrationOp, scope: IntegrationScope): void {
-        const { ops, owner, kinds, refs } = this.claims
-        if (!ops.includes(op) || !deploymentAllows(this.deployment, op)) {
+    /** Throws when the request is not allowed, and returns the kinds it may touch. */
+    private check(op: IntegrationOp, scope: IntegrationScope): Pick<IntegrationAuth, 'kinds' | 'sourceRows'> {
+        const { ops, owner, refs } = this.claims
+        const policy = policyFor(this.deployment)
+        if (policy === null || !ops.includes(op) || !policy.ops.includes(op)) {
             throw this.error('forbidden_op', `operation ${op} is not allowed`)
         }
-        if (owner === null && !isCrossTeamOp(op)) {
-            throw this.error('forbidden_op', `operation ${op} needs an owner`)
+        if ((owner === null) !== isCrossTeamOp(op)) {
+            throw this.error('forbidden_op', `operation ${op} does not match the token owner`)
         }
 
-        // An empty list names nothing, so `every` would pass vacuously. A narrowed token
-        // refuses it rather than let a route treat it as "all".
+        const kinds = effectiveKinds(this.claims.kinds, policy.kinds)
+        const sourceRows = sourceRowAccess(this.claims.kinds, policy)
         const requestedKinds = asList(scope.kind)
-        if (
-            kinds !== null &&
-            requestedKinds !== null &&
-            (requestedKinds.length === 0 || !requestedKinds.every((kind) => kinds.includes(kind)))
-        ) {
+        let kindAllowed: boolean
+        if (scope.sourceRow === true) {
+            kindAllowed =
+                sourceRows !== null && (requestedKinds === null || kindsAllow(sourceRows.kinds, requestedKinds))
+        } else {
+            // A token whose kinds the policy refuses entirely can touch nothing.
+            kindAllowed =
+                (kinds === null || kinds.length > 0 || sourceRows !== null) &&
+                (requestedKinds === null || kindsAllow(kinds, requestedKinds))
+        }
+        if (!kindAllowed) {
             throw this.error('forbidden_kind', 'the token does not allow this kind')
         }
 
-        // Fail closed: a ref-narrowed token must not reach a route that cannot name the refs
-        // it touches, such as a list.
         const requestedRefs = asList(scope.ref)
-        if (
-            refs !== null &&
-            (requestedRefs === null || requestedRefs.length === 0 || !requestedRefs.every((ref) => refs.includes(ref)))
-        ) {
+        if (requestedRefs !== null) {
+            // A route that acts on named refs needs a token that names them, so a token lifted
+            // from a log reaches only the refs of the one call it was minted for.
+            if (refs === null || requestedRefs.length === 0 || !requestedRefs.every((ref) => refs.includes(ref))) {
+                throw this.error('forbidden_ref', 'the token does not allow this ref')
+            }
+        } else if (refs !== null) {
+            // Fail closed: a ref-narrowed token must not reach a route that cannot name the
+            // refs it touches, such as a list.
             throw this.error('forbidden_ref', 'the token does not allow this ref')
         }
+        return { kinds, sourceRows }
     }
 
     private error(code: IntegrationAuthErrorCode, message: string): IntegrationAuthError {
@@ -282,10 +362,14 @@ export class IntegrationGrant {
 
 /**
  * Check a kind that a route learns only after it loads the row, for example `GET /:ref`.
- * Throws `forbidden_kind` when the token narrows by kind and does not name this one.
+ * Throws `forbidden_kind` when the token or the policy does not allow this row.
  */
-export function assertKindAllowed(auth: IntegrationAuth, kind: string): void {
-    if (auth.kinds !== null && !auth.kinds.includes(kind)) {
+export function assertKindAllowed(auth: IntegrationAuth, kind: string, opts: { sourceRow?: boolean } = {}): void {
+    const allowed =
+        opts.sourceRow === true
+            ? auth.sourceRows !== null && kindsAllow(auth.sourceRows.kinds, [kind])
+            : kindsAllow(auth.kinds, [kind])
+    if (!allowed) {
         const err = new IntegrationAuthError('forbidden_kind', 'the token does not allow this kind', auth.deployment)
         recordRejection(err)
         throw err
@@ -293,20 +377,34 @@ export function assertKindAllowed(auth: IntegrationAuth, kind: string): void {
 }
 
 export interface IntegrationVerifierOptions {
-    replay?: ReplayCache
+    /** Defaults to the per-pod memory store. The database-backed store replaces it. */
+    replay?: ReplayStore
     /** Milliseconds since the epoch. Tests replace it. */
     now?: () => number
 }
 
+/** Refuse any algorithm but EdDSA before a key is tried, so the reason is its own metric label. */
+function assertIntegrationAlgorithm(token: string): void {
+    let alg: unknown
+    try {
+        alg = decodeProtectedHeader(token).alg
+    } catch {
+        throw new IntegrationAuthError('malformed', 'token was not accepted')
+    }
+    if (typeof alg !== 'string' || !INTEGRATION_ALGORITHMS.includes(alg)) {
+        throw new IntegrationAuthError('bad_algorithm', 'token was not accepted')
+    }
+}
+
 export class IntegrationVerifier {
-    private readonly replay: ReplayCache
+    private readonly replay: ReplayStore
     private readonly now: () => number
 
     constructor(
-        private readonly keys: SigningKeyLoader,
+        private readonly keys: IntegrationKeyLoader,
         opts: IntegrationVerifierOptions = {}
     ) {
-        this.replay = opts.replay ?? new ReplayCache()
+        this.replay = opts.replay ?? new MemoryReplayStore()
         this.now = opts.now ?? Date.now
     }
 
@@ -324,10 +422,12 @@ export class IntegrationVerifier {
 
     private async verifyUnrecorded(token: string): Promise<IntegrationGrant> {
         const nowMs = this.now()
+        assertIntegrationAlgorithm(token)
         let verified: VerifiedToken
         try {
             verified = await verifyDeploymentToken(this.keys, token, {
                 audience: INTEGRATIONS_AUDIENCE,
+                algorithms: [...INTEGRATION_ALGORITHMS],
                 clockTolerance: CLOCK_SKEW_SECONDS,
                 currentDate: new Date(nowMs),
             })
@@ -350,7 +450,8 @@ export class IntegrationVerifier {
         }
 
         // Keyed by deployment, so one deployment cannot burn another deployment's token ids.
-        if (!this.replay.claim(`${deployment}\u0000${claims.jti}`, nowMs)) {
+        const expiresAtMs = (claims.exp + CLOCK_SKEW_SECONDS) * 1000
+        if (!(await this.replay.claim(deployment, claims.jti, expiresAtMs, nowMs))) {
             throw new IntegrationAuthError('replayed', 'token id was already used', deployment)
         }
         return new IntegrationGrant(deployment, claims)

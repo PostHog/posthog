@@ -1,10 +1,13 @@
-// HS256 JWT verification, following the recording-api scheme (PostHog/posthog#67476).
+// HS256 JWT verification for the platform-secrets route, following the recording-api scheme
+// (PostHog/posthog#67476). Integration tokens use their own key registry and EdDSA
+// (integrations.ts), so a key from one registry never verifies a token for the other.
 //
 // The deployment is WHICH KEY VERIFIES the token, never a claim, so there is nothing in the
 // token an attacker could edit to become a different deployment. The `keys` claim is the
 // whole request scope, so a token lifted from a log unlocks one call's fields.
 
 import { type JWTPayload, type JWTVerifyOptions, jwtVerify } from 'jose'
+import type { KeyObject } from 'node:crypto'
 
 import type { CallerIdentity } from '../types'
 import type { SigningKeyLoader } from './registry'
@@ -47,18 +50,29 @@ export interface VerifiedToken {
     payload: JWTPayload
 }
 
+/** A key that can verify a signature: HMAC bytes, or a public key. */
+export type VerificationKey = Uint8Array | KeyObject
+
+/** Every deployment and its accepted keys, for the verifier to try in turn. */
+export interface KeyRegistry<K> {
+    entries(): [string, readonly K[]][]
+}
+
 /**
  * Try every deployment's keys in turn and return the payload of the one that verifies.
  * Throws an AuthError when none does.
+ *
+ * `algorithms` is required, so each audience states the one family it accepts and a key from
+ * one registry is never tried under another algorithm.
  *
  * `aud` must equal the expected audience as a plain string. jose accepts an array that
  * merely contains it, so one token could otherwise carry both audiences and be valid at
  * both the secrets and the integrations endpoints.
  */
 export async function verifyDeploymentToken(
-    keys: SigningKeyLoader,
+    keys: KeyRegistry<VerificationKey>,
     token: string,
-    options: JWTVerifyOptions & { audience: string }
+    options: JWTVerifyOptions & { audience: string; algorithms: string[] }
 ): Promise<VerifiedToken> {
     let reason: AuthFailureReason = 'bad_signature'
 
@@ -67,9 +81,8 @@ export async function verifyDeploymentToken(
             let payload: JWTPayload
             try {
                 payload = (
-                    await jwtVerify(token, new TextEncoder().encode(key), {
+                    await jwtVerify(token, key, {
                         ...options,
-                        algorithms: ['HS256'],
                         // jose only checks `exp` when the claim is present, so without this
                         // a token minted without one verifies and never expires.
                         requiredClaims: ['exp', ...(options.requiredClaims ?? [])],
@@ -89,11 +102,28 @@ export async function verifyDeploymentToken(
     throw new AuthError(reason, 'token was not accepted')
 }
 
+/** The HS256 caller keys as bytes, for `verifyDeploymentToken`. */
+function hmacKeys(keys: SigningKeyLoader): KeyRegistry<VerificationKey> {
+    const encoder = new TextEncoder()
+    return {
+        entries: () =>
+            keys
+                .entries()
+                .map(([deployment, values]): [string, VerificationKey[]] => [
+                    deployment,
+                    values.map((value) => encoder.encode(value)),
+                ]),
+    }
+}
+
 export class JwtVerifier {
     constructor(private readonly keys: SigningKeyLoader) {}
 
     async verify(token: string): Promise<CallerIdentity> {
-        const { deployment, payload } = await verifyDeploymentToken(this.keys, token, { audience: AUDIENCE })
+        const { deployment, payload } = await verifyDeploymentToken(hmacKeys(this.keys), token, {
+            audience: AUDIENCE,
+            algorithms: ['HS256'],
+        })
 
         const requested = stringArray(payload['keys'])
         if (requested.length === 0) {
@@ -105,6 +135,7 @@ export class JwtVerifier {
             caller: typeof payload['caller'] === 'string' ? payload['caller'] : '',
             // A repeat would otherwise be resolved, counted and logged once per occurrence.
             requestedKeys: [...new Set(requested)],
+            allowedKeys: this.keys.allowedSecrets(deployment),
         }
     }
 }
