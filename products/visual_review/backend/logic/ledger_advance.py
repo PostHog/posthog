@@ -8,7 +8,7 @@ the lock, and a failed read writes nothing.
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
@@ -233,6 +233,11 @@ class _LedgerAdvancer:
         )
         return self._open_approvals
 
+    def _known_open_approvals(self) -> list[BaselineApproval]:
+        if self._open_approvals is None:
+            return self._read_open_approvals()
+        return self._open_approvals
+
     def _read_run_candidates(self, pr_numbers: set[int]) -> None:
         """The approvals each pull request's newest completed run per run type counted, in one query."""
         missing = pr_numbers - set(self._run_candidates)
@@ -255,7 +260,7 @@ class _LedgerAdvancer:
     def landing_set(self, pr_number: int) -> list[BaselineApproval]:
         """The open approvals of the pull request, and those its newest completed runs counted as candidates."""
         self._read_run_candidates({pr_number})
-        open_approvals = self._open_approvals if self._open_approvals is not None else self._read_open_approvals()
+        open_approvals = self._known_open_approvals()
         candidate_ids = self._run_candidates[pr_number]
         return [
             approval for approval in open_approvals if approval.pr_number == pr_number or approval.id in candidate_ids
@@ -299,7 +304,7 @@ class _LedgerAdvancer:
             and pull_request.base_ref == self._require_default_branch()
         )
 
-    def _plan_from_commit_pulls(self, commit_sha: str) -> _CommitPlan:
+    def _plan_from_commit_pulls(self, commit_sha: str, first_seen_at: datetime) -> _CommitPlan:
         pull_requests = github_api.merged_pull_requests_for_commit(self.repo, commit_sha, self.priority)
         if pull_requests is None:
             raise errors.BaselineAdvanceError(f"GitHub did not list the pull requests of commit {commit_sha}.")
@@ -308,11 +313,16 @@ class _LedgerAdvancer:
             if pull_request.base_ref == default_branch and pull_request.head_sha:
                 landing = self.plan_landing(pull_request.number, pull_request.head_sha)
                 return _CommitPlan(pr_number=pull_request.number, resolved=landing is not None, landing=landing)
+        # GitHub links a new commit to its pull request with a short delay, so an empty list for a commit
+        # seen moments ago can still change. Without an open approval nothing can land, so nothing waits.
+        seen_recently = first_seen_at >= self.now - RECENTLY_UNRESOLVED_WINDOW
+        if not pull_requests and seen_recently and self._known_open_approvals():
+            return _CommitPlan(pr_number=None, resolved=False)
         return _CommitPlan(pr_number=None, resolved=True)
 
-    def plan_commit(self, commit_sha: str, named_pr: int | None) -> _CommitPlan:
+    def plan_commit(self, commit_sha: str, named_pr: int | None, first_seen_at: datetime) -> _CommitPlan:
         if named_pr is None:
-            return self._plan_from_commit_pulls(commit_sha)
+            return self._plan_from_commit_pulls(commit_sha, first_seen_at)
         # Most commits stop here: a pull request without approvals needs no proof that it is the one.
         if not self.landing_set(named_pr):
             return _CommitPlan(pr_number=named_pr, resolved=True)
@@ -322,7 +332,7 @@ class _LedgerAdvancer:
             return _CommitPlan(pr_number=named_pr, resolved=landing is not None, landing=landing)
         if pull_request.state == "open":
             return _CommitPlan(pr_number=named_pr, resolved=False)
-        return self._plan_from_commit_pulls(commit_sha)
+        return self._plan_from_commit_pulls(commit_sha, first_seen_at)
 
     def _forget(self, approval_ids: set[UUID]) -> None:
         if self._open_approvals is not None:
@@ -496,7 +506,9 @@ class _LedgerAdvancer:
         if not unresolved:
             return
         self._read_run_candidates({commit.pr_number for commit in unresolved if commit.pr_number is not None})
-        plans = [(commit, self.plan_commit(commit.commit_sha, commit.pr_number)) for commit in unresolved]
+        plans = [
+            (commit, self.plan_commit(commit.commit_sha, commit.pr_number, commit.created_at)) for commit in unresolved
+        ]
         with transaction.atomic(using=WRITER_DB):
             ledger.lock_ledger(self.repo.id)
             self._read_open_approvals()
@@ -526,7 +538,7 @@ class _LedgerAdvancer:
                 (commit, named_pull_request(commit.subject)) for commit in self._new_commits(cursor_sha, head_sha)
             ]
             self._read_run_candidates({named_pr for _commit, named_pr in commits if named_pr is not None})
-            plans = [(commit, self.plan_commit(commit.sha, named_pr)) for commit, named_pr in commits]
+            plans = [(commit, self.plan_commit(commit.sha, named_pr, self.now)) for commit, named_pr in commits]
             self._write_new_commits(plans)
         self._retry_unresolved()
 

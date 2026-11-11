@@ -546,7 +546,6 @@ class TestAdvance:
     @pytest.mark.parametrize(
         ("name", "subject", "commit_pulls", "expected_pr", "expected_state"),
         [
-            ("direct_push", "chore: direct push", [], None, BaselineApprovalState.OPEN),
             (
                 "subject_names_a_different_merge",
                 "feat: thing (#7)",
@@ -572,6 +571,40 @@ class TestAdvance:
         commit = BaselineCommit.objects.get(repo=repo, commit_sha="s1")
         assert (commit.pr_number, commit.resolved) == (expected_pr, True)
         assert _state(approval)[0] == expected_state
+
+    @pytest.mark.parametrize(
+        ("name", "approve_first", "recorded_ago", "pulls_later", "first_pass", "commit_after", "button_at_position"),
+        [
+            (
+                "github_links_the_pull_request_later",
+                True,
+                timedelta(0),
+                [github_api.MergedPullRequest(number=9, base_ref="master", head_sha="head-9")],
+                (False, 1),
+                (9, True),
+                "b9",
+            ),
+            ("still_unlinked_after_the_window", True, timedelta(minutes=10), [], (False, 1), (None, True), "b0"),
+            ("no_open_approval_in_the_repo", False, timedelta(0), [], (True, 0), (None, True), "b0"),
+        ],
+    )
+    def test_a_new_commit_github_has_not_linked_yet_waits_while_an_approval_is_open(
+        self, repo, github, name, approve_first, recorded_ago, pulls_later, first_pass, commit_after, button_at_position
+    ) -> None:
+        if approve_first:
+            approve(repo, 9, "Button", "b9")
+        github.push("s1", "Merge branch 'feature'")
+
+        first = ledger_advance.advance(repo)
+        first_resolved = BaselineCommit.objects.get(repo=repo, commit_sha="s1").resolved
+        BaselineCommit.objects.filter(repo=repo, commit_sha="s1").update(created_at=timezone.now() - recorded_ago)
+        github.commit_pulls["s1"] = pulls_later
+        ledger_advance.advance(repo)
+
+        commit = BaselineCommit.objects.get(repo=repo, commit_sha="s1")
+        assert (first_resolved, first.commits_unresolved_recently) == first_pass
+        assert (commit.pr_number, commit.resolved) == commit_after
+        assert ledger.ledger_at(repo.id, RunType.STORYBOOK, commit.position)["Button"] == button_at_position
 
     def test_commits_of_pull_requests_with_nothing_to_land_cost_one_compare(self, repo, github) -> None:
         for number in range(1, 6):
