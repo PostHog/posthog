@@ -263,6 +263,19 @@ function pickThrottleRetryDelayMs(): number {
     return 500 + Math.floor(Math.random() * 500)
 }
 
+function sendingProviderOf(integration: IntegrationType): 'ses' | 'maildev' {
+    const provider = integration.config.provider ?? 'ses'
+    if (provider === 'unsupported') {
+        throw new Error('Email delivery mode not supported')
+    }
+    if (provider !== 'ses' && provider !== 'maildev') {
+        throw new Error(
+            "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+        )
+    }
+    return provider
+}
+
 const workflowEmailRateLimitedTotal = new Counter({
     name: 'cdp_workflow_email_rate_limited_total',
     help: 'Email sends delayed by a user-configured per-workflow sending rate limit.',
@@ -784,6 +797,8 @@ export class EmailService {
             // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
 
+            const provider = sendingProviderOf(integration)
+
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
@@ -883,25 +898,19 @@ export class EmailService {
                 : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
 
-            switch (integration.config.provider ?? 'ses') {
-                case 'maildev':
-                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
-                    break
-                case 'ses':
-                    messageId = await this.sendEmailWithSES(
-                        result,
-                        sendParams,
-                        from,
-                        trackingEnabled,
-                        isTest,
-                        queueWait,
-                        files,
-                        deadline
-                    )
-                    break
-
-                case 'unsupported':
-                    throw new Error('Email delivery mode not supported')
+            if (provider === 'maildev') {
+                await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
+            } else {
+                messageId = await this.sendEmailWithSES(
+                    result,
+                    sendParams,
+                    from,
+                    trackingEnabled,
+                    isTest,
+                    queueWait,
+                    files,
+                    deadline
+                )
             }
 
             // Emit the `[Email:…]` token in the success log only when an asset row
