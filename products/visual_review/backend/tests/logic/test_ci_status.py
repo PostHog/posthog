@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 import pytest
+from unittest.mock import MagicMock
 
 from django.utils import timezone
 
@@ -43,6 +44,30 @@ from products.visual_review.backend.tests.logic.ledger_fakes import (
     move_ledger,
     set_baseline_mode,
 )
+
+
+@pytest.mark.parametrize(
+    ("lookup_error", "expected"),
+    [
+        pytest.param(None, ci_status.StatusPost.POSTED, id="posted"),
+        pytest.param(
+            errors.GitHubIntegrationNotFoundError("no integration"), ci_status.StatusPost.SKIPPED, id="no_integration"
+        ),
+        pytest.param(RuntimeError("lookup failed"), ci_status.StatusPost.REFUSED, id="lookup_failed"),
+    ],
+)
+def test_send_commit_status(mocker, lookup_error, expected) -> None:
+    github = MagicMock()
+    github.api_request.return_value = MagicMock(status_code=201)
+    mocker.patch.object(
+        ci_status.github_api, "get_github_integration_for_repo", return_value=github, side_effect=lookup_error
+    )
+
+    posted = ci_status._send_commit_status(
+        Repo(repo_full_name="org/repo"), "a" * 40, context="ctx", state="success", description="ok", target_url=None
+    )
+
+    assert posted == expected
 
 
 @pytest.mark.django_db(transaction=True, databases=PRODUCT_DATABASES)
