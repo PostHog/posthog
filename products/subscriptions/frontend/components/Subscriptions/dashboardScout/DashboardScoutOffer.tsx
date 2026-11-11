@@ -24,8 +24,9 @@ export function DashboardScoutOffer({ onSetUp, disabledReason }: DashboardScoutO
                         </LemonTag>
                     </div>
                     <div className="text-xs text-secondary">
-                        An agent reads this dashboard on a schedule and posts what changed in Slack, with the detail in
-                        a thread. It remembers earlier updates.
+                        Get a message in Slack about what changed on this dashboard, with the likely cause. A scout
+                        learns what is normal over time and follows the notes you leave it. Its inbox reports pull in
+                        related data from across your project, and your code when GitHub is connected.
                     </div>
                 </div>
                 <LemonButton
