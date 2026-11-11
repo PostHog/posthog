@@ -477,6 +477,7 @@ type CyclotronV2JobData = Pick<
     | 'parentRunId'
     | 'state'
     | 'cancelRequestedAt'
+    | 'pendingWake'
 >
 
 export function v2JobToInvocation(job: CyclotronV2JobData): CyclotronJobInvocation {
@@ -511,6 +512,10 @@ export function v2JobToInvocation(job: CyclotronV2JobData): CyclotronJobInvocati
 
     if (job.cancelRequestedAt) {
         invocation.cancelRequestedAt = job.cancelRequestedAt
+    }
+
+    if (job.pendingWake) {
+        invocation.pendingWake = job.pendingWake
     }
 
     return invocation

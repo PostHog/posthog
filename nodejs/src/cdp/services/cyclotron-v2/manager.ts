@@ -257,7 +257,8 @@ export class CyclotronV2Manager {
                  distinct_id = EXCLUDED.distinct_id,
                  person_id = EXCLUDED.person_id,
                  action_id = EXCLUDED.action_id,
-                 cancel_requested_at = NULL
+                 cancel_requested_at = NULL,
+                 pending_wake = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                RETURNING id`
             : 'RETURNING id'
@@ -366,7 +367,8 @@ export class CyclotronV2Manager {
                  person_id = EXCLUDED.person_id,
                  action_id = EXCLUDED.action_id,
                  dequeue_seq = EXCLUDED.dequeue_seq,
-                 cancel_requested_at = NULL
+                 cancel_requested_at = NULL,
+                 pending_wake = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                RETURNING id`
             : 'RETURNING id'
