@@ -10,7 +10,8 @@ function recursiveRemoveFilterObject(properties: Record<string, any>, propertyTo
     // if we've reached the final filter part, then we can remove the key if it exists
     // otherwise recursively go down the properties object with the remaining filter parts
     const currentKey = propertyToFilterParts.shift()
-    if (currentKey != undefined && currentKey in properties) {
+    // An own-property check, so that a path such as `__proto__.toString` cannot reach and delete a built-in.
+    if (currentKey != undefined && Object.hasOwn(properties, currentKey)) {
         if (propertyToFilterParts.length == 0) {
             delete properties[currentKey]
         } else {
