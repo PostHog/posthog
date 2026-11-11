@@ -32,7 +32,7 @@ function TodaySelfDrivingVerdict({ quietRow }: { quietRow: QuietRowRenderer }): 
         return <Skeleton className="h-12 w-full" />
     }
     if (!computeIsSelfDrivingSetUp(enabledSourcesCount, scoutConfigs ?? [])) {
-        return <>{quietRow(!sourceConfigsLoadFailed)}</>
+        return <>{quietRow(!sourceConfigsLoadFailed && scoutConfigs !== null)}</>
     }
     return (
         <ol className="TodayRows">

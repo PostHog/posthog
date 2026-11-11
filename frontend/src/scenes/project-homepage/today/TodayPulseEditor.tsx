@@ -218,7 +218,7 @@ export function TodayPulseEditor(): JSX.Element {
                                         return <IgnoredItem key={key} value={key} row={ignored} />
                                     }
                                     const pinned = pinnedKeys.has(key)
-                                    return (
+                                    const item = (
                                         <ComboboxItem
                                             key={key}
                                             value={key}
@@ -228,14 +228,15 @@ export function TodayPulseEditor(): JSX.Element {
                                             }
                                             data-attr="today-pulse-pin"
                                         >
-                                            {key.startsWith('insight:') ? (
-                                                <TodayPulseInsightHover shortId={key.slice('insight:'.length)}>
-                                                    {rowByKey.get(key)?.name}
-                                                </TodayPulseInsightHover>
-                                            ) : (
-                                                <span className="min-w-0 truncate">{rowByKey.get(key)?.name}</span>
-                                            )}
+                                            <span className="min-w-0 truncate">{rowByKey.get(key)?.name}</span>
                                         </ComboboxItem>
+                                    )
+                                    return key.startsWith('insight:') ? (
+                                        <TodayPulseInsightHover key={key} shortId={key.slice('insight:'.length)}>
+                                            {item}
+                                        </TodayPulseInsightHover>
+                                    ) : (
+                                        item
                                     )
                                 }}
                             </ComboboxCollection>
