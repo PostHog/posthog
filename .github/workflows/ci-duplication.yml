@@ -24,7 +24,8 @@ permissions:
 jobs:
     duplication:
         name: Duplication lint
-        runs-on: depot-ubuntu-24.04
+        # Self-hosted runners must never run fork code, so forks always stay on Depot.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && vars.DUPLICATION_LINT_RUNNER || 'depot-ubuntu-24.04' }}
         timeout-minutes: 10
         steps:
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
