@@ -2972,16 +2972,18 @@ def _inline_sync_to_async(fn: Any, **_: Any) -> Any:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "failing_step, expect_error",
+    "failing_step, expect_error, stall_asset",
     [
         # The network capture is a side input, so the scan runs without it.
-        ("fetch_session_network", False),
-        ("fetch_session_events", True),
-        ("resolve_experiment_variant", True),
+        ("fetch_session_network", False, False),
+        ("fetch_session_events", True, False),
+        ("resolve_experiment_variant", True, False),
+        # An ineligible session must not wait out a stalled sibling, or the retries end it as failed.
+        ("fetch_session_events", True, True),
     ],
 )
 async def test_prepare_observation_activity_only_absorbs_a_network_failure(
-    failing_step: str, expect_error: bool
+    failing_step: str, expect_error: bool, stall_asset: bool
 ) -> None:
     observation_id = uuid.uuid4()
     async_steps = {
@@ -2998,6 +3000,12 @@ async def test_prepare_observation_activity_only_absorbs_a_network_failure(
         applicable=True, experiment_variant="test"
     )
     async_steps[failing_step].side_effect = IneligibleSessionError("unexposed", kind=IneligibleSessionKind.NOT_EXPOSED)
+    if stall_asset:
+
+        async def stall(_: object) -> None:
+            await asyncio.Event().wait()
+
+        async_steps["ensure_session_asset"].side_effect = stall
     mark_running = MagicMock()
     with ExitStack() as stack:
         stack.enter_context(patch(f"{_APPLY_STEPS}.mark_observation_running", mark_running))
@@ -3010,7 +3018,7 @@ async def test_prepare_observation_activity_only_absorbs_a_network_failure(
         )
         if expect_error:
             with pytest.raises(IneligibleSessionError):
-                await call
+                await asyncio.wait_for(call, timeout=5)
             return
         output = await call
 

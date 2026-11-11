@@ -1,8 +1,8 @@
 """Folded apply-scanner steps: Temporal bills each scheduled activity, so the cheap steps around the model call share one."""
 
 import asyncio
-from collections.abc import Awaitable, Callable
-from typing import ParamSpec, TypeVar
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Any, ParamSpec, TypeVar
 
 from temporalio import activity
 
@@ -75,28 +75,30 @@ async def prepare_observation_activity(inputs: PrepareObservationInputs) -> Prep
         if inputs.resolve_experiment
         else _none()
     )
-    # Every step runs to its end before an error is raised, so no step keeps running after the attempt fails.
-    fetched, asset, network, resolution = await asyncio.gather(
-        fetch_session_events(
-            FetchSessionEventsInputs(observation_id=observation_id, team_id=team_id, session_id=session_id)
+    steps = [
+        asyncio.ensure_future(
+            fetch_session_events(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=team_id, session_id=session_id)
+            )
         ),
-        ensure_session_asset(EnsureSessionAssetInputs(team_id=team_id, session_id=session_id)),
-        asyncio.wait_for(
-            fetch_session_network(
-                FetchSessionNetworkInputs(observation_id=observation_id, team_id=team_id, session_id=session_id)
-            ),
-            _NETWORK_FETCH_TIMEOUT_SECONDS,
+        asyncio.ensure_future(ensure_session_asset(EnsureSessionAssetInputs(team_id=team_id, session_id=session_id))),
+        asyncio.ensure_future(
+            asyncio.wait_for(
+                fetch_session_network(
+                    FetchSessionNetworkInputs(observation_id=observation_id, team_id=team_id, session_id=session_id)
+                ),
+                _NETWORK_FETCH_TIMEOUT_SECONDS,
+            )
         ),
-        resolve,
-        return_exceptions=True,
-    )
+        asyncio.ensure_future(resolve),
+    ]
+    # The network capture is left out: any error from it, ineligible included, is absorbed below.
+    await _raise_ineligible_early([steps[0], steps[1], steps[3]])
+    # Other errors wait for every step to end, so no step keeps running after the attempt fails.
+    fetched, asset, network, resolution = await asyncio.gather(*steps, return_exceptions=True)
     if isinstance(network, BaseException):
         # The network capture is a side input that the scan can run without.
         activity.logger.warning("replay_vision.network_fetch_failed", exc_info=network)
-    # An ineligible session is final, so it wins over an error that would only retry the activity.
-    for result in (resolution, fetched, asset):
-        if isinstance(result, IneligibleSessionError):
-            raise result
     if isinstance(fetched, BaseException):
         raise fetched
     if isinstance(asset, BaseException):
@@ -108,6 +110,30 @@ async def prepare_observation_activity(inputs: PrepareObservationInputs) -> Prep
 
 async def _none() -> None:
     return None
+
+
+async def _raise_ineligible_early(steps: Sequence[asyncio.Future[Any]]) -> None:
+    """An ineligible session is final, so raise it as soon as any step reports it and cancel the rest.
+
+    Waiting for a stalled sibling would run the attempt into its timeout, and the retries would end the
+    observation as failed instead of ineligible.
+    """
+    pending = set(steps)
+    while pending:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_EXCEPTION)
+        ineligible = next(
+            (
+                step.exception()
+                for step in done
+                if not step.cancelled() and isinstance(step.exception(), IneligibleSessionError)
+            ),
+            None,
+        )
+        if ineligible is not None:
+            for step in pending:
+                step.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            raise ineligible
 
 
 @activity.defn
