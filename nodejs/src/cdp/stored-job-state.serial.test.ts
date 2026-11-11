@@ -11,6 +11,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { assertTestDatabaseName } from '~/tests/helpers/database-guard'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -56,9 +57,10 @@ function workflowFor(scenario: string): Workflow {
                 type: 'trigger',
                 config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
             },
-            ...(parking ? { park: parking } : {}),
+            ...(parking ? { park: { ...parking, on_error: 'abort' } } : {}),
             fetch: {
                 type: 'function',
+                on_error: 'abort',
                 config: {
                     template_id: FETCH_TEMPLATE_ID,
                     inputs: { url: { value: fetchedUrl(scenario) }, method: { value: 'POST' } },
@@ -152,8 +154,10 @@ describe('Stored Cyclotron job state', () => {
     let worker: CdpCyclotronWorkerHogFlow | undefined
     let deps: ReturnType<typeof createCdpConsumerDeps>
 
-    beforeAll(() => {
+    beforeAll(async () => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
+        const { rows } = await cyclotronPool.query('SELECT current_database() AS name')
+        assertTestDatabaseName(rows[0].name, 'Cyclotron node Postgres')
         manager = new CyclotronV2Manager({ pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 2 } })
     })
 
