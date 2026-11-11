@@ -33,7 +33,7 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _pick_interval, time_range_expr
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
-from products.metrics.backend.metrics4_samples import reads_metrics4_only, series_in_range_query
+from products.metrics.backend.metrics4_samples import not_stale_marker_expr, reads_metrics4_only, series_in_range_query
 
 # How many label keys to drill into and how many movers to report.
 MAX_CANDIDATE_KEYS = 4
@@ -234,10 +234,12 @@ def _series_in_range(metric_name: str, date_from: dt.datetime, date_to: dt.datet
             FROM posthog.metrics
             WHERE metric_name = {metric_name}
               AND {time_range}
+              AND {not_stale}
         """,
         placeholders={
             "metric_name": ast.Constant(value=metric_name),
             "time_range": time_range_expr(date_from, date_to),
+            "not_stale": not_stale_marker_expr(),
         },
     )
     assert isinstance(query, ast.SelectQuery)
