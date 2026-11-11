@@ -29,6 +29,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.constants import AvailableFeature
 from posthog.errors import (
     CHQueryErrorNoCommonType,
     CHQueryErrorNotAnAggregate,
@@ -2790,6 +2791,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             last_run_at=timezone.now() - timedelta(hours=2),
         )
 
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
         with (
             mock.patch(
                 "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
@@ -2797,7 +2803,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                     key="data-modeling-refresh-floor",
                     enabled=True,
                     variant=None,
-                    payload={"min_interval": "6hour", "clamp_existing": True},
+                    payload={"clamp_existing": True},
                     reason=None,
                 ),
             ),

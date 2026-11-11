@@ -16,6 +16,8 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
+from posthog.constants import AvailableFeature
+
 from products.data_modeling.backend.facade.api import set_declared_target
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.endpoints.backend.logic.materialization import build_materialization_info
@@ -545,17 +547,27 @@ class TestEndpointThrottles(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("clamped_view_serves_until_its_next_run", "6hour", True, timedelta(hours=2), True),
-            ("clamped_view_goes_stale_past_the_floor", "6hour", True, timedelta(hours=7), False),
-            ("unclamped_view_keeps_its_declared_window", "6hour", False, timedelta(hours=2), False),
-            ("finer_floor_keeps_the_declared_window", "15min", True, timedelta(hours=2), False),
-            ("unreadable_floor_keeps_the_declared_window", "6 hours", True, timedelta(hours=2), False),
-            ("view_with_no_cadence_keeps_its_cache_ttl", "6hour", True, timedelta(hours=2), False, None),
+            ("clamped_view_serves_until_its_next_run", 360, True, timedelta(hours=2), True),
+            ("clamped_view_goes_stale_past_the_floor", 360, True, timedelta(hours=7), False),
+            ("unclamped_view_keeps_its_declared_window", 360, False, timedelta(hours=2), False),
+            ("finer_floor_keeps_the_declared_window", 15, True, timedelta(hours=2), False),
+            ("unreadable_floor_keeps_the_declared_window", 5, True, timedelta(hours=2), False),
+            ("view_with_no_cadence_keeps_its_cache_ttl", 360, True, timedelta(hours=2), False, None),
         ]
     )
     def test_plan_floor_sets_the_serving_window_only_when_the_scheduler_applies_it(
-        self, name, min_interval, clamp_existing, materialized_age, expected_serving, declared_target=timedelta(hours=1)
+        self,
+        name,
+        floor_minutes,
+        clamp_existing,
+        materialized_age,
+        expected_serving,
+        declared_target=timedelta(hours=1),
     ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": floor_minutes}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
         _create_ready_materialized_endpoint(
             self.team, self.user, name, timezone.now() - materialized_age, declared_target
         )
@@ -573,7 +585,7 @@ class TestEndpointThrottles(APIBaseTest):
                 key="data-modeling-refresh-floor",
                 enabled=True,
                 variant=None,
-                payload={"min_interval": min_interval, "clamp_existing": clamp_existing},
+                payload={"clamp_existing": clamp_existing},
                 reason=None,
             ),
         ):
@@ -677,6 +689,10 @@ class TestMaterializationStateCacheTimeout(APIBaseTest):
         self.assertAlmostEqual(timeout, expected_timeout, delta=5)
 
     def test_snapshot_serving_on_the_plan_floor_rechecks_soon(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
         _create_ready_materialized_endpoint(
             self.team, self.user, "clamped_timed_endpoint", timezone.now() - timedelta(hours=2), timedelta(hours=1)
         )
@@ -688,7 +704,7 @@ class TestMaterializationStateCacheTimeout(APIBaseTest):
                     key="data-modeling-refresh-floor",
                     enabled=True,
                     variant=None,
-                    payload={"min_interval": "6hour", "clamp_existing": True},
+                    payload={"clamp_existing": True},
                     reason=None,
                 ),
             ),
