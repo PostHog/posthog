@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
+import { retryIfRetriable } from '~/common/utils/retries'
 
 import { HogFlow } from '../schema/hogflow'
 import type { CyclotronV2Manager } from '../services/cyclotron-v2'
@@ -34,9 +35,9 @@ const deadlineFailuresCounter = new Counter({
     labelNames: ['kind'] as const,
 })
 
-const claimRetriesCounter = new Counter({
-    name: 'cdp_intake_claim_retries_total',
-    help: 'Intake claims retried after a cyclotron Postgres error.',
+const claimErrorsCounter = new Counter({
+    name: 'cdp_intake_claim_errors_total',
+    help: 'Intake claims that hit a cyclotron Postgres error. The claim retries until its time runs out, then the batch fails.',
     labelNames: ['kind'] as const,
 })
 
@@ -198,31 +199,28 @@ async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, optio
     })
 }
 
-async function claimWithRetry(
+function claimWithRetry(
     inputs: Parameters<IntakeBatchServices['cyclotron']['createJobsIdempotently']>[0],
     cyclotron: IntakeBatchServices['cyclotron'],
     { kind, claimRetry }: IntakeBatchOptions
 ): Promise<CyclotronV2IdempotentOutcome[]> {
-    const startedAt = Date.now()
-    let delayMs = claimRetry.initialDelayMs
-    for (;;) {
-        try {
-            return await cyclotron.createJobsIdempotently(inputs)
-        } catch (error) {
-            if (Date.now() - startedAt + delayMs > claimRetry.maxElapsedMs) {
+    return retryIfRetriable(
+        () =>
+            cyclotron.createJobsIdempotently(inputs).catch((error: unknown) => {
+                claimErrorsCounter.labels({ kind }).inc()
+                logger.warn('[CdpIntake] An intake claim hit a cyclotron Postgres error', {
+                    kind,
+                    runs: inputs.length,
+                    error: error instanceof Error ? error.message : String(error),
+                })
                 throw error
-            }
-            claimRetriesCounter.labels({ kind }).inc()
-            logger.warn('[CdpIntake] Retrying an intake claim after a cyclotron Postgres error', {
-                kind,
-                runs: inputs.length,
-                delay_ms: delayMs,
-                error: error instanceof Error ? error.message : String(error),
-            })
-            await new Promise((resolve) => setTimeout(resolve, delayMs))
-            delayMs *= 2
+            }),
+        {
+            tries: Number.POSITIVE_INFINITY,
+            sleepMs: claimRetry.initialDelayMs,
+            softDeadlineMs: claimRetry.maxElapsedMs,
         }
-    }
+    )
 }
 
 function queueSend({ message }: IntakeRun, emailStatus: IntakeBatchServices['emailStatus']): void {
