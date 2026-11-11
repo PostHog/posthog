@@ -4,6 +4,7 @@ import {
     actions,
     afterMount,
     connect,
+    getContext,
     kea,
     listeners,
     path,
@@ -410,6 +411,21 @@ async function listAllFiles(
             return entries
         }
     }
+}
+
+// A folder move is queued in two steps, a count check and then the move. The second step is queued in the same
+// tick that clears the first, so the check waits for that tick before calling the move settled.
+function whenSettled(isPending: () => boolean): Promise<void> {
+    return new Promise((resolve) => {
+        const settle = (): void => {
+            if (!isPending()) {
+                unsubscribe()
+                resolve()
+            }
+        }
+        const unsubscribe = getContext().store.subscribe(() => queueMicrotask(settle))
+        settle()
+    })
 }
 
 function changeCount(cache: Record<string, any>): number {
@@ -1233,16 +1249,18 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 })
             }
         },
-        renameFolder: ({ folder, name }) => {
+        renameFolder: async ({ folder, name }) => {
             const entry = values.savedItems.find((item) => item.type === 'folder' && item.path === folder)
-            if (entry && !values.folderMutationDisabledReason(folder)) {
-                projectTreeDataLogic.actions.moveItem(
-                    entry,
-                    joinPath([...splitPath(parentPath(folder)), name.trim()]),
-                    false,
-                    WORKFLOW_FOLDERS_TREE_KEY
-                )
+            if (!entry || values.folderMutationDisabledReason(folder)) {
+                return
             }
+            projectTreeDataLogic.actions.moveItem(
+                entry,
+                joinPath([...splitPath(parentPath(folder)), name.trim()]),
+                false,
+                WORKFLOW_FOLDERS_TREE_KEY
+            )
+            await whenSettled(() => !!values.folderMutationDisabledReason(folder))
         },
         openFolder: ({ folder }) => {
             actions.setValue({
