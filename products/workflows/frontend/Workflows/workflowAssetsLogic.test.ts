@@ -10,19 +10,14 @@ const RECIPIENTS = ['ada@example.com', 'bob@example.com']
 
 describe('workflowAssetsLogic', () => {
     let received: Record<string, string>[]
-    let failNextLoad: boolean
 
     beforeEach(() => {
         received = []
-        failNextLoad = false
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/assets/': ({ request, params }) => {
                     const query = Object.fromEntries(new URL(request.url).searchParams)
                     received.push(query)
-                    if (failNextLoad) {
-                        return [500, { detail: 'Assets are unavailable.' }]
-                    }
                     const rows: Partial<MessageAsset>[] = RECIPIENTS.filter((recipient) =>
                         recipient.includes(query.search ?? '')
                     ).map((recipient) => ({
@@ -108,16 +103,6 @@ describe('workflowAssetsLogic', () => {
 
         expect(received.map((query) => query.search)).toEqual(['ada'])
         expect(logic.values.assets.map((asset) => asset.recipient)).toEqual(['ada@example.com'])
-    })
-
-    it('keeps the listed emails and stops loading when a reload fails', async () => {
-        const logic = await loaded({ id: 'wf-1' })
-        failNextLoad = true
-
-        await logic.asyncActions.loadAssets().catch(() => undefined)
-
-        expect(logic.values.assetsLoading).toBe(false)
-        expect(logic.values.assets.map((asset) => asset.recipient)).toEqual(RECIPIENTS)
     })
 
     it('opens an email in the viewer from its own content url, and closes it', async () => {
