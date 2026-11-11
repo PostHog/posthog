@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -436,6 +437,8 @@ class TestWarehouseAlerts(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    # The response's 24-hour state bar ends at the request's time, so the create and the read share one clock.
+    @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
     def test_an_alert_and_its_slack_destination_route_a_failure_to_that_channel(self) -> None:
         schema = self._schema(self._source(), "charges", Status.FAILED)
 
