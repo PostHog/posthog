@@ -1,8 +1,10 @@
 import { IconClock } from '@posthog/icons'
 import { LemonBanner, LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { shortTimeZone } from 'lib/utils/timezones'
 
 import { Experiment } from '~/types'
 
@@ -94,6 +96,48 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUse
         shouldAwaitSubmit: true,
         primaryButton: {
             children: 'Freeze exposure',
+            type: 'primary',
+            onClick: () => onConfirm(),
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
+}
+
+/** `projectTimezone` is the one the health findings name their dates in, so the dialog shows the same date. */
+export function confirmMoveStartDate({
+    currentStartDate,
+    newStartDate,
+    projectTimezone,
+    onConfirm,
+}: {
+    currentStartDate: string
+    newStartDate: string
+    projectTimezone: string
+    onConfirm: () => Promise<void>
+}): void {
+    const date = (time: string): string => {
+        const at = dayjs(time).tz(projectTimezone)
+        return `${at.format('MMMM D, YYYY [at] h:mm A')} ${shortTimeZone(projectTimezone, at.toDate()) ?? projectTimezone}`
+    }
+    LemonDialog.open({
+        title: 'Move the start date?',
+        content: (
+            <div className="text-sm text-secondary max-w-md">
+                <p>
+                    The start date moves from {date(currentStartDate)} to {date(newStartDate)}. The results will leave
+                    out the exposures in between.
+                </p>
+                <p>Your users see no change, and you can move the start date back later.</p>
+            </div>
+        ),
+        shouldAwaitSubmit: true,
+        primaryButton: {
+            children: 'Move start date',
             type: 'primary',
             onClick: () => onConfirm(),
             size: 'small',

@@ -2455,6 +2455,7 @@ export const ExperimentHealthFindingSeverityEnumApi = {
  * * `edit_release_conditions` - Edit Release Conditions
  * * `end_experiment` - End Experiment
  * * `freeze_exposure` - Freeze Exposure
+ * * `move_start_date` - Move Start Date
  */
 export type ExperimentHealthFindingActionKindEnumApi =
     (typeof ExperimentHealthFindingActionKindEnumApi)[keyof typeof ExperimentHealthFindingActionKindEnumApi]
@@ -2470,6 +2471,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
     EditReleaseConditions: 'edit_release_conditions',
     EndExperiment: 'end_experiment',
     FreezeExposure: 'freeze_exposure',
+    MoveStartDate: 'move_start_date',
 } as const
 
 /**

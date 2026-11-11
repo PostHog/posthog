@@ -141,7 +141,11 @@ def change_finding(
     kind_evidence: Mapping[str, EvidenceValue],
     diagnostic_ref: str,
     reason: str | None = None,
+    suggested_start_date: datetime | None = None,
+    end_experiment: bool = False,
 ) -> ExperimentHealthFinding:
+    """`suggested_start_date` is the start date that the sentences name, from `suggested_start_at`. The page's button
+    moves the start date to this value, so the two must agree."""
     return ExperimentHealthFinding(
         code=code,
         subcode=subcode,
@@ -155,8 +159,18 @@ def change_finding(
             ),
             # pinned: capped at MIN_EXPOSED_UNITS_TO_WARN, so the cap means "at least". None when unknown.
             "units_exposed_before_last_change": history.exposed_units_before_last.get(kind),
+            # pinned: the start date that MOVE_START_DATE sets, in UTC.
+            **(
+                {"suggested_start_date": suggested_start_date.astimezone(UTC).isoformat()}
+                if suggested_start_date is not None
+                else {}
+            ),
         },
-        actions=(ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,),
+        actions=(
+            *((ExperimentHealthFindingActionKind.MOVE_START_DATE,) if suggested_start_date is not None else ()),
+            *((ExperimentHealthFindingActionKind.END_EXPERIMENT,) if end_experiment else ()),
+            ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+        ),
         diagnostic_ref=diagnostic_ref,
     )
 
