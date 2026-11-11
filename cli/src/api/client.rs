@@ -139,11 +139,9 @@ impl Display for ClientError {
             ClientError::InvalidUrl(msg) => {
                 write!(f, "Failed to build URL: {msg}")
             }
-            ClientError::ApiError(status, url, body) => write!(
-                f,
-                "{}",
-                api_error_message(*status, url, body, detailed_diagnostics())
-            ),
+            ClientError::ApiError(status, url, body) => {
+                write!(f, "{}", describe_api_failure(*status, url, body))
+            }
         }
     }
 }
@@ -154,6 +152,12 @@ struct ApiErrorResponse {
     code: String,
     detail: String,
     attr: Option<String>,
+}
+
+// The text of a failed PostHog API call, for every path that reports one. PostHog's error shows only
+// outside CI, as `detailed_diagnostics` decides.
+pub fn describe_api_failure(status: u16, url: &Url, body: &str) -> String {
+    api_error_message(status, url, body, detailed_diagnostics())
 }
 
 // Only a body in PostHog's error shape is ever shown. Any other body can be a proxy page or text

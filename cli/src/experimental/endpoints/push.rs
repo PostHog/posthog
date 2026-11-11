@@ -335,10 +335,8 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                     Ok(r) => r,
                     Err(e) => {
                         crate::safe_println!(
-                            "{} Failed to resolve variables for {}: {}",
-                            "✗".red(),
-                            endpoint.name,
-                            e
+                            "{}",
+                            failure_line("resolve variables for", &endpoint.name, &e)
                         );
                         continue;
                     }
@@ -353,12 +351,7 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                         success_count += 1;
                     }
                     Err(e) => {
-                        crate::safe_println!(
-                            "{} Failed to create {}: {}",
-                            "✗".red(),
-                            endpoint.name,
-                            e
-                        );
+                        crate::safe_println!("{}", failure_line("create", &endpoint.name, &e));
                     }
                 }
             }
@@ -377,10 +370,8 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                     Ok(r) => r,
                     Err(e) => {
                         crate::safe_println!(
-                            "{} Failed to resolve variables for {}: {}",
-                            "✗".red(),
-                            local.name,
-                            e
+                            "{}",
+                            failure_line("resolve variables for", &local.name, &e)
                         );
                         continue;
                     }
@@ -395,12 +386,7 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                         success_count += 1;
                     }
                     Err(e) => {
-                        crate::safe_println!(
-                            "{} Failed to update {}: {}",
-                            "✗".red(),
-                            local.name,
-                            e
-                        );
+                        crate::safe_println!("{}", failure_line("update", &local.name, &e));
                     }
                 }
             }
@@ -687,5 +673,39 @@ fn update_endpoint(
             }
             Err(e).context("Failed to update endpoint")
         }
+    }
+}
+
+// `{:#}` prints the whole cause chain. Plain `{}` prints only the outer context, such as "Failed to
+// create endpoint", which drops PostHog's reason for the refusal.
+fn failure_line(action: &str, name: &str, error: &anyhow::Error) -> String {
+    format!("{} Failed to {action} {name}: {error:#}", "✗".red())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::client::ClientError;
+
+    #[test]
+    fn failure_line_keeps_the_api_error_under_the_context() {
+        let refusal = ClientError::ApiError(
+            400,
+            Box::new(
+                reqwest::Url::parse("https://example.com/api/environments/1/endpoints/").unwrap(),
+            ),
+            r#"{"type":"validation_error","code":"invalid","detail":"Name taken.","attr":"name"}"#
+                .to_string(),
+        );
+        let error = anyhow::Error::new(refusal).context("Failed to create endpoint");
+
+        let line = failure_line("create", "demo", &error);
+
+        assert!(
+            line.contains(
+                "Failed to create demo: Failed to create endpoint: API error: status='400'"
+            ),
+            "{line}"
+        );
     }
 }

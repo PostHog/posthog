@@ -6,7 +6,38 @@ use std::{
 };
 
 #[test]
-fn diagnostics_exclude_response_data_and_url_credentials() {
+fn task_failures_show_posthog_details_only_outside_ci_and_never_raw_bodies() {
+    let drf = r#"{"type":"validation_error","code":"invalid","detail":"DETAIL_VALUE","attr":"ATTR_VALUE"}"#;
+
+    for (body, in_ci, shows_detail) in [
+        ("BODY_SECRET", false, false),
+        ("BODY_SECRET", true, false),
+        (drf, false, true),
+        (drf, true, false),
+    ] {
+        let output = run_task_progress(body, in_ci);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(!output.status.success(), "{stderr}");
+        assert!(stderr.contains("500"), "{stderr}");
+        assert!(stderr.contains("/progress/"), "{stderr}");
+        for secret in ["HOST_SECRET", "COOKIE_SECRET", "BODY_SECRET"] {
+            assert!(!stderr.contains(secret), "{stderr}");
+        }
+        assert_eq!(
+            stderr.contains("details='DETAIL_VALUE'"),
+            shows_detail,
+            "in_ci={in_ci}: {stderr}"
+        );
+        assert_eq!(
+            stderr.contains("hidden in CI"),
+            in_ci && body == drf,
+            "in_ci={in_ci}: {stderr}"
+        );
+    }
+}
+
+fn run_task_progress(body: &'static str, in_ci: bool) -> std::process::Output {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
@@ -20,11 +51,12 @@ fn diagnostics_exclude_response_data_and_url_credentials() {
             assert_eq!(stream.read(&mut byte).unwrap(), 1);
             request.push(byte[0]);
         }
-        let body = "BODY_SECRET";
         write!(stream, "HTTP/1.1 500 Internal Server Error\r\nSet-Cookie: session=COOKIE_SECRET\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
     });
+
     let home = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_posthog-cli"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_posthog-cli"));
+    command
         .env_clear()
         .env("HOME", home.path())
         .env("POSTHOG_HOME", home.path())
@@ -40,17 +72,14 @@ fn diagnostics_exclude_response_data_and_url_credentials() {
             "task",
             "progress",
             "11111111-2222-4333-8444-555555555555",
-        ])
-        .output()
-        .unwrap();
-    server.join().unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!output.status.success(), "{stderr}");
-    assert!(stderr.contains("500"), "{stderr}");
-    assert!(stderr.contains("/progress/"), "{stderr}");
-    for secret in ["HOST_SECRET", "COOKIE_SECRET", "BODY_SECRET"] {
-        assert!(!stderr.contains(secret), "{stderr}");
+        ]);
+    if in_ci {
+        command.env("CI", "true");
     }
+    let output = command.output().unwrap();
+
+    server.join().unwrap();
+    output
 }
 
 #[test]

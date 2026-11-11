@@ -13,7 +13,7 @@ use crate::{
             env_id_validator, host_validator, token_validator, CredentialProvider, HomeDirProvider,
             Token,
         },
-        redact_request_error, redact_url,
+        describe_failed_response, redact_request_error, redact_url,
         web_url::WebUrl,
     },
 };
@@ -157,8 +157,8 @@ fn request_device_code(host: &str) -> Result<DeviceCodeResponse, Error> {
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
-            "Failed to request device code: HTTP {}",
-            response.status()
+            "Failed to request device code: {}",
+            describe_failed_response(response)
         ));
     }
 

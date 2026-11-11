@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::api::client::PHClient;
 use crate::invocation_context::context;
-use crate::utils::{redact_request_error, redact_url};
+use crate::utils::{describe_failed_response, redact_request_error, redact_url};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -391,9 +391,9 @@ fn fetch_definitions(client: &PHClient, language: Language) -> Result<Definition
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
-            "Failed to fetch {} definitions: HTTP {}",
+            "Failed to fetch {} definitions: {}",
             language.display_name(),
-            response.status()
+            describe_failed_response(response)
         ));
     }
 

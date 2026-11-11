@@ -2,6 +2,8 @@ use anyhow::Result;
 use reqwest::blocking::Response;
 use tracing::error;
 
+use crate::api::client::describe_api_failure;
+
 pub mod auth;
 pub mod broken_pipe;
 pub mod ci;
@@ -15,14 +17,17 @@ pub mod xcode;
 
 pub fn raise_for_err(response: Response) -> Result<Response> {
     if !response.status().is_success() {
-        error!(
-            "Request failed: status={} url={}",
-            response.status(),
-            redact_url(response.url())
-        );
-        anyhow::bail!("Request failed")
+        anyhow::bail!(describe_failed_response(response))
     }
     Ok(response)
+}
+
+pub fn describe_failed_response(response: Response) -> String {
+    let status = response.status().as_u16();
+    let url = response.url().clone();
+    let body = response.text().unwrap_or_default();
+
+    describe_api_failure(status, &url, &body)
 }
 
 pub fn raise_for_presigned_err(response: Response) -> Result<Response> {
