@@ -70,6 +70,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("stages", models.JSONField(default=dict)),
+                ("handoff", models.JSONField(blank=True, default=dict)),
                 ("cost_usd", models.FloatField(default=0)),
                 ("batch_id", models.CharField(blank=True, default="", max_length=255)),
                 ("error", models.TextField(blank=True, default="")),

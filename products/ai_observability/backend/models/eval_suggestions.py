@@ -49,6 +49,10 @@ class EvalSuggestionRun(TeamScopedRootMixin, UUIDModel):
     )
     # Per stage: {"status": "ok" | "skipped" | "failed", "detail": str, ...counts}.
     stages = models.JSONField(default=dict)
+    # What one stage hands the next while the run works: the sampled trace ids and the candidate cards, never
+    # trace content. Each stage is its own Temporal activity, and payloads must not carry customer data.
+    # Cleared when the run completes or fails.
+    handoff = models.JSONField(default=dict, blank=True)
     # Provider spend of the paid drafting stage, summed per batch to enforce the per-run budget.
     cost_usd = models.FloatField(default=0)
     batch_id = models.CharField(max_length=255, blank=True, default="")
