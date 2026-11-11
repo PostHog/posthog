@@ -347,9 +347,9 @@ export interface autoresearchPipelineLogicValues {
     hideLowestBucket: boolean | null
     hoveredAccuracyDate: string | null
     hoveredSearchPoint: SearchPoint | null
-    liveModelPerformance: OnlinePerformanceRowApi[]
     latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
+    liveModelPerformance: OnlinePerformanceRowApi[]
     lowCoveragePct: number | null
     lowestBucket: LowestBucket | null
     lowestBucketHidden: boolean
@@ -376,6 +376,7 @@ export interface autoresearchPipelineLogicValues {
     probabilityDistributionLoading: boolean
     probabilityHistogram: ProbabilityBucket[] | null
     queuedSuggestionCount: number
+    rankCalibration: RankCalibration[]
     reportByRun: Record<string, string | null>
     reportByRunLoading: boolean
     runRoles: Record<string, RunRole>
@@ -390,7 +391,6 @@ export interface autoresearchPipelineLogicValues {
     scoredChallenger: AutoresearchModelApi | null
     scoredPeopleCount: number | null
     scoringCoverage: ScoringCoverage | null
-    rankCalibration: RankCalibration[]
     segmentDefinitions: PredictionSegmentDefinition[] | null
     segmentThresholds: PredictionSegmentThresholdsApi | null
     selectedTab: AutoresearchPipelineTab | null
