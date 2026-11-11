@@ -921,6 +921,14 @@ class TestSendFollowupActivityRefreshOrdering:
             _patches["task_run_cls"].update_state_atomic.assert_not_called()
         _patches["refresh_store_skills"].assert_not_called()
 
+    def test_a_failed_lock_write_fails_the_delivery_before_the_message_is_sent(self, _patches):
+        _patches["task_run_cls"].update_state_atomic.side_effect = RuntimeError("database unavailable")
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
+
+        _patches["user_msg"].assert_not_called()
+
     def test_default_scope_is_read_only(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
 

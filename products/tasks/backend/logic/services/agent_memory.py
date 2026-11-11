@@ -18,7 +18,9 @@ import time
 import shlex
 import hashlib
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import field
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -321,8 +323,13 @@ def _persist_slug(
     base: dict[str, BaselineFile],
     stored: dict[str, StoredObjectSummary],
     counts: MemorySyncCounts,
+    checkpoint: Callable[[dict[str, BaselineFile]], None],
 ) -> dict[str, BaselineFile] | None:
-    """Upload what changed in one slug since the baseline. Returns the slug's new baseline."""
+    """Upload what changed in one slug since the baseline. Returns the slug's new baseline.
+
+    `checkpoint` saves the slug's baseline after every upload, so a retry after a failed upload
+    does not send the earlier files again and overwrite a version another sandbox saved since.
+    """
     if len(entries) > MAX_FILES_PER_SLUG:
         counts.skip("slug_file_limit")
         return None
@@ -365,11 +372,14 @@ def _persist_slug(
         counts.skip("slug_file_limit")
         return None
 
+    progress = dict(base)
     for filename, content in changed.items():
         if _matches_stored(content, stored.get(filename)):
             continue
         object_storage.write(memory_object_key(team_id, user_id, slug, filename), content)
         counts.files_written += 1
+        progress[filename] = new_base[filename]
+        checkpoint(progress)
     if not removed:
         return new_base
     stale_keys = [memory_object_key(team_id, user_id, slug, name) for name in removed if name in stored]
@@ -388,6 +398,11 @@ def _tracked_slug_count(baseline: Baseline) -> int:
 def _checkpoint(sandbox: SandboxBase, baseline: Baseline) -> None:
     if not write_baseline(sandbox, {slug: files for slug, files in baseline.items() if files}):
         raise BaselineCheckpointError("could not save the agent memory baseline")
+
+
+def _checkpoint_slug(sandbox: SandboxBase, baseline: Baseline, slug: str, files: dict[str, BaselineFile]) -> None:
+    baseline[slug] = files
+    _checkpoint(sandbox, baseline)
 
 
 def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) -> MemorySyncCounts:
@@ -433,10 +448,10 @@ def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) 
             base=baseline.get(slug, {}),
             stored=stored.slugs.get(slug, {}),
             counts=counts,
+            checkpoint=partial(_checkpoint_slug, sandbox, baseline, slug),
         )
         if new_base is not None and new_base != baseline.get(slug, {}):
-            baseline[slug] = new_base
-            _checkpoint(sandbox, baseline)
+            _checkpoint_slug(sandbox, baseline, slug, new_base)
     return counts
 
 

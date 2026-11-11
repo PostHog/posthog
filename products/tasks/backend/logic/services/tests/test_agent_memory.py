@@ -126,6 +126,7 @@ class FakeStorage:
         self.objects: dict[str, bytes] = {}
         self.list_fails = False
         self.writes: list[str] = []
+        self.failing_writes: set[str] = set()
         self.clock = 0.0
 
     def list_object_summaries(
@@ -144,6 +145,8 @@ class FakeStorage:
         return self.objects.get(file_name)
 
     def write(self, file_name: str, content: bytes, extras: dict | None = None, bucket: str | None = None) -> None:
+        if file_name in self.failing_writes:
+            raise ObjectStorageError("write failed")
         self.writes.append(file_name)
         self.objects[file_name] = content
 
@@ -354,6 +357,25 @@ def test_a_slug_cannot_grow_past_the_file_cap_by_dropping_the_baseline(storage: 
 
     assert storage.writes == []
     assert counts.skipped["slug_file_limit"] == 1
+
+
+def test_a_retry_after_a_failed_upload_does_not_resend_the_files_already_saved(storage: FakeStorage) -> None:
+    sandbox = FakeSandbox({_memory_path(REPO_SLUG, "a.md"): b"a v1", _memory_path(REPO_SLUG, "b.md"): b"b v1"})
+    sandbox.set_baseline({})
+    storage.failing_writes.add(_key(REPO_SLUG, "b.md"))
+
+    with pytest.raises(ObjectStorageError):
+        persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert storage.writes == [_key(REPO_SLUG, "a.md")]
+    assert set(parse_baseline(sandbox.files[SANDBOX_BASELINE_PATH])[REPO_SLUG]) == {"a.md"}
+    storage.objects[_key(REPO_SLUG, "a.md")] = b"a v2, saved by another sandbox meanwhile"
+    storage.failing_writes.clear()
+
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert storage.writes == [_key(REPO_SLUG, "a.md"), _key(REPO_SLUG, "b.md")]
+    assert storage.objects[_key(REPO_SLUG, "a.md")] == b"a v2, saved by another sandbox meanwhile"
 
 
 def test_a_refused_baseline_checkpoint_fails_the_persist(storage: FakeStorage) -> None:
