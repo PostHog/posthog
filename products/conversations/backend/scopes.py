@@ -10,7 +10,6 @@ SCOPE_DOCS = (
         description="Tickets you open and follow with the PostHog support team, which show as sent by you.",
         group="Organization & account",
         docs_url="https://posthog.com/docs/support",
-        actions=("write",),
     ),
     ScopeDoc(
         object="support_ticket",

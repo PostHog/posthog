@@ -1,6 +1,6 @@
 import json
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -81,10 +81,13 @@ class TestPostHogSupportTicketAPI(APIBaseTest):
         self.url = f"/api/projects/{self.team.id}/posthog_support/tickets/"
 
     def _forward_to_widget(self, method: str, url: str, **kwargs: Any) -> Any:
+        path = urlparse(url).path
+        if "params" in kwargs:
+            path = f"{path}?{urlencode(kwargs['params'])}"
         widget_response = self.client.generic(
             method,
-            urlparse(url).path,
-            data=json.dumps(kwargs["json"]),
+            path,
+            data=json.dumps(kwargs["json"]) if "json" in kwargs else "",
             content_type="application/json",
             headers=kwargs["headers"],
         )
@@ -95,6 +98,18 @@ class TestPostHogSupportTicketAPI(APIBaseTest):
     def _post(
         self,
         body: dict[str, Any],
+        *,
+        flag_on: bool = True,
+        token: str = SUPPORT_WIDGET_TOKEN,
+        network_error: bool = False,
+    ) -> Any:
+        return self._call("post", self.url, body, flag_on=flag_on, token=token, network_error=network_error)
+
+    def _call(
+        self,
+        method: str,
+        url: str,
+        body: dict[str, Any] | None = None,
         *,
         flag_on: bool = True,
         token: str = SUPPORT_WIDGET_TOKEN,
@@ -112,7 +127,7 @@ class TestPostHogSupportTicketAPI(APIBaseTest):
                 side_effect=requests.ConnectionError() if network_error else self._forward_to_widget,
             ),
         ):
-            return self.client.post(self.url, body, format="json")
+            return getattr(self.client, method)(url, body, format="json")
 
     def test_ticket_reaches_support_inbox_verified_as_the_user(self) -> None:
         response = self._post(DELETION_REQUEST)
@@ -141,3 +156,25 @@ class TestPostHogSupportTicketAPI(APIBaseTest):
 
         assert response.status_code == expected_status
         assert not Ticket.objects.filter(team=self.support_team).exists()
+
+    def test_user_sees_only_their_own_tickets(self) -> None:
+        own_ticket_id = self._post(DELETION_REQUEST).json()["ticket_id"]
+        other_ticket = Ticket.objects.create_with_number(
+            team=self.support_team,
+            widget_session_id="00000000-0000-0000-0000-000000000001",
+            distinct_id="someone-else",
+            channel_source="widget",
+            status="new",
+            identity_verified=True,
+        )
+
+        listed = self._call("get", self.url).json()
+        own = self._call("get", f"{self.url}{own_ticket_id}/")
+        other = self._call("get", f"{self.url}{other_ticket.id}/")
+        not_a_uuid = self._call("get", f"{self.url}{'-' * 36}/")
+
+        assert [ticket["id"] for ticket in listed["results"]] == [own_ticket_id]
+        assert own.status_code == status.HTTP_200_OK
+        assert own.json()["messages"][0]["author_type"] == "customer"
+        assert other.status_code == status.HTTP_404_NOT_FOUND
+        assert not_a_uuid.status_code == status.HTTP_404_NOT_FOUND
