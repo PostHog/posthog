@@ -48,6 +48,8 @@ The proposed limits are `60` for free organizations, `30` for paid organizations
 The `data-modeling-refresh-floor` flag rolls the minimum out, and no minimum applies while the flag is off for an organization or can't be read.
 The minimum refuses new and faster cadences only.
 A view or endpoint already set faster keeps its cadence and keeps running at it, and an endpoint's query edit keeps the cadence of the version it replaces.
+The replaced version keeps running, so an endpoint can keep at most two versions faster than the floor: the version replaced and its replacement.
+A query edit that would add a third is refused until an older version stops materializing.
 Deploying the code alone does not enable the rollout.
 
 ## Model materialization usage
