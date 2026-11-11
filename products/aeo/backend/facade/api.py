@@ -23,9 +23,10 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.redis import get_client
 
-from products.aeo.backend import catalog, gaps, rankings, suggestions
+from products.aeo.backend import catalog, dashboard, gaps, rankings, suggestions
 from products.aeo.backend.brand import (
     SEGMENT_SQL,
     brand_names,
@@ -78,6 +79,7 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
+    VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
@@ -570,6 +572,13 @@ def get_prompt_set_rankings(
         days=days,
         segment=branded,
     )
+
+
+def create_visibility_dashboard(team: Team, user: User) -> VisibilityDashboard:
+    """Create the "AI visibility weekly" dashboard. Each call creates a new one, so a person who deleted or
+    edited theirs can start over."""
+    created = dashboard.create_visibility_dashboard(team, user)
+    return VisibilityDashboard(id=created.id, name=created.name or dashboard.DASHBOARD_NAME)
 
 
 MAX_CONSENSUS_DOMAINS = 10
