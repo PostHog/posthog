@@ -752,7 +752,9 @@ def _to_trace_summary(entry: SummaryEntry) -> contracts.TraceSummary:
             )
             return contracts.TraceSummary(status="ready", content=content, failure=None)
         case FailedSummary():
-            failure = contracts.TraceSummaryFailure(reason=entry.reason, message=entry.message)
+            failure = contracts.TraceSummaryFailure(
+                reason=entry.reason, message=entry.message, retryable=entry.retryable
+            )
             return contracts.TraceSummary(status="failed", content=None, failure=failure)
 
 

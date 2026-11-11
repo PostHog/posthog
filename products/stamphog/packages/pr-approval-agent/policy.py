@@ -285,6 +285,8 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
 _OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions"}
+# Unread. A deployed engine must accept this key before the default branch's policy declares it.
+_RESERVED_TOP_LEVEL_KEYS = {"attestations"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -685,7 +687,8 @@ def _read_policy_yaml(path: Path) -> Any:
 
 def _parse_policy(raw: Any, *, lockfile_names: Iterable[str], ownership_formats: Mapping[str, str]) -> Policy:
     _require(isinstance(raw, dict), "policy root: must be a mapping")
-    unknown = set(raw) - _TOP_LEVEL_KEYS - _OPTIONAL_TOP_LEVEL_KEYS - _SERVER_ONLY_TOP_LEVEL_KEYS
+    known = _TOP_LEVEL_KEYS | _OPTIONAL_TOP_LEVEL_KEYS | _SERVER_ONLY_TOP_LEVEL_KEYS | _RESERVED_TOP_LEVEL_KEYS
+    unknown = set(raw) - known
     _require(not unknown, f"policy root: unknown top-level keys {sorted(unknown)}")
     for required in _TOP_LEVEL_KEYS:
         _require(required in raw, f"policy root: missing required section {required!r}")
