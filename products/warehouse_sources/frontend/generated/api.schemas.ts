@@ -1832,15 +1832,9 @@ export interface ExternalDataSourceExistsApi {
 }
 
 export interface IncrementalFieldCandidateApi {
-    /**
-     * Name of the field as shown in the UI.
-     * @maxLength 512
-     */
+    /** Name of the field as shown in the UI. */
     label: string
-    /**
-     * Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.
-     * @maxLength 512
-     */
+    /** Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces. */
     field: string
     /**
      * Type of the field as shown in the UI, such as timestamp.
@@ -1865,10 +1859,7 @@ export interface IncrementalFieldCandidateApi {
 }
 
 export interface IncrementalFieldTableApi {
-    /**
-     * Name of the table, as returned by database_schema.
-     * @maxLength 512
-     */
+    /** Name of the table, as returned by database_schema. */
     table: string
     /** Candidate incremental fields of the table, as returned by database_schema. */
     incremental_fields: IncrementalFieldCandidateApi[]

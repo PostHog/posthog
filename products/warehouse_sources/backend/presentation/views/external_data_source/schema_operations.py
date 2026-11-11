@@ -66,11 +66,8 @@ class RefreshSchemasResponseSerializer(serializers.Serializer):
 
 
 class IncrementalFieldCandidateSerializer(serializers.Serializer):
-    label = serializers.CharField(
-        max_length=512, trim_whitespace=False, help_text="Name of the field as shown in the UI."
-    )  # type: ignore[assignment]
+    label = serializers.CharField(trim_whitespace=False, help_text="Name of the field as shown in the UI.")  # type: ignore[assignment]
     field = serializers.CharField(
-        max_length=512,
         trim_whitespace=False,
         help_text="Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.",
     )
@@ -92,9 +89,7 @@ class IncrementalFieldCandidateSerializer(serializers.Serializer):
 
 
 class IncrementalFieldTableSerializer(serializers.Serializer):
-    table = serializers.CharField(
-        max_length=512, trim_whitespace=False, help_text="Name of the table, as returned by database_schema."
-    )
+    table = serializers.CharField(trim_whitespace=False, help_text="Name of the table, as returned by database_schema.")
     incremental_fields = IncrementalFieldCandidateSerializer(
         many=True, help_text="Candidate incremental fields of the table, as returned by database_schema."
     )

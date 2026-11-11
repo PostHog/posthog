@@ -14,6 +14,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
+import { chunk } from 'lib/utils/arrays'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -1984,12 +1985,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         // replace the defaults only of tables the person has not changed yet.
         loadIncrementalFieldRecommendations: async () => {
             const connectorName = values.selectedConnector?.name
-            const tables = values.databaseSchema
-                .filter(
-                    (schema) => schema.incremental_fields.filter((field) => field.recommended !== undefined).length >= 2
-                )
-                // The endpoint takes at most this many tables, and a rejected request would drop every pick.
-                .slice(0, MAX_RECOMMENDATION_TABLES)
+            const tables = values.databaseSchema.filter(
+                (schema) => schema.incremental_fields.filter((field) => field.recommended !== undefined).length >= 2
+            )
             if (!connectorName || values.currentTeamId === null || tables.length === 0) {
                 return
             }
@@ -1998,17 +1996,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const selection = values.connectorSelectionCount
             let picked: Map<string, IncrementalField[]>
             try {
-                const response = await externalDataSourcesIncrementalFieldRecommendationsCreate(
-                    String(values.currentTeamId),
-                    {
-                        tables: tables.map((schema) => ({
-                            table: schema.table,
-                            incremental_fields: schema.incremental_fields,
-                        })),
-                    }
+                // The endpoint takes at most this many tables per request, so larger sources go in batches.
+                const batches = chunk(tables, MAX_RECOMMENDATION_TABLES)
+                const responses = await Promise.all(
+                    batches.map((batch) =>
+                        externalDataSourcesIncrementalFieldRecommendationsCreate(String(values.currentTeamId), {
+                            tables: batch.map((schema) => ({
+                                table: schema.table,
+                                incremental_fields: schema.incremental_fields,
+                            })),
+                        })
+                    )
                 )
                 picked = new Map(
-                    response.tables.map((table) => [table.table, table.incremental_fields as IncrementalField[]])
+                    responses.flatMap((response) =>
+                        response.tables.map((table) => [table.table, table.incremental_fields as IncrementalField[]])
+                    )
                 )
             } catch {
                 return

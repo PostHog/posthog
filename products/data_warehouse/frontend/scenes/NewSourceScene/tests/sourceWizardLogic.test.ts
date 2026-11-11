@@ -1944,6 +1944,28 @@ describe('sourceWizardLogic', () => {
             }
         )
 
+        it('asks for recommendations in batches the endpoint accepts', async () => {
+            const fields = [
+                { ...createdAt, recommended: true },
+                { ...eventTs, recommended: false },
+            ]
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
+                Array.from({ length: 513 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+            )
+            const recommend = jest
+                .mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
+                .mockReset()
+                .mockResolvedValue({ tables: [] } as unknown as RecommendationsResponse)
+
+            const { unmount } = await mountAndLoadSchemas(postgresSource)
+
+            try {
+                expect(recommend.mock.calls.map(([, body]) => body.tables.length)).toEqual([512, 1])
+            } finally {
+                unmount()
+            }
+        })
+
         it('keeps the any-timestamp fallback for other database sources', async () => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('public.users', {

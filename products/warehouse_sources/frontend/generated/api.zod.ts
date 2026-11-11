@@ -1474,12 +1474,6 @@ export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ 
  * Asks the decision model which incremental field to use for tables whose column names leave it open. Send the tables database_schema returned; the response holds only the tables the model picked a field for. Called after database_schema so the table list never waits for the model.
  * @summary Recommend incremental fields with the decision model
  */
-export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemTableMax = 512
-
-export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemLabelMax = 512
-
-export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldMax = 512
-
 export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemTypeMax = 32
 
 export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldTypeMax = 32
@@ -1490,24 +1484,13 @@ export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @
     tables: zod
         .array(
             zod.object({
-                table: zod
-                    .string()
-                    .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemTableMax)
-                    .describe('Name of the table, as returned by database_schema.'),
+                table: zod.string().describe('Name of the table, as returned by database_schema.'),
                 incremental_fields: zod
                     .array(
                         zod.object({
-                            label: zod
-                                .string()
-                                .max(
-                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemLabelMax
-                                )
-                                .describe('Name of the field as shown in the UI.'),
+                            label: zod.string().describe('Name of the field as shown in the UI.'),
                             field: zod
                                 .string()
-                                .max(
-                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldMax
-                                )
                                 .describe(
                                     'Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.'
                                 ),
