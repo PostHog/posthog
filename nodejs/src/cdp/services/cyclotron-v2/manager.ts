@@ -319,6 +319,8 @@ export class CyclotronV2Manager {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
+            statement_timeout: config.pool.statementTimeoutMs,
+            connectionTimeoutMillis: config.pool.connectionTimeoutMs,
         })
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000

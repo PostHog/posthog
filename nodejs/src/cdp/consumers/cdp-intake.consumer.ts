@@ -11,8 +11,10 @@ import { CyclotronV2Manager } from '../services/cyclotron-v2'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
-// Bounded so that a Postgres outage stalls the partition and restarts the pod, which redelivers the batch.
+// Bounded so that a Postgres outage stalls the partition and restarts the pod, which redelivers the batch. The pool
+// bounds each attempt too, because the retry checks its time only after an attempt fails.
 const CLAIM_RETRY = { initialDelayMs: 250, maxElapsedMs: 20_000 }
+const ATTEMPT_TIMEOUT_MS = 5_000
 
 const TOPICS: Record<
     RunKind,
@@ -52,7 +54,11 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
             throw new Error('CdpIntakeConsumer needs CYCLOTRON_NODE_DATABASE_URL to insert jobs')
         }
         this.cyclotron = new CyclotronV2Manager({
-            pool: { dbUrl: config.CYCLOTRON_NODE_DATABASE_URL },
+            pool: {
+                dbUrl: config.CYCLOTRON_NODE_DATABASE_URL,
+                statementTimeoutMs: ATTEMPT_TIMEOUT_MS,
+                connectionTimeoutMs: ATTEMPT_TIMEOUT_MS,
+            },
             depthLimit: config.CYCLOTRON_SHARD_DEPTH_LIMIT,
         })
         this.deadLetters = new CdpDeadLetterService(config, {

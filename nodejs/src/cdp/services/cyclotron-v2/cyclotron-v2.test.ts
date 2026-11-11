@@ -1821,6 +1821,28 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             })
 
+            it('gives up on a claim that waits on a locked key once the statement timeout passes', async () => {
+                const id = uuidv7()
+                const holder = await assertPool.connect()
+                const bounded = createManager({ pool: { dbUrl: DB_URL, statementTimeoutMs: 200 } })
+                try {
+                    await holder.query('BEGIN')
+                    await holder.query(
+                        `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                         VALUES ($1, 1, 'a', NOW() + interval '1 day')`,
+                        [id]
+                    )
+
+                    await expect(bounded.createJobsIdempotently([keyed(id, 'a')])).rejects.toThrow(
+                        'canceling statement due to statement timeout'
+                    )
+                } finally {
+                    await holder.query('ROLLBACK')
+                    holder.release()
+                    await bounded.disconnect()
+                }
+            })
+
             it('leaves no key behind when the job insert fails, so the retry queues the job', async () => {
                 const id = uuidv7()
 
