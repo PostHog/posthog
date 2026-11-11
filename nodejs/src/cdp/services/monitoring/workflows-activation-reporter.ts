@@ -1,4 +1,5 @@
 import { LRUCache } from 'lru-cache'
+import { PostHog } from 'posthog-node'
 
 import { unquoteMailbox } from '~/cdp/services/messaging/helpers/suppressed-recipients'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
@@ -27,7 +28,7 @@ export class WorkflowsActivationReporter {
     constructor(
         private teamManager: { getTeam(teamId: number): Promise<Team | null> },
         private postgres: PostgresRouter,
-        private capture: typeof captureTeamEvent = captureTeamEvent
+        private analytics?: PostHog
     ) {
         this.organizationMemberEmails = new LazyLoader({
             name: 'workflows_activation_organization_member_emails',
@@ -84,7 +85,7 @@ export class WorkflowsActivationReporter {
                 this.lastReportedAt.delete(key)
                 return
             }
-            this.capture(team, event, properties)
+            captureTeamEvent(team, event, properties, null, this.analytics)
         } catch (error) {
             this.lastReportedAt.delete(key)
             logger.warn('Failed to report a workflows activation event', { teamId, event, error })

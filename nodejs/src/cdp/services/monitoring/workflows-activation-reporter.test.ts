@@ -1,3 +1,4 @@
+import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { Team } from '~/types'
 
@@ -7,22 +8,57 @@ describe('WorkflowsActivationReporter', () => {
     const team = { id: 2, uuid: 'team-uuid', organization_id: 'org-id' } as Team
     const otherTeam = { id: 3, uuid: 'other-team-uuid', organization_id: 'org-id' } as Team
     let getTeam: jest.Mock
-    let capture: jest.Mock
+    let analytics: FakePostHog
     let reporter: WorkflowsActivationReporter
     let unreachablePostgres: PostgresRouter & { query: jest.Mock }
 
-    beforeEach(() => {
-        jest.useFakeTimers({ now: new Date('2026-10-03T10:00:00Z') })
+    const received = async (): Promise<Record<string, unknown>[]> => {
+        await analytics.client.flush()
+        return analytics.events.map(({ event, properties }) => ({
+            event,
+            team: properties.team,
+            ...Object.fromEntries(
+                ['workflow_id', 'channel', 'reason', 'recipient_outside_org']
+                    .filter((key) => key in properties)
+                    .map((key) => [key, properties[key]])
+            ),
+        }))
+    }
+    const sent = (teamUuid: string, workflowId: string, channel: string, recipientOutsideOrg: boolean) => ({
+        event: 'workflows message sent',
+        team: teamUuid,
+        workflow_id: workflowId,
+        channel,
+        recipient_outside_org: recipientOutsideOrg,
+    })
+
+    beforeEach(async () => {
+        jest.useFakeTimers({
+            now: new Date('2026-10-03T10:00:00Z'),
+            doNotFake: [
+                'nextTick',
+                'queueMicrotask',
+                'setImmediate',
+                'clearImmediate',
+                'setTimeout',
+                'clearTimeout',
+                'setInterval',
+                'clearInterval',
+                'hrtime',
+                'performance',
+            ],
+        })
+        analytics = await startFakePostHog()
         getTeam = jest.fn((teamId: number) => Promise.resolve([team, otherTeam].find((t) => t.id === teamId) ?? null))
-        capture = jest.fn()
         unreachablePostgres = {
             query: jest.fn(() => Promise.reject(new Error('connect ECONNREFUSED'))),
         } as unknown as PostgresRouter & { query: jest.Mock }
-        reporter = new WorkflowsActivationReporter({ getTeam }, unreachablePostgres, capture)
+        reporter = new WorkflowsActivationReporter({ getTeam }, unreachablePostgres, analytics.client)
     })
 
-    afterEach(() => {
+    afterEach(async () => {
         jest.useRealTimers()
+        await analytics.close()
     })
 
     it('captures each team, event and outcome once per hour', async () => {
@@ -63,25 +99,45 @@ describe('WorkflowsActivationReporter', () => {
         })
         await reporter.reportPushSent(2, 'flow-1')
         await reporter.reportPushSent(2, 'flow-2')
-        jest.advanceTimersByTime(60 * 60 * 1000)
+        jest.setSystemTime(new Date('2026-10-03T11:00:00Z'))
         await reporter.report(2, 'workflows send failed', {
             reason: 'unverified_domain',
             channel: 'email',
             workflow_id: 'flow-3',
         })
 
-        expect(capture.mock.calls).toEqual([
-            [team, 'workflows send failed', { reason: 'unverified_domain', channel: 'email', workflow_id: 'flow-1' }],
-            [
-                otherTeam,
-                'workflows send failed',
-                { reason: 'unverified_domain', channel: 'email', workflow_id: 'flow-9' },
-            ],
-            [team, 'workflows send blocked', { reason: 'missing_recipient', channel: 'email', workflow_id: 'flow-1' }],
-            [team, 'workflows message sent', { channel: 'email', recipient_outside_org: true, workflow_id: 'flow-1' }],
-            [team, 'workflows message sent', { channel: 'email', recipient_outside_org: false, workflow_id: 'flow-1' }],
-            [team, 'workflows message sent', { channel: 'push', recipient_outside_org: true, workflow_id: 'flow-1' }],
-            [team, 'workflows send failed', { reason: 'unverified_domain', channel: 'email', workflow_id: 'flow-3' }],
+        expect(await received()).toEqual([
+            {
+                event: 'workflows send failed',
+                team: 'team-uuid',
+                reason: 'unverified_domain',
+                channel: 'email',
+                workflow_id: 'flow-1',
+            },
+            {
+                event: 'workflows send failed',
+                team: 'other-team-uuid',
+                reason: 'unverified_domain',
+                channel: 'email',
+                workflow_id: 'flow-9',
+            },
+            {
+                event: 'workflows send blocked',
+                team: 'team-uuid',
+                reason: 'missing_recipient',
+                channel: 'email',
+                workflow_id: 'flow-1',
+            },
+            sent('team-uuid', 'flow-1', 'email', true),
+            sent('team-uuid', 'flow-1', 'email', false),
+            sent('team-uuid', 'flow-1', 'push', true),
+            {
+                event: 'workflows send failed',
+                team: 'team-uuid',
+                reason: 'unverified_domain',
+                channel: 'email',
+                workflow_id: 'flow-3',
+            },
         ])
     })
 
@@ -92,11 +148,10 @@ describe('WorkflowsActivationReporter', () => {
             workflow_id: 'flow-1',
         })
 
-        expect(capture).not.toHaveBeenCalled()
+        expect(await received()).toEqual([])
     })
 
     it('reports no email sent for a minute after the organization members cannot be read', async () => {
-        jest.useFakeTimers({ now: new Date('2026-10-03T10:00:00Z'), doNotFake: ['setTimeout', 'clearTimeout'] })
         unreachablePostgres.query
             .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
             .mockResolvedValue({ rows: [{ organization_id: 'org-id', email: 'member@example.com' }] })
@@ -106,19 +161,16 @@ describe('WorkflowsActivationReporter', () => {
         jest.setSystemTime(new Date('2026-10-03T10:01:00Z'))
         await reporter.reportEmailSent(2, 'flow-3', ['outsider@example.com'])
 
-        expect(capture.mock.calls).toEqual([
-            [team, 'workflows message sent', { channel: 'email', recipient_outside_org: true, workflow_id: 'flow-3' }],
-        ])
+        expect(await received()).toEqual([sent('team-uuid', 'flow-3', 'email', true)])
     })
 
     it('reports no email sent beyond the pending limit while the organization members load', async () => {
-        jest.useRealTimers()
         let releaseMembers: () => void = () => {}
         const members = new Promise((resolve) => {
             releaseMembers = () => resolve({ rows: [{ organization_id: 'org-id', email: 'member@example.com' }] })
         })
         const stalledPostgres = { query: () => members } as unknown as PostgresRouter
-        reporter = new WorkflowsActivationReporter({ getTeam }, stalledPostgres, capture)
+        reporter = new WorkflowsActivationReporter({ getTeam }, stalledPostgres, analytics.client)
 
         const pending = Array.from({ length: MAX_PENDING_EMAIL_REPORTS }, (_, index) =>
             reporter.reportEmailSent(2, `flow-${index}`, ['member@example.com'])
@@ -127,9 +179,7 @@ describe('WorkflowsActivationReporter', () => {
         releaseMembers()
         await Promise.all([...pending, overLimit])
 
-        expect(capture.mock.calls).toEqual([
-            [team, 'workflows message sent', { channel: 'email', recipient_outside_org: false, workflow_id: 'flow-0' }],
-        ])
+        expect(await received()).toEqual([sent('team-uuid', 'flow-0', 'email', false)])
     })
 
     it.each([
@@ -138,7 +188,7 @@ describe('WorkflowsActivationReporter', () => {
         [
             'a failed capture',
             () =>
-                capture.mockImplementationOnce(() => {
+                jest.spyOn(analytics.client, 'capture').mockImplementationOnce(() => {
                     throw new Error('capture is down')
                 }),
         ],
@@ -156,10 +206,14 @@ describe('WorkflowsActivationReporter', () => {
             workflow_id: 'flow-2',
         })
 
-        expect(capture).toHaveBeenLastCalledWith(team, 'workflows send blocked', {
-            reason: 'quota_limited',
-            channel: 'email',
-            workflow_id: 'flow-2',
-        })
+        expect(await received()).toEqual([
+            {
+                event: 'workflows send blocked',
+                team: 'team-uuid',
+                reason: 'quota_limited',
+                channel: 'email',
+                workflow_id: 'flow-2',
+            },
+        ])
     })
 })

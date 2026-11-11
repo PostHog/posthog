@@ -15,6 +15,7 @@ import {
     sesClientFor,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
+import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
 import { FakeSes, FakeSesAttachment, FakeSesFault, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
@@ -216,7 +217,7 @@ describe('EmailService', () => {
     let hub: Hub
     let team: Team
     let workflowsActivationReporter: WorkflowsActivationReporter
-    let activationEvents: { teamId: number; event: string; properties: Record<string, unknown> }[]
+    let analytics: FakePostHog
     let ses: FakeSes
     const createService = (
         config: Partial<EmailServiceConfig> = {},
@@ -307,9 +308,20 @@ describe('EmailService', () => {
         }
         throw new Error('the team budget did not run out')
     }
-    const settledActivationEvents = async (): Promise<typeof activationEvents> => {
+    const activationEvents = () =>
+        analytics.events.map(({ event, properties }) => ({
+            team: properties.team,
+            event,
+            properties: Object.fromEntries(
+                ['reason', 'channel', 'workflow_id', 'recipient_outside_org']
+                    .filter((key) => key in properties)
+                    .map((key) => [key, properties[key]])
+            ),
+        }))
+    const settledActivationEvents = async (): Promise<ReturnType<typeof activationEvents>> => {
         await new Promise((resolve) => setImmediate(resolve))
-        return activationEvents
+        await analytics.client.flush()
+        return activationEvents()
     }
     beforeEach(async () => {
         hub = await createHub({})
@@ -321,18 +333,13 @@ describe('EmailService', () => {
         team = (await createTestTeamFixture(hub.postgres)).team
         integrationIdBase = team.id
         await hub.teamManager.getTeam(team.id)
-        activationEvents = []
-        workflowsActivationReporter = new WorkflowsActivationReporter(
-            hub.teamManager,
-            hub.postgres,
-            (capturedTeam, event, properties = {}) => {
-                activationEvents.push({ teamId: capturedTeam.id, event, properties })
-            }
-        )
+        analytics = await startFakePostHog()
+        workflowsActivationReporter = new WorkflowsActivationReporter(hub.teamManager, hub.postgres, analytics.client)
         service = createService()
         mockFetch.mockClear()
     })
     afterEach(async () => {
+        await analytics.close()
         await ses.close()
         await closeHub(hub)
     })
@@ -467,7 +474,7 @@ describe('EmailService', () => {
                     )
                     expect(await settledActivationEvents()).toEqual(
                         Array(reports).fill({
-                            teamId: team.id,
+                            team: team.uuid,
                             event: 'workflows send failed',
                             properties: {
                                 reason: 'unverified_domain',
@@ -2207,7 +2214,7 @@ describe('EmailService', () => {
 
                 expect(await settledActivationEvents()).toEqual(
                     Array(reports).fill({
-                        teamId: team.id,
+                        team: team.uuid,
                         event: 'workflows send blocked',
                         properties: {
                             reason: 'missing_recipient',
@@ -2226,7 +2233,7 @@ describe('EmailService', () => {
                 hogFlow: new FixtureHogFlowBuilder().withTeamId(team.id).build(),
             })
             const messageSent = (recipientOutsideOrg: boolean) => ({
-                teamId: team.id,
+                team: team.uuid,
                 event: 'workflows message sent',
                 properties: {
                     workflow_id: invocation.functionId,
@@ -2301,7 +2308,7 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(workflowSend())
 
                 expect(result.emailSendResult).toEqual({ status: 'accepted' })
-                await waitForExpect(() => expect(activationEvents).toEqual([messageSent(recipientOutsideOrg)]))
+                await waitForExpect(() => expect(activationEvents()).toEqual([messageSent(recipientOutsideOrg)]))
             })
 
             it.each([
@@ -2330,7 +2337,7 @@ describe('EmailService', () => {
                 })
                 await service.executeSendEmail(workflowSend())
 
-                await waitForExpect(() => expect(activationEvents).toEqual([messageSent(false)]))
+                await waitForExpect(() => expect(activationEvents()).toEqual([messageSent(false)]))
             })
         })
 
