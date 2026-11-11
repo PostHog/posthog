@@ -33,6 +33,9 @@ _SETS_CLAUSE_LABEL = re.compile(r'label_replace\s*\(.*,\s*"clause"\s*,\s*"', re.
 _SHARED_HISTOGRAM_QUANTILES = re.compile(
     r'^\s*histogram_quantiles\s*\(\s*"clause"\s*((?:,\s*[0-9.eE+-]+\s*)+),', re.DOTALL
 )
+# Grafana's dashboard range, as `$__range` (a duration), `$__range_s` or `$__range_ms` (a number). Snuffle
+# does not know them, so they become the chart's date range before the query goes out.
+_RANGE_VARIABLE = re.compile(r"\$\{__range(?P<braced>_s|_ms)?\}|\$__range(?P<plain>_s|_ms)?\b")
 
 
 def _sample_value(raw: Any) -> float | None:
@@ -70,6 +73,13 @@ def _clause_alias(value: str | None, quantile_clauses: dict[float, str]) -> str 
         return quantile_clauses.get(float(value), value)
     except ValueError:
         return value
+
+
+def fill_range_variables(expr: str, date_from: dt.datetime, date_to: dt.datetime) -> str:
+    milliseconds = max(round((date_to - date_from).total_seconds() * 1000), 1000)
+    seconds = round(milliseconds / 1000)
+    values = {None: f"{seconds}s", "_s": str(seconds), "_ms": str(milliseconds)}
+    return _RANGE_VARIABLE.sub(lambda match: values[match.group("braced") or match.group("plain")], expr)
 
 
 def snuffle_payload(
@@ -131,7 +141,7 @@ def run_promql_range(
         "POST",
         "/api/v1/query_range",
         data={
-            "query": expr,
+            "query": fill_range_variables(expr, date_from, date_to),
             "start": str(start.timestamp()),
             "end": str(date_to.timestamp()),
             "step": str(int(step.total_seconds())),

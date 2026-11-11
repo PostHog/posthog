@@ -452,6 +452,30 @@ class TestMetricsPromQLMode(APIBaseTest):
 
     @parameterized.expand(
         [
+            # (name, promql as written, promql sent to Snuffle). DATE_RANGE spans one hour.
+            ("range", "increase(x[$__range])", "increase(x[3600s])"),
+            ("braced_range", "increase(x[${__range}])", "increase(x[3600s])"),
+            ("range_seconds", "increase(x[${__range_s}s]) / $__range_s", "increase(x[3600s]) / 3600"),
+            ("range_milliseconds", "increase(x[${__range_ms}ms])", "increase(x[3600000ms])"),
+            (
+                "quantile_over_the_range",
+                "histogram_quantile(0.99, sum by (le) (increase(x_bucket[$__range])))",
+                "histogram_quantile(0.99, sum by (le) (increase(x_bucket[3600s])))",
+            ),
+            ("step_variables_stay", "rate(x[$__rate_interval]) + rate(y[$__interval])", None),
+        ]
+    )
+    def test_fills_the_dashboard_range_variables(self, _name: str, promql: str, sent_promql: str | None) -> None:
+        payload = {"status": "success", "data": {"resultType": "matrix", "result": []}}
+        with patch(
+            "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)
+        ) as request:
+            self._runner(promql).calculate()
+
+        assert request.call_args.kwargs["data"]["query"] == (sent_promql or promql)
+
+    @parameterized.expand(
+        [
             # (name, promql, the series' clause, its labels)
             (
                 "builder_series_marker",

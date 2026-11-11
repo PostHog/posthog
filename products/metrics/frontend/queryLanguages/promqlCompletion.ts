@@ -200,6 +200,7 @@ const GROUPING_KEYWORDS = new Set(['by', 'without', 'on', 'ignoring', 'group_lef
 export const PROMQL_DURATIONS: [string, string][] = [
     ['$__rate_interval', 'The chart interval, as an omitted range'],
     ['$__interval', 'The chart interval'],
+    ['$__range', 'The dashboard time range'],
     ['1m', '1 minute'],
     ['5m', '5 minutes'],
     ['10m', '10 minutes'],
