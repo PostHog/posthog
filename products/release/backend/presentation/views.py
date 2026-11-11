@@ -36,7 +36,14 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         super().initial(request, *args, **kwargs)
         user = cast(User, request.user)
         email = None if user.anonymize_data else user.email
-        if not api.releases_enabled(self.team_id, distinct_id=str(user.distinct_id), email=email):
+        enabled = api.releases_enabled(
+            team_id=self.team.id,
+            team_uuid=self.team.uuid,
+            organization_id=self.team.organization_id,
+            distinct_id=str(user.distinct_id),
+            email=email,
+        )
+        if not enabled:
             raise PermissionDenied("Releases are not enabled for this project.")
 
     def _flag_visibility(self, flag_ids: list[int]) -> contracts.FlagVisibility:

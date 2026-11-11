@@ -86,8 +86,12 @@ def update(
     return _visible_dto(logic.update_release(team_id, release_id, changes), flag_visibility)
 
 
-def releases_enabled(team_id: int, *, distinct_id: str, email: str | None) -> bool:
-    return feature_flags.is_releases_enabled(team_id, distinct_id=distinct_id, email=email)
+def releases_enabled(
+    *, team_id: int, team_uuid: UUID, organization_id: UUID, distinct_id: str, email: str | None
+) -> bool:
+    return feature_flags.is_releases_enabled(
+        team_id=team_id, team_uuid=team_uuid, organization_id=organization_id, distinct_id=distinct_id, email=email
+    )
 
 
 def delete(team_id: int, release_id: UUID) -> None:
