@@ -62,6 +62,18 @@ class AccountPersonsPage:
     next_offset: int | None
 
 
+@frozen
+class AccountAutomation:
+    workflow_id: str
+    workflow_name: str
+    invocation_id: str
+    status: str
+    triggered_at: datetime
+    last_completed_step_at: datetime | None
+    expected_resume_at: datetime | None
+    last_completed_step_name: str | None = None
+
+
 class InvalidCustomPropertyOptions(ValueError):
     """Raised when a select property's options fail validation; the viewset maps it to a 400."""
 
