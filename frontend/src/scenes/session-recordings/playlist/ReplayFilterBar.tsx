@@ -15,7 +15,6 @@ import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { comparableRecordingFilters } from './playlistUtils'
 import { QuillSaveFiltersModal } from './QuillSaveFiltersModal'
-import { SavedFilterChips } from './SavedFilterChips'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -31,14 +30,12 @@ export function ReplayFilterBar({
     totalFiltersCount,
     currentSessionRecordingId,
     onReload,
-    savedFilterChips,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     totalFiltersCount?: number
     currentSessionRecordingId?: string
     onReload: () => void
-    savedFilterChips?: boolean
 }): JSX.Element {
     const { sessionRecordingsResponseLoading, defaultFilters } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
@@ -90,7 +87,6 @@ export function ReplayFilterBar({
                         <TooltipContent>{isFiltersExpanded ? 'Hide filters' : 'Add a filter'}</TooltipContent>
                     </Tooltip>
                     <SavedFilterSelect edited={edited} onSaveCurrent={() => setSaveModalOpen(true)} />
-                    {savedFilterChips && <SavedFilterChips edited={edited} />}
                     <FilterChips filters={filters} setFilters={setFilters} />
                 </div>
                 <Button

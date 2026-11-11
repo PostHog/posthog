@@ -4,6 +4,7 @@ import { IconEllipsis, IconEye } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
 
 import { LemonMenuItem, LemonMenuItemLeafCallback } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -13,7 +14,27 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 import { AddToCollectionModal, ConfirmDeleteRecordings } from './SessionRecordingsPlaylistSettings'
 import { useBulkScanMenuItems } from './useBulkScanMenuItems'
 
-export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection'; shortId?: string }): JSX.Element {
+interface ReplayBulkBarProps {
+    type: 'filters' | 'collection'
+    shortId?: string
+}
+
+export function ReplayBulkBar(props: ReplayBulkBarProps): JSX.Element {
+    const { isHobby } = useValues(preflightLogic)
+    // The scan menu mounts logics that call the vision API, which refuses every request on a self-hosted install
+    return isHobby ? <ReplayBulkBarMenus {...props} /> : <ReplayBulkBarWithScan {...props} />
+}
+
+function ReplayBulkBarWithScan(props: ReplayBulkBarProps): JSX.Element {
+    const bulkScan = useBulkScanMenuItems()
+    return <ReplayBulkBarMenus {...props} bulkScan={bulkScan} />
+}
+
+function ReplayBulkBarMenus({
+    type,
+    shortId,
+    bulkScan,
+}: ReplayBulkBarProps & { bulkScan?: ReturnType<typeof useBulkScanMenuItems> }): JSX.Element {
     const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setIsAddToCollectionModalOpen,
@@ -22,7 +43,6 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
         handleBulkMarkAsNotViewed,
         handleBulkDeleteFromPlaylist,
     } = useActions(sessionRecordingsPlaylistLogic)
-    const bulkScan = useBulkScanMenuItems()
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
         AccessControlLevel.Editor
@@ -43,14 +63,18 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
                   },
               ]
             : []),
-        {
-            label: 'Scan these recordings',
-            icon: <IconEye />,
-            items: bulkScan.items,
-            disabledReason: bulkScan.disabledReason,
-            tooltip: bulkScan.tooltip,
-            'data-attr': 'vision-bulk-scan-recordings',
-        },
+        ...(bulkScan
+            ? [
+                  {
+                      label: 'Scan these recordings',
+                      icon: <IconEye />,
+                      items: bulkScan.items,
+                      disabledReason: bulkScan.disabledReason,
+                      tooltip: bulkScan.tooltip,
+                      'data-attr': 'vision-bulk-scan-recordings',
+                  },
+              ]
+            : []),
     ]
 
     const primaryItems: LemonMenuItemLeafCallback[] = [

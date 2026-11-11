@@ -1,4 +1,8 @@
+import json
 import hashlib
+from urllib.parse import quote, urlencode
+
+from posthog.hogql.escape_sql import escape_hogql_string
 
 from products.error_tracking.backend.facade.api import get_issue_basics
 from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
@@ -11,6 +15,7 @@ from products.web_analytics.backend.facade.rage_pages import (
     find_top_rage_element,
     find_top_rage_page,
 )
+from products.web_analytics.backend.rage_pages import RAGE_PATH
 
 RAGE_PAGE = "{people} rage-clicked on {page} in the last 7 days"
 RAGE_PAGE_DETAIL = "{clicks} rage clicks · Top element: ‘{element}’"
@@ -45,6 +50,31 @@ def _error_item(
         url=f"/error_tracking/{issue_id}",
         ref=issue_id,
     )
+
+
+def _rage_replay_url(path: str) -> str:
+    filters = {
+        "date_from": "-7d",
+        "date_to": None,
+        "filter_group": {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "id": "$rageclick",
+                            "name": "$rageclick",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [{"type": "hogql", "key": f"{RAGE_PATH} = {escape_hogql_string(path)}"}],
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+    return "/replay/home?" + urlencode({"filters": json.dumps(filters, separators=(",", ":"))}, quote_via=quote)
 
 
 def find_rage_page(context: HighlightContext) -> HighlightFindings:
@@ -87,7 +117,7 @@ def find_rage_page(context: HighlightContext) -> HighlightFindings:
                 detail=RAGE_PAGE_DETAIL.format(clicks=clicks, element=element)
                 if element
                 else RAGE_PAGE_NO_ELEMENT_DETAIL.format(clicks=clicks),
-                url="/replay/home",
+                url=_rage_replay_url(page.path),
             ),
         )
     )

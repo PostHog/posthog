@@ -6,12 +6,17 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { PageToolbarMessage, PageToolbarMode } from '../../messaging/pageToolbarBridge'
+import type { PageToolbarHeatmapState, PageToolbarMessage, PageToolbarMode } from '../../messaging/pageToolbarBridge'
 import { configureFakeExtensionBrowser } from './__mocks__/fakeExtensionBrowser'
 import { STORY_PAGE_URL, flagComparison, pageToolbarState } from './__mocks__/pageToolbarState'
 import { ExtensionPanel } from './ExtensionPanel'
 
-type StoryArgs = { mode: PageToolbarMode; tabUrl?: string; messages?: PageToolbarMessage[] }
+type StoryArgs = {
+    mode: PageToolbarMode
+    tabUrl?: string
+    heatmap?: Partial<PageToolbarHeatmapState>
+    messages?: PageToolbarMessage[]
+}
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-Other/Toolbar extension',
@@ -36,11 +41,12 @@ const meta: Meta<StoryArgs> = {
             },
         }),
     ],
-    render: ({ mode, tabUrl, messages }) => {
+    render: ({ mode, tabUrl, heatmap, messages }) => {
         const uiHost = window.location.origin
+        const pageState = pageToolbarState(mode)
         configureFakeExtensionBrowser({
             tabUrl: tabUrl ?? STORY_PAGE_URL,
-            pageState: pageToolbarState(mode),
+            pageState: { ...pageState, heatmap: { ...pageState.heatmap, ...heatmap } },
             messages,
             storage: {
                 posthogUiHost: uiHost,
@@ -74,6 +80,18 @@ export const Inspect: Story = {
 export const Heatmap: Story = {
     args: { mode: 'heatmap' },
     parameters: { testOptions: { waitForSelector: 'text=Compare plans' } },
+}
+
+export const HeatmapSavedVariantFilter: Story = {
+    args: {
+        mode: 'heatmap',
+        heatmap: {
+            variantFilter: { flagKey: 'pricing-page-redesign', variant: 'test' },
+            variantFlags: [],
+            variantFilterGate: false,
+        },
+    },
+    parameters: { testOptions: { waitForSelector: 'text=pricing-page-redesign: test' } },
 }
 
 export const Actions: Story = {
