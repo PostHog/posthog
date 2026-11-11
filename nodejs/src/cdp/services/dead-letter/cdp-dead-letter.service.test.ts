@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
 import { CdpOutputs } from '../../cdp-services'
-import { CDP_EVENTS_DLQ_OUTPUT } from '../../outputs/outputs'
+import { CDP_EVENTS_DLQ_OUTPUT, CDP_INTAKE_DLQ_OUTPUT } from '../../outputs/outputs'
 import { DeadLetterStep, HogFunctionInvocationGlobals, InvocationBuildFailure } from '../../types'
-import { CdpDeadLetterService } from './cdp-dead-letter.service'
+import { CdpDeadLetterService, CdpDeadLetterServiceOptions } from './cdp-dead-letter.service'
 
 describe('CdpDeadLetterService', () => {
     let produce: jest.Mock
@@ -61,6 +61,13 @@ describe('CdpDeadLetterService', () => {
                 resolveMessage: (globals) => messagesByGlobals.get(globals),
             }
         )
+
+    const intakeOptions = (): CdpDeadLetterServiceOptions => ({
+        outputs,
+        output: CDP_INTAKE_DLQ_OUTPUT,
+        consumerGroup: 'cdp-intake-transactional-email-consumer',
+        parseFailuresStallBatch: true,
+    })
 
     beforeEach(() => {
         produce = jest.fn().mockResolvedValue(undefined)
@@ -163,6 +170,44 @@ describe('CdpDeadLetterService', () => {
             dlq_hog_function_ids: '',
             dlq_hog_flow_ids: '',
         })
+    })
+
+    it('parks an intake message on its own topic with a fixed reason code, without an event lookup', async () => {
+        const service = new CdpDeadLetterService(
+            { CDP_DLQ_ENABLED: true, CDP_DLQ_BATCH_FAIL_RATIO: 0.1 },
+            intakeOptions()
+        )
+        service.recordMessageFailure(message('run-1'), { step: 'parse', error: 'schema_invalid' })
+
+        await service.produceForBatch(batchOf(40))
+
+        expect(produce).toHaveBeenCalledWith(CDP_INTAKE_DLQ_OUTPUT, {
+            value: Buffer.from(JSON.stringify({ uuid: 'run-1' })),
+            key: Buffer.from('run-1'),
+            headers: expect.objectContaining({
+                token: 'phc_abc',
+                dlq_step: 'parse',
+                dlq_reason: 'schema_invalid',
+                dlq_topic: 'clickhouse_events_json',
+                dlq_partition: '3',
+                dlq_offset: '10',
+                dlq_consumer_group: 'cdp-intake-transactional-email-consumer',
+            }),
+        })
+    })
+
+    it('fails the batch instead of parking it when most of an intake batch cannot parse', async () => {
+        const service = new CdpDeadLetterService(
+            { CDP_DLQ_ENABLED: true, CDP_DLQ_BATCH_FAIL_RATIO: 0.1 },
+            intakeOptions()
+        )
+        const messages = batchOf(4)
+        messages.slice(0, 3).forEach((source) => recordFailure(service, 'parse', source))
+
+        await expect(service.produceForBatch(messages)).rejects.toThrow(
+            'Refusing to dead-letter 3 of 4 messages (0 process, 0 lookup, 3 parse)'
+        )
+        expect(produce).not.toHaveBeenCalled()
     })
 
     it('parks an event that threw outside the handled failures', async () => {
