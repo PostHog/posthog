@@ -264,6 +264,24 @@ describe('facetSearchBarLogic', () => {
         expect(logic.values.input).toEqual(input)
     })
 
+    it.each([
+        ['pasted', (text: string) => logic.actions.setInput(text)],
+        [
+            'typed one character at a time',
+            (text: string) => [...text].forEach((character) => logic.actions.setInput(logic.values.input + character)),
+        ],
+    ])('keeps every space of an open quoted value when %s', (_, enter) => {
+        mountWith({ filters: [], text: '' })
+        enter('status:active sends:"hello  world')
+        expect(logic.values.input).toEqual('sends:"hello  world')
+
+        logic.actions.setInput(`${logic.values.input}"`)
+        expect(onChange).toHaveBeenLastCalledWith({
+            filters: [{ facet: 'sends', value: 'hello  world', negated: false }],
+            text: '',
+        })
+    })
+
     it('drops a typed token that a pill already resolves to', () => {
         mountWith({ filters: [{ facet: 'stageName', value: 'first', negated: false }], text: '' })
         logic.actions.setInput('stageName:one ')
@@ -325,9 +343,10 @@ describe('facetSearchBarLogic', () => {
         ['a facet draft', ['tag:', 'tag:d', 'tag:de'], 50, 'deal0001'],
         ['a bare word', ['de', 'dea', 'deal'], 8, 'Tag: deal0001'],
     ])(
-        'reuses the counts of a scope and builds only the rows it shows while typing %s',
+        'reuses the counts of a scope and builds only the rows it shows, reading no later facet, while typing %s',
         (_, keystrokes, rowCount, firstLabel) => {
             let valueReads = 0
+            let laterFacetReads = 0
             let formats = 0
             const tag: FacetDefinition<number> = {
                 key: 'tag',
@@ -342,9 +361,18 @@ describe('facetSearchBarLogic', () => {
                     return value
                 },
             }
+            const owner: FacetDefinition<number> = {
+                key: 'owner',
+                label: 'Owner',
+                description: 'Who made it',
+                getValues: () => {
+                    laterFacetReads++
+                    return ['deal-owner@example.com']
+                },
+            }
             logic = facetSearchBarLogic({
                 id: 'test',
-                facets: [tag],
+                facets: [tag, owner],
                 items: Array.from({ length: 1000 }, (_, index) => index + 1),
                 value: { filters: [], text: '' },
                 onChange,
@@ -365,6 +393,7 @@ describe('facetSearchBarLogic', () => {
             expect(rows[0].label).toEqual(firstLabel)
             expect(valueReads).toEqual(readsForScope)
             expect(formats).toBeLessThanOrEqual(rowCount)
+            expect(laterFacetReads).toEqual(0)
         }
     )
 
