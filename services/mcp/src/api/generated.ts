@@ -118903,6 +118903,8 @@ export namespace Schemas {
       reason: TraceSummaryFailureReasonEnum;
       /** Why the summary failed, ready to show to the user. */
       message: string;
+      /** Whether a new request could succeed; false when it would fail the same way. */
+      retryable: boolean;
     }
 
     export interface TraceSummary {
