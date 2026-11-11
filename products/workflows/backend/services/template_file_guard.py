@@ -10,8 +10,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.exceptions import Conflict
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.workflows.backend.facade.contracts import WorkflowAccessDenied, WorkflowNotFound
-from products.workflows.backend.services.hog_flow_reads import get_workflow_ref
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 if TYPE_CHECKING:
     from posthog.api.file_system.deletion import DeletionContext, RestoreContext
@@ -24,10 +23,14 @@ class LinkedTemplate(Protocol):
     transactional_hog_flow_id: UUID | None
 
 
-# A UserAccessControl loads the team's access rules once and caches them on the instance. A folder
-# delete runs this guard once per template while it holds row locks, so each request keeps one
-# instance per user and team. The weak keys drop the instances together with the request.
+# A folder delete runs this guard once per template while it holds row locks. So each request keeps one
+# UserAccessControl per user and team, because an instance loads the team's access rules once and caches
+# them. It also keeps the access fields of the team's workflows, read in one query on the first check. The
+# check reads only the id, the team and the creator, never the step graph or the encrypted inputs. The weak
+# keys drop both caches together with the request.
+_ACCESS_FIELDS = ("id", "team_id", "created_by_id")
 _access_controls_by_request: "WeakKeyDictionary[Any, dict[tuple[Any, int], UserAccessControl]]" = WeakKeyDictionary()
+_workflows_by_request: "WeakKeyDictionary[Any, dict[int, dict[str, HogFlow]]]" = WeakKeyDictionary()
 
 
 def _access_control_for(request: Any | None, user: "User", template: LinkedTemplate) -> UserAccessControl:
@@ -40,6 +43,18 @@ def _access_control_for(request: Any | None, user: "User", template: LinkedTempl
     return access_controls[key]
 
 
+def _linked_workflow(request: Any | None, template: LinkedTemplate) -> HogFlow | None:
+    workflow_id = str(template.transactional_hog_flow_id)
+    if request is None:
+        return HogFlow.objects.filter(team_id=template.team_id, pk=workflow_id).only(*_ACCESS_FIELDS).first()
+    workflows_by_team = _workflows_by_request.setdefault(request, {})
+    if template.team_id not in workflows_by_team:
+        workflows_by_team[template.team_id] = {
+            str(flow.id): flow for flow in HogFlow.objects.filter(team_id=template.team_id).only(*_ACCESS_FIELDS)
+        }
+    return workflows_by_team[template.team_id].get(workflow_id)
+
+
 def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", template: LinkedTemplate) -> None:
     if template.transactional_hog_flow_id is None:
         return
@@ -47,17 +62,12 @@ def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", 
     user = context.user
     if user is None:
         raise PermissionDenied(denied)
-    try:
-        get_workflow_ref(
-            team_id=template.team_id,
-            workflow_id=str(template.transactional_hog_flow_id),
-            user_access_control=_access_control_for(context.request, user, template),
-            required_level="editor",
-        )
-    except WorkflowAccessDenied:
-        raise PermissionDenied(denied) from None
-    except WorkflowNotFound:
+    workflow = _linked_workflow(context.request, template)
+    if workflow is None:
         return
+    access_control = _access_control_for(context.request, user, template)
+    if not access_control.check_access_level_for_object(workflow, required_level="editor"):
+        raise PermissionDenied(denied)
 
 
 def lock_template_for_delete(template: Model) -> None:
