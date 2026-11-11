@@ -362,6 +362,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |Release
+                              |ReleaseImportState
                               |ReplayHighlightFeedEntry
                               |ReplayHighlightFeedState
                               |ReplayObservation
@@ -880,6 +881,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |Release
+                        |ReleaseImportState
                         |ReplayHighlightFeedEntry
                         |ReplayHighlightFeedState
                         |ReplayObservation

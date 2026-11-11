@@ -1,13 +1,17 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, User
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.release.backend.facade import api
+from products.release.backend.facade.contracts import ImportFlag
 from products.release.backend.models import Release
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -293,6 +297,23 @@ class TestReleaseAPI(APIBaseTest):
             "Pricing test",
             "Quiet theme",
         ]
+
+    def test_import_all_runs_once_per_project_and_writes_to_the_root_team(self) -> None:
+        flag_id = self._flag("quiet-theme")
+        environment = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="env"
+        )
+
+        created = api.import_all(
+            environment.id,
+            lambda: [ImportFlag(id=flag_id, key="quiet-theme", created_at=timezone.now(), created_by_id=None)],
+        )
+        release_id = self.client.get(self._url()).json()["results"][0]["id"]
+        self.client.delete(self._url(f"{release_id}/"))
+        again = self.client.post(self._url("import_all/")).json()["created_count"]
+
+        assert (created, again) == (1, 0)
+        assert self.client.get(self._url()).json()["count"] == 0
 
     @parameterized.expand(
         [

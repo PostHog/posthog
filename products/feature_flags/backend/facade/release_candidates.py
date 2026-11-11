@@ -3,8 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from django.apps import apps as django_apps
-from django.db.models import Prefetch, Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.signals import post_save, pre_save
 
 from posthog.scopes import APIScopeObject
@@ -16,19 +15,13 @@ from products.surveys.backend.models import Survey
 
 
 @dataclass(frozen=True)
-class LinkedName:
-    id: str
-    name: str
-
-
-@dataclass(frozen=True)
 class ReleaseImportFlag:
     id: int
     key: str
     created_at: datetime
     created_by_id: int | None
-    experiments: tuple[LinkedName, ...]
-    early_access: tuple[LinkedName, ...]
+    has_experiment: bool
+    has_early_access: bool
 
 
 def _visible(
@@ -63,22 +56,6 @@ def list_release_import_flags(
     access_control: UserAccessControl | None,
     flag_ids: list[int] | None = None,
 ) -> list[ReleaseImportFlag]:
-    experiment_model = django_apps.get_model("experiments", "Experiment")
-    early_access_model = django_apps.get_model("early_access_features", "EarlyAccessFeature")
-    experiments = _visible(
-        experiment_model._default_manager.filter(deleted=False, archived=False).only("id", "name", "feature_flag_id"),
-        access_control,
-        "experiment",
-    ).order_by("created_at", "id")
-    early_access = (
-        _visible(
-            early_access_model._default_manager.exclude(stage="archived").only("id", "name", "feature_flag_id"),
-            access_control,
-            "early_access_feature",
-        )
-        .filter(feature_flag__isnull=False)
-        .order_by("created_at", "id")
-    )
     # nosemgrep: environment-model-scoped-by-project
     tour_flag_ids = ProductTour.all_objects.filter(
         team__project_id=project_id, internal_targeting_flag__isnull=False
@@ -96,11 +73,15 @@ def list_release_import_flags(
             ),
             access_control,
         )
-        .only("id", "key", "created_at", "created_by_id")
-        .prefetch_related(
-            Prefetch("experiment_set", queryset=experiments, to_attr="release_experiments"),
-            Prefetch("features", queryset=early_access, to_attr="release_early_access"),
+        .annotate(
+            release_has_experiment=Exists(
+                FeatureFlag.objects.filter(pk=OuterRef("pk"), experiment__deleted=False, experiment__archived=False)
+            ),
+            release_has_early_access=Exists(
+                FeatureFlag.objects.filter(pk=OuterRef("pk"), feature__isnull=False).exclude(feature__stage="archived")
+            ),
         )
+        .only("id", "key", "created_at", "created_by_id")
         .order_by("created_at", "id")
     )
     return [
@@ -109,8 +90,8 @@ def list_release_import_flags(
             key=flag.key,
             created_at=flag.created_at,
             created_by_id=flag.created_by_id,
-            experiments=tuple(LinkedName(id=str(item.id), name=item.name) for item in flag.release_experiments),
-            early_access=tuple(LinkedName(id=str(item.id), name=item.name) for item in flag.release_early_access),
+            has_experiment=flag.release_has_experiment,
+            has_early_access=flag.release_has_early_access,
         )
         for flag in flags
     ]

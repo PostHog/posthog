@@ -149,12 +149,11 @@ def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: Lin
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
 
 
-def import_all(team_id: int, flags: list[contracts.ImportFlag]) -> int:
-    candidates = imports.group_import_candidates(flags, imports.linked_flag_ids(team_id))
-    created = imports.create_unlinked_releases(
-        team_id, [(candidate.name, candidate.feature_flag_ids) for candidate in candidates]
+def import_all(team_id: int, load_flags: Callable[[], list[contracts.ImportFlag]]) -> int:
+    root_id = imports.root_team_id(team_id)
+    return imports.run_initial_import(
+        root_id, lambda: imports.group_import_candidates(load_flags(), imports.linked_flag_ids(root_id))
     )
-    return len(created)
 
 
 def create_release_for_new_flag(flag_id: int, team_id: int) -> None:
@@ -162,10 +161,21 @@ def create_release_for_new_flag(flag_id: int, team_id: int) -> None:
 
 
 def releases_enabled(
-    *, team_id: int, team_uuid: UUID, organization_id: UUID, distinct_id: str, email: str | None
+    *,
+    team_id: int,
+    team_uuid: UUID,
+    organization_id: UUID,
+    distinct_id: str,
+    email: str | None,
+    raise_on_error: bool = False,
 ) -> bool:
     return feature_flags.is_releases_enabled(
-        team_id=team_id, team_uuid=team_uuid, organization_id=organization_id, distinct_id=distinct_id, email=email
+        team_id=team_id,
+        team_uuid=team_uuid,
+        organization_id=organization_id,
+        distinct_id=distinct_id,
+        email=email,
+        raise_on_error=raise_on_error,
     )
 
 

@@ -200,7 +200,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["post"], pagination_class=None)
     def import_all(self, request: Request, **kwargs) -> Response:
         """Create a release for every suggestion at once. Flags already in a release are skipped."""
-        created_count = api.import_all(self.team_id, self._import_flags())
+        created_count = api.import_all(self.team_id, self._import_flags)
         return Response(
             ImportAllResponseSerializer({"created_count": created_count}).data, status=status.HTTP_201_CREATED
         )
@@ -212,8 +212,8 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 key=flag.key,
                 created_at=flag.created_at,
                 created_by_id=flag.created_by_id,
-                has_experiment=bool(flag.experiments),
-                has_early_access=bool(flag.early_access),
+                has_experiment=flag.has_experiment,
+                has_early_access=flag.has_early_access,
             )
             for flag in list_release_import_flags(
                 team_id=self.team_id, project_id=self.team.project_id, access_control=self.user_access_control

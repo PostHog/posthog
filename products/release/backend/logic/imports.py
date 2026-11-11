@@ -13,7 +13,7 @@ from posthog.models.scoping import team_scope
 from products.feature_flags.backend.facade.release_candidates import list_release_import_flags, release_flag_creator_id
 
 from ..facade.contracts import ImportCandidateDTO, ImportFlag, ImportReason
-from ..models import Release
+from ..models import Release, ReleaseImportState
 
 RELATED_WINDOW = timedelta(days=14)
 MIN_PREFIX_LENGTH = 3
@@ -36,23 +36,51 @@ def linked_flag_ids(team_id: int, flag_ids: list[int] | None = None) -> set[int]
     }
 
 
+def root_team_id(team_id: int) -> int:
+    parent_id = Team.objects.filter(id=team_id).values_list("parent_team_id", flat=True).first()
+    return parent_id or team_id
+
+
+def _lock_team(team_id: int) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"release-import:{team_id}"])
+
+
+def _insert_unlinked(team_id: int, releases: list[tuple[str, list[int]]]) -> list[Release]:
+    linked = linked_flag_ids(team_id, sorted({flag_id for _, flag_ids in releases for flag_id in flag_ids}))
+    rows: list[Release] = []
+    for name, flag_ids in releases:
+        unlinked = [flag_id for flag_id in dict.fromkeys(flag_ids) if flag_id not in linked]
+        if unlinked:
+            rows.append(Release(team_id=team_id, name=name, feature_flag_ids=unlinked, auto_named=True))
+            linked.update(unlinked)
+    return Release.objects.bulk_create(rows)
+
+
+def run_initial_import(team_id: int, candidates: Callable[[], list[ImportCandidateDTO]]) -> int:
+    team_id = root_team_id(team_id)
+    with team_scope(team_id), transaction.atomic():
+        _lock_team(team_id)
+        if ReleaseImportState.objects.filter(team_id=team_id).exists():
+            return 0
+        created = _insert_unlinked(
+            team_id, [(candidate.name, list(candidate.feature_flag_ids)) for candidate in candidates()]
+        )
+        ReleaseImportState.objects.create(team_id=team_id)
+    return len(created)
+
+
 def create_unlinked_releases(team_id: int, releases: list[tuple[str, list[int]]]) -> list[Release]:
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"release-import:{team_id}"])
-        linked = linked_flag_ids(team_id, sorted({flag_id for _, flag_ids in releases for flag_id in flag_ids}))
-        rows: list[Release] = []
-        for name, flag_ids in releases:
-            unlinked = [flag_id for flag_id in dict.fromkeys(flag_ids) if flag_id not in linked]
-            if unlinked:
-                rows.append(Release(team_id=team_id, name=name, feature_flag_ids=unlinked, auto_named=True))
-                linked.update(unlinked)
-        created = Release.objects.bulk_create(rows)
-    return list(
-        Release.objects.filter(team_id=team_id, id__in=[release.id for release in created])
-        .select_related("owner")
-        .order_by("created_at", "id")
-    )
+    team_id = root_team_id(team_id)
+    with team_scope(team_id):
+        with transaction.atomic():
+            _lock_team(team_id)
+            created = _insert_unlinked(team_id, releases)
+        return list(
+            Release.objects.filter(team_id=team_id, id__in=[release.id for release in created])
+            .select_related("owner")
+            .order_by("created_at", "id")
+        )
 
 
 def _tokens(key: str) -> list[str]:
@@ -146,6 +174,7 @@ def create_release_for_new_flag(flag_id: int, team_id: int, releases_enabled: Ca
         organization_id=team.organization_id,
         distinct_id=str(creator.distinct_id) if creator else str(team.uuid),
         email=creator.email if creator and not creator.anonymize_data else None,
+        raise_on_error=True,
     )
     if not enabled:
         return
@@ -153,5 +182,4 @@ def create_release_for_new_flag(flag_id: int, team_id: int, releases_enabled: Ca
         team_id=team_id, project_id=team.project_id, access_control=None, flag_ids=[flag_id]
     )
     if flags:
-        with team_scope(team_id):
-            create_unlinked_releases(team_id, [(humanize(flags[0].key), [flags[0].id])])
+        create_unlinked_releases(team_id, [(humanize(flags[0].key), [flags[0].id])])

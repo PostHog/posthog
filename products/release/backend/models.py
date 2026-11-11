@@ -32,3 +32,10 @@ class Release(TeamScopedRootMixin):
 
     def __str__(self) -> str:
         return self.name
+
+
+class ReleaseImportState(TeamScopedRootMixin):
+    team = models.OneToOneField(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, primary_key=True
+    )
+    imported_at = models.DateTimeField(auto_now_add=True)
