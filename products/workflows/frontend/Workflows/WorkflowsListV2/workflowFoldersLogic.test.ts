@@ -1104,13 +1104,20 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).not.toContain('Old')
     })
 
-    it('refuses a second rename of a folder or its subfolders until the first one lands', async () => {
+    it('refuses a second change to a folder or its subfolders until its rename lands', async () => {
         await expectLogic(logic).toFinishAllListeners()
+        showToasts()
         let releaseMove!: () => void
         const moveHeld = new Promise<void>((resolve) => (releaseMove = resolve))
         const moves: string[] = []
+        const created: string[] = []
         useMocks({
             post: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    const body = (await request.json()) as { path: string; type: string }
+                    created.push(body.path)
+                    return [201, { id: 'new-folder', ...body }]
+                },
                 '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 3 }],
                 '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => {
                     const body = (await request.json()) as { new_path: string }
@@ -1128,11 +1135,16 @@ describe('workflowFoldersLogic', () => {
 
         logic.actions.renameFolder('Billing', 'Accounts')
         logic.actions.renameFolder('Billing/Cards', 'Debit')
+        await logic.asyncActions.createFolder('Weekly', 'Billing/Cards')
+        expect(
+            await screen.findByText("Couldn't create the folder. Wait until this folder finishes moving.")
+        ).toBeInTheDocument()
         releaseMove()
         await waitFor(() => expect(logic.values.folderMutationDisabledReason('Invoices')).toBeNull())
         await expectLogic(logic).toFinishAllListeners()
 
         expect(moves).toEqual(['Invoices'])
+        expect(created).toEqual([])
         expect(logic.values.folderPaths).toEqual(expect.arrayContaining(['Invoices', 'Invoices/Cards']))
         expect(logic.values.folderPaths).not.toContain('Billing/Cards')
     })

@@ -1312,9 +1312,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             try {
                 const teamId = String(values.currentTeamId)
                 const path = joinPath([...splitPath(parent ?? values.currentFolder ?? ''), name])
-                if (await isPathTaken(teamId, path)) {
-                    lemonToast.error(`Couldn't create the folder. ${NAME_TAKEN}`)
-                    actions.setFolderCreationError(NAME_TAKEN)
+                const taken = !values.folderMutationDisabledReason(path) && (await isPathTaken(teamId, path))
+                // A move of the parent can start while the server answers.
+                const reason = values.folderMutationDisabledReason(path)
+                if (taken || reason) {
+                    lemonToast.error(`Couldn't create the folder. ${reason ? `${reason}.` : NAME_TAKEN}`)
+                    actions.setFolderCreationError(reason ?? NAME_TAKEN)
                     return
                 }
                 const entry = await folderRequest(
