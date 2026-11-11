@@ -124,11 +124,12 @@ def _extract_json(content: str) -> dict:
 
 
 def call_llm_for_rules(team: Team, paths: list[tuple[str, int]], *, model: str) -> SuggestedRulesResponse:
+    distinct_id = team_distinct_id(team.id)
     client = build_anthropic_client(
         "web_analytics",
         ai_product="web_analytics",
         team_id=team.id,
-        distinct_id=team_distinct_id(team.id),
+        distinct_id=distinct_id,
     )
     response = client.messages.create(
         model=model,
@@ -136,6 +137,7 @@ def call_llm_for_rules(team: Team, paths: list[tuple[str, int]], *, model: str) 
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": build_user_prompt(paths)}],
         temperature=0.2,
+        metadata={"user_id": distinct_id},
     )
     content = "".join(block.text for block in response.content if block.type == "text")
     return SuggestedRulesResponse.model_validate(_extract_json(content))

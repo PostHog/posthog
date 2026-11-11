@@ -116,6 +116,7 @@ class TestCallLlmForRules(SimpleTestCase):
         self.assertEqual(request.headers["x-posthog-product"], "web_analytics")
         self.assertEqual(request.headers["x-posthog-distinct-id"], "team-7")
         self.assertEqual(json.loads(request.headers["x-posthog-properties"])["team_id"], "7")
+        self.assertEqual(json.loads(request.content)["metadata"], {"user_id": "team-7"})
 
 
 class TestApplySuggestionsToTeam(BaseTest):
