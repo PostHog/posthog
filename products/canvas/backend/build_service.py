@@ -931,11 +931,20 @@ def revert_to_version(
         else:
             target_capabilities = _resolved_capabilities(version)
     with transaction.atomic(), team_scope(canvas.team_id):
-        canvas = _claim_canvas_head(canvas, has_expected_version=True, expected_version_id=expected_current_version_id)
+        canvas = _claim_canvas_head(
+            canvas,
+            has_expected_version=True,
+            expected_version_id=expected_current_version_id,
+            check_capacity=False,
+        )
         if canvas.kind == Canvas.KIND_GRID:
             refused_pins = _pins_needing_component_creator(canvas.team_id, user, target_layout)
             if refused_pins:
                 raise CanvasPinnedVersionDenied(sorted({pin.component_id for pin in refused_pins}))
+        # The capacity lock comes after the component row locks, the order a component publish
+        # takes them in, so the two cannot deadlock.
+        _lock_team_build_capacity(canvas.team_id)
+        _assert_build_capacity(canvas.team_id)
         previous_head_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
         assert_may_set_capabilities(
             canvas, user, _version_capabilities(canvas.team_id, previous_head_id), target_capabilities
