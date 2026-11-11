@@ -153,6 +153,8 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
+    // The workflows list shows a retry, or its own toast when a refresh of a complete list fails
+    loadWorkflows: 'products.workflows.frontend.workflowsListV2Logic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
