@@ -136,6 +136,19 @@ describe('scenario environment', () => {
                 { groups: [], pids: [], strangers: [] },
             ],
             [
+                'a node or tsx script that takes the entry point as an argument is not a stranger',
+                [
+                    proc(353, 353, 'node node_modules/typescript/bin/tsc src/index.ts', PLAIN_ENV),
+                    proc(
+                        354,
+                        354,
+                        `node ${NODEJS}/node_modules/.bin/tsx watch scripts/lint.ts src/index.ts`,
+                        PLAIN_ENV
+                    ),
+                ],
+                { groups: [], pids: [], strangers: [] },
+            ],
+            [
                 "the workflows stack's push-api posthog-node is not a stranger",
                 [proc(312, 312, 'bash ./bin/posthog-node', modeEnv('push-api'), NODEJS)],
                 { groups: [], pids: [], strangers: [] },
@@ -948,7 +961,9 @@ describe('scenario environment', () => {
                 NODEJS_CAPABILITY_GROUPS: _groups,
                 ...plainEnv
             } = process.env
-            stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'src/index.ts'], {
+            const hold = path.join(fakes, 'hold.cjs')
+            writeFileSync(hold, 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)')
+            stranger = spawn(process.execPath, ['--require', hold, 'src/index.ts'], {
                 cwd: NODEJS_DIR,
                 env: plainEnv,
                 stdio: 'ignore',

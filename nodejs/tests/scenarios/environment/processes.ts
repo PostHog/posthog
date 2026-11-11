@@ -35,19 +35,30 @@ const isMarked = (entry: ProcEntry): boolean =>
 const ENTRY_POINTS = ['bin/posthog-node', 'src/index.ts', 'dist/index.js']
 const NODE_LAUNCHERS = ['node', 'tsx']
 const SHELLS = ['sh', 'bash', 'dash', 'zsh']
+const OPTIONS_WITH_VALUES = ['-r', '--require', '--import', '--loader', '--experimental-loader', '-C', '--conditions']
+const TSX_SUBCOMMANDS = ['watch']
 
 const entryPointsOf = (nodejsDir: string): string[] => [
     path.join(path.dirname(nodejsDir), 'bin', 'posthog-node'),
     ...ENTRY_POINTS.map((entryPoint) => path.join(nodejsDir, entryPoint)),
 ]
 
+function operandsOf(args: string[]): string[] {
+    const index = args.findIndex(
+        (arg, at) => !arg.startsWith('-') && !(at > 0 && OPTIONS_WITH_VALUES.includes(args[at - 1]))
+    )
+    const operands = index === -1 ? [] : args.slice(index)
+    return TSX_SUBCOMMANDS.includes(operands[0]) ? operandsOf(operands.slice(1)) : operands
+}
+
 function launchesNode(entry: ProcEntry, nodejsDir: string): boolean {
     const args = entry.cmdline.split(' ')
     const entryPoints = entryPointsOf(nodejsDir)
     const isEntryPoint = (arg: string): boolean =>
         entryPoints.includes(entry.cwd === null ? arg : path.resolve(entry.cwd, arg))
-    const [program = '', ...rest] = SHELLS.includes(path.basename(args[0])) ? args.slice(1) : args
-    return isEntryPoint(program) || (NODE_LAUNCHERS.includes(path.basename(program)) && rest.some(isEntryPoint))
+    const runsEntryPoint = ([program = '', ...rest]: string[]): boolean =>
+        isEntryPoint(program) || (NODE_LAUNCHERS.includes(path.basename(program)) && runsEntryPoint(operandsOf(rest)))
+    return runsEntryPoint(SHELLS.includes(path.basename(args[0])) ? args.slice(1) : args)
 }
 
 function servesCdp(environ: string[]): boolean {
