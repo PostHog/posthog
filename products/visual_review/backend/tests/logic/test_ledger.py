@@ -181,6 +181,25 @@ class TestLedger:
 
         assert ledger.ledger_at(repo.id, RunType.STORYBOOK, 0) == {"Button": _BUTTON_1}
 
+    def test_export_writes_an_empty_file_once_every_snapshot_is_removed(self, repo) -> None:
+        ledger.seed(repo, _SEED_SHA, {RunType.STORYBOOK: {"Button": _BUTTON_0}})
+        with transaction.atomic(using=WRITER_DB):
+            ledger.lock_ledger(repo.id)
+            ledger.append_commit(repo, position=1, commit_sha=_NEXT_SHA, pr_number=7)
+            self._append(repo, "Button", "", 1)
+
+        assert self._export_storybook(repo) == {}
+        with pytest.raises(CommandError, match="no entries for playwright"):
+            call_command(
+                "visual_review_baseline_ledger",
+                "export",
+                "--repo",
+                repo.repo_full_name,
+                "--run-type",
+                RunType.PLAYWRIGHT,
+                stdout=StringIO(),
+            )
+
     def test_seed_with_run_type_skips_a_run_type_whose_file_is_empty(self, repo, mocker) -> None:
         repo.baseline_file_paths = {RunType.STORYBOOK: ".storybook.yml", RunType.PLAYWRIGHT: ".playwright.yml"}
         repo.save()

@@ -134,7 +134,8 @@ class Command(BaseCommand):
         if head is None:
             raise CommandError(f"{repo.repo_full_name} has no baseline ledger.")
         hashes = ledger.ledger_at(repo.id, run_type, head.position)
-        if not hashes:
+        ever_held = BaselineEntry.objects.using(WRITER_DB).filter(repo_id=repo.id, run_type=run_type).exists()
+        if not ever_held:
             raise CommandError(f"The ledger has no entries for {run_type}.")
 
         updates = [{"identifier": identifier, "new_hash": content_hash} for identifier, content_hash in hashes.items()]
