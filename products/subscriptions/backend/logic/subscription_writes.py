@@ -79,7 +79,7 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_tea
 
 from .subscription_reads import context_rows, subscription_record
 from .summary_quota import invalidate_summary_quota_cache, validate_summary_enabled_org_limit
-from .visibility import blocked_target_ids, require_viewer_access, viewable_queryset
+from .visibility import blocked_target_ids, require_viewer_access, viewable_queryset, viewable_subscriptions
 
 MAX_AI_SUBSCRIPTION_CONTEXTS: int = int(SubscriptionAIContextLimit.model_fields["root"].default)
 AI_DELIVERY_DISPLAY_FIELDS = frozenset(
@@ -1078,19 +1078,11 @@ def take_subscription_ownership(
         raise SubscriptionRequestInvalidError(
             f"Can't take ownership: {owner_denial} have access to this content."
         ) from None
-    if (
-        instance.dashboard_id
-        and blocked_target_ids(
-            owner_access, instance.dashboard_export_insights.filter(team_id=team.id), "insight"
-        ).exists()
-    ):
+    if not viewable_subscriptions(
+        Subscription.objects.filter(team_id=team.id, pk=instance.pk), owner_access, team.id
+    ).exists():
         raise SubscriptionRequestInvalidError(
-            {
-                "dashboard_export_insights": [
-                    f"{owner_requirement} viewer access to every selected insight. "
-                    "Choose another owner or update their access."
-                ]
-            }
+            f"{owner_requirement} access to the subscription's insights, dashboards, and report contexts."
         )
     if (
         instance.resource_type == Subscription.ResourceType.AI_PROMPT

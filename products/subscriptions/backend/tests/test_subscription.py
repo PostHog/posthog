@@ -4868,16 +4868,30 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.restricted_insight.id)
         )
 
-    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
-    def test_transfer_checks_the_new_owners_saved_selection(self, enabled: bool, restricted_selection: bool) -> None:
+    @parameterized.expand(
+        [
+            (enabled, restricted, kind)
+            for enabled in (False, True)
+            for restricted in (False, True)
+            for kind in ("selection", "insight_context", "dashboard_context")
+        ]
+    )
+    def test_transfer_checks_the_new_owners_content(self, enabled: bool, restricted_selection: bool, kind: str) -> None:
         admin = User.objects.create_user(email="admin@example.com", first_name="Admin", password=None)
         OrganizationMembership.objects.create(
             organization=self.organization, user=admin, level=OrganizationMembership.Level.ADMIN
         )
-        dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
-        subscription = create_subscription(team=self.team, created_by=admin, dashboard=dashboard, enabled=enabled)
         selected_insight = self.restricted_insight if restricted_selection else self.open_insight
-        subscription.dashboard_export_insights.set([selected_insight])
+        if kind == "selection":
+            dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+            subscription = create_subscription(team=self.team, created_by=admin, dashboard=dashboard, enabled=enabled)
+            subscription.dashboard_export_insights.set([selected_insight])
+        else:
+            context = selected_insight if kind == "insight_context" else self._dashboard_with_tiles(selected_insight)
+            subscription = self._ai_sub_with_contexts(context)
+            subscription.created_by = admin
+            subscription.enabled = enabled
+            subscription.save()
         self.client.force_login(admin)
 
         response = self.client.post(
@@ -4886,10 +4900,11 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         )
 
         subscription.refresh_from_db()
-        assert list(subscription.dashboard_export_insights.values_list("id", flat=True)) == [selected_insight.id]
+        if kind == "selection":
+            assert list(subscription.dashboard_export_insights.values_list("id", flat=True)) == [selected_insight.id]
         if restricted_selection:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-            assert response.json()["attr"] == "dashboard_export_insights"
+            assert "access" in response.json()["detail"]
             assert subscription.created_by == admin
             assert subscription.enabled is enabled
             assert not ActivityLog.objects.filter(
