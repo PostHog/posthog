@@ -9,10 +9,12 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.customer_analytics.backend.models import Account
 
 
-def get_account_activity_account(*, team: Team, user: object, account_id: str) -> Account:
+def get_account_activity_account(
+    *, team: Team, user: object, account_id: str, access: UserAccessControl | None = None
+) -> Account:
     if not isinstance(user, User):
         raise UserAccessControlError("account", "viewer", resource_id=account_id)
-    access = UserAccessControl(user=user, team=team)
+    access = access if access is not None else UserAccessControl(user=user, team=team)
     access.assert_access_level_for_resource("account", "viewer")
     access.assert_access_level_for_resource("person", "viewer")
     visible = access.filter_queryset_by_access_level(Account.objects.for_team(team.id), resource="account")

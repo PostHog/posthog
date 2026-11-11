@@ -416,12 +416,16 @@ def validate_activity_query_property_access(team: Team, user: "User | None", lab
     validate_activity_property_access(team, user, labels)
 
 
-def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
+def validate_account_users_access(
+    team: Team, user: "User | None", account_id: str, *, access: UserAccessControl | None = None
+) -> None:
     raise PermissionDenied("Run the account-user query synchronously.")
 
 
-def validate_account_activity_access(team: Team, user: "User | None", account_id: str) -> None:
-    get_account_activity_account(team=team, user=user, account_id=account_id)
+def validate_account_activity_access(
+    team: Team, user: "User | None", account_id: str, *, access: UserAccessControl | None = None
+) -> None:
+    get_account_activity_account(team=team, user=user, account_id=account_id, access=access)
 
 
 def get_activity_query_status_scopes(labels: list[str]) -> list[str] | None:
@@ -442,28 +446,34 @@ def get_activity_query_status_scopes(labels: list[str]) -> list[str] | None:
     return scopes
 
 
-def validate_book_activity_access(team: Team, user: "User | None", labeled_user_id: str) -> None:
+def validate_book_activity_access(
+    team: Team, user: "User | None", labeled_user_id: str, *, access: UserAccessControl | None = None
+) -> None:
     if user is None or str(user.id) != labeled_user_id:
         raise UserAccessControlError("account", "viewer")
-    validate_book_activity_query_access(team, user)
+    validate_book_activity_query_access(team, user, access)
 
 
-def validate_book_activity_accounts_access(team: Team, user: "User | None", labeled_account_ids: str) -> None:
+def validate_book_activity_accounts_access(
+    team: Team, user: "User | None", labeled_account_ids: str, *, access: UserAccessControl | None = None
+) -> None:
     if user is None:
         raise UserAccessControlError("account", "viewer")
     account_ids = set(labeled_account_ids.split(",")) if labeled_account_ids else set()
-    accessible = _accounts_queryset(team.id, UserAccessControl(user=user, team=team)).filter(
-        id__in=account_ids, ignored_at__isnull=True
-    )
+    access = access if access is not None else UserAccessControl(user=user, team=team)
+    accessible = _accounts_queryset(team.id, access).filter(id__in=account_ids, ignored_at__isnull=True)
     if accessible.count() != len(account_ids):
         raise UserAccessControlError("account", "viewer")
 
 
-def validate_book_activity_people_access(team: Team, user: "User | None", labeled_user_id: str) -> None:
+def validate_book_activity_people_access(
+    team: Team, user: "User | None", labeled_user_id: str, *, access: UserAccessControl | None = None
+) -> None:
     if user is None:
         raise UserAccessControlError("account", "viewer")
-    validate_book_activity_access(team, user, labeled_user_id)
-    UserAccessControl(user=user, team=team).assert_access_level_for_resource("person", "viewer")
+    access = access if access is not None else UserAccessControl(user=user, team=team)
+    validate_book_activity_access(team, user, labeled_user_id, access=access)
+    access.assert_access_level_for_resource("person", "viewer")
 
 
 def get_account(

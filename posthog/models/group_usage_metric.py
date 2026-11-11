@@ -76,13 +76,28 @@ class GroupUsageMetric(UUIDModel, BytecodeModelMixin):
 
         return filter_action_ids(self.filters)
 
-    def get_expr(self, actions: Mapping[int, "Action | None"] | None = None) -> ast.Expr:
+    def get_test_account_filters(self) -> list[ast.Expr]:
+        from products.cdp.backend.filters import _build_test_account_filters
+
+        return _build_test_account_filters(self.filters, self.team)
+
+    def get_expr(
+        self,
+        actions: Mapping[int, "Action | None"] | None = None,
+        *,
+        test_account_filters: list[ast.Expr] | None = None,
+    ) -> ast.Expr:
         if self.is_data_warehouse:
             return ast.Constant(value=True)
 
         from products.cdp.backend.filters import hog_function_filters_to_expr
 
-        return hog_function_filters_to_expr(self.filters, self.team, actions if actions is not None else {})
+        return hog_function_filters_to_expr(
+            self.filters,
+            self.team,
+            actions if actions is not None else {},
+            test_account_filters=test_account_filters,
+        )
 
     def get_cohort_filter_errors(self) -> list[str]:
         """Return why the test account cohorts can't be inlined into the metric's real-time filter."""

@@ -29,6 +29,7 @@ from posthog.week_start_day import WeekStartDay
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.api import create_action
+from products.cohorts.backend.models.cohort import Cohort
 from products.customer_analytics.backend.hogql_queries import account_activity_matrix_query_runner as matrix_module
 from products.customer_analytics.backend.hogql_queries.account_activity_matrix_query_runner import (
     AccountActivityMatrixQueryRunner,
@@ -110,11 +111,27 @@ class TestAccountActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand([(False,), (True,)])
     def test_batches_action_metrics_and_stops_compiling_at_the_series_cap(self, missing_action: bool) -> None:
         GroupUsageMetric.objects.filter(team=self.team).delete()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test accounts",
+            filters={"properties": [{"type": "person", "key": "email", "value": "cy@example.com"}]},
+            is_static=False,
+        )
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id, "operator": "not_in"}]
+        self.team.save()
         for index in range(2):
             action = create_action(team=self.team, name=f"Action {index}", steps_json=[{"event": "insight viewed"}])
-            action_id = 999998 if missing_action and index == 1 else action.id
-            self._metric(f"Metric {index}", "", filters={"actions": [{"id": action_id, "type": "actions"}]})
-        skipped = self._metric("ZZZ skipped", "", filters={"actions": [{"id": 999999, "type": "actions"}]})
+            metric = self._metric(
+                f"Metric {index}",
+                "",
+                filters={"actions": [{"id": action.id, "type": "actions"}], "filter_test_accounts": True},
+            )
+            if missing_action and index == 1:
+                GroupUsageMetric.objects.filter(id=metric.id).update(
+                    filters={"actions": [{"id": 999998, "type": "actions"}], "filter_test_accounts": True}
+                )
+        skipped = self._metric("ZZZ skipped", "insight viewed")
+        GroupUsageMetric.objects.filter(id=skipped.id).update(filters={"actions": [{"id": 999999, "type": "actions"}]})
         self._event(ANA, "insight viewed", "2026-10-26T10:00:00Z")
         flush_persons_and_events()
         runner = AccountActivityMatrixQueryRunner(
@@ -123,6 +140,7 @@ class TestAccountActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with patch.object(matrix_module, "MAX_SERIES", 2), CaptureQueriesContext(connection) as queries:
             result = runner.calculate().results
         assert len([query for query in queries if 'FROM "posthog_action"' in query["sql"]]) == 1
+        assert len([query for query in queries if 'FROM "posthog_cohort"' in query["sql"]]) == 1
         assert len(result.series) == 2
         assert len(result.data) == (1 if missing_action else 2)
         assert result.skippedMetricIds == [str(skipped.id)]

@@ -181,6 +181,7 @@ class AccountActivityMatrixQueryRunner(ActivityQueryRunner[AccountActivityMatrix
             actions.update(
                 {action.id: action for action in get_actions(action_ids=action_ids, project_id=self.team.project_id)}
             )
+        test_account_filters: list[ast.Expr] | None = None
         for metric in self._team_metrics:
             if (
                 len(eligible) >= MAX_SERIES
@@ -189,7 +190,9 @@ class AccountActivityMatrixQueryRunner(ActivityQueryRunner[AccountActivityMatrix
             ):
                 skipped.append(metric)
                 continue
-            filter_expr = metric.get_expr(actions)
+            if metric.filters.get("filter_test_accounts", False) and test_account_filters is None:
+                test_account_filters = metric.get_test_account_filters()
+            filter_expr = metric.get_expr(actions, test_account_filters=test_account_filters)
             if filter_expr == ast.Constant(value=True):
                 skipped.append(metric)
                 continue

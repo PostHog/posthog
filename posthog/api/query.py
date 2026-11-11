@@ -571,7 +571,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             ):
                 try:
                     validate_account_access(
-                        self.team, request.user if isinstance(request.user, User) else None, labeled_account_id
+                        self.team,
+                        request.user if isinstance(request.user, User) else None,
+                        labeled_account_id,
+                        access=self.user_access_control,
                     )
                 except UserAccessControlError as error:
                     raise PermissionDenied(str(error)) from error
