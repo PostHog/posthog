@@ -109,8 +109,11 @@ class TestGroupKeyResolver(BaseTest):
         assert isinstance(expr, ast.CompareOperation)
 
     def test_a_failed_resolution_keeps_the_join(self) -> None:
-        with patch(_RESOLVER, side_effect=Exception("clickhouse said no")):
+        with patch(_RESOLVER, side_effect=Exception("clickhouse said no")) as resolve:
             assert resolved_group_key_expr(self.team, _filter(), _CH_USER) is None
+            # Remembered, so a slow groups table is not queried again on the next listing.
+            assert resolved_group_key_expr(self.team, _filter(), _CH_USER) is None
+        assert resolve.call_count == 1
 
     @parameterized.expand(
         [
@@ -121,6 +124,9 @@ class TestGroupKeyResolver(BaseTest):
             ("not_equal", "group_0.properties.plan != 'pro'", None),
             ("null_check", "group_0.properties.plan = null", None),
             ("coalesce", "coalesce(group_0.properties.plan, 'x') = 'x'", None),
+            ("or_tautology", "group_0.properties.plan = 'pro' OR 1 = 1", None),
+            ("or_constant_in", "group_0.properties.plan = 'pro' OR 'a' IN ('a')", None),
+            ("two_properties_compared", "group_0.properties.a = group_0.properties.b", None),
             # Anything outside one group type's properties needs the event row, so it keeps the join.
             ("mixes_event_properties", "group_0.properties.plan = 'pro' AND properties.$browser = 'Chrome'", None),
             ("two_group_types", "group_0.properties.plan = 'pro' OR group_1.properties.plan = 'pro'", None),

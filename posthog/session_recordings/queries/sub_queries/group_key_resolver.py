@@ -18,6 +18,7 @@ import structlog
 from posthog.schema import EventPropertyFilter, GroupPropertyFilter, HogQLPropertyFilter, PropertyOperator
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
@@ -36,6 +37,11 @@ GROUP_KEY_CACHE_TTL_SECONDS = 3600
 
 # Past this the key list stops being cheaper than the join, and it starts crowding `max_query_size`.
 MAX_RESOLVED_GROUP_KEYS = 10_000
+
+# The key query runs before the listing query and inside its budget, so it must stay well under a preview's.
+GROUP_KEY_RESOLUTION_MAX_SECONDS = 5
+# A failed resolution is remembered for a while, so a slow groups table is not queried again on every listing.
+GROUP_KEY_FAILURE_TTL_SECONDS = 600
 
 # A negated filter has to distinguish "this group does not match" from "this event has no group at
 # all", which an IN list over matching keys cannot express. Those keep the join.
@@ -190,9 +196,39 @@ def _single_group_property_reader(expr: ast.Expr) -> int | None:
         return None
     check = _GroupPropertyReaderCheck()
     check.visit(expr)
-    if check.unsafe or len(check.group_type_indexes) != 1:
+    if check.unsafe or len(check.group_type_indexes) != 1 or not _false_without_group(expr):
         return None
     return next(iter(check.group_type_indexes))
+
+
+def _false_without_group(expr: ast.Expr) -> bool:
+    """Whether `expr` is false for an event with no group, the only events a key list drops.
+
+    Every comparison must test a group property against a value. `OR 1 = 1` or a comparison of two group
+    properties can be true with no group, because HogQL treats null as equal to null.
+    """
+    if isinstance(expr, ast.And):
+        return any(_false_without_group(operand) for operand in expr.exprs)
+    if isinstance(expr, ast.Or):
+        return all(_false_without_group(operand) for operand in expr.exprs)
+    if isinstance(expr, ast.CompareOperation):
+        return _reads_fields(expr.left) != _reads_fields(expr.right)
+    return False
+
+
+def _reads_fields(expr: ast.Expr) -> bool:
+    finder = _FieldFinder()
+    finder.visit(expr)
+    return finder.found
+
+
+class _FieldFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.found = True
 
 
 class _GroupPrefixStripper(CloningVisitor):
@@ -211,6 +247,12 @@ def _group_keys(team: Team, property_key: str, cache_key: str, resolve: Callable
 
     keys = _swallowing_failure("group_key_resolution_failed", team, property_key, resolve)
     if keys is None:
+        _swallowing_failure(
+            "group_key_cache_write_failed",
+            team,
+            property_key,
+            lambda: cache.set(cache_key, _FALLBACK, GROUP_KEY_FAILURE_TTL_SECONDS),
+        )
         return None
 
     resolved: list[str] | None = None if len(keys) > MAX_RESOLVED_GROUP_KEYS else keys
@@ -278,6 +320,7 @@ def _query_group_keys(team: Team, group_type_index: int, predicate: ast.Expr, ch
         ch_user=ch_user,
         # Types `properties.x` from this group type's property definitions, as the join path types `group_N.properties.x`.
         context=HogQLContext(team_id=team.pk, globals={"group_id": group_type_index}),
+        settings=HogQLGlobalSettings(max_execution_time=GROUP_KEY_RESOLUTION_MAX_SECONDS),
     )
     return [row[0] for row in (response.results or []) if row[0]]
 

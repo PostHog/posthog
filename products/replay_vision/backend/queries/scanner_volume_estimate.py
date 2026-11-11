@@ -82,7 +82,8 @@ PREVIEW_ESTIMATE_BUDGET = EstimateBudget(
 )
 
 # The exact count is the expensive half of the exact-then-sampled pair, and on a large team it reads terabytes in
-# its few seconds before timing out. Past this cap it stops and the sampled count answers instead.
+# its few seconds before timing out. Past this cap it stops and the sampled count answers instead. ClickHouse checks
+# the cap on each server that reads, so a distributed query can read up to this much per shard.
 EXACT_ESTIMATE_MAX_BYTES = 200 * 1024**3
 # A filter whose exact count just failed fails the same way on the next estimate, so the exact attempt is skipped
 # for this long and the sampled count runs straight away.
@@ -226,8 +227,11 @@ def estimate_scanner_session_volume(
 
     filter_key = _filter_cache_key(team, query, sampling_mode, scan_window_days)
     result_key = f"{filter_key}:result:{user.pk if user is not None else '-'}"
-    if budget.result_cache_seconds and (cached := get_safe_cache(result_key)) is not None:
-        return ScannerVolumeEstimate(**cached)
+    if budget.result_cache_seconds and isinstance(cached := get_safe_cache(result_key), dict):
+        try:
+            return ScannerVolumeEstimate(**cached)
+        except TypeError:
+            pass  # Written before a deploy that changed the fields, so it is recomputed.
     estimate = _estimate_scanner_session_volume(
         team=team,
         query=query,
@@ -237,7 +241,8 @@ def estimate_scanner_session_volume(
         budget=budget,
         sample_factor=sample_factor,
         scan_window_days=scan_window_days,
-        exact_skip_key=f"{filter_key}:exact-skip",
+        # Per budget, because a timeout under a preview's short budget says nothing about a longer one.
+        exact_skip_key=f"{filter_key}:exact-skip:{budget.max_execution_seconds}",
     )
     if budget.result_cache_seconds:
         safe_cache_set(result_key, dataclasses.asdict(estimate), budget.result_cache_seconds)
