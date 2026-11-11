@@ -151,6 +151,8 @@ class TestServiceBackend(TestCase):
                 "delete_reads_then_deletes_one_ref",
                 lambda ids: IntegrationManager.github.oauth.delete(TEAM, ids["a"], ignore_usages=True),
                 [
+                    # The accessor reads the row first, to hand it to the delete hooks.
+                    ("POST", "/resolve", {"owner": TEAM, "ops": ["resolve", "read"], "refs": ["{ref}"]}),
                     (
                         "GET",
                         "/{ref}",
