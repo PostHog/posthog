@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useState } from 'react'
 
 import { initKeaTests } from '~/test/init'
@@ -93,6 +93,16 @@ function press(key: string, init: KeyboardEventInit = {}): boolean {
     return notPrevented
 }
 
+/** Presses an element as a browser does: an unprevented mousedown moves the focus before the click. */
+function pressPointer(element: Element): void {
+    if (fireEvent.mouseDown(element)) {
+        const focusable = element.closest<HTMLElement>('a[href], button, input, select, textarea, [tabindex]')
+        act(() => (focusable ? focusable.focus() : (document.activeElement as HTMLElement | null)?.blur()))
+    }
+    fireEvent.mouseUp(element)
+    fireEvent.click(element)
+}
+
 describe('FacetSearchBar', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => cleanup())
@@ -166,6 +176,12 @@ describe('FacetSearchBar', () => {
         ['a typed facet value followed by a space', 'status:active ', 'status:active', ''],
         ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"', ''],
         ['text around a typed facet value', 'wel status:active ren', 'status:active', 'wel ren'],
+        [
+            'a quoted value that holds a facet token',
+            'sends:"Check status:active now" wel',
+            'sends:"Check status:active now"',
+            'wel',
+        ],
     ])('turns %s into a pill', (_, typed, query, text) => {
         setup()
         clickInput()
@@ -251,12 +267,12 @@ describe('FacetSearchBar', () => {
         expect(shown('query')).toEqual('')
     })
 
-    it('keeps focus in the input when the popover chrome is pressed', () => {
+    it('keeps focus in the input and the popover open when the popover chrome is pressed', () => {
         setup()
         clickInput()
-        const hints = document.querySelector('[data-attr="facet-search-bar-hints"]')!
-        // fireEvent returns false when the handler prevented the default, which is what keeps the focus.
-        expect(fireEvent.mouseDown(hints)).toBe(false)
+        pressPointer(document.querySelector('[data-attr="facet-search-bar-hints"]')!)
+        expect(input()).toHaveFocus()
+        expect(listbox()).not.toBeNull()
     })
 
     it('shows the no-values message as text, not as an option', () => {
