@@ -359,8 +359,8 @@ The runtime role gets `SELECT, INSERT, UPDATE, DELETE` on `integrations`, `integ
 On `audit_log` it gets only `SELECT, INSERT`: it cannot `UPDATE`, `DELETE` or `TRUNCATE` audit rows, so a compromised pod cannot erase its own trail.
 Audit retention runs under the migrate or a maintenance role, outside the service process.
 
-In `prod-us`, `prod-eu` and any environment whose name starts with `prod`, the service checks the runtime role at startup.
-It refuses to start the integration features when the runtime role owns `audit_log`, can `UPDATE`, `DELETE` or `TRUNCATE` it, or has the same user as `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`.
+In `prod-us`, `prod-eu` and any environment whose name contains `prod` (any case), the service checks the runtime role at startup.
+It refuses to start the integration features when the runtime role owns `audit_log` or one of its partitions, can `UPDATE` (also per column), `DELETE` or `TRUNCATE` any of them, or has the same user as `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`.
 The pod logs `startup:database_role_refused`, stays ready, and keeps serving platform secrets.
 The same-user check runs only when the pod sets `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`. Other environments skip the check.
 
@@ -462,6 +462,9 @@ When the queue is full, the service drops the rows and counts them on `credentia
 Every audit row is also written to stdout as one JSON line (`integrations:audited`), before the response. It holds field names only, never values. The queue never drops this line.
 
 Idempotency keys are scoped by deployment, owner and operation.
+The request hash covers the secret key names but not their values, so a stored hash cannot be used to guess a weak secret offline.
+A retry with the same key and a different secret value replays the first create.
+The service deletes keys that passed their 24 hour window every 10 minutes.
 
 `PATCH /:ref` and the upsert of an existing row refuse changes to identity fields: `integration_id`, and the config keys `installation_id`, `instance_url` and `region`. They answer `validation`. Set these keys when you create the row. `identityConfigKeys(kind)` in `src/integrations/identity.ts` returns the list.
 

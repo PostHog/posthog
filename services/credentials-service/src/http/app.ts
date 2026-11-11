@@ -18,8 +18,16 @@ export interface AppOptions {
     verifier: JwtVerifier
     lifecycle: Lifecycle
     secrets: () => MountedSecrets | null
-    /** Set only when the service has a database and a KMS. Without it the integration routes do not exist. */
-    integrations?: { verifier: IntegrationVerifier; service: IntegrationsService }
+    /**
+     * The integration routes. A getter lets the server turn them on after boot, when the database
+     * answers late. While it returns undefined, every integration path answers 404.
+     */
+    integrations?: IntegrationDeps | (() => IntegrationDeps | undefined)
+}
+
+export interface IntegrationDeps {
+    verifier: IntegrationVerifier
+    service: IntegrationsService
 }
 
 export function createApp(opts: AppOptions): Hono {
@@ -78,8 +86,18 @@ export function createApp(opts: AppOptions): Hono {
         return c.json(resolveKeys(identity, mounted))
     })
 
-    if (opts.integrations) {
-        app.route('/v1/integrations', createIntegrationRoutes(opts.integrations))
+    const integrations = opts.integrations
+    if (integrations) {
+        let routes: { deps: IntegrationDeps; app: ReturnType<typeof createIntegrationRoutes> } | undefined
+        // `mount` strips the prefix, so the routes keep their own paths.
+        app.mount('/v1/integrations', async (request) => {
+            const deps = typeof integrations === 'function' ? integrations() : integrations
+            if (!deps) {
+                return new Response('404 Not Found', { status: 404 })
+            }
+            const current = routes?.deps === deps ? routes : (routes = { deps, app: createIntegrationRoutes(deps) })
+            return current.app.fetch(request)
+        })
     }
 
     return app

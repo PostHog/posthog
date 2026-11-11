@@ -2,9 +2,12 @@ import type { Pool } from 'pg'
 
 import type { DatabaseConfig } from '../lib/config'
 
-/** Production environments are named `prod-us`, `prod-eu` and so on. */
+/**
+ * Any name that contains `prod`, in any case, counts as production. A typo such as `Prod-us` or
+ * `prod_us` then still runs the guard, and the guard fails closed.
+ */
 export function isProductionEnv(env: string): boolean {
-    return env.startsWith('prod')
+    return /prod/i.test(env)
 }
 
 function userOf(url: string): string | undefined {
@@ -26,15 +29,23 @@ export async function runtimeRoleRefusal(pool: Pool, config: DatabaseConfig): Pr
         return 'the runtime and migrate database URLs name the same user'
     }
 
+    // The service resolves `audit_log` through its own search_path, so the guard resolves it the same way.
+    // A row of audit_log_default or of a daily partition can be changed directly, so every table in the
+    // partition tree is checked, including column-level UPDATE grants.
     const result = await pool.query<{ owns: boolean; can_modify: boolean }>(
-        `SELECT
-            coalesce((SELECT tableowner = current_user FROM pg_tables
-                      WHERE schemaname = current_schema() AND tablename = 'audit_log'), false) AS owns,
-            CASE WHEN to_regclass('audit_log') IS NULL THEN false
-                 ELSE has_table_privilege('audit_log', 'DELETE')
-                   OR has_table_privilege('audit_log', 'UPDATE')
-                   OR has_table_privilege('audit_log', 'TRUNCATE')
-            END AS can_modify`
+        `WITH tree AS (
+            SELECT relid FROM pg_partition_tree(to_regclass('audit_log'))
+            WHERE to_regclass('audit_log') IS NOT NULL
+        )
+        SELECT
+            coalesce(bool_or(pg_has_role(current_user, c.relowner, 'USAGE')), false) AS owns,
+            coalesce(bool_or(
+                has_table_privilege(t.relid, 'DELETE')
+                OR has_table_privilege(t.relid, 'UPDATE')
+                OR has_table_privilege(t.relid, 'TRUNCATE')
+                OR has_any_column_privilege(t.relid, 'UPDATE')
+            ), false) AS can_modify
+        FROM tree t JOIN pg_class c ON c.oid = t.relid`
     )
     const row = result.rows[0]
     if (row?.owns) {

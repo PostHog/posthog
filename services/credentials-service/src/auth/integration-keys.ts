@@ -94,7 +94,7 @@ export class IntegrationKeyLoader {
 
     /** Replace the in-memory key set. Throws on the first load so boot fails closed. */
     async load(): Promise<void> {
-        const files = await readMount(this.dir)
+        const files = await readMount(this.dir, { strict: true })
         if (files === null) {
             throw new Error(`could not read ${this.dir}`)
         }

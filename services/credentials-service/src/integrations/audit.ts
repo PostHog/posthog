@@ -8,6 +8,8 @@ import { type Queryable, query } from '../db/integrations'
 import { logger } from '../lib/logging'
 import { auditDroppedTotal, auditWrittenTotal } from './metrics'
 
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
 export interface AuditActor {
     deployment: string
     caller: string
@@ -36,7 +38,7 @@ export interface AuditEntry {
  */
 export function logAuditEntries(entries: readonly AuditEntry[]): void {
     for (const entry of entries) {
-        logger.info('integrations:audited', {
+        logger.audit('integrations:audited', {
             deployment: entry.actor.deployment,
             caller: entry.actor.caller,
             user_id: entry.actor.userId,
@@ -75,6 +77,10 @@ export async function insertAuditRows(db: Queryable, entries: readonly AuditEntr
         jti: entry.actor.jti,
         details: entry.details ?? {},
     }))
+    // Postgres refuses a NUL or a lone surrogate in jsonb, and one bad value would fail the whole batch.
+    const payload = JSON.stringify(rows, (_key, value: unknown) =>
+        typeof value === 'string' ? value.replaceAll('\u0000', '').replace(LONE_SURROGATE, '\uFFFD') : value
+    )
     // One statement for the whole batch. jsonb_to_recordset turns each JSON array into a Postgres array.
     await query(
         db,
@@ -87,7 +93,7 @@ export async function insertAuditRows(db: Queryable, entries: readonly AuditEntr
             occurred_at timestamptz, deployment text, caller text, user_id bigint, owner_type text,
             owner_id bigint, integration_id uuid, kind text, operation text, fields text[], outcome text,
             request_id text, jti text, details jsonb)`,
-        [JSON.stringify(rows)]
+        [payload]
     )
 }
 

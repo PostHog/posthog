@@ -64,3 +64,14 @@ export async function recordIdempotencyResult(
         [deployment, owner.type, owner.id, operation, key, integrationId]
     )
 }
+
+/** Deletes up to `limit` expired keys. Returns how many it deleted. */
+export async function deleteExpiredIdempotencyKeys(db: Queryable, limit = 1000): Promise<number> {
+    const result = await query(
+        db,
+        `DELETE FROM idempotency_keys WHERE ctid IN (
+            SELECT ctid FROM idempotency_keys WHERE expires_at <= now() LIMIT $1)`,
+        [limit]
+    )
+    return result.rowCount ?? 0
+}

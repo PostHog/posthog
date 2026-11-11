@@ -117,6 +117,38 @@ export interface ResolveResult {
     errors: Record<string, { code: 'unreadable_secret'; message: string; details: Record<string, unknown> }>
 }
 
+/** A row is allowed when its kind is, and a warehouse source row also needs the source-row grant. */
+function assertRowAllowed(auth: IntegrationAuth, row: IntegrationRow): void {
+    assertKindAllowed(auth, row.kind, { sourceRow: row.isSourceRow })
+}
+
+/**
+ * The kinds a list may return, once the token's source-row grant is applied. Throws when the
+ * request asks for source rows that the grant does not cover.
+ */
+function listKinds(
+    auth: IntegrationAuth,
+    mode: 'exclude' | 'only' | 'include',
+    requested: readonly string[] | null
+): readonly string[] | null {
+    if (mode === 'exclude') {
+        return requested ?? auth.kinds
+    }
+    const grant = auth.sourceRows
+    // `include` mixes both row types under one kind filter, so it needs an unrestricted grant.
+    if (grant === null || (mode === 'include' && grant.kinds !== null)) {
+        throw new IntegrationApiError('forbidden_kind', 'the token does not allow source rows')
+    }
+    if (mode === 'only') {
+        const allowed = grant.kinds
+        if (allowed !== null && requested !== null && !requested.every((kind) => allowed.includes(kind))) {
+            throw new IntegrationApiError('forbidden_kind', 'the token does not allow this kind')
+        }
+        return requested ?? grant.kinds
+    }
+    return requested ?? auth.kinds
+}
+
 function owner(caller: Caller): IntegrationOwner {
     const tokenOwner = caller.auth.owner
     if (tokenOwner === null) {
@@ -232,7 +264,7 @@ export class IntegrationsService {
             {
                 // The middleware checked that the requested kinds are in the token. With none
                 // requested, a kind-narrowed token still lists only its own kinds.
-                kinds: query.kinds ?? caller.auth.kinds,
+                kinds: listKinds(caller.auth, query.sourceRows, query.kinds),
                 authTypes,
                 externalId: query.externalId,
                 sourceRows: query.sourceRows,
@@ -251,7 +283,7 @@ export class IntegrationsService {
         if (!row) {
             throw notFound(refText)
         }
-        assertKindAllowed(caller.auth, row.kind)
+        assertRowAllowed(caller.auth, row)
         this.auditReads(caller, 'read', [row])
         return row
     }
@@ -276,7 +308,7 @@ export class IntegrationsService {
     ): Promise<{ row: IntegrationRow; replayed: boolean }> {
         const teamOwner = owner(caller)
         const authType = checkAuthType(body.auth_type)
-        assertKindAllowed(caller.auth, body.kind)
+        assertKindAllowed(caller.auth, body.kind, { sourceRow: body.is_source_row })
         const blob = body.sensitive_config as JsonObject
         const id = randomUUID()
         // Sealed before the transaction, so the KMS call holds no row lock or connection.
@@ -372,7 +404,7 @@ export class IntegrationsService {
     async upsert(caller: Caller, body: NewIntegrationBody): Promise<{ row: IntegrationRow; created: boolean }> {
         const teamOwner = owner(caller)
         const authType = checkAuthType(body.auth_type)
-        assertKindAllowed(caller.auth, body.kind)
+        assertKindAllowed(caller.auth, body.kind, { sourceRow: body.is_source_row })
         const blob = body.sensitive_config as JsonObject
         const committed: AuditEntry[] = []
 
@@ -445,12 +477,13 @@ export class IntegrationsService {
             if (!row) {
                 throw notFound(refText)
             }
-            assertKindAllowed(caller.auth, row.kind)
+            assertRowAllowed(caller.auth, row)
             if (ifMatch !== null && row.version !== ifMatch) {
                 throw versionMismatch(row.version)
             }
             const applied = await this.applyPatch(tx, row, body)
             if (applied === null) {
+                this.auditReads(caller, 'read', [row])
                 return row
             }
             await this.writeAudit(tx, committed, [
@@ -530,7 +563,7 @@ export class IntegrationsService {
             if (!row) {
                 throw notFound(refText)
             }
-            assertKindAllowed(caller.auth, row.kind)
+            assertRowAllowed(caller.auth, row)
             if (ifMatch !== null && row.version !== ifMatch) {
                 throw versionMismatch(row.version)
             }
@@ -617,7 +650,7 @@ export class IntegrationsService {
         const page = await listIntegrationsAcrossTeams(
             this.deps.pool,
             {
-                kinds: body.kinds,
+                kinds: listKinds(caller.auth, body.source_rows, body.kinds),
                 authTypes,
                 externalId: body.external_id,
                 sourceRows: body.source_rows,
@@ -639,7 +672,7 @@ export class IntegrationsService {
         const page = await listIntegrationsAcrossTeams(
             this.deps.pool,
             {
-                kinds: [target.kind],
+                kinds: listKinds(caller.auth, query.sourceRows, [target.kind]),
                 authTypes: null,
                 externalId: target.externalId,
                 sourceRows: query.sourceRows,
@@ -666,6 +699,8 @@ export class IntegrationsService {
         body: PatchBody,
         sourceRows: SourceRows
     ): Promise<{ matched: number; updated: number }> {
+        // Throws when the token has no grant for the source rows this call selects.
+        listKinds(caller.auth, sourceRows, [target.kind])
         const committed: AuditEntry[] = []
         const result = await this.writeTransaction(async (tx, checkDeadline) => {
             const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
@@ -698,6 +733,8 @@ export class IntegrationsService {
         target: ExternalIdTarget,
         sourceRows: SourceRows
     ): Promise<{ deleted: number }> {
+        // Throws when the token has no grant for the source rows this call selects.
+        listKinds(caller.auth, sourceRows, [target.kind])
         const committed: AuditEntry[] = []
         const result = await this.writeTransaction(async (tx, checkDeadline) => {
             const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
@@ -896,7 +933,7 @@ export class IntegrationsService {
         for (const ref of unique) {
             const row = byRef.get(ref)
             if (row) {
-                assertKindAllowed(caller.auth, row.kind)
+                assertRowAllowed(caller.auth, row)
                 found.set(ref, row)
             } else {
                 missing.push(ref)

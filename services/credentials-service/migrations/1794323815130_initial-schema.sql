@@ -5,7 +5,8 @@ CREATE TABLE integrations (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     -- The int id of the Django row that this row came from. Old int references keep resolving through it.
     legacy_id bigint UNIQUE,
-    -- No CHECK on owner_type: user and organization owners must not need a schema change.
+    -- No CHECK on owner_type. Team and user ids are integers and fit owner_id. Organization ids are
+    -- UUIDs, so an organization owner needs a column type change first.
     owner_type text NOT NULL,
     owner_id bigint NOT NULL,
     kind text NOT NULL,
