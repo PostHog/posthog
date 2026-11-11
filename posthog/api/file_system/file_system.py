@@ -72,7 +72,6 @@ from posthog.models.file_system.constants import (
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
-    create_or_update_file,
     escape_path,
     join_path,
     split_path,
@@ -1761,20 +1760,19 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if update_count == 0 and hasattr(instance, "get_file_system_representation"):
             fs_data: FileSystemRepresentation = instance.get_file_system_representation()
-            segments = split_path(restore_path)
-            folder_path = "/".join(segments[:-1]) if len(segments) > 1 else ""
-            name = segments[-1] if segments else fs_data.name
-            create_or_update_file(
+            segments = split_path(restore_path) or [*split_path(fs_data.base_folder), fs_data.name]
+            FileSystem.objects.create(
                 team=team,
-                base_folder=folder_path or fs_data.base_folder,
-                name=name,
-                file_type=fs_data.type,
+                path=join_path(segments),
+                depth=len(segments),
+                type=fs_data.type,
                 ref=fs_data.ref,
                 href=fs_data.href,
                 meta=fs_data.meta,
-                created_at=fs_data.meta.get("created_at"),
-                created_by_id=fs_data.meta.get("created_by"),
+                shortcut=False,
                 surface=self.file_system_surface,
+                created_by_id=fs_data.meta.get("created_by"),
+                created_at=fs_data.meta.get("created_at") or timezone.now(),
             )
 
     def _retroactively_fix_folders_and_depth(self, user: User) -> None:
