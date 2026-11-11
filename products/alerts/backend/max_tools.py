@@ -199,20 +199,20 @@ def _follow_on_commit(alert: AlertConfiguration) -> None:
     transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
 
 
-def _persist_native_alert(alert: AlertConfiguration, *, creator: User) -> AlertConfiguration:
-    """Creates an unsaved alert with no insight row, its creator subscribed, as the row path subscribes them."""
+def _persist_native_alert(
+    *, team_id: int, insight: Insight, creator: User, fields: dict[str, Any]
+) -> AlertConfiguration:
+    """Creates an alert with no insight row, its creator subscribed, as the row path subscribes them."""
     # Deferred for the same cycle as `_follow_on_commit`.
     from products.alerts.backend.platform_ownership import create_native_alert  # noqa: PLC0415
     from products.alerts.backend.platform_subscribers import set_native_subscribers  # noqa: PLC0415
 
     try:
-        view = create_native_alert(alert)
+        view = create_native_alert(team_id=team_id, insight_id=insight.id, created_by_id=creator.id, fields=fields)
     except PlatformAlertCreateRefused as error:
         raise AlertLimitReached(str(error)) from error
-    set_native_subscribers(
-        team_id=alert.team_id, alert_id=view.id, user_ids=[creator.id], insight_short_id=alert.insight.short_id
-    )
-    created = AlertConfiguration.from_platform_view(view, team_id=alert.team_id)
+    set_native_subscribers(team_id=team_id, alert_id=view.id, user_ids=[creator.id], insight_short_id=insight.short_id)
+    created = AlertConfiguration.from_platform_view(view, team_id=team_id)
     assert created is not None
     return created
 
@@ -706,19 +706,18 @@ class UpsertAlertTool(MaxTool):
             raise AlertLimitReached(limit_error.message)
         if native:
             return _persist_native_alert(
-                AlertConfiguration(
-                    team=team,
-                    insight=insight,
-                    name=name,
-                    threshold=threshold_to_persist,
-                    condition=condition,
-                    config=config,
-                    calculation_interval=calculation_interval,
-                    enabled=enabled,
-                    skip_weekend=skip_weekend,
-                    created_by=user,
-                ),
+                team_id=team.id,
+                insight=insight,
                 creator=user,
+                fields={
+                    "name": name,
+                    "threshold": threshold_to_persist.configuration,
+                    "condition": condition,
+                    "config": config,
+                    "calculation_interval": calculation_interval,
+                    "enabled": enabled,
+                    "skip_weekend": skip_weekend,
+                },
             )
         threshold_to_persist.save()
 

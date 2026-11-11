@@ -1005,22 +1005,23 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     ) -> AlertConfiguration:
         """`create` for a team whose new alerts get no insight row, after the same checks. The platform
         keeps the alert and its subscribers, and the response carries the platform's id."""
-        alert = AlertConfiguration(**validated_data)
+        fields = dict(validated_data)
+        team_id = fields.pop("team_id")
+        insight = fields.pop("insight")
+        created_by = fields.pop("created_by")
         if threshold_data:
-            alert.threshold = Threshold(
-                team_id=alert.team_id, insight=alert.insight, configuration=threshold_data.get("configuration")
-            )
-        if alert.schedule_start_time is not None:
-            alert.next_check_at = next_check_at_after_schedule_restriction_change(alert)
+            fields["threshold"] = threshold_data.get("configuration")
         with _platform_write_errors():
-            view = create_native_alert(alert)
+            view = create_native_alert(
+                team_id=team_id, insight_id=insight.id, created_by_id=created_by.id, fields=fields
+            )
         set_native_subscribers(
-            team_id=alert.team_id,
+            team_id=team_id,
             alert_id=view.id,
             user_ids=[user.id for user in subscribed_users],
-            insight_short_id=alert.insight.short_id,
+            insight_short_id=insight.short_id,
         )
-        created = AlertConfiguration.from_platform_view(view, team_id=alert.team_id)
+        created = AlertConfiguration.from_platform_view(view, team_id=team_id)
         assert created is not None
         _show_platform_status([created], now=timezone.now())
         _show_platform_subscribers([created])

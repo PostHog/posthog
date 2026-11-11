@@ -18,6 +18,7 @@ from django.db import transaction
 import posthoganalytics
 
 from posthog.models.team.team import Team
+from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
 
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
@@ -90,13 +91,27 @@ def creates_native_alert(team_id: int) -> bool:
     )
 
 
-def create_native_alert(alert: AlertConfiguration) -> PlatformAlertConfigurationView:
-    """Creates an insight alert with no insight row from an unsaved alert the insight API or the Max
-    tool checked, in the caller's transaction, after its limit checks. Its subscribers are the
+def create_native_alert(
+    *, team_id: int, insight_id: int, created_by_id: int | None, fields: Mapping[str, Any]
+) -> PlatformAlertConfigurationView:
+    """Creates an insight alert with no insight row from a create the insight API or the Max tool
+    checked, in the caller's transaction, after its limit checks. `fields` holds the alert's other
+    fields by name, with `threshold` as the threshold's configuration. Its subscribers are the
     caller's to write.
 
     Raises `PlatformCannotOwn` for an alert the platform cannot evaluate, and like `create_configuration`.
     """
+    threshold_configuration = fields.get("threshold")
+    alert = AlertConfiguration(
+        team_id=team_id,
+        insight_id=insight_id,
+        created_by_id=created_by_id,
+        **{field: value for field, value in fields.items() if field != "threshold"},
+    )
+    if threshold_configuration is not None:
+        alert.threshold = Threshold(team_id=team_id, insight_id=insight_id, configuration=threshold_configuration)
+    if alert.schedule_start_time is not None:
+        alert.next_check_at = next_check_at_after_schedule_restriction_change(alert)
     upsert = platform_upsert_of(alert)
     if upsert is None:
         raise PlatformCannotOwn("The alerts platform can't run checks at this frequency.")
