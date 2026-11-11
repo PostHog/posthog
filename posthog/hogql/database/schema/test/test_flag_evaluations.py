@@ -1987,6 +1987,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ]
         )
     )
+    # The native JSON events table holds no flag calls, so it reads them as mode 2 does on every mode.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_lazy_join_sql_matches_events_baseline(
         self, _name: str, query: str, mode: FlagEvaluationsMode, union: bool
     ):
