@@ -3229,15 +3229,21 @@ describe('Cyclotron V2', () => {
             await insertRawJob({ id: stalledId, status: 'running', lock_id: uuidv7(), last_heartbeat: staleHeartbeat })
             let ackProduce = (): void => {}
             const acked = new Promise<void>((resolve) => (ackProduce = resolve))
-            const produce = jest.fn(() => acked)
-            const results = new HogInvocationResultsService({ produce } as any, {
-                HOG_INVOCATION_RESULTS_ENABLED: true,
-            })
+            const resultsTopic = new (class extends InMemoryResultsTopic {
+                override async produce(
+                    output: HogInvocationResultsServiceOutput,
+                    message: IngestionOutputMessage
+                ): Promise<void> {
+                    await super.produce(output, message)
+                    await acked
+                }
+            })()
+            const results = new HogInvocationResultsService(resultsTopic, { HOG_INVOCATION_RESULTS_ENABLED: true })
             const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 60_000 }, results)
             const started = janitor.start()
             let stopped: Promise<void> | undefined
             try {
-                await waitForExpect(() => expect(produce).toHaveBeenCalledTimes(1), 2000, 10)
+                await waitForExpect(() => expect(resultsTopic.rows).toHaveLength(1), 2000, 10)
                 stopped = janitor.stop()
             } finally {
                 ackProduce()
@@ -3245,8 +3251,8 @@ describe('Cyclotron V2', () => {
                 await started
             }
 
-            expect(produce).toHaveBeenCalledTimes(1)
-            const recordedId = parseProducedResult(produce).invocation_id
+            expect(resultsTopic.rows).toHaveLength(1)
+            const recordedId = resultsTopic.rows[0].row.invocation_id
             expect(poisonIds).toContain(recordedId)
             const left = await assertPool.query<{ id: string; status: string }>(
                 'SELECT id, status FROM cyclotron_jobs ORDER BY id'
