@@ -40,7 +40,7 @@ export function WorkflowsListV2(): JSX.Element {
         displayedValue,
         showsAutomationSetup,
         otherFilesScanFailed,
-        otherFilesReadyLoading,
+        otherFileCountsLoading,
         selectedFiles,
     } = useValues(workflowFoldersLogic)
 
@@ -140,7 +140,7 @@ export function WorkflowsListV2(): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
-                                loading={otherFilesReadyLoading}
+                                loading={otherFileCountsLoading}
                                 onClick={() => loadOtherFiles()}
                                 data-attr="workflows-folder-names-retry"
                             >

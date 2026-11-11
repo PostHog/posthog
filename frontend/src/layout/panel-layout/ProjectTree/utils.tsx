@@ -719,6 +719,7 @@ export function appendResultsToFolders(
 
     // Track IDs we've already processed to avoid duplicates within the incoming results
     const processedIds = new Set<string>()
+    const positions = new Map<string, Map<string, number>>()
 
     for (const result of newResults) {
         // Skip items without IDs or that we've already processed in this batch
@@ -731,15 +732,17 @@ export function appendResultsToFolders(
         processedIds.add(result.id)
 
         const folder = parentPath(result.path)
-        if (newState[folder]) {
-            const existingItem = newState[folder].find((item) => item.id === result.id)
-            if (existingItem) {
-                newState[folder] = newState[folder].map((file) => (file.id === result.id ? result : file))
-            } else {
-                newState[folder] = [...newState[folder], result]
-            }
+        // Each folder is copied once and indexed by id, so merging thousands of files into one folder stays linear.
+        if (!positions.has(folder)) {
+            newState[folder] = [...(newState[folder] ?? [])]
+            positions.set(folder, new Map(newState[folder].map((file, index) => [file.id, index])))
+        }
+        const position = positions.get(folder)!
+        const index = position.get(result.id)
+        if (index === undefined) {
+            position.set(result.id, newState[folder].push(result) - 1)
         } else {
-            newState[folder] = [result]
+            newState[folder][index] = result
         }
     }
     return newState

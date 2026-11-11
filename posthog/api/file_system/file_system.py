@@ -3,6 +3,7 @@ import json
 import shlex
 import logging
 import builtins
+from collections import Counter
 from collections.abc import Iterable
 from functools import cached_property
 from typing import Any, Optional, cast
@@ -163,6 +164,21 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
     )
+
+
+class FileSystemFolderCountsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False, allow_blank=True, help_text="Picks the files counted, as in the list."
+    )
+
+
+class FileSystemFolderCountSerializer(serializers.Serializer):
+    folder = serializers.CharField(allow_blank=True, help_text="Folder path. An empty string is the project root.")
+    count = serializers.IntegerField(help_text="Files directly in this folder, not counting folders or shortcuts.")
+
+
+class FileSystemFolderCountsSerializer(serializers.Serializer):
+    results = FileSystemFolderCountSerializer(many=True, help_text="Each folder that directly holds a counted file.")
 
 
 class FileSystemDeleteQuerySerializer(serializers.Serializer):
@@ -448,6 +464,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "unfiled",
         "count",
         "count_by_path",
+        "folder_counts",
     ]
     scope_object_write_actions = [
         "create",
@@ -755,7 +772,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset)
-        if self.action in ("list", "retrieve"):
+        if self.action in ("list", "retrieve", "folder_counts"):
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
 
         depth_param = self.request.query_params.get("depth")
@@ -1627,6 +1644,18 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "matched_with_typos": matched_with_typos,
             }
         )
+
+    @validated_request(
+        query_serializer=FileSystemFolderCountsQuerySerializer,
+        responses={200: OpenApiResponse(response=FileSystemFolderCountsSerializer)},
+        summary="Count files per folder",
+        description="Counts the files directly in each folder, so a view can tell which folders hold files without listing them.",
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def folder_counts(self, request: Request, **kwargs: object) -> Response:
+        files = self.get_queryset().exclude(type="folder").exclude(shortcut=True)
+        counts = Counter(join_path(split_path(path)[:-1]) for path in files.values_list("path", flat=True).iterator())
+        return Response({"results": [{"folder": folder, "count": count} for folder, count in sorted(counts.items())]})
 
     @action(methods=["POST"], detail=True)
     def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:

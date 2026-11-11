@@ -5216,6 +5216,18 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemFolderCountApi {
+    /** Folder path. An empty string is the project root. */
+    folder: string
+    /** Files directly in this folder, not counting folders or shortcuts. */
+    count: number
+}
+
+export interface FileSystemFolderCountsApi {
+    /** One row per folder that directly holds a counted file. */
+    results: FileSystemFolderCountApi[]
+}
+
 export interface FileSystemHomeFolderApi {
     /**
      * The user's home folder ID, or null if deleted.
@@ -7569,6 +7581,13 @@ export type FileSystemDestroyParams = {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean
+}
+
+export type FileSystemFolderCountsRetrieveParams = {
+    /**
+     * The file list's search, such as '-type:hog_flow', to pick the files counted.
+     */
+    search?: string
 }
 
 export type FileSystemFrequentListParams = {

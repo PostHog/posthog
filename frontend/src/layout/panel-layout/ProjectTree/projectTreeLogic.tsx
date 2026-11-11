@@ -176,6 +176,9 @@ export interface projectTreeLogicActions {
         ref: string
         type: string
     } // projectTreeDataLogic
+    dropStaleItems: (items: FileSystemEntry[]) => {
+        items: FileSystemEntry[]
+    } // projectTreeDataLogic
     linkItem: (
         oldPath: string,
         newPath: string,
@@ -593,6 +596,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'addLoadedResults',
                 'createSavedItem',
                 'deleteSavedItem',
+                'dropStaleItems',
                 'deleteTypeAndRef',
                 'movedItem',
                 'queueAction',
@@ -758,6 +762,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
+                dropStaleItems: (state, { items }) => {
+                    if (state.searchTerm && state.results.length > 0) {
+                        const ids = new Set(items.map((item) => item.id))
+                        return { ...state, results: state.results.filter((result) => !ids.has(result.id)) }
+                    }
+                    return state
+                },
                 deleteTypeAndRef: (state, { type, ref }) => {
                     return {
                         ...state,
@@ -801,6 +812,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (state.results.length > 0) {
                         const newResults = state.results.filter((result) => result.id !== savedItem.id)
                         return { ...state, results: newResults }
+                    }
+                    return state
+                },
+                dropStaleItems: (state, { items }) => {
+                    if (state.results.length > 0) {
+                        const ids = new Set(items.map((item) => item.id))
+                        return { ...state, results: state.results.filter((result) => !ids.has(result.id)) }
                     }
                     return state
                 },
@@ -1322,6 +1340,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             actions.checkSelectedFolders()
         },
         deleteSavedItem: () => {
+            actions.checkSelectedFolders()
+        },
+        dropStaleItems: () => {
             actions.checkSelectedFolders()
         },
         movedItem: () => {
