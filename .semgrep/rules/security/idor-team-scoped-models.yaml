@@ -69,6 +69,7 @@ rules:
                               |Action
                               |AEOBrand
                               |AEOCitationCheck
+                              |AEOEngineSetting
                               |AEOPrompt
                               |AEOPromptVersion
                               |AgentApplication

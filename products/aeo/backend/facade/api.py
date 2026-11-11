@@ -16,18 +16,29 @@ from zoneinfo import ZoneInfo
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Aggregate, Avg, Count, Exists, Max, Min, OuterRef, Q, QuerySet
+from django.db.models import (
+    Aggregate,
+    Avg,
+    BooleanField,
+    Count,
+    Exists,
+    ExpressionWrapper,
+    Max,
+    Min,
+    OuterRef,
+    Q,
+    QuerySet,
+)
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 
-from products.aeo.backend import catalog, dashboard, gaps, rankings, suggestions
+from products.aeo.backend import catalog, dashboard, engine_settings, gaps, rankings, suggestions
 from products.aeo.backend.brand import (
     SEGMENT_SQL,
     brand_names,
@@ -53,6 +64,8 @@ from products.aeo.backend.facade.contracts import (
     CheckMode,
     CitationGap,
     CitationRunSummary,
+    EngineSetting,
+    EngineSettingUpdate,
     Prompt,
     PromptAuthor,
     PromptCheck,
@@ -68,7 +81,6 @@ from products.aeo.backend.facade.contracts import (
     PromptSetCounts,
     PromptSetDomain,
     PromptSetEngineCounts,
-    PromptSetModeComparison,
     PromptSetOverview,
     PromptSetRankings,
     PromptSetSearch,
@@ -229,10 +241,10 @@ def list_prompt_checks(
     since: dt.datetime | None = None,
     include_answer_text: bool = True,
 ) -> tuple[list[PromptCheck], int]:
-    """One page of a prompt's web-search check history, newest first, and the total count. With
+    """One page of a prompt's check history on every engine, newest first, and the total count. With
     `include_answer_text` off, `answer_text` is None on every check and is not read from the database."""
     prompt = _get_prompt_row(team_id, prompt_id)
-    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id, mode=CheckMode.WEB_SEARCH)
+    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
     if engine is not None:
         checks = checks.filter(engine=engine)
     if since is not None:
@@ -278,7 +290,9 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
     in the team's timezone."""
     prompt = _get_prompt_row(team_id, prompt_id)
     target_domains = catalog.own_domains(team_id)
-    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id, mode=CheckMode.WEB_SEARCH)
+    # Every engine gets its own row, the no-search ones included. Only the parts read from citations and
+    # searches below use web-search answers alone.
+    checks = AEOCitationCheck.objects.for_team(team_id).filter(prompt_id=prompt.id)
     engines = tuple(
         PromptEngineStats(
             engine=row["engine"],
@@ -349,7 +363,7 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
         )
         .order_by("engine")
     )
-    report = _PromptWindowReport.from_checks(answered)
+    report = _PromptWindowReport.from_checks(answered.filter(mode=CheckMode.WEB_SEARCH))
 
     return PromptStats(
         total_checks=sum(engine.checks for engine in engines),
@@ -562,59 +576,6 @@ def get_prompt_set_overview(
             segment=branded,
         ),
         top_searches=_top_searches(team_id, since=window_start, target_domains=target_domains, segment=branded),
-        memory_vs_search=_memory_vs_search(team_id, since=window_start, target_domains=target_domains),
-    )
-
-
-@frozen
-class _EngineModeCounts:
-    answers: int
-    mentioned: int
-    prompts: int
-
-
-_NO_MODE_COUNTS = _EngineModeCounts(answers=0, mentioned=0, prompts=0)
-
-
-def _memory_vs_search(
-    team_id: int, *, since: dt.datetime, target_domains: list[str]
-) -> tuple[PromptSetModeComparison, ...]:
-    """Per engine, the mention rate of its no-search answers against its web-search answers to the same
-    prompts. A prompt runs without search once a week, so comparing all web-search answers would weigh
-    the daily prompts the no-search side never saw."""
-    answered = AEOCitationCheck.objects.for_team(team_id).filter(created_at__gte=since, check_failed=False)
-    no_search = answered.filter(mode=CheckMode.NO_SEARCH)
-
-    def per_engine(checks: QuerySet[AEOCitationCheck]) -> dict[str, _EngineModeCounts]:
-        rows = (
-            checks.values("engine")
-            .annotate(
-                answers=Count("id"),
-                mentioned=Count("id", filter=mention_filter(target_domains)),
-                prompts=Count("prompt_id", distinct=True),
-            )
-            .order_by("engine")
-        )
-        return {
-            row["engine"]: _EngineModeCounts(answers=row["answers"], mentioned=row["mentioned"], prompts=row["prompts"])
-            for row in rows
-        }
-
-    memory = per_engine(no_search)
-    if not memory:
-        return ()
-    compared_prompt = Exists(no_search.filter(prompt_id=OuterRef("prompt_id"), engine=OuterRef("engine")))
-    search = per_engine(answered.filter(compared_prompt, mode=CheckMode.WEB_SEARCH))
-    return tuple(
-        PromptSetModeComparison(
-            engine=engine,
-            prompts=no_search_counts.prompts,
-            no_search_answers=no_search_counts.answers,
-            no_search_mentioned=no_search_counts.mentioned,
-            web_search_answers=search.get(engine, _NO_MODE_COUNTS).answers,
-            web_search_mentioned=search.get(engine, _NO_MODE_COUNTS).mentioned,
-        )
-        for engine, no_search_counts in memory.items()
     )
 
 
@@ -723,6 +684,16 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
 
 def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
     return catalog.sync_brands_from_run(team_id, run_id)
+
+
+def list_engine_settings(team_id: int) -> list[EngineSetting]:
+    """Every engine the product knows, in display order, with whether and how often the project runs it."""
+    return engine_settings.list_engine_settings(team_id)
+
+
+def update_engine_setting(team_id: int, engine: str, change: EngineSettingUpdate) -> EngineSetting:
+    """Raises EngineNotFoundError for an unknown engine id."""
+    return engine_settings.update_engine_setting(team_id, engine, change)
 
 
 def list_own_domains(team_id: int) -> list[str]:
@@ -1049,22 +1020,41 @@ def _to_prompt_check(row: dict[str, Any]) -> PromptCheck:
     )
 
 
-def _latest_checks(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID, tuple[PromptEngineCheck, ...]]:
+def _latest_checks(
+    team_id: int, prompt_ids: list[uuid.UUID], target_domains: list[str]
+) -> dict[uuid.UUID, tuple[PromptEngineCheck, ...]]:
     if not prompt_ids:
         return {}
     rows = (
         AEOCitationCheck.objects.for_team(team_id)
-        .filter(prompt_id__in=prompt_ids, mode=CheckMode.WEB_SEARCH)
+        .filter(prompt_id__in=prompt_ids)
+        .annotate(
+            mentioned=ExpressionWrapper(
+                Q(check_failed=False) & mention_filter(target_domains), output_field=BooleanField()
+            )
+        )
         .order_by("prompt_id", "engine", "-created_at")
         .distinct("prompt_id", "engine")
-        .values("prompt_id", "engine", "cited", "check_failed", "target_best_position", "search_queries", "created_at")
+        .values(
+            "prompt_id",
+            "engine",
+            "mode",
+            "cited",
+            "mentioned",
+            "check_failed",
+            "target_best_position",
+            "search_queries",
+            "created_at",
+        )
     )
     checks: dict[uuid.UUID, list[PromptEngineCheck]] = defaultdict(list)
     for row in rows:
         checks[row["prompt_id"]].append(
             PromptEngineCheck(
                 engine=row["engine"],
+                mode=CheckMode(row["mode"]),
                 cited=row["cited"],
+                mentioned=row["mentioned"],
                 check_failed=row["check_failed"],
                 target_best_position=row["target_best_position"],
                 search_queries=_strings(row["search_queries"]),
@@ -1088,9 +1078,10 @@ def _version_counts(team_id: int, prompt_ids: list[uuid.UUID]) -> dict[uuid.UUID
 
 def _to_prompts(team_id: int, rows: list[AEOPrompt]) -> list[Prompt]:
     prompt_ids = [row.id for row in rows]
-    latest_checks = _latest_checks(team_id, prompt_ids)
+    target_domains = catalog.own_domains(team_id)
+    latest_checks = _latest_checks(team_id, prompt_ids, target_domains)
     version_counts = _version_counts(team_id, prompt_ids)
-    pattern = brand_pattern(catalog.own_domains(team_id))
+    pattern = brand_pattern(target_domains)
     return [
         _to_prompt(
             row,

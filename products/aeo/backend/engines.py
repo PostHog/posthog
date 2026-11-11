@@ -17,6 +17,7 @@ import re
 import time
 import hashlib
 import threading
+from collections.abc import Callable
 from dataclasses import field
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -36,6 +37,14 @@ from posthog.security.llm_prompt_sanitization import (
 from products.aeo.backend.facade.contracts import CheckMode
 
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
+# Engine ids are stored on every check, so renaming one splits its history in two.
+CLAUDE_WEB_SEARCH = "claude-web-search"
+OPENAI_WEB_SEARCH = "openai-web-search"
+PERPLEXITY_WEB_SEARCH = "perplexity-web-search"
+EXA_ANSWER = "exa-answer"
+CLAUDE_NO_SEARCH = "claude-no-search"
+OPENAI_NO_SEARCH = "openai-no-search"
+
 EXA_TIMEOUT_SECONDS = 60
 EXA_ANSWER_URL = "https://api.exa.ai/answer"
 
@@ -510,14 +519,13 @@ def _request_error(e: requests.RequestException) -> str:
 class ClaudeWebSearchEngine:
     """Claude with Anthropic's native web_search server tool, via the AI gateway.
 
-    With `search=False` the request carries no tool, so the answer comes from training data alone.
-    The engine name, model and gateway route stay the same, so cost attribution does not change."""
-
-    name = "claude-web-search"
+    With `search=False` the request carries no tool, so the answer comes from training data alone. That
+    variant is its own engine, `claude-no-search`, so its answers get their own column next to the others."""
 
     def __init__(self, model: str | None = None, *, search: bool = True) -> None:
         self.model = model or settings.AEO_ANTHROPIC_MODEL
         self.mode = CheckMode.WEB_SEARCH if search else CheckMode.NO_SEARCH
+        self.name = CLAUDE_WEB_SEARCH if search else CLAUDE_NO_SEARCH
         gateway = resolve_ai_gateway_config()
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
@@ -581,13 +589,12 @@ def _post_gateway_responses(
 class OpenAIWebSearchEngine:
     """An OpenAI model with its web search tool, via the AI gateway's /responses path.
 
-    With `search=False` the request carries no tool, the same as ClaudeWebSearchEngine."""
-
-    name = "openai-web-search"
+    With `search=False` the request carries no tool, the same as ClaudeWebSearchEngine, and runs as `openai-no-search`."""
 
     def __init__(self, model: str | None = None, *, search: bool = True) -> None:
         self.model = model or settings.AEO_OPENAI_MODEL
         self.mode = CheckMode.WEB_SEARCH if search else CheckMode.NO_SEARCH
+        self.name = OPENAI_WEB_SEARCH if search else OPENAI_NO_SEARCH
         gateway = resolve_ai_gateway_config()
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
@@ -643,7 +650,7 @@ class ExaAnswerEngine:
     posthog/egress incarnation if this graduates to real rollout.
     """
 
-    name = "exa-answer"
+    name = EXA_ANSWER
     model = "exa-answer"
     mode = CheckMode.WEB_SEARCH
 
@@ -684,7 +691,7 @@ PERPLEXITY_CITATION_INSTRUCTIONS = (
 class PerplexityWebSearchEngine:
     """A Perplexity Sonar model with its web_search tool, via the AI gateway's /responses path."""
 
-    name = "perplexity-web-search"
+    name = PERPLEXITY_WEB_SEARCH
     mode = CheckMode.WEB_SEARCH
 
     def __init__(self, model: str | None = None) -> None:
@@ -727,21 +734,69 @@ class PerplexityWebSearchEngine:
         )
 
 
+@frozen
+class EngineSpec:
+    """An engine a project can run. `default_enabled` applies until someone changes the project's setting."""
+
+    engine: str
+    mode: CheckMode
+    default_enabled: bool
+    build: Callable[[], CitationEngine]
+    is_configured: Callable[[], bool]
+
+
+def _gateway_configured() -> bool:
+    return resolve_ai_gateway_config() is not None
+
+
+# Display order. The no-search variants cost a gateway call each, so they start off.
+ENGINE_SPECS: tuple[EngineSpec, ...] = (
+    EngineSpec(
+        engine=CLAUDE_WEB_SEARCH,
+        mode=CheckMode.WEB_SEARCH,
+        default_enabled=True,
+        build=ClaudeWebSearchEngine,
+        is_configured=_gateway_configured,
+    ),
+    EngineSpec(
+        engine=OPENAI_WEB_SEARCH,
+        mode=CheckMode.WEB_SEARCH,
+        default_enabled=True,
+        build=OpenAIWebSearchEngine,
+        is_configured=_gateway_configured,
+    ),
+    EngineSpec(
+        engine=PERPLEXITY_WEB_SEARCH,
+        mode=CheckMode.WEB_SEARCH,
+        default_enabled=True,
+        build=PerplexityWebSearchEngine,
+        is_configured=lambda: settings.AEO_PERPLEXITY_ENABLED and _gateway_configured(),
+    ),
+    EngineSpec(
+        engine=EXA_ANSWER,
+        mode=CheckMode.WEB_SEARCH,
+        default_enabled=True,
+        build=ExaAnswerEngine,
+        is_configured=lambda: bool(settings.EXA_API_KEY),
+    ),
+    EngineSpec(
+        engine=CLAUDE_NO_SEARCH,
+        mode=CheckMode.NO_SEARCH,
+        default_enabled=False,
+        build=lambda: ClaudeWebSearchEngine(search=False),
+        is_configured=_gateway_configured,
+    ),
+    EngineSpec(
+        engine=OPENAI_NO_SEARCH,
+        mode=CheckMode.NO_SEARCH,
+        default_enabled=False,
+        build=lambda: OpenAIWebSearchEngine(search=False),
+        is_configured=_gateway_configured,
+    ),
+)
+ENGINE_SPECS_BY_ID: dict[str, EngineSpec] = {spec.engine: spec for spec in ENGINE_SPECS}
+
+
 def available_engines() -> list[CitationEngine]:
-    """Engines the current configuration supports."""
-    engines: list[CitationEngine] = []
-    if resolve_ai_gateway_config() is not None:
-        engines.append(ClaudeWebSearchEngine())
-        engines.append(OpenAIWebSearchEngine())
-        if settings.AEO_PERPLEXITY_ENABLED:
-            engines.append(PerplexityWebSearchEngine())
-    if settings.EXA_API_KEY:
-        engines.append(ExaAnswerEngine())
-    return engines
-
-
-def available_no_search_engines() -> list[CitationEngine]:
-    """No-search variants of the gateway engines, when the mode is turned on."""
-    if not settings.AEO_NO_SEARCH_ENABLED or resolve_ai_gateway_config() is None:
-        return []
-    return [ClaudeWebSearchEngine(search=False), OpenAIWebSearchEngine(search=False)]
+    """The engines a project with default settings runs, among the ones this deployment can run."""
+    return [spec.build() for spec in ENGINE_SPECS if spec.default_enabled and spec.is_configured()]

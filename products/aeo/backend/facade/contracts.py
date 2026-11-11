@@ -66,6 +66,13 @@ class CheckMode(LabeledStrEnum):
     NO_SEARCH = "no_search", "No search"
 
 
+class CheckFrequency(LabeledStrEnum):
+    """How often an engine checks each prompt. Weekly checks spread the prompt set over the week."""
+
+    DAILY = "daily", "Daily"
+    WEEKLY = "weekly", "Weekly"
+
+
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
@@ -84,10 +91,13 @@ class BrandedSegment(LabeledStrEnum):
 
 @frozen
 class PromptEngineCheck:
-    """The most recent check of one prompt against one answer engine."""
+    """The most recent check of one prompt against one answer engine. A no-search engine never cites,
+    so `mentioned` is the column to read for it."""
 
     engine: str
+    mode: CheckMode
     cited: bool
+    mentioned: bool
     check_failed: bool
     target_best_position: int | None
     search_queries: tuple[str, ...]
@@ -290,29 +300,6 @@ class PromptSetSearch:
 
 
 @frozen
-class PromptSetModeComparison:
-    """One engine's answers without search against its answers with search in the window.
-
-    Both sides cover the same prompts: the ones that got at least one answered no-search check
-    from this engine in the window."""
-
-    engine: str
-    prompts: int
-    no_search_answers: int
-    no_search_mentioned: int
-    web_search_answers: int
-    web_search_mentioned: int
-
-    @property
-    def no_search_mention_rate(self) -> float | None:
-        return _rate(self.no_search_mentioned, self.no_search_answers)
-
-    @property
-    def web_search_mention_rate(self) -> float | None:
-        return _rate(self.web_search_mentioned, self.web_search_answers)
-
-
-@frozen
 class PromptSetOverview:
     """How the whole prompt set did over the last `days` days, against the `days` days before."""
 
@@ -333,7 +320,6 @@ class PromptSetOverview:
     topics: tuple[PromptSetTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
     top_searches: tuple[PromptSetSearch, ...]
-    memory_vs_search: tuple[PromptSetModeComparison, ...]
 
 
 class PromptOrigin(LabeledStrEnum):
@@ -457,6 +443,30 @@ class BrandNotFoundError(Exception):
 
 class BrandCreateError(Exception):
     """The brand cannot be added. The message is safe to show the user."""
+
+
+@frozen
+class EngineSetting:
+    """One engine as the project runs it. `available` is false when the deployment cannot run the engine,
+    for example without the API key it needs, and then it never runs whatever `enabled` says."""
+
+    engine: str
+    mode: CheckMode
+    available: bool
+    enabled: bool
+    frequency: CheckFrequency
+
+
+@frozen
+class EngineSettingUpdate:
+    """A partial edit of one engine's setting. None leaves the field as it is."""
+
+    enabled: bool | None = None
+    frequency: CheckFrequency | None = None
+
+
+class EngineNotFoundError(Exception):
+    pass
 
 
 class PromptUpdateError(Exception):

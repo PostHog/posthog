@@ -1510,9 +1510,6 @@ AEO_BRAND_SENTIMENT_ENABLED = get_from_env("AEO_BRAND_SENTIMENT_ENABLED", False,
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
-# Adds a weekly no-search check per prompt on the Claude and OpenAI engines, a baseline of what the
-# models answer from training data alone. Each one is an extra paid gateway call.
-AEO_NO_SEARCH_ENABLED = get_from_env("AEO_NO_SEARCH_ENABLED", False, type_cast=str_to_bool)
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
 AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)
 AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)

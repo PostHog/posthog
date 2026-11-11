@@ -11,6 +11,7 @@ from products.aeo.backend.facade.contracts import (
     BrandKind,
     BrandSource,
     BrandStatus,
+    CheckFrequency,
     CheckMode,
 )
 
@@ -298,3 +299,34 @@ class AEOBrand(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
 
     def __str__(self) -> str:
         return f"[{self.kind}] {self.domain}"
+
+
+class AEOEngineSetting(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
+    """
+    Whether a project runs one answer engine, and how often. A project with no row for an
+    engine gets that engine's default, so only the engines someone changed have rows.
+    """
+
+    # db_constraint=False for the same reason as AEOPrompt. No index of its own: the unique (team, engine) index leads with team.
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
+
+    engine = models.CharField(max_length=64, help_text="Engine id, for example 'claude-web-search'.")
+    enabled = models.BooleanField(help_text="Whether the daily run checks prompts on this engine.")
+    frequency = models.CharField(
+        max_length=32,
+        choices=CheckFrequency.choices,
+        default=CheckFrequency.DAILY.value,
+        help_text="How often each prompt gets a check from this engine.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_aeo_engine_setting"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "engine"], name="aeo_engine_setting_unique_team_engine"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.engine} ({'on' if self.enabled else 'off'}, {self.frequency})"

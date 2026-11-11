@@ -15,6 +15,8 @@ from parameterized import parameterized
 
 from products.aeo.backend.engines import (
     ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+    ENGINE_SPECS,
+    ENGINE_SPECS_BY_ID,
     GATEWAY_MAX_ATTEMPTS,
     MAX_WEB_SEARCHES_PER_PROMPT,
     OPENAI_MAX_OUTPUT_TOKENS,
@@ -25,7 +27,6 @@ from products.aeo.backend.engines import (
     _SharedBackoff,
     anthropic_truncated_error,
     available_engines,
-    available_no_search_engines,
     build_check_fields,
     gateway_post_json,
     is_target_url,
@@ -252,10 +253,34 @@ OPENAI_SEARCH_TOOLS = [{"type": "web_search"}]
 
 @parameterized.expand(
     [
-        ("claude_web_search", ClaudeWebSearchEngine, True, ANTHROPIC_BODY, "/messages", CLAUDE_SEARCH_TOOLS),
-        ("claude_no_search", ClaudeWebSearchEngine, False, ANTHROPIC_BODY, "/messages", None),
-        ("openai_web_search", OpenAIWebSearchEngine, True, OPENAI_RESPONSES_BODY, "/responses", OPENAI_SEARCH_TOOLS),
-        ("openai_no_search", OpenAIWebSearchEngine, False, OPENAI_RESPONSES_BODY, "/responses", None),
+        (
+            "claude_web_search",
+            ClaudeWebSearchEngine,
+            True,
+            ANTHROPIC_BODY,
+            "/messages",
+            CLAUDE_SEARCH_TOOLS,
+            "claude-web-search",
+        ),
+        ("claude_no_search", ClaudeWebSearchEngine, False, ANTHROPIC_BODY, "/messages", None, "claude-no-search"),
+        (
+            "openai_web_search",
+            OpenAIWebSearchEngine,
+            True,
+            OPENAI_RESPONSES_BODY,
+            "/responses",
+            OPENAI_SEARCH_TOOLS,
+            "openai-web-search",
+        ),
+        (
+            "openai_no_search",
+            OpenAIWebSearchEngine,
+            False,
+            OPENAI_RESPONSES_BODY,
+            "/responses",
+            None,
+            "openai-no-search",
+        ),
     ]
 )
 def test_gateway_engines_send_the_search_tool_only_with_search(
@@ -265,6 +290,7 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
     body: dict[str, Any],
     path: str,
     expected_tools: list[dict[str, Any]] | None,
+    expected_engine: str,
 ) -> None:
     captured: dict[str, Any] = {}
 
@@ -295,7 +321,7 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
     )
     assert (captured["url"], captured["payload"]["model"]) == (f"https://gw.test/v1{path}", web_search_model)
     assert check.error is None and fields["answer_text"]
-    assert (fields["engine"], fields["mode"]) == (engine_class.name, "web_search" if search else "no_search")
+    assert (fields["engine"], fields["mode"]) == (expected_engine, "web_search" if search else "no_search")
     assert captured["payload"].get("tools") == expected_tools
     assert fields["cited"] is search
     assert bool(fields["cited_urls"] and fields["search_queries"]) is search
@@ -305,22 +331,23 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
 
 @parameterized.expand(
     [
-        ("off", False, True, []),
-        ("on", True, True, [("claude-web-search", "no_search"), ("openai-web-search", "no_search")]),
-        ("on_without_a_gateway", True, False, []),
+        ("gateway", True, ["claude-web-search", "openai-web-search", "claude-no-search", "openai-no-search"]),
+        ("no_gateway", False, []),
     ]
 )
-def test_no_search_engines_need_the_setting_and_the_gateway(
-    _name: str, enabled: bool, gateway: bool, expected: list[tuple[str, str]]
-) -> None:
+def test_engine_specs_need_what_they_call(_name: str, gateway: bool, expected: list[str]) -> None:
     config = SimpleNamespace(url="https://gw.test/v1", api_key="k") if gateway else None
     with (
-        override_settings(AEO_NO_SEARCH_ENABLED=enabled),
+        override_settings(AEO_PERPLEXITY_ENABLED=False, EXA_API_KEY=""),
         patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=config),
     ):
-        engines = available_no_search_engines()
+        configured = [spec.engine for spec in ENGINE_SPECS if spec.is_configured()]
+        built = {spec.engine: spec.build() for spec in ENGINE_SPECS if spec.is_configured()}
 
-    assert [(engine.name, engine.mode.value) for engine in engines] == expected
+    assert configured == expected
+    # The engine id is what the check stores, so the built engine has to carry the spec's id and mode.
+    assert all(engine.name == engine_id for engine_id, engine in built.items())
+    assert all(engine.mode == ENGINE_SPECS_BY_ID[engine_id].mode for engine_id, engine in built.items())
 
 
 def test_parse_exa_citations() -> None:
