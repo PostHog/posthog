@@ -153,6 +153,34 @@ describe('catalogTablesLogic', () => {
         })
     })
 
+    describe('schema load', () => {
+        it('requests the schema without columns, because the tables list reads none', async () => {
+            const schemaQueries: Record<string, unknown>[] = []
+            useMocks(
+                catalogMocks({
+                    tables: {},
+                    checks: { results: [], count: 0 },
+                    extra: {
+                        post: {
+                            '/api/projects/:team_id/query/:query_kind/': async ({ request }) => {
+                                const body = (await request.json()) as { query: Record<string, unknown> }
+                                schemaQueries.push(body.query)
+                                return [200, { tables: {}, joins: [] }]
+                            },
+                        },
+                    },
+                })
+            )
+            initKeaTests()
+            logic = catalogTablesLogic()
+            logic.mount()
+
+            await waitFor(() => expect(logic.values.rowsLoaded).toBe(true))
+            expect(schemaQueries.length).toBeGreaterThan(0)
+            expect(new Set(schemaQueries.map((query) => query.includeFields))).toEqual(new Set([false]))
+        })
+    })
+
     describe('proposal review', () => {
         const sourceTable = (id: string, name: string): Record<string, unknown> => ({
             type: 'data_warehouse',
