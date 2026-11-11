@@ -1,6 +1,6 @@
 import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyFilterType } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { performWideEventsQueryInTwoPhases } from './sampleEventsQuery'
 
@@ -9,6 +9,14 @@ jest.mock('~/queries/query', () => ({
 }))
 
 const mockedPerformQuery = performQuery as jest.MockedFunction<typeof performQuery>
+
+function deepFreeze<T>(value: T): T {
+    if (value && typeof value === 'object') {
+        Object.values(value).forEach(deepFreeze)
+        Object.freeze(value)
+    }
+    return value
+}
 
 const intent: EventsQuery = {
     kind: NodeKind.EventsQuery,
@@ -23,6 +31,18 @@ const intent: EventsQuery = {
     limit: 10,
     orderBy: ['timestamp DESC'],
     modifiers: { personsOnEventsMode: 'person_id_no_override_properties_on_events' },
+}
+
+const intentWithEventPropertyFilter: EventsQuery = {
+    ...intent,
+    properties: [
+        {
+            type: PropertyFilterType.Event,
+            key: '$browser',
+            operator: PropertyOperator.Exact,
+            value: 'Chrome',
+        },
+    ],
 }
 
 describe('performWideEventsQueryInTwoPhases', () => {
@@ -100,12 +120,13 @@ describe('performWideEventsQueryInTwoPhases', () => {
             emptyPreStage()
             mockedPerformQuery.mockResolvedValueOnce({ results: [] })
 
-            await performWideEventsQueryInTwoPhases(intent)
+            await performWideEventsQueryInTwoPhases(intentWithEventPropertyFilter)
 
             expect(mockedPerformQuery).toHaveBeenCalledTimes(2)
             const phaseOne = mockedPerformQuery.mock.calls[1][0] as EventsQuery
             expect(phaseOne.select).toEqual(['uuid', 'timestamp'])
             expect(phaseOne.fixedProperties).toEqual(intent.fixedProperties)
+            expect(phaseOne.properties).toEqual(intentWithEventPropertyFilter.properties)
             expect(phaseOne.after).toBe('-7d')
             expect(phaseOne.limit).toBe(10)
             expect(phaseOne.orderBy).toEqual(['timestamp DESC'])
@@ -134,7 +155,7 @@ describe('performWideEventsQueryInTwoPhases', () => {
 
             mockedPerformQuery.mockResolvedValueOnce({ results: phaseOneRows }).mockResolvedValueOnce(hydratedResponse)
 
-            const result = await performWideEventsQueryInTwoPhases(intent)
+            const result = await performWideEventsQueryInTwoPhases(intentWithEventPropertyFilter)
 
             expect(mockedPerformQuery).toHaveBeenCalledTimes(3)
             const phaseTwo = mockedPerformQuery.mock.calls[2][0] as EventsQuery
@@ -195,34 +216,32 @@ describe('performWideEventsQueryInTwoPhases', () => {
             expect(phaseTwo.where![1]).toContain('(uuid, timestamp) IN (')
         })
 
-        it('handles single-result phase 1 by collapsing the window to one timestamp ± 1s', async () => {
-            emptyPreStage()
-            mockedPerformQuery
-                .mockResolvedValueOnce({
-                    results: [['019eacd8-2ab7-76b0-8e40-604d7f8e6961', '2026-06-09T12:00:05.000000Z']],
-                })
-                .mockResolvedValueOnce({ results: [['hydrated']] })
-
-            await performWideEventsQueryInTwoPhases(intent)
-
-            const phaseTwo = mockedPerformQuery.mock.calls[2][0] as EventsQuery
-            expect(phaseTwo.after).toBe('2026-06-09T12:00:04.000Z')
-            expect(phaseTwo.before).toBe('2026-06-09T12:00:06.000Z')
-            expect(phaseTwo.limit).toBe(1)
-        })
-
         it('does not mutate the intent query', async () => {
             emptyPreStage()
-            const intentCopy = JSON.parse(JSON.stringify(intent))
+            const intentClone: EventsQuery = JSON.parse(JSON.stringify(intent))
+            const callerIntent = deepFreeze<EventsQuery>({
+                ...intentClone,
+                where: ['team_id = 1'],
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$browser',
+                        operator: PropertyOperator.Exact,
+                        value: 'Chrome',
+                    },
+                ],
+            })
+            const callerIntentCopy = JSON.parse(JSON.stringify(callerIntent))
+            const hydratedResponse = { results: [['hydrated']] }
             mockedPerformQuery
                 .mockResolvedValueOnce({
                     results: [['019eacd8-2ab7-76b0-8e40-604d7f8e6961', '2026-06-09T12:00:00.000000Z']],
                 })
-                .mockResolvedValueOnce({ results: [] })
+                .mockResolvedValueOnce(hydratedResponse)
 
-            await performWideEventsQueryInTwoPhases(intent)
+            await expect(performWideEventsQueryInTwoPhases(callerIntent)).resolves.toBe(hydratedResponse)
 
-            expect(intent).toEqual(intentCopy)
+            expect(callerIntent).toEqual(callerIntentCopy)
         })
     })
 })

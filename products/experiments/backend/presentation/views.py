@@ -135,6 +135,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSessionEventDeltaResponseSerializer,
     ExperimentSetupContextInputSerializer,
     ExperimentSetupContextResponseSerializer,
+    ExperimentTimeseriesResultsSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -146,6 +147,7 @@ from products.experiments.backend.presentation.serializers import (
 from products.experiments.backend.recalculation import (
     build_job_payload,
     build_timeseries_cold_start_payload,
+    exceeds_recalculation_age_limit,
     get_active_recalculation,
     get_latest_recalculation,
     get_recalculation_by_id,
@@ -1573,6 +1575,7 @@ class EnterpriseExperimentsViewSet(
                 deprecated=True,
             ),
         ],
+        responses={200: ExperimentTimeseriesResultsSerializer},
     )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1583,7 +1586,11 @@ class EnterpriseExperimentsViewSet(
             raise ValidationError("metric_uuid query parameter is required")
 
         service = ExperimentService(team=self.team, user=request.user)
-        return Response(service.get_timeseries_results(experiment, metric_uuid=metric_uuid))
+        return Response(
+            ExperimentTimeseriesResultsSerializer(
+                service.get_timeseries_results(experiment, metric_uuid=metric_uuid)
+            ).data
+        )
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1699,7 +1706,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_latest_recalculation(experiment)
 
         if recalc is not None:
-            return Response(_serialize_latest(_build_run_payload(recalc), active_run))
+            return Response(_serialize_latest(experiment, _build_run_payload(recalc), active_run))
 
         # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately, even while a first run is active (its pending
@@ -1707,10 +1714,10 @@ class EnterpriseExperimentsViewSet(
         # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
-            return Response(_serialize_latest(fallback, active_run))
+            return Response(_serialize_latest(experiment, fallback, active_run))
 
         if active is not None:
-            return Response(_serialize_latest(_build_run_payload(active), active_run))
+            return Response(_serialize_latest(experiment, _build_run_payload(active), active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
@@ -2164,7 +2171,8 @@ def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
     return payload
 
 
-def _serialize_latest(payload: dict, active_run: dict | None) -> dict:
+def _serialize_latest(experiment: Experiment, payload: dict, active_run: dict | None) -> dict:
     if active_run is not None:
         payload["active_run"] = active_run
+    payload["exceeds_recalculation_age_limit"] = exceeds_recalculation_age_limit(experiment)
     return ExperimentMetricsRecalculationLatestSerializer(payload).data
