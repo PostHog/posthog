@@ -103,6 +103,10 @@ CLICKABLE_UNSUBSCRIBE_LINKS = [
         },
     ),
     (
+        "link_after_an_escaped_script_with_a_long_s_script_tag",
+        {"html": '<script><!--<ſcript></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
+    ),
+    (
         "link_after_a_plain_script_that_follows_an_escaped_one",
         {
             "html": '<script><!--</script><script><script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
@@ -139,6 +143,10 @@ MISSING_UNSUBSCRIBE_LINKS = [
             "html": '<script><!--<script></script x="<script>"></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
             "text": "",
         },
+    ),
+    (
+        "link_after_a_double_escaped_script_whose_end_tag_has_a_long_s",
+        {"html": '<script><!--<script></ſcript></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
     ),
     ("link_after_many_double_escapes_in_one_script", {"html": LINK_AFTER_MANY_DOUBLE_ESCAPES, "text": ""}),
     (

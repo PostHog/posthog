@@ -77,7 +77,7 @@ WHITESPACE = re.compile(r"\s+")
 LINE_END = "\x00"
 LINE_ENDS = re.compile(r"\n?\x00+\n?")
 URL_PARSER_TRIMS = "".join(chr(code) for code in range(0x21))
-SCRIPT_ESCAPE_TOKENS = re.compile(r"<!--(?!-*>)|-->|</?script[\t\n\f\r />]", re.IGNORECASE)
+SCRIPT_ESCAPE_TOKENS = re.compile(r"<!--(?!-*>)|-->|</?script[\t\n\f\r />]", re.IGNORECASE | re.ASCII)
 SCRIPT_END_TAG_OPEN = "</script"
 
 
