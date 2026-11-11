@@ -625,6 +625,10 @@ export function LemonInputSelect<T = string>({
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setSelectedIndex(Math.max(selectedIndex - 1, 0))
+        } else if (e.key === 'Escape' && showPopover) {
+            e.stopPropagation()
+            popoverFocusRef.current = false
+            setShowPopover(false)
         }
     }
 
