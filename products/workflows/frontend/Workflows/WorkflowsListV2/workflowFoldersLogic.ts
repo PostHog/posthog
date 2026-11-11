@@ -24,7 +24,7 @@ import { parentPath, splitPath, joinPath, isPathUnder, reparentPath } from '~/la
 import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { createFacetMatcher, type FacetDefinition, type MatchesText } from './FacetSearchBar/facetQuery'
-import type { FacetSearchValue } from './FacetSearchBar/facetQuery'
+import type { FacetFilter, FacetSearchValue } from './FacetSearchBar/facetQuery'
 import { ancestorFolders, displayedFolder, folderScopes, workflowFolderFacet } from './workflowListFacets'
 import type { WorkflowListRow } from './workflowListRows'
 import { addListQueryFacet, type ServerSearchStatus, workflowsListV2Logic } from './workflowsListV2Logic'
@@ -267,6 +267,10 @@ const WORKFLOW_FOLDERS_TREE_KEY = 'workflow-files'
 // A stalled request would leave the folders loading with no way to retry, so each one fails after this long.
 export const FOLDER_REQUEST_TIMEOUT_MS = 10_000
 
+function withDeadline<T>(what: string, request: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    return withTimeout(request, FOLDER_REQUEST_TIMEOUT_MS, `workflowFoldersLogic: ${what} timed out`)
+}
+
 const WORKFLOW_FILE_SEARCHES = ['type:folder', 'type:hog_flow', 'type:message_template']
 const OTHER_FILES_SEARCH = '-type:hog_flow -type:message_template'
 
@@ -277,10 +281,8 @@ async function listAllFiles(
 ): Promise<FileSystemEntry[]> {
     const entries: FileSystemEntry[] = []
     for (let offset = 0; ; offset += 500) {
-        const page = await withTimeout(
-            (signal) => fileSystemList(teamId, { search, limit: 500, offset }, { signal }),
-            FOLDER_REQUEST_TIMEOUT_MS,
-            'workflowFoldersLogic: listing project files timed out'
+        const page = await withDeadline('listing project files', (signal) =>
+            fileSystemList(teamId, { search, limit: 500, offset }, { signal })
         )
         breakpoint()
         entries.push(
@@ -379,8 +381,10 @@ function treeFolderId(folder: string | null): string {
 }
 
 // A folder pill opens its folder instead of filtering rows; a negated one still filters.
+const isFolderScope = (filter: FacetFilter): boolean => filter.facet === 'in' && !filter.negated
+
 function withoutFolderScope(value: FacetSearchValue): FacetSearchValue {
-    return { ...value, filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated) }
+    return { ...value, filters: value.filters.filter((filter) => !isFolderScope(filter)) }
 }
 
 function isInScope(parent: string, folder: string | null, searching: boolean): boolean {
@@ -502,10 +506,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         return false
                     }
                     const teamId = String(values.currentTeamId)
-                    await withTimeout(
-                        (signal) => fileSystemUnfiledRetrieve(teamId, { signal }),
-                        FOLDER_REQUEST_TIMEOUT_MS,
-                        'workflowFoldersLogic: filing unfiled project files timed out'
+                    await withDeadline('filing unfiled project files', (signal) =>
+                        fileSystemUnfiledRetrieve(teamId, { signal })
                     )
                     breakpoint()
                     for (let attempt = 0; attempt < MAX_INDEX_LOADS; attempt++) {
@@ -536,15 +538,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     if (!values.currentTeamId) {
                         return null
                     }
-                    const { results } = await withTimeout(
-                        (signal) =>
-                            fileSystemFolderCountsRetrieve(
-                                String(values.currentTeamId),
-                                { search: OTHER_FILES_SEARCH },
-                                { signal }
-                            ),
-                        FOLDER_REQUEST_TIMEOUT_MS,
-                        'workflowFoldersLogic: counting project files timed out'
+                    const teamId = String(values.currentTeamId)
+                    const { results } = await withDeadline('counting project files', (signal) =>
+                        fileSystemFolderCountsRetrieve(teamId, { search: OTHER_FILES_SEARCH }, { signal })
                     )
                     breakpoint()
                     return Object.fromEntries(results.map(({ folder, count }) => [folder, count]))
@@ -631,7 +627,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         hasActiveQuery: [
             (s) => [s.value],
             (value: FacetSearchValue): boolean =>
-                !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated),
+                !!value.text.trim() || value.filters.some((filter) => !isFolderScope(filter)),
         ],
         showsAutomationSetup: [
             (s) => [s.listComplete, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus],
@@ -800,10 +796,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             (s) => [s.value],
             (value: FacetSearchValue): FacetSearchValue => ({
                 ...value,
-                filters: [
-                    ...value.filters.filter((filter) => filter.facet === 'in' && !filter.negated),
-                    ...value.filters.filter((filter) => filter.facet !== 'in' || filter.negated),
-                ],
+                filters: [...value.filters.filter(isFolderScope), ...withoutFolderScope(value).filters],
             }),
         ],
         folderFileRows: [
@@ -831,7 +824,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         currentFolder: [
             (s) => [s.value],
             (value: FacetSearchValue): string | null => {
-                const folder = value.filters.find((filter) => filter.facet === 'in' && !filter.negated)?.value
+                const folder = value.filters.find(isFolderScope)?.value
                 return folder ? displayedFolder(folder) : null
             },
         ],
@@ -907,15 +900,13 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
         },
         setValue: ({ value }) => {
-            const scopes = value.filters.filter((filter) => filter.facet === 'in' && !filter.negated)
+            const scopes = value.filters.filter(isFolderScope)
             if (scopes.length > 1) {
                 // The view opens one folder, so a newer folder pill replaces the older one.
                 const newest = scopes[scopes.length - 1]
                 actions.setValue({
                     ...value,
-                    filters: value.filters.filter(
-                        (filter) => filter.facet !== 'in' || filter.negated || filter === newest
-                    ),
+                    filters: value.filters.filter((filter) => !isFolderScope(filter) || filter === newest),
                 })
             }
         },
@@ -935,7 +926,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 ...values.value,
                 filters: [
                     ...(folder === null ? [] : [{ facet: 'in', value: folder, negated: false }]),
-                    ...values.value.filters.filter((filter) => filter.facet !== 'in' || filter.negated),
+                    ...withoutFolderScope(values.value).filters,
                 ],
             })
         },
