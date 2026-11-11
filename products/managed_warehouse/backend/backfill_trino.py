@@ -1,9 +1,10 @@
 """Register duckling backfill exports in DuckLake through the organization's Trino catalog.
 
-The Dagster backfills use this for organizations with the Trino registration flag. One `add_files` call registers the
-files of an export and removes the rows they replace in a single DuckLake snapshot, so readers never see a day without
-rows or with two copies of it. The call refuses any type conversion, so the export must write the exact Parquet types that
-DuckLake writes for each Trino column.
+The Dagster backfills use this for organizations with the Trino registration flag, and for organizations that duckgres
+refuses because it has no organization for them. One `add_files` call registers the files of an export and removes the
+rows they replace in a single DuckLake snapshot, so readers never see a day without rows or with two copies of it. The
+call refuses any type conversion, so the export must write the exact Parquet types that DuckLake writes for each Trino
+column.
 """
 
 from __future__ import annotations

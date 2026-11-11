@@ -7,7 +7,7 @@ function message(part: MessagePart): ThreadMessage {
 
 const CASES: [string, MessagePart, boolean][] = [
     ['a text part, ignoring case', { kind: 'text', text: 'Your Invoice went up.' }, true],
-    ['a tool call argument', { kind: 'toolCall', name: 'lookup', args: { id: 'invoice-42' } }, true],
+    ['a tool call argument', { kind: 'toolCall', name: 'lookup', args: { id: 'invoice-42' }, result: null }, true],
     ['a thinking part', { kind: 'thinking', text: 'The invoice changed in August.' }, true],
     ['a message without the text', { kind: 'text', text: 'Two seats were added.' }, false],
 ]
