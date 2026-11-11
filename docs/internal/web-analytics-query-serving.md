@@ -22,6 +22,9 @@ A request walks down this ladder and stops at the first tier whose conditions it
 The preaggregated all-time range includes the hourly bucket containing the first event.
 Explicit date ranges keep their requested lower bounds.
 
+Result cache reads ignore unknown response fields so workers can read cache entries from newer deployments.
+Missing required fields or invalid known fields still cause a cache miss.
+
 ## Request flow
 
 ```text

@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from products.aeo.backend.facade.hogql import aeo_citation_checks
+from products.aeo.backend.facade.hogql import aeo_brands, aeo_citation_checks
 from products.annotations.backend.facade.hogql import annotations
 from products.customer_analytics.backend.facade.customer_tasks_hogql import customer_tasks
 from products.customer_analytics.backend.facade.hogql import (
@@ -4191,6 +4191,7 @@ class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "accounts": TableNode(name="accounts", table=accounts),
+        "aeo_brands": TableNode(name="aeo_brands", table=aeo_brands),
         "aeo_citation_checks": TableNode(name="aeo_citation_checks", table=aeo_citation_checks),
         "_account_tagged_items": TableNode(name="_account_tagged_items", table=account_tagged_items, hidden=True),
         "_account_resource_notebooks": TableNode(

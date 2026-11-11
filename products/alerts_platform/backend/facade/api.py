@@ -15,10 +15,12 @@ from uuid import UUID
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertEventKind,
     AlertReceiverEdit,
     AlertRouteEdit,
     ControlChangeKind,
     DestinationSend,
+    DestinationType,
     HandbackRefusal,
     HeldDeliveryAddress,
     NativeConfigurationMatch,
@@ -532,6 +534,39 @@ def create_alert_destinations(
     )
 
 
+def set_subscriber_destinations(
+    *,
+    team_id: int,
+    public_id: UUID,
+    user_ids: Collection[int],
+    event_kinds: Collection[AlertEventKind],
+    in_app_resource_type: str,
+    in_app_resource_id: str,
+) -> bool:
+    """Replaces the email and in-app destinations that name the alert's subscribers. False when the
+    platform has no alert under `public_id`, such as an insight alert never copied."""
+    return alert_destinations.set_subscriber_destinations(
+        team_id=team_id,
+        public_id=public_id,
+        user_ids=user_ids,
+        event_kinds=event_kinds,
+        in_app_resource_type=in_app_resource_type,
+        in_app_resource_id=in_app_resource_id,
+    )
+
+
+def remove_subscriber(*, team_ids: Collection[int], user_id: int) -> int:
+    """Takes a user who left an organization out of every subscriber destination of its teams' alerts,
+    and returns how many alerts named them."""
+    return alert_destinations.remove_subscriber(team_ids=team_ids, user_id=user_id)
+
+
+def subscriber_user_ids_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, tuple[int, ...]]:
+    """The subscribers each alert's destinations name, by public id. An alert with no subscriber
+    destination is left out, which is not the same as one whose subscribers all left."""
+    return alert_destinations.subscriber_user_ids_by_public_id(team_id=team_id, public_ids=public_ids)
+
+
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
 
@@ -544,6 +579,15 @@ def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
     """Whether an alert whose destinations the platform owns has an enabled incident manager."""
     return alert_destinations.has_incident_destination(team_id=team_id, configuration_id=configuration_id)
+
+
+def destination_hears_kind(
+    *, team_id: int, configuration_id: UUID, destination_type: DestinationType, event_kind: AlertEventKind
+) -> bool:
+    """Whether an enabled destination of this type that the platform keeps for the alert sends this kind."""
+    return alert_destinations.hears_kind(
+        team_id=team_id, configuration_id=configuration_id, destination_type=destination_type, event_kind=event_kind
+    )
 
 
 def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:

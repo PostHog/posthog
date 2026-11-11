@@ -4,7 +4,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final, cast
 from uuid import UUID
 
 import pytest
@@ -56,6 +56,8 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_firing_signal import prepare_platform_firing_signals
+from products.alerts.backend.platform_firing_signal_detail import FiringSignalRequest, requested_firing_signals
 from products.alerts.backend.platform_investigation import claim_requested_investigations
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
@@ -85,26 +87,61 @@ from products.alerts.backend.temporal.platform_evaluate import (
     run_platform_metrics_investigations_activity,
 )
 from products.alerts.backend.test.insight_alerts import create_insight_alert
-from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import list_configurations, record_outcomes, slot_of
+from products.alerts_platform.backend.facade import (
+    api as platform_facade,
+    testing as platform_testing,
+)
+from products.alerts_platform.backend.facade.api import (
+    create_alert_destinations,
+    list_configurations,
+    record_outcomes,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     AlertBatchKey,
+    AlertDestinationData,
     AlertEventKind,
+    DestinationType,
     Grouping,
     GroupingMode,
     IncidentAction,
+    NewAlertDestination,
     PlatformAlertOutcome,
+    PlatformCheckEvent,
+    PlatformCheckEventPage,
     PlatformConfigurationSnapshot,
     SourceEvaluationInputs,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.signals.backend.facade.source_configs import AlertNamePatterns, SignalSourceConfigSnapshot
 
 _MODULE = "products.alerts.backend.platform_source_cycle"
+_FIRING_SIGNAL_MODULE = "products.alerts.backend.platform_firing_signal"
+_EMITTER_MODULE = "posthog.temporal.alerts.alert_firing_signal"
 # A Wednesday, so no weekend rule applies.
 CUTOFF = datetime(2026, 9, 16, 10, tzinfo=UTC)
+
+
+def _check_event(*, previous_state: str, state: str) -> PlatformCheckEvent:
+    return PlatformCheckEvent(
+        occurred_at=CUTOFF - timedelta(hours=1),
+        evaluation_key="slot:earlier",
+        previous_state=PlatformAlertState(previous_state),
+        state=PlatformAlertState(state),
+        value=None,
+        condition={},
+        query_duration_ms=None,
+        error_message=None,
+    )
+
+
+_AGENT_ON: Final = {
+    "detector_config": {"type": "zscore", "threshold": 0.95, "window": 30},
+    "investigation_agent_enabled": True,
+}
 
 
 class TestPlatformInsightEvaluation(APIBaseTest):
@@ -144,6 +181,25 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                     **overrides,
                 }
             )
+
+    def _native(self, alert: AlertConfiguration) -> PlatformConfigurationSnapshot:
+        """A platform alert with the row's insight and threshold, and no insight row."""
+        configuration = self._copy(
+            alert,
+            legacy_configuration_id=None,
+            owner=PlatformAlertOwner.PLATFORM,
+            destinations_owner=PlatformAlertOwner.PLATFORM,
+            created_by=self.user,
+            source_config={
+                "insight_id": alert.insight_id,
+                SOURCE_CONDITION_KEY: {
+                    "comparison": {"type": "absolute_value"},
+                    "threshold": {"type": "absolute", "bounds": {"upper": 100.0}},
+                },
+            },
+        )
+        alert.delete()
+        return configuration
 
     def _evaluate_per_series(
         self,
@@ -368,6 +424,61 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         # The slot is free either way, so the next firing's render is not held back.
         assert inflight_alert_ids(CHART_RENDER_INFLIGHT_KEY) == set()
 
+    @parameterized.expand(
+        [
+            ("a_row_with_a_slack_function", True, "hog_function", True),
+            ("a_native_alert_with_a_slack_function", False, "hog_function", True),
+            ("a_native_alert_with_a_platform_slack_destination", False, "platform", True),
+            ("a_native_alert_without_slack", False, None, False),
+        ]
+    )
+    def test_a_firing_chart_draws_the_threshold_of_the_alert_it_fires_for(
+        self, _name: str, has_row: bool, slack: str | None, renders: bool
+    ) -> None:
+        alert = self._alert()
+        chart_alert_id = alert.id if has_row else self._native(alert).id
+        if slack == "hog_function":
+            HogFunction.objects.create(
+                team=self.team,
+                type="internal_destination",
+                name="Slack",
+                template_id="template-slack",
+                hog="return event",
+                enabled=True,
+                filters={
+                    "source": "internal-events",
+                    "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                    "properties": [
+                        {"key": "alert_id", "value": str(chart_alert_id), "operator": "exact", "type": "event"}
+                    ],
+                },
+            )
+        elif slack == "platform":
+            create_alert_destinations(
+                team_id=self.team.id,
+                configuration_id=chart_alert_id,
+                destinations=(
+                    NewAlertDestination(
+                        data=cast(
+                            AlertDestinationData,
+                            {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-1"},
+                        ),
+                        event_kinds=(AlertEventKind.FIRING,),
+                    ),
+                ),
+            )
+
+        with patch(
+            "posthog.tasks.alerts.utils.exports.render_png_export", return_value=(MagicMock(id=7), b"png")
+        ) as render:
+            chart = render_firing_chart(self.team.id, str(chart_alert_id), held_until=time.time() + 60)
+
+        assert chart == (RenderedChart(asset_id=7, render_user_id=self.user.id) if renders else None)
+        assert [
+            [(line["label"], line["value"]) for line in call.kwargs["reference_lines"]]
+            for call in render.call_args_list
+        ] == ([[("alert upper threshold", 100.0)]] if renders else [])
+
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_check_holds_a_clickhouse_slot_only_while_its_query_runs(self) -> None:
         configuration = self._copy(self._alert())
@@ -576,14 +687,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, was_firing, owned, paged, breaks, (incident_actions, sends_messages) or no delivery
-            ("source_owned", False, False, False, False, None),
-            ("platform_owned", False, True, False, False, ({}, True)),
-            ("platform_owned_resolve", True, True, False, False, None),
-            ("paged_firing", False, True, True, False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve", True, True, True, False, ({"": IncidentAction.RESOLVE}, False)),
-            ("paged_firing_that_breaks", True, True, True, True, ({}, True)),
-            ("paged_but_source_owned", False, False, True, False, None),
+            # name, was_firing, owned, paged through, breaks, (incident_actions, sends_messages) or no delivery
+            ("source_owned", False, False, None, False, None),
+            ("platform_owned", False, True, None, False, ({}, True)),
+            ("platform_owned_resolve", True, True, None, False, None),
+            ("paged_firing", False, True, "hog_function", False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve", True, True, "hog_function", False, ({"": IncidentAction.RESOLVE}, False)),
+            ("paged_firing_that_breaks", True, True, "hog_function", True, ({}, True)),
+            ("paged_but_source_owned", False, False, "hog_function", False, None),
+            ("paged_firing_with_no_row", False, True, "platform", False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve_with_no_row", True, True, "platform", False, ({"": IncidentAction.RESOLVE}, False)),
         ]
     )
     def test_only_a_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
@@ -591,13 +704,31 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         _name: str,
         was_firing: bool,
         owned: bool,
-        paged: bool,
+        paged: str | None,
         breaks: bool,
         delivered: tuple[dict[str, IncidentAction], bool] | None,
     ) -> None:
         alert = self._alert()
-        configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
-        if paged:
+        alert_url = insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
+        if paged == "platform":
+            configuration = self._native(alert)
+            alert_url = insight_alert_url(self.team.id, alert.insight.short_id, str(configuration.id))
+            create_alert_destinations(
+                team_id=self.team.id,
+                configuration_id=configuration.id,
+                destinations=(
+                    NewAlertDestination(
+                        data=cast(
+                            AlertDestinationData,
+                            {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "a" * 32},
+                        ),
+                        event_kinds=(AlertEventKind.FIRING,),
+                    ),
+                ),
+            )
+        else:
+            configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
+        if paged == "hog_function":
             HogFunction.objects.create(
                 team=self.team,
                 type="internal_destination",
@@ -629,7 +760,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             [
                 (
                     str(configuration.id),
-                    str(alert.id),
+                    str(configuration.id if paged == "platform" else alert.id),
                     {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
                     owned,
                     *delivered,
@@ -650,10 +781,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             for delivery in self.deliveries
         ] == expected
         # A native message links to the alert on its insight, where the insight stack's messages link.
-        assert all(
-            delivery.source_alert_url == insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
-            for delivery in self.deliveries
-        )
+        assert all(delivery.source_alert_url == alert_url for delivery in self.deliveries)
 
     @parameterized.expand(
         [
@@ -1215,6 +1343,232 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert outcome.held_delivery is None
         assert len(self.deliveries) == 1
+
+    @parameterized.expand(
+        [
+            ("an owned firing that starts an episode", {}, PlatformAlertOwner.PLATFORM, None, 1),
+            ("a parallel run leaves the signal to the insight stack", {}, PlatformAlertOwner.SOURCE, None, 0),
+            (
+                "an investigated alert waits for the agent's verdict",
+                _AGENT_ON,
+                PlatformAlertOwner.PLATFORM,
+                None,
+                0,
+            ),
+            (
+                "an investigated alert with no insight stack row waits for the agent's verdict",
+                _AGENT_ON,
+                PlatformAlertOwner.PLATFORM,
+                None,
+                0,
+                "all_firing_alerts",
+                "native",
+            ),
+            (
+                "a breakdown check with several firing values, which the agent never takes, signals each one",
+                _AGENT_ON,
+                PlatformAlertOwner.PLATFORM,
+                None,
+                2,
+                "all_firing_alerts",
+                "breakdown",
+            ),
+            ("an alert already firing stays in its episode", {}, PlatformAlertOwner.PLATFORM, "firing", 0),
+            (
+                "errors that interrupted a firing resume it",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored after firing",
+                0,
+            ),
+            (
+                "errors after a quiet alert end in a new episode",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored after not_firing",
+                1,
+            ),
+            (
+                "errors that began before the history window resume a firing",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored before the window",
+                0,
+            ),
+            ("a team without the all-firing scope", {}, PlatformAlertOwner.PLATFORM, None, 0, "investigated_only"),
+            (
+                "errors that interrupted breakdown values' firings resume them",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored after firing",
+                0,
+                "all_firing_alerts",
+                "breakdown",
+            ),
+            (
+                "errors after quiet breakdown values end in new episodes",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored after not_firing",
+                2,
+                "all_firing_alerts",
+                "breakdown",
+            ),
+        ]
+    )
+    def test_a_firing_files_an_inbox_signal_only_when_it_starts_an_uninvestigated_episode(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        owner: str,
+        before: str | None,
+        signals: int,
+        scope: str = "all_firing_alerts",
+        shape: str = "row",
+    ) -> None:
+        alert = self._alert(**overrides)
+        if shape == "native":
+            configuration = self._copy(
+                None,
+                owner=owner,
+                source_config={
+                    "insight_id": alert.insight_id,
+                    SOURCE_CONDITION_KEY: {"detector": alert.detector_config},
+                    "investigation_agent_enabled": alert.investigation_agent_enabled,
+                },
+            )
+        elif shape == "breakdown":
+            grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+            configuration = self._copy(alert, owner=owner, grouping=grouping.to_stored())
+        else:
+            configuration = self._copy(alert, owner=owner)
+        with team_scope(self.team.id):
+            if before == "firing":
+                platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1))
+            elif before is not None:
+                if shape == "breakdown" and before == "errored after firing":
+                    for value in ("Chrome", "Firefox"):
+                        platform_testing.start_firing(
+                            configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1), grouping_key=value
+                        )
+                platform_testing.set_check_status(configuration.id, "errored")
+        events: tuple[PlatformCheckEvent, ...] = (_check_event(previous_state="errored", state="errored"),)
+        if before != "errored before the window":
+            # A breakdown alert has no ungrouped instance, so its failure row found it quiet.
+            interrupted = (
+                "not_firing" if shape == "breakdown" else (before or "").removeprefix("errored after ") or "not_firing"
+            )
+            events = (*events, _check_event(previous_state=interrupted, state="errored"))
+        history = PlatformCheckEventPage(events=events, total=len(events))
+
+        with (
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value=scope),
+            patch(
+                f"{_EMITTER_MODULE}.get_source_config",
+                return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+            ),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_name_patterns", return_value=AlertNamePatterns()),
+            patch(f"{_FIRING_SIGNAL_MODULE}.platform.notable_checks_by_public_id", return_value=history),
+        ):
+            if shape == "breakdown":
+                outcome = self._evaluate_per_series(configuration, {"Chrome": 150.0, "Safari": 40.0, "Firefox": 120.0})
+            else:
+                outcome = self._fire(configuration)
+            record_outcomes(self.team.id, (outcome,), CUTOFF)
+            with patch(
+                f"{_FIRING_SIGNAL_MODULE}.platform.get_configuration", wraps=platform_facade.get_configuration
+            ) as reads:
+                prepared = prepare_platform_firing_signals(requested_firing_signals(self.team.id, (outcome,)))
+
+        assert len(prepared) == signals
+        assert len({signal.alert_check_id for signal in prepared}) == signals
+        assert reads.call_count <= 1
+
+    @parameterized.expand(
+        [
+            ("an owned alert files its signal", None, 1),
+            ("an alert disabled since files none", "disabled", 0),
+            ("a firing the record skipped files none", "unrecorded", 0),
+        ]
+    )
+    def test_a_recorded_firing_files_its_signal_while_the_platform_owns_the_alert(
+        self, _name: str, change: str | None, signals: int
+    ) -> None:
+        # A detector without the agent, because only a detector check keeps the dates it fired on.
+        alert = self._alert(
+            owner=PlatformAlertOwner.PLATFORM, detector_config={"type": "zscore", "threshold": 0.95, "window": 30}
+        )
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        with patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"):
+            outcome = self._fire(configuration)
+        if change != "unrecorded":
+            record_outcomes(self.team.id, (outcome,), CUTOFF)
+        if change == "disabled":
+            with team_scope(self.team.id):
+                platform_testing.set_enabled(configuration.id, False)
+
+        with (
+            patch(
+                f"{_EMITTER_MODULE}.get_source_config",
+                return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+            ),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_name_patterns", return_value=AlertNamePatterns()),
+        ):
+            prepared = prepare_platform_firing_signals(requested_firing_signals(self.team.id, (outcome,)))
+
+        assert len(prepared) == signals
+        if prepared:
+            (request,) = requested_firing_signals(self.team.id, (outcome,))
+            assert prepared[0].alert_check_id == f"{configuration.id}:{request.episode_started_at.isoformat()}"
+            assert prepared[0].extra["breaches"] == ["above 100"]
+            assert prepared[0].extra["triggered_dates"] == ["2026-09-16"]
+
+    @parameterized.expand(
+        [
+            ("owned by the platform", PlatformAlertOwner.PLATFORM, True),
+            ("owned by its source", PlatformAlertOwner.SOURCE, False),
+        ]
+    )
+    def test_a_firing_of_an_alert_with_no_insight_stack_row_files_its_signal(
+        self, _name: str, owner: str, files: bool
+    ) -> None:
+        insight = self._alert().insight
+        configuration = self._copy(
+            None,
+            owner=owner,
+            source_config={"insight_id": insight.id, SOURCE_CONDITION_KEY: {"detector": {"type": "zscore"}}},
+        )
+        request = FiringSignalRequest(
+            team_id=self.team.id,
+            alert_id=str(configuration.id),
+            configuration_id=str(configuration.id),
+            episode_started_at=CUTOFF,
+            breaches=("above 100",),
+        )
+        with team_scope(self.team.id):
+            platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF)
+
+        with (
+            patch(
+                f"{_EMITTER_MODULE}.get_source_config",
+                return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+            ),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_name_patterns", return_value=AlertNamePatterns()),
+        ):
+            prepared = prepare_platform_firing_signals((request,))
+
+        assert len(prepared) == (1 if files else 0)
+        if not files:
+            return
+        (signal,) = prepared
+        assert (signal.alert_id, signal.extra["insight_id"], signal.extra["detector_type"]) == (
+            str(configuration.id),
+            str(insight.id),
+            "zscore",
+        )
+        assert signal.extra["url"].endswith(f"?alert_id={configuration.id}")
 
     @parameterized.expand([("found", None, InvestigationStatus.DONE), ("failed", RuntimeError("no data"), "failed")])
     def test_a_metrics_firing_is_held_until_its_investigation_ends(
