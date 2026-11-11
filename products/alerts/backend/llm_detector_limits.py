@@ -288,7 +288,7 @@ def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = Non
         native_only=True,
         enabled_only=True,
         exclude_id=UUID(exclude_alert_id) if exclude_alert_id else None,
-        source_config_equals={f"{SOURCE_CONDITION_KEY}.detector.type": DetectorType.LLM.value},
+        source_config_contains={SOURCE_CONDITION_KEY: {"detector": {"type": DetectorType.LLM.value}}},
     )
     return queryset.count() + native
 
