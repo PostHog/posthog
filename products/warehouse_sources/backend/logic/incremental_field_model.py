@@ -33,7 +33,6 @@ from posthog.llm.system_one_client import (
     GATEWAY_MAX_CHOICE_OPTIONS,
     GATEWAY_MAX_QUESTIONS,
     GatewaySystemOneClient,
-    TypeSafeSystemOneClient,
     build_system_one_client,
     system_one_configured,
 )
@@ -52,8 +51,7 @@ FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
 PROMPT_VERSION = 1
-# Both endpoints block a person's screen, so a late answer is worth less than the rule-based one. The
-# client timeout applies per connect or read, so the same value also caps all requests together.
+# Both endpoints block a person's screen, so _ask_all gives every request together this long.
 TIMEOUT_SECONDS = 3.0
 MIN_CONFIDENCE = 0.6
 MAX_REQUESTS = 4
@@ -105,8 +103,7 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
             privacy_mode=True,
         )
         # No TypeSafe fallback is passed, so the client is always the gateway one.
-        if isinstance(client, TypeSafeSystemOneClient):
-            return
+        assert isinstance(client, GatewaySystemOneClient)
         answers = async_to_sync(_ask_all)(client, [[(i, pending[i]) for i in batch] for batch in batches])
         picks.update({index: field_name for index, field_name in answers.items() if field_name})
         _cache_set_many({keys[index]: field_name for index, field_name in answers.items()})
@@ -186,6 +183,10 @@ async def _ask_all(client: GatewaySystemOneClient, batches: list[list[tuple[int,
         logger.warning("incremental_field_model_deadline_reached", late_requests=len(late))
     answers: dict[int, str] = {}
     for task in done:
+        # One failed request must not drop the answers of the others.
+        if (error := task.exception()) is not None:
+            capture_exception(error)
+            continue
         answers.update(task.result() or {})
     return answers
 
@@ -224,16 +225,21 @@ async def _ask(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSch
 def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
     fields = schema.incremental_fields
     chosen = next((field for field in fields if field["field"] == field_name and "recommended" in field), None)
-    if chosen is None or chosen is fields[0]:
+    if chosen is None:
         return False
     rest: list[IncrementalField] = [
         {**field, "recommended": False} if "recommended" in field else field for field in fields if field is not chosen
     ]
     schema.incremental_fields = [
-        {**chosen, "recommended": True, "notes": [MODEL_PICK_NOTE, *chosen.get("notes", [])]},
+        {
+            **chosen,
+            "recommended": True,
+            "picked_by_model": True,
+            "notes": [MODEL_PICK_NOTE, *chosen.get("notes", [])],
+        },
         *rest,
     ]
-    return True
+    return chosen is not fields[0]
 
 
 def _cache_key(team_id: int, schema: SourceSchema) -> str:

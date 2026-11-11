@@ -3438,7 +3438,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
-        recommend_incremental_fields([schema], team=self.team)
+        # The form keeps a configured cursor, so a recommendation would cost a model call for nothing.
+        if not instance.incremental_field:
+            recommend_incremental_fields([schema], team=self.team)
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.

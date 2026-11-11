@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from types import SimpleNamespace
 from typing import Any
 
@@ -17,6 +17,7 @@ from posthog.llm.system_one import (
     SystemOneRequestFailed,
     SystemOneResult,
 )
+from posthog.llm.system_one_client import GatewaySystemOneClient
 from posthog.redis import TEST_clear_clients, get_client
 from posthog.token_bucket import TEST_reset_scripts, consume
 
@@ -55,10 +56,13 @@ def _open_schema(name: str = "orders") -> SourceSchema:
 
 
 class _FakeClient:
-    def __init__(self, answer: Any = None, error: Exception | None = None, hang: bool = False) -> None:
+    def __init__(
+        self, answer: Any = None, error: Exception | None = None, hang: bool = False, fail_batch_size: int | None = None
+    ) -> None:
         self.answer = answer
         self.error = error
         self.hang = hang
+        self.fail_batch_size = fail_batch_size
         self.cancelled = False
         self.calls: list[tuple[JsonValue, Mapping[str, Question]]] = []
 
@@ -72,6 +76,8 @@ class _FakeClient:
                 raise
         if self.error is not None:
             raise self.error
+        if len(questions) == self.fail_batch_size:
+            raise ValueError("unexpected gateway answer")
         return SystemOneResult(model="jeeves-0.1", answers=dict.fromkeys(questions, self.answer), input_tokens=10)
 
 
@@ -98,8 +104,12 @@ class TestRecommendIncrementalFields(SimpleTestCase):
         flag: bool = True,
         configured: bool = True,
     ) -> None:
+        gateway = GatewaySystemOneClient(
+            url="https://gateway.example.com/v1/systemone", api_key="test-key", headers={}, model="m", timeout=1.0
+        )
         with (
-            patch(f"{MODULE}.build_system_one_client", return_value=client),
+            patch(f"{MODULE}.build_system_one_client", return_value=gateway),
+            patch.object(GatewaySystemOneClient, "adecide", new=lambda _self, **kwargs: client.adecide(**kwargs)),
             patch(f"{MODULE}.system_one_configured", return_value=configured),
             patch(f"{MODULE}.feature_enabled_or_false", return_value=flag),
         ):
@@ -117,6 +127,7 @@ class TestRecommendIncrementalFields(SimpleTestCase):
             ("id", False),
         ]
         assert schema.incremental_fields[0]["notes"][0] == MODEL_PICK_NOTE
+        assert schema.incremental_fields[0]["picked_by_model"] is True
         state, questions = client.calls[0]
         assert list(questions) == ["t0"]
         assert state == {
@@ -140,14 +151,17 @@ class TestRecommendIncrementalFields(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("low_confidence", _FakeClient(_pick("c1", confidence=0.4))),
-            ("refusal", _FakeClient(RefusalAnswer())),
-            ("option_out_of_range", _FakeClient(_pick("c9"))),
-            ("gateway_error", _FakeClient(error=SystemOneRequestFailed("HTTP 529", status_code=529))),
-            ("unexpected_error", _FakeClient(error=ValueError("'t0' has more than 16 options"))),
+            ("low_confidence", lambda: _FakeClient(_pick("c1", confidence=0.4))),
+            ("refusal", lambda: _FakeClient(RefusalAnswer())),
+            ("option_out_of_range", lambda: _FakeClient(_pick("c9"))),
+            ("gateway_error", lambda: _FakeClient(error=SystemOneRequestFailed("HTTP 529", status_code=529))),
+            ("unexpected_error", lambda: _FakeClient(error=ValueError("'t0' has more than 16 options"))),
         ]
     )
-    def test_unusable_answer_keeps_the_rule_based_order(self, _name: str, client: _FakeClient) -> None:
+    def test_unusable_answer_keeps_the_rule_based_order(
+        self, _name: str, make_client: Callable[[], _FakeClient]
+    ) -> None:
+        client = make_client()
         schema = _open_schema()
         before = [dict(field) for field in schema.incremental_fields]
 
@@ -209,6 +223,26 @@ class TestRecommendIncrementalFields(SimpleTestCase):
 
         assert second.calls == []
         assert schema.incremental_fields[0]["field"] == "fecha_actualizacion"
+
+    def test_unsure_answer_is_cached(self) -> None:
+        self._run([_open_schema()], _FakeClient(_pick("c2", confidence=0.4)))
+        second = _FakeClient(_pick("c2"))
+        schema = _open_schema()
+
+        self._run([schema], second)
+
+        assert second.calls == []
+        assert schema.incremental_fields[0]["field"] == "created_at"
+
+    def test_failed_request_keeps_the_other_requests_answers(self) -> None:
+        schemas = [_open_schema(f"table_{n}") for n in range(40)]
+        client = _FakeClient(_pick("c2"), fail_batch_size=8)
+
+        self._run(schemas, client)
+
+        firsts = [schema.incremental_fields[0]["field"] for schema in schemas]
+        assert sorted(set(firsts)) == ["created_at", "fecha_actualizacion"]
+        assert firsts.count("fecha_actualizacion") == 32
 
     def test_many_open_tables_split_into_requests_the_gateway_accepts(self) -> None:
         schemas = [_open_schema(f"table_{n}") for n in range(40)]

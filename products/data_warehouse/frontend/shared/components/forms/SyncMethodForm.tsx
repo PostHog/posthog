@@ -6,7 +6,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { AvailableColumn, ExternalDataSourceSyncSchema } from '~/types'
+import { AvailableColumn, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 const LOOKBACK_UNIT_SECONDS = {
     minutes: 60,
@@ -41,6 +41,29 @@ export const secondsToLookbackParts = (
     // saves back the inflated number — e.g. 90 s shows "1 minute" and round-trips to 60 s.
     return { amount: Math.floor(seconds / 60), unit: 'minutes' }
 }
+
+// `recommended` is a cursor for incremental sync, so only that select marks it. Append wants a field
+// that never changes on update, which is the opposite pick.
+const incrementalFieldOptions = (
+    fields: IncrementalField[],
+    recommended?: IncrementalField
+): { value: string; label: JSX.Element }[] =>
+    fields.map((field) => ({
+        value: field.field,
+        label: (
+            <>
+                <span className="leading-5">{field.label}</span>
+                <LemonTag className="ml-2" type="success">
+                    {field.type}
+                </LemonTag>
+                {field === recommended && (
+                    <LemonTag className="ml-1" type="highlight">
+                        Recommended
+                    </LemonTag>
+                )}
+            </>
+        ),
+    }))
 
 const getIncrementalSyncSupported = (
     schema: ExternalDataSourceSyncSchema
@@ -496,20 +519,17 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                         setIncrementalFieldValue(newValue)
                                         setRadioValue('incremental')
                                     }}
-                                    options={
-                                        schema.incremental_fields.map((n) => ({
-                                            value: n.field,
-                                            label: (
-                                                <>
-                                                    <span className="leading-5">{n.label}</span>
-                                                    <LemonTag className="ml-2" type="success">
-                                                        {n.type}
-                                                    </LemonTag>
-                                                </>
-                                            ),
-                                        })) ?? []
-                                    }
+                                    options={incrementalFieldOptions(
+                                        schema.incremental_fields,
+                                        schema.incremental_fields.find((n) => n.recommended)
+                                    )}
                                 />
+                                {schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
+                                    ?.picked_by_model && (
+                                    <p className="text-secondary text-xs mt-1 mb-0">
+                                        Picked by AI from the table and column names.
+                                    </p>
+                                )}
                                 {radioValue === 'incremental' &&
                                     incrementalFieldValue &&
                                     schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
@@ -671,19 +691,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                         setAppendFieldValue(newValue)
                                         setRadioValue('append')
                                     }}
-                                    options={
-                                        schema.incremental_fields.map((n) => ({
-                                            value: n.field,
-                                            label: (
-                                                <>
-                                                    <span className="leading-5">{n.label}</span>
-                                                    <LemonTag className="ml-2" type="success">
-                                                        {n.type}
-                                                    </LemonTag>
-                                                </>
-                                            ),
-                                        })) ?? []
-                                    }
+                                    options={incrementalFieldOptions(schema.incremental_fields)}
                                 />
                                 {radioValue === 'append' &&
                                     appendFieldValue &&
