@@ -404,6 +404,58 @@ describe('Hog Inputs', () => {
             }
         )
 
+        it('fails the inputs with the deadline error when the deadline passes while a hog input yields the event loop after its render', async () => {
+            const onlyHog = createHogFunction({
+                ...hogFunction,
+                inputs: { only: { value: 'x', templating: 'hog', bytecode: ['_H', 1, 32, 'x'] } },
+                inputs_schema: [],
+            })
+            const threshold = getEventLoopYieldThresholdMs()
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            configureEventLoopYield(0)
+            jest.useFakeTimers({
+                doNotFake: [
+                    'hrtime',
+                    'nextTick',
+                    'queueMicrotask',
+                    'setImmediate',
+                    'clearImmediate',
+                    'setInterval',
+                    'clearInterval',
+                    'Date',
+                ],
+            })
+            const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+            const untilAYieldWaits = async (): Promise<void> => {
+                for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+            }
+            try {
+                const deadline = new AbortController()
+                let outcome: unknown
+                void hogInputsService.buildInputs(onlyHog, globals, undefined, undefined, deadline.signal).then(
+                    () => (outcome = 'rendered'),
+                    (error: unknown) => (outcome = error)
+                )
+                await untilAYieldWaits()
+                jest.runOnlyPendingTimers()
+                await untilAYieldWaits()
+                expect(outcome).toBeUndefined()
+
+                deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+                for (let turn = 0; outcome === undefined && turn < 1000; turn++) {
+                    jest.runOnlyPendingTimers()
+                    await nextTurn()
+                }
+
+                expect(outcome).toMatchObject({ name: 'TimeoutError' })
+            } finally {
+                jest.useRealTimers()
+                configureEventLoopYield(threshold)
+            }
+        })
+
         it.each<[string, Record<string, CyclotronInputType>]>([
             ['an input before the last', { next: { value: '{{ event.event }}', templating: 'liquid', order: 1 } }],
             ['the last input', {}],
@@ -439,6 +491,44 @@ describe('Hog Inputs', () => {
                         deadline
                     )
                 ).rejects.toMatchObject({ name: 'TimeoutError' })
+            } finally {
+                clock.mockRestore()
+            }
+        })
+
+        it('renders no further liquid leaf of an input once one leaf carries the clock past the deadline', async () => {
+            const deadlineMs = 50
+            let now = performance.now()
+            const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
+            try {
+                const deadline = deadlineAfter(deadlineMs)
+                const leaf = '{{ event.properties.slow }}'
+                const manyLeaves = createHogFunction({
+                    ...hogFunction,
+                    inputs: { leaves: { value: { first: leaf, second: leaf, third: leaf }, templating: 'liquid' } },
+                    inputs_schema: [],
+                })
+                const renderedLeaves: number[] = []
+                const properties = { ...globals.event.properties }
+                Object.defineProperty(properties, 'slow', {
+                    enumerable: true,
+                    get: () => {
+                        renderedLeaves.push(now)
+                        now += 2 * deadlineMs
+                        return 'slow'
+                    },
+                })
+
+                await expect(
+                    hogInputsService.buildInputs(
+                        manyLeaves,
+                        { ...globals, event: { ...globals.event, properties } },
+                        undefined,
+                        undefined,
+                        deadline
+                    )
+                ).rejects.toMatchObject({ name: 'TimeoutError' })
+                expect(renderedLeaves).toHaveLength(1)
             } finally {
                 clock.mockRestore()
             }

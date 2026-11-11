@@ -587,6 +587,7 @@ export const formatLiquidInput = (
     }
 
     if (typeof value === 'string') {
+        budget.throwIfDeadlinePassed()
         try {
             return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget, {
                 escapeHtml: !isPlainTextKey(key, plainTextKeys),
