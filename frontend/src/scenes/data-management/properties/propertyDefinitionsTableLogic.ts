@@ -162,7 +162,7 @@ export interface propertyDefinitionsTableLogicMeta {
             groupTypes: Map<GroupTypeIndex, GroupType>,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => LemonSelectOption<string>[]
-        showQueryUsage: (featureFlags: any) => boolean
+        showQueryUsage: (featureFlags: FeatureFlagsSet) => boolean
         showVerifiedFilter: (propertyDefinitions: PropertyDefinitionsPaginatedResponse) => boolean
     }
 }
