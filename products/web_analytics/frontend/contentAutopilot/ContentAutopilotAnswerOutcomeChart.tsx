@@ -1,18 +1,17 @@
 import { useMemo } from 'react'
 
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
+import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import type { PromptOutcomeMetric } from './promptReport'
 import type { AnswerOutcomeChart } from './visibilityChart'
 
@@ -71,15 +70,7 @@ export const ContentAutopilotAnswerOutcomeChart = ({
                             ]}
                             data-attr={`${dataAttr}-metric`}
                         />
-                        <LemonButton
-                            size="small"
-                            icon={<IconOpenInNew />}
-                            to={urls.insightNew({ query })}
-                            targetBlank
-                            tooltip="Open as insight"
-                            aria-label="Open as insight"
-                            data-attr={`${dataAttr}-open-insight`}
-                        />
+                        <ContentAutopilotOpenInsightButton query={query} data-attr={`${dataAttr}-open-insight`} />
                     </div>
                 }
             />

@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
 
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
@@ -14,6 +12,7 @@ import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTab
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
@@ -207,13 +206,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     <PagePerformanceCardHeader
                         title="Sites the engines cite most"
                         actions={
-                            <LemonButton
-                                size="small"
-                                icon={<IconOpenInNew />}
-                                to={urls.insightNew({ query: sourcesQuery })}
-                                targetBlank
-                                tooltip="Open as insight"
-                                aria-label="Open as insight"
+                            <ContentAutopilotOpenInsightButton
+                                query={sourcesQuery}
                                 data-attr="content-autopilot-prompts-overview-sources-tile-open-insight"
                             />
                         }
