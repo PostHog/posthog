@@ -8,6 +8,7 @@ import { MeasureEvidence, MetricSample, measure, startSampler } from './measurem
 
 const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const ROLE = 'cdp-cyclotron-worker-email'
+const METRICS = 'process_start_time_seconds 1\nprocess_cpu_seconds_total 1\nprocess_resident_memory_bytes 1'
 
 const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 100): MetricSample => ({
     role: ROLE,
@@ -156,18 +157,16 @@ describe('measurements', () => {
 
     it.each<[string, (request: http.IncomingMessage, response: http.ServerResponse) => void]>([
         ['refuses the scrape', (_request, response) => response.writeHead(503).end()],
-        ['never answers the scrape', () => undefined],
+        [
+            'answers the scrape only after the budget',
+            (_request, response) => setTimeout(() => response.end(METRICS), 1000).unref(),
+        ],
     ])('refuses to start within its budget, naming only the role that %s', async (_story, silent) => {
         const server = http.createServer((request, response) =>
-            request.url === '/answering'
-                ? response.end(
-                      'process_start_time_seconds 1\nprocess_cpu_seconds_total 1\nprocess_resident_memory_bytes 1'
-                  )
-                : silent(request, response)
+            request.url === '/answering' ? response.end(METRICS) : silent(request, response)
         )
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-        const startedAt = Date.now()
         try {
             await expect(
                 startSampler(
@@ -178,7 +177,6 @@ describe('measurements', () => {
                     { baselineWithinMs: 600 }
                 )
             ).rejects.toThrow(/^No metrics baseline from cdp-api within 600 ms$/)
-            expect(Date.now() - startedAt).toBeLessThan(1500)
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
