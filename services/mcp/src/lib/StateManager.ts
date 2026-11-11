@@ -21,6 +21,7 @@ import type {
     CachedOrg,
     CachedProject,
     CachedUser,
+    MetricCatalogContent,
     PinnedActiveContext,
     SessionScopedState,
     State,
@@ -37,6 +38,7 @@ const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
 // hold `switch-project` for the full default request deadline. The caller serves the cached list.
 const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
 const BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS = 3 * 1000
+const METRIC_CATALOG_TIMEOUT_MS = 1000
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -661,6 +663,26 @@ export class StateManager {
             },
             ttlMs: (cached) =>
                 cached?.hasSources === false && cached.hasRepositories === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS,
+            expectTimeouts: true,
+        })
+    }
+
+    async getOrFetchMetricCatalog(projectId: string): Promise<MetricCatalogContent | undefined> {
+        return this.getOrFetchCached({
+            name: 'metric_catalog',
+            cacheKey: `metricCatalog:${projectId}` as const,
+            fetchedAtKey: `metricCatalogFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const page = await this._api.request<Schemas.PaginatedDataCatalogMetricList>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/data_catalog/metrics/`,
+                    query: { limit: 1 },
+                    timeoutMs: METRIC_CATALOG_TIMEOUT_MS,
+                    signal: AbortSignal.timeout(METRIC_CATALOG_TIMEOUT_MS),
+                })
+                return { count: page.count }
+            },
+            ttlMs: (cached) => (cached?.count === 0 ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
             expectTimeouts: true,
         })
     }
