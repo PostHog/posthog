@@ -74,7 +74,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.facade.access import dashboard_access_method, record_dashboard_view
-from products.dashboards.backend.facade.api import get_project_dashboard
+from products.dashboards.backend.facade.api import get_dashboard
 from products.dashboards.backend.facade.contracts import DashboardSummary
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
 from products.exports.backend.facade.api import export_limit_context, query_with_reference_lines
@@ -423,7 +423,7 @@ class SharingConfigurationViewSet(
             raise ValidationError("Either a dashboard, insight, recording or notebook must be specified")
 
         if dashboard_id:
-            dashboard = get_project_dashboard(project_id=self.team.project_id, dashboard_id=dashboard_id)
+            dashboard = get_dashboard(team_id=self.team.id, dashboard_id=dashboard_id)
             if dashboard is None:
                 raise NotFound("Dashboard not found.")
             context["dashboard"] = dashboard

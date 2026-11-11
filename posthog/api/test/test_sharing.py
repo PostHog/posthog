@@ -2225,21 +2225,15 @@ class TestSharingConfigurationReadAccess(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stored_on_an_environment", "environment", False, status.HTTP_200_OK),
             ("another_project", "other_project", False, status.HTTP_404_NOT_FOUND),
             ("soft_deleted", "root", True, status.HTTP_404_NOT_FOUND),
         ]
     )
-    def test_sharing_config_reads_only_live_dashboards_of_the_project(
+    def test_sharing_config_is_not_found_for_a_dashboard_outside_the_project(
         self, _name: str, stored_on: str, deleted: bool, expected_status: int
     ) -> None:
         owner = Team.objects.create(organization=self.organization) if stored_on == "other_project" else self.team
         dashboard = Dashboard.objects.create(team=owner, name="Board", deleted=deleted)
-        if stored_on == "environment":
-            environment = Team.objects.create(
-                organization=self.organization, parent_team=self.team, project_id=self.team.project_id
-            )
-            Dashboard.objects_including_soft_deleted.filter(pk=dashboard.pk).update(team_id=environment.id)
         SharingConfiguration.objects.create(
             team=self.team, dashboard=dashboard, enabled=True, access_token="project_board_secret"
         )

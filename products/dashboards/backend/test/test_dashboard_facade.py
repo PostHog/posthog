@@ -362,35 +362,6 @@ class TestDashboardLookupsForCore(APIBaseTest):
 
         assert api.find_dashboard_team_id(dashboard_id=dashboard_id) == (other_team.id if found else None)
 
-    @parameterized.expand(
-        [
-            ("root_team", "root", False, True),
-            ("environment_team", "environment", False, True),
-            ("other_project", "other_project", False, False),
-            ("soft_deleted", "root", True, False),
-        ]
-    )
-    def test_get_project_dashboard_finds_what_a_project_wide_lookup_finds(
-        self, _name: str, stored_on: str, deleted: bool, found: bool
-    ) -> None:
-        environment = Team.objects.create(
-            organization=self.organization, parent_team=self.team, project_id=self.team.project_id
-        )
-        other_project = Team.objects.create(organization=self.organization)
-        owner = other_project if stored_on == "other_project" else self.team
-        dashboard_id = create_dashboard(team_id=owner.id, deleted=deleted)
-        if stored_on == "environment":
-            # Saving moves a dashboard to the root team, so only an update stores one on an environment.
-            Dashboard.objects_including_soft_deleted.filter(pk=dashboard_id).update(team_id=environment.id)
-        try:
-            expected = Dashboard.objects.get(id=dashboard_id, team__project_id=self.team.project_id).id
-        except Dashboard.DoesNotExist:
-            expected = None
-
-        summary = api.get_project_dashboard(project_id=self.team.project_id, dashboard_id=dashboard_id)
-
-        assert (summary.id if summary else None) == expected == (dashboard_id if found else None)
-
     def test_dashboards_by_last_access_puts_never_opened_dashboards_last_newest_first(self) -> None:
         now = timezone.now()
         never_opened_older = create_dashboard(team_id=self.team.id, created_at=now - timedelta(days=10))

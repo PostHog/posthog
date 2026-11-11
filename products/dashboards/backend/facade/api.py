@@ -867,16 +867,6 @@ def dashboards_by_last_access(
     return [_to_summary(dashboard) for dashboard in dashboards]
 
 
-def get_project_dashboard(*, project_id: int, dashboard_id: int) -> DashboardSummary | None:
-    """The live dashboard with this id stored on any team of this project, or None.
-
-    Unlike `get_dashboard`, which reads through the project's root team, this also finds a row stored
-    directly on one of the project's environment teams. Does not check object-level access.
-    """
-    dashboard = Dashboard.objects.filter(team__project_id=project_id, pk=dashboard_id).first()
-    return _to_summary(dashboard) if dashboard is not None else None
-
-
 def find_dashboard_team_id(*, dashboard_id: int) -> int | None:
     """The team that stores a live dashboard, or None when there is no live dashboard with this id.
 
@@ -1064,7 +1054,6 @@ __all__ = [
     "dashboards_created_between",
     "delete_widget_tiles_for_teams",
     "find_dashboard_team_id",
-    "get_project_dashboard",
     "has_user_created_dashboard",
     "home_tab_dashboard_id",
     "insight_ids_on_template_dashboards",
