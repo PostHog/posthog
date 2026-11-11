@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { isProductionEnv } from '@/db/role-guard'
 import { loadConfig, loadMigrateConfig } from '@/lib/config'
 
 const VAR = 'CREDENTIALS_SERVICE_RELOAD_SECONDS'
@@ -240,5 +241,21 @@ describe('loadMigrateConfig', () => {
         process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
         process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE = role
         expect(() => loadMigrateConfig()).toThrow('CREDENTIALS_SERVICE_RUNTIME_ROLE')
+    })
+})
+
+describe('isProductionEnv', () => {
+    it.each([
+        ['prod-us', true],
+        ['prod-eu', true],
+        ['production', true],
+        ['Prod-us', true],
+        ['prod_us', true],
+        ['prod-us ', true],
+        ['dev', false],
+        ['test', false],
+        ['staging', false],
+    ])('%s is production: %s', (env, expected) => {
+        expect(isProductionEnv(env)).toBe(expected)
     })
 })
