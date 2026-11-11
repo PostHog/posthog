@@ -10,6 +10,7 @@ import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { LiquidRenderer } from '~/cdp/utils/liquid'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -38,7 +39,7 @@ import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflow-sensitivity'
 import { findActionByType } from '../hogflow-utils'
-import { HogFunctionHandler, messageOptOutsAfterStep } from './hog_function'
+import { HogFunctionHandler, RENDER_TIMEOUT_RETRY_DELAYS_SECONDS, messageOptOutsAfterStep } from './hog_function'
 
 describe('HogFunctionHandler', () => {
     describe('messageOptOutsAfterStep', () => {
@@ -295,6 +296,72 @@ describe('HogFunctionHandler', () => {
 
             expect(handlerResult.error).toBeUndefined()
             expect(mockFetch.mock.calls[0][1].body).toContain('"name":"Chris McNeill"')
+        })
+    })
+
+    describe('liquid render limits', () => {
+        const runStep = async (): Promise<
+            [
+                Awaited<ReturnType<HogFunctionHandler['execute']>> | undefined,
+                unknown,
+                CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+            ]
+        > => {
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+            try {
+                return [
+                    await hogFunctionHandler.execute({ invocation, action, result: invocationResult }),
+                    undefined,
+                    invocationResult,
+                ]
+            } catch (error) {
+                return [undefined, error, invocationResult]
+            }
+        }
+
+        beforeEach(() => {
+            action.config.inputs.name = { value: 'Hi {{ person.properties.email }}', templating: 'liquid' }
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('retries a step that ran out of render time, then fails it once the retries run out', async () => {
+            const renderSpy = jest.spyOn(LiquidRenderer, 'renderWithHogFunctionGlobals').mockImplementation(() => {
+                throw new Error('template render limit exceeded, line:1, col:1')
+            })
+
+            for (const delaySeconds of RENDER_TIMEOUT_RETRY_DELAYS_SECONDS) {
+                const before = DateTime.now()
+                const [handlerResult, error, invocationResult] = await runStep()
+                expect(error).toBeUndefined()
+                expect(handlerResult?.scheduledAt?.diff(before, 'seconds').seconds).toBeCloseTo(delaySeconds, 0)
+                expect(invocationResult.logs.at(-1)?.message).toContain(`Retrying in ${delaySeconds}s`)
+            }
+
+            const [, error] = await runStep()
+            expect(String(error)).toContain('template render limit exceeded')
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            renderSpy.mockRestore()
+            const [handlerResult] = await runStep()
+            expect(handlerResult?.nextAction?.id).toBe('exit')
+            expect(invocation.state.currentAction?.renderTimeoutAttempts).toBeUndefined()
+        })
+
+        it('fails a step over the memory limit without retrying', async () => {
+            jest.spyOn(LiquidRenderer, 'renderWithHogFunctionGlobals').mockImplementation(() => {
+                throw new Error('memory alloc limit exceeded, line:1, col:1')
+            })
+
+            const [, error] = await runStep()
+
+            expect(String(error)).toContain('memory alloc limit exceeded')
+            expect(invocation.state.currentAction?.renderTimeoutAttempts).toBeUndefined()
         })
     })
 
