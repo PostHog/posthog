@@ -203,9 +203,8 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
             (location: { pathname: string }, products: FileSystemImport[]): string | null =>
                 navProductHrefForPath(removeProjectIdIfPresent(location.pathname), products),
         ],
-        // The products whose pages open the Analytics rail pane, such as Dashboards and Web analytics. They stay in
-        // All products, but the pane does not star them: a starred row would repeat the Analytics pane's link. Their
-        // saved stars stay untouched, so the current navigation still shows them.
+        // Starred leaves these out because the Analytics pane already links to them. Their saved stars stay, so the
+        // current navigation still shows them.
         analyticsPaneHrefs: [
             (s) => [s.featureFlags, s.products],
             (featureFlags: FeatureFlagsSet, products: FileSystemImport[]): Set<string> =>

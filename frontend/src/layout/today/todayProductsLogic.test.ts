@@ -83,7 +83,6 @@ describe('todayProductsLogic', () => {
 
         expect(logic.values.starredProducts.map((item) => item.href)).toEqual(starred)
         expect([...logic.values.starredHrefs]).toEqual(starred)
-        // The Analytics pane products keep their All products rows, without a star to toggle.
         expect(logic.values.products.map((item) => item.href)).toEqual(
             expect.arrayContaining([urls.dashboards(), urls.webAnalytics()])
         )
