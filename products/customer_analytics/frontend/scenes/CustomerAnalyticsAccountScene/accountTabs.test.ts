@@ -1,3 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { getVisibleAccountExpansionTab } from '../../components/Accounts/accountsExpansionLogic'
 import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
 import type { AccountDetailTabsConfigApi, AccountViewApi } from '../../generated/api.schemas'
 import {
@@ -31,6 +34,19 @@ const tabs: AccountTabDefinition[] = [
 ]
 
 describe('account tabs', () => {
+    it.each([false, true])('gates the Automations tab, picker, and direct route (%s)', (enabled) => {
+        const flags = { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET]: enabled }
+        const availableTabs = listAccountTabs(flags, [])
+        expect(availableTabs.some((tab) => tab.id === 'system:automations')).toBe(enabled)
+        expect(listAvailableAccountViewComponents(flags).some((component) => component.kind === 'automations')).toBe(
+            enabled
+        )
+        expect(getVisibleAccountExpansionTab('automations', flags)).toBe(enabled ? 'automations' : 'notes')
+        expect(getActiveAccountTabId(availableTabs, emptyConfig, 'system:automations', 1)).toBe(
+            enabled ? 'system:automations' : 'system:notes'
+        )
+    })
+
     it.each(['properties', 'session_replays'])('offers %s tiles without adding a system tab', (kind) => {
         expect(listAvailableAccountViewComponents({}).map((component) => component.kind)).toContain(kind)
         expect(listAccountTabs({}, []).map((tab) => tab.routeKey)).not.toContain(kind)
