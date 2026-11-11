@@ -1,12 +1,15 @@
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
-import { mkdtempSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import http from 'http'
 import net from 'net'
 import os from 'os'
 import path from 'path'
 
+import { defaultConfig } from '~/common/config/config'
+import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
@@ -14,8 +17,7 @@ import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, roleSpecs, secretsOf } from './roles'
-import * as stack from './stack'
-import { eventsConsumerGroup, membersOf, pingRedis } from './stack'
+import { STACK, eventsConsumerGroup, membersOf, pingRedis, withPostgres } from './stack'
 
 const SELF = 100
 const REPO = '/work/posthog'
@@ -40,6 +42,21 @@ const proc = (
 })
 
 const runner = proc(SELF, SELF, 'node scenarios run smoke', PLAIN_ENV)
+
+const inSchema = (url: string, schema: string): string =>
+    `${url}${url.includes('?') ? '&' : '?'}options=${encodeURIComponent(`-c search_path=${schema}`)}`
+
+const writeFake = (file: string, body: string): void => {
+    writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
+}
+
+const callsOf = (file: string): string[][] =>
+    existsSync(file)
+        ? readFileSync(file, 'utf8')
+              .split('\n')
+              .filter(Boolean)
+              .map((line) => parseJSON(line))
+        : []
 
 describe('scenario environment', () => {
     describe('planCleanup', () => {
@@ -395,7 +412,7 @@ describe('scenario environment', () => {
         const realSpawn = childProcess.spawn
         const stubRolePids = new Set<number>()
         const stubRole =
-            "require('http').createServer((_request, response) => response.end()).listen(Number(process.env.HTTP_SERVER_PORT))"
+            "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
@@ -410,6 +427,63 @@ describe('scenario environment', () => {
                     .once('error', () => setTimeout(bind, 20))
             bind()
         `
+        const templateSchema = `scenario_up_${process.pid}`
+        const templatesUrl = inSchema(defaultConfig.DATABASE_URL, templateSchema)
+        const insertTemplates = `INSERT INTO posthog_hogfunctiontemplate (id, template_id, sha, name, code, code_language, inputs_schema, type, status, category, free, created_at, updated_at) SELECT gen_random_uuid(), template_id, 'scenario', template_id, '', 'hog', '[]', 'destination', 'stable', '[]', true, now(), now() FROM unnest($1::text[]) AS template_id`
+        const templatesInDjango = async (): Promise<string[]> =>
+            await withPostgres(
+                async (client) =>
+                    (
+                        await client.query<{ template_id: string }>(
+                            'SELECT template_id FROM posthog_hogfunctiontemplate ORDER BY template_id'
+                        )
+                    ).rows.map((row) => row.template_id),
+                templatesUrl
+            )
+        const fakeHogli = `
+            const fs = require('fs')
+            const path = require('path')
+            const args = process.argv.slice(2)
+            fs.appendFileSync(path.join(__dirname, 'hogli-calls'), JSON.stringify(args) + '\\n')
+            if (args.join(' ') === 'wait --timeout 0') {
+                process.exit(Number(fs.readFileSync(path.join(__dirname, 'hogli-wait'), 'utf8')))
+            }
+            if (args[0] === 'dev:sync-hog-templates') {
+                const { Client } = require(${JSON.stringify(require.resolve('pg'))})
+                const client = new Client({ connectionString: ${JSON.stringify(templatesUrl)} })
+                client
+                    .connect()
+                    .then(() => client.query(${JSON.stringify(insertTemplates)}, [${JSON.stringify(STACK.templates)}]))
+                    .then(() => client.end())
+                    .then(
+                        () => process.exit(0),
+                        (error) => {
+                            process.stderr.write(String(error))
+                            process.exit(1)
+                        }
+                    )
+            }
+        `
+        const fakeDocker = `
+            const fs = require('fs')
+            const path = require('path')
+            const args = process.argv.slice(2)
+            fs.appendFileSync(path.join(__dirname, 'docker-calls'), JSON.stringify(args) + '\\n')
+            const [exec, container, rpk, noun, verb, group] = args
+            if ([exec, container, rpk, noun, verb].join(' ') !== 'exec posthog-kafka-1 rpk group describe') {
+                process.stderr.write('The up test ran docker ' + args.join(' '))
+                process.exit(1)
+            }
+            const counts = JSON.parse(fs.readFileSync(path.join(__dirname, 'members'), 'utf8'))
+            const members = counts.length > 0 ? counts.shift() : 0
+            fs.writeFileSync(path.join(__dirname, 'members'), JSON.stringify(counts))
+            process.stdout.write(
+                'GROUP        ' + group + '\\nCOORDINATOR  0\\nSTATE        ' + (members > 0 ? 'Stable' : 'Empty') +
+                    '\\nBALANCER     range\\nMEMBERS      ' + members + '\\nTOTAL-LAG    0\\n'
+            )
+        `
+        const rolePids = new Map<string, number>()
+        let fakes = ''
         let stranger: ChildProcess | undefined
         let environment: Environment | undefined
         let portHolder: http.Server | undefined
@@ -424,14 +498,42 @@ describe('scenario environment', () => {
             portHolder = http.createServer((_request, response) => void answersAfter.then(() => response.end()))
             await new Promise<void>((resolve) => portHolder!.listen(ROLE_PORTS[role], '127.0.0.1', resolve))
         }
-        const stubTheStack = (consumerGroupMembers: number[]): void => {
-            jest.spyOn(stack, 'startStack').mockResolvedValue()
-            jest.spyOn(stack, 'missingTemplates').mockResolvedValue([])
-            const members = jest.spyOn(stack, 'groupMembers').mockResolvedValue(0)
-            consumerGroupMembers.forEach((count) => members.mockResolvedValueOnce(count))
-        }
+        const answerMembers = (counts: number[]): void =>
+            writeFileSync(path.join(fakes, 'members'), JSON.stringify(counts))
+        const environmentOf = (): Environment =>
+            createEnvironment({
+                hogli: { command: path.join(fakes, 'hogli'), cwd: fakes },
+                docker: path.join(fakes, 'docker'),
+                postgresUrl: templatesUrl,
+            })
 
-        beforeEach(() => {
+        beforeAll(async () => {
+            await withPostgres(async (client) => {
+                await client.query(`DROP SCHEMA IF EXISTS ${templateSchema} CASCADE`)
+                await client.query(`CREATE SCHEMA ${templateSchema}`)
+                await client.query(
+                    `CREATE TABLE ${templateSchema}.posthog_hogfunctiontemplate (LIKE public.posthog_hogfunctiontemplate INCLUDING ALL)`
+                )
+            }, defaultConfig.DATABASE_URL)
+        })
+
+        afterAll(async () => {
+            await withPostgres(
+                (client) => client.query(`DROP SCHEMA IF EXISTS ${templateSchema} CASCADE`),
+                defaultConfig.DATABASE_URL
+            )
+        })
+
+        beforeEach(async () => {
+            fakes = mkdtempSync(path.join(os.tmpdir(), 'scenario-fakes-'))
+            writeFake(path.join(fakes, 'hogli'), fakeHogli)
+            writeFake(path.join(fakes, 'docker'), fakeDocker)
+            writeFileSync(path.join(fakes, 'hogli-wait'), '0')
+            answerMembers([])
+            await withPostgres(async (client) => {
+                await client.query('DELETE FROM posthog_hogfunctiontemplate')
+                await client.query(insertTemplates, [STACK.templates])
+            }, templatesUrl)
             const realTerminate = processes.terminate
             jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) => {
                 const foreign = [...plan.groups, ...plan.pids].filter((pid) => !stubRolePids.has(pid))
@@ -439,12 +541,14 @@ describe('scenario environment', () => {
                     ? Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
                     : realTerminate(plan, graceMs)
             })
-            jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The up test reached the dev stack.'))
             jest.spyOn(childProcess, 'spawn').mockImplementation(((
                 command: string,
                 args: string[],
                 options: SpawnOptions
             ) => {
+                if (command.endsWith(path.join('bin', 'hogli')) && command !== path.join(fakes, 'hogli')) {
+                    throw new Error('The up test reached the dev stack.')
+                }
                 if (!command.endsWith(path.join('node_modules', '.bin', 'tsx'))) {
                     return realSpawn(command, args, options)
                 }
@@ -467,6 +571,7 @@ describe('scenario environment', () => {
                     exitsAfterHealth = undefined
                 }
                 stubRolePids.add(role.pid!)
+                rolePids.set(mode!, role.pid!)
                 return role
             }) as unknown as typeof childProcess.spawn)
             process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
@@ -480,6 +585,7 @@ describe('scenario environment', () => {
             unspawnable = undefined
             losesItsPort = undefined
             exitsAfterHealth = undefined
+            rolePids.clear()
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             if (cacheHome === undefined) {
@@ -490,15 +596,77 @@ describe('scenario environment', () => {
         })
 
         it('waits for a dead consumer to leave the events group instead of refusing it', async () => {
-            stubTheStack([1, 1])
-            environment = createEnvironment()
+            answerMembers([1, 1])
+            environment = environmentOf()
 
             await expect(environment.up()).resolves.toBeUndefined()
+            const describe = ['exec', 'posthog-kafka-1', 'rpk', 'group', 'describe', 'cdp-processed-events-consumer']
+            expect(callsOf(path.join(fakes, 'docker-calls'))).toEqual([describe, describe, describe])
+        }, 30_000)
+
+        it.each<[string, string, string[], (stateDir: string) => string[][]]>([
+            ['a running stack', '0', STACK.templates, () => [['wait', '--timeout', '0'], ['wait']]],
+            [
+                'a stack hogli cannot reach',
+                '3',
+                STACK.templates,
+                (stateDir) => [
+                    ['wait', '--timeout', '0'],
+                    ['dev:generate', '--with', 'workflows', '--without', 'nodejs'],
+                    ['up', '-d', '--custom', path.join(stateDir, 'mprocs.yaml')],
+                    ['wait'],
+                ],
+            ],
+            [
+                'a stack whose Django lacks the templates',
+                '0',
+                [],
+                () => [['wait', '--timeout', '0'], ['wait'], ['dev:sync-hog-templates']],
+            ],
+        ])(
+            'asks hogli to bring up %s and ends with the templates in Django',
+            async (_name, waitExit, templates, commands) => {
+                writeFileSync(path.join(fakes, 'hogli-wait'), waitExit)
+                await withPostgres(
+                    (client) =>
+                        client.query('DELETE FROM posthog_hogfunctiontemplate WHERE NOT (template_id = ANY($1))', [
+                            templates,
+                        ]),
+                    templatesUrl
+                )
+                environment = environmentOf()
+
+                await environment.up()
+
+                expect({
+                    commands: callsOf(path.join(fakes, 'hogli-calls')),
+                    templates: await templatesInDjango(),
+                }).toEqual({
+                    commands: commands(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios')),
+                    templates: [...STACK.templates].sort(),
+                })
+            },
+            30_000
+        )
+
+        it('records a role that dies and starts it again', async () => {
+            const role = 'cdp-processed-events'
+            environment = environmentOf()
+            await environment.up()
+            const killed = rolePids.get(role)!
+
+            process.kill(killed, 'SIGKILL')
+
+            await waitForExpect(async () => {
+                const answer = await internalFetch(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`)
+                expect(answer.status).toBe(200)
+                expect(Number(await answer.text())).not.toBe(killed)
+            }, 15_000)
+            expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
         }, 30_000)
 
         it('brings every role up healthy', async () => {
-            stubTheStack([])
-            environment = createEnvironment()
+            environment = environmentOf()
 
             await environment.up()
 
@@ -531,9 +699,8 @@ describe('scenario environment', () => {
         ])(
             'fails naming a role that %s and its log',
             async (_name, role, arrange) => {
-                stubTheStack([])
                 arrange()
-                environment = createEnvironment()
+                environment = environmentOf()
 
                 const failure = await environment.up().then(
                     () => null,
@@ -547,9 +714,8 @@ describe('scenario environment', () => {
         )
 
         it('refuses a role port another server already answers on, naming the port and how to see its holder', async () => {
-            stubTheStack([])
             await holdPort('cdp-processed-events')
-            environment = createEnvironment()
+            environment = environmentOf()
 
             await expect(environment.up()).rejects.toMatchObject({
                 exitCode: 2,
