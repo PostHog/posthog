@@ -24,14 +24,14 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install boto3 opentelemetry-instrumentation-botocore opentelemetry-sdk "posthog[otel]"
+                                    pip install boto3 opentelemetry-instrumentation-botocore opentelemetry-sdk "posthog[otel]<8"
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @aws-sdk/client-bedrock-runtime @opentelemetry/instrumentation-aws-sdk @opentelemetry/sdk-node @opentelemetry/resources @posthog/ai
+                                    npm install @aws-sdk/client-bedrock-runtime @opentelemetry/instrumentation-aws-sdk @opentelemetry/sdk-node @opentelemetry/resources @posthog/ai@8
                                 `,
                             },
                             {

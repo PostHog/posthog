@@ -54,7 +54,6 @@ import {
 import { HOGQL_METRIC_DEFINITION_KIND } from 'products/data_catalog/frontend/common'
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
-import type { ViewEngineApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import {
     TABLE_CATEGORY_LIMIT,
@@ -83,6 +82,7 @@ import {
     getSidebarPropertyDefinitionTarget,
     SidebarPropertyDefinitionTarget,
 } from 'products/data_warehouse/frontend/shared/propertyDefinitionTarget'
+import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { DatabaseSchemaViewTable } from '../../../../queries/schema/schema-general'
@@ -1565,27 +1565,33 @@ const createTopLevelFolderNode = (
     }
 }
 
-const viewEngineOf = (node: TreeDataItem): ViewEngineApi | undefined =>
-    node.record?.type === 'view' ? node.record?.view?.engine : undefined
+const isSavedViewNode = (node: TreeDataItem): boolean => node.record?.type === 'view' && !!node.record?.view
 
-const isRawTrinoViewNode = (node: TreeDataItem): boolean => {
-    const engine = viewEngineOf(node)
-    return engine?.target === 'managed_trino' && engine.dialect === 'raw'
+// Each saved view is listed only under the engine that runs it.
+const isSavedViewInScope = (node: TreeDataItem, connectionId: string | null): boolean => {
+    const engine = viewEngine(node.record?.view)
+    if (connectionId === MANAGED_TRINO_SCHEMA_SCOPE) {
+        return engine.target === 'managed_trino'
+    }
+    if (shouldUseDirectConnectionTree(connectionId)) {
+        return engine.target === 'connection' && engine.connection_id === connectionId
+    }
+    return engine.target === 'clickhouse'
 }
 
-const withoutViewsClickHouseCannotReference = (nodes: TreeDataItem[]): TreeDataItem[] =>
+const withoutViewsFromOtherEngines = (nodes: TreeDataItem[]): TreeDataItem[] =>
     nodes.flatMap((node): TreeDataItem[] => {
-        if (viewEngineOf(node)?.capabilities.referenceable_from_clickhouse.available === false) {
+        if (isSavedViewNode(node) && !isSavedViewInScope(node, null)) {
             return []
         }
         if (!node.children?.length) {
             return [node]
         }
-        const children = withoutViewsClickHouseCannotReference(node.children)
+        const children = withoutViewsFromOtherEngines(node.children)
         if (children.length > 0) {
             return [{ ...node, children }]
         }
-        // A folder or search section that held only views ClickHouse cannot reference goes away.
+        // A folder or search section that held only views from other engines goes away.
         // The browsing Views section stays, with the same placeholder an empty section gets.
         if (node.record?.type === 'views' && !node.id.startsWith('search-')) {
             return [
@@ -1605,19 +1611,15 @@ const withoutViewsClickHouseCannotReference = (nodes: TreeDataItem[]): TreeDataI
         return []
     })
 
-const flattenViewNodes = (
-    nodes: TreeDataItem[],
-    flattenedViews: TreeDataItem[],
-    includeRawTrinoViews: boolean
-): void => {
+const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[], connectionId: string): void => {
     nodes.forEach((node) => {
-        if (node.record?.type === 'view-table' || (includeRawTrinoViews && isRawTrinoViewNode(node))) {
+        if (node.record?.type === 'view-table' || (isSavedViewNode(node) && isSavedViewInScope(node, connectionId))) {
             flattenedViews.push(node)
             return
         }
 
         if (node.record?.type === 'folder' && node.record?.folderType === 'view-folder') {
-            flattenViewNodes(node.children ?? [], flattenedViews, includeRawTrinoViews)
+            flattenViewNodes(node.children ?? [], flattenedViews, connectionId)
         }
     })
 }
@@ -3776,7 +3778,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 if (!shouldUseDirectConnectionTree(connectionId)) {
                     return filterMaterializedViewsByStatus(
-                        withoutViewsClickHouseCannotReference(sourceData),
+                        withoutViewsFromOtherEngines(sourceData),
                         materializationStatusFilters
                     )
                 }
@@ -3803,11 +3805,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     if (item.record?.type === 'views') {
                         // In direct-connection mode, hide saved-query and managed view sections,
                         // and only keep DB-backed view nodes if they are present in schema.
-                        flattenViewNodes(
-                            item.children ?? [],
-                            flattenedViews,
-                            connectionId === MANAGED_TRINO_SCHEMA_SCOPE
-                        )
+                        flattenViewNodes(item.children ?? [], flattenedViews, connectionId)
                         return
                     }
 
@@ -3830,21 +3828,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                           ]
                         : []
 
-                // Saved Trino views come from the saved-query list, so they stay reachable when the schema fails.
+                // Saved views come from the saved-query list, so they stay reachable when the schema fails.
                 // Views from the schema itself may be stale after a failed refresh, so they are not shown.
-                const savedTrinoViews = flattenedViews.filter(isRawTrinoViewNode)
+                const savedViews = flattenedViews.filter(isSavedViewNode)
                 const hasLoadedTables = Object.keys(allTablesMap).length > 0
                 if (!databaseLoading && databaseLoadError) {
                     return [
                         ...createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema()),
-                        ...(savedTrinoViews.length > 0 ? [{ ...viewsSection[0], children: savedTrinoViews }] : []),
+                        ...(savedViews.length > 0 ? [{ ...viewsSection[0], children: savedViews }] : []),
                     ]
                 }
                 if (!databaseLoading && !hasLoadedTables) {
                     const emptyNodes = createDirectConnectionEmptyNodes(connectionId)
-                    return connectionId === MANAGED_TRINO_SCHEMA_SCOPE
-                        ? [...emptyNodes.slice(0, 1), ...viewsSection]
-                        : emptyNodes
+                    return [
+                        ...(connectionId === MANAGED_TRINO_SCHEMA_SCOPE ? emptyNodes.slice(0, 1) : emptyNodes),
+                        ...viewsSection,
+                    ]
                 }
 
                 return [

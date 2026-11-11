@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -509,15 +510,17 @@ export function MaterializationStatusPanel({
                                 }
                                 if (run_mode === 'full_refresh') {
                                     return full_refresh_reason ? (
-                                        <Tooltip title={`Full refresh. Reason: ${full_refresh_reason}.`}>
-                                            <span
-                                                className="border-b border-dotted cursor-help"
-                                                tabIndex={0}
-                                                aria-label={`Full refresh. Reason: ${full_refresh_reason}.`}
-                                            >
-                                                Full refresh
-                                            </span>
-                                        </Tooltip>
+                                        <div className="max-w-28 @min-[48rem]/materialization:max-w-60">
+                                            <div>Full refresh</div>
+                                            <Tooltip title={capitalizeFirstLetter(full_refresh_reason)}>
+                                                <span
+                                                    className="block truncate text-xs text-secondary"
+                                                    data-attr="materialization-run-full-refresh-reason"
+                                                >
+                                                    {capitalizeFirstLetter(full_refresh_reason)}
+                                                </span>
+                                            </Tooltip>
+                                        </div>
                                     ) : (
                                         'Full refresh'
                                     )

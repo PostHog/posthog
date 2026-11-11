@@ -31,13 +31,15 @@ import dataclasses
 from collections.abc import Awaitable, Callable, Iterator
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from time import perf_counter
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from django.conf import settings
 
 import structlog
 import pyarrow.parquet as pq
 from confluent_kafka import KafkaException
+from temporalio import activity
 from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from posthog.dataclasses import frozen
@@ -68,6 +70,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
     job_staged_prefix,
     snapshot_prefix,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_phase_timer import (
+    PhaseTimer,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log import (
+    PersonPropertyRunLog,
+    run_entities,
 )
 
 if TYPE_CHECKING:
@@ -273,17 +282,25 @@ def _accumulate_staged_file(
     path: str,
     sources: list[PersonPropertySyncSource],
     accumulated: dict[str, dict[str, dict]],
+    timer: PhaseTimer,
 ) -> int:
     """Stream one staged parquet file batch by batch into ``accumulated``. Returns the rows read."""
     rows_read = 0
+    build_seconds = 0.0
+    started = perf_counter()
     with s3_client.open(path, "rb", cache_type="none") as file:
         parquet = pq.ParquetFile(file, pre_buffer=False)
         # Staged chunks can differ in columns after schema drift, and requesting an absent column raises.
         columns = sorted(_wanted_columns(sources) & set(parquet.schema_arrow.names))
         for batch in parquet.iter_batches(batch_size=ROW_BATCH_SIZE, columns=columns):
+            build_started = perf_counter()
             rows = batch.to_pylist()
             rows_read += len(rows)
             _accumulate_bundles(accumulated, rows, sources)
+            build_seconds += perf_counter() - build_started
+    # One observation per file, not per batch: the read and the bundle build interleave batch by batch.
+    timer.add("bundle_build", build_seconds)
+    timer.add("read", perf_counter() - started - build_seconds)
     return rows_read
 
 
@@ -312,7 +329,9 @@ async def _list_staged_files(team_id: int, binding: WarehouseBinding, job_id: st
     return file_keys
 
 
-async def _read_staged_bundles(file_keys: list[str], sources: list[PersonPropertySyncSource]) -> StagedBundleRead:
+async def _read_staged_bundles(
+    file_keys: list[str], sources: list[PersonPropertySyncSource], timer: PhaseTimer
+) -> StagedBundleRead:
     """Stream the staged files into {source_id: {distinct_id: bundle}}, one file and one batch at a
     time, so peak memory tracks distinct persons rather than staged row count."""
     accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
@@ -321,7 +340,7 @@ async def _read_staged_bundles(file_keys: list[str], sources: list[PersonPropert
     for key in file_keys:
         # Read off the event loop so a large file can't starve the heartbeater.
         rows_read += await asyncio.to_thread(
-            _accumulate_staged_file, s3_sync_client, _s3_uri(key), sources, accumulated
+            _accumulate_staged_file, s3_sync_client, _s3_uri(key), sources, accumulated, timer
         )
     return StagedBundleRead(bundles_by_source=accumulated, rows_read=rows_read)
 
@@ -617,6 +636,8 @@ class _RunContext:
     team_api_token: str = dataclasses.field(repr=False)
     team_uuid: str
     run_token: str
+    timer: PhaseTimer
+    run_log: PersonPropertyRunLog
     on_progress: ProgressCallback | None = None
 
 
@@ -642,7 +663,8 @@ class _SourceState:
 
 async def _open_source(run: _RunContext, source: PersonPropertySyncSource) -> _SourceState:
     source_id = str(source.source_id)
-    prior = await _read_snapshot_hashes(run.team_id, run.binding, source_id)
+    with run.timer.phase("snapshot_read"):
+        prior = await _read_snapshot_hashes(run.team_id, run.binding, source_id)
     await database_sync_to_async(_reconcile_property_definitions, thread_sensitive=False)(
         run.team_id, run.project_id, run.binding, source, list((source.column_property_map or {}).values())
     )
@@ -683,28 +705,31 @@ async def _sync_bundles(run: _RunContext, state: _SourceState, bundles: list[tup
     ps = state.result
     # Hashing every bundle is CPU work. Run it in a thread so that the event loop, and the
     # heartbeater on it, keep running for a large table.
-    changed, new_hashes = await asyncio.to_thread(select_changed, bundles, state.prior)
+    with run.timer.phase("diff"):
+        changed, new_hashes = await asyncio.to_thread(select_changed, bundles, state.prior)
     ps.changed += len(changed)
     if not changed or state.group_type_missing:
         return
 
     for start in range(0, len(changed), _PRODUCE_CHUNK_SIZE):
         chunk = changed[start : start + _PRODUCE_CHUNK_SIZE]
-        existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
-            run.team_id, state.source, [key for key, _ in chunk]
-        )
+        with run.timer.phase("existence_lookup"):
+            existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
+                run.team_id, state.source, [key for key, _ in chunk]
+            )
         to_send = [(key, bundle) for key, bundle in chunk if key in existing]
         delivered: set[str] = set()
         if to_send:
-            delivered = await asyncio.to_thread(
-                _produce_intents,
-                run.team_id,
-                run.team_api_token,
-                state.source,
-                to_send,
-                team_uuid=run.team_uuid,
-                group_type_name=state.group_type_name,
-            )
+            with run.timer.phase("produce"):
+                delivered = await asyncio.to_thread(
+                    _produce_intents,
+                    run.team_id,
+                    run.team_api_token,
+                    state.source,
+                    to_send,
+                    team_uuid=run.team_uuid,
+                    group_type_name=state.group_type_name,
+                )
         ps.existing += len(to_send)
         ps.skipped_missing_person += len(chunk) - len(to_send)
         ps.produced += len(delivered)
@@ -715,27 +740,29 @@ async def _sync_bundles(run: _RunContext, state: _SourceState, bundles: list[tup
         # An undelivered id stays out, so the next diff sees it as changed and sends it again.
         delivered_hashes = {key: new_hashes[key] for key in delivered}
         if delivered_hashes:
-            await _write_snapshot_chunk(
-                run.team_id,
-                run.binding,
-                ps.source_id,
-                f"{_chunk_prefix(run, state)}{state.chunks_written:05d}",
-                delivered_hashes,
-            )
+            with run.timer.phase("snapshot_write"):
+                await _write_snapshot_chunk(
+                    run.team_id,
+                    run.binding,
+                    ps.source_id,
+                    f"{_chunk_prefix(run, state)}{state.chunks_written:05d}",
+                    delivered_hashes,
+                )
             state.prior.update(delivered_hashes)
             state.chunks_written += 1
 
         if run.on_progress is not None:
             # Snapshot first so a retry cannot report these deliveries twice.
-            await run.on_progress(
-                PerSourceProgress(
-                    source_id=ps.source_id,
-                    produced_increment=len(delivered),
-                    rows_read_total=ps.rows_read,
-                    changed_total=ps.changed,
-                    skipped_missing_person_total=ps.skipped_missing_person,
+            with run.timer.phase("progress_record"):
+                await run.on_progress(
+                    PerSourceProgress(
+                        source_id=ps.source_id,
+                        produced_increment=len(delivered),
+                        rows_read_total=ps.rows_read,
+                        changed_total=ps.changed,
+                        skipped_missing_person_total=ps.skipped_missing_person,
+                    )
                 )
-            )
 
 
 async def _close_source(run: _RunContext, state: _SourceState) -> PerSourceResult:
@@ -745,9 +772,16 @@ async def _close_source(run: _RunContext, state: _SourceState) -> PerSourceResul
         state.prior = {}
         # Fold this run's chunk files, and any left by an earlier run that was stopped part way, into
         # one ``{run_token}.parquet`` so the folder stays at about one file per source.
-        await _write_snapshot_hashes(
-            run.team_id, run.binding, ps.source_id, run.run_token, {}, current_chunk_prefix=_chunk_prefix(run, state)
-        )
+        run.run_log.saving_progress()
+        with run.timer.phase("compaction"):
+            await _write_snapshot_hashes(
+                run.team_id,
+                run.binding,
+                ps.source_id,
+                run.run_token,
+                {},
+                current_chunk_prefix=_chunk_prefix(run, state),
+            )
 
     logger.info(
         "person-property sync: source processed"
@@ -776,8 +810,16 @@ async def _process_source_bundles(
 
 
 def _run_context(
-    team_id: int, team: Team, binding: WarehouseBinding, run_token: str, on_progress: ProgressCallback | None
+    team_id: int,
+    team: Team,
+    binding: WarehouseBinding,
+    run_token: str,
+    timer: PhaseTimer,
+    sources: list[PersonPropertySyncSource],
+    on_progress: ProgressCallback | None,
 ) -> _RunContext:
+    has_groups = any(source.target == _GROUP_TARGET for source in sources)
+    has_people = any(source.target != _GROUP_TARGET for source in sources)
     return _RunContext(
         team_id=team_id,
         project_id=team.project_id,
@@ -785,7 +827,58 @@ def _run_context(
         team_api_token=team.api_token,
         team_uuid=str(team.uuid),
         run_token=run_token,
+        timer=timer,
+        run_log=PersonPropertyRunLog(team_id, binding, run_entities(has_people=has_people, has_groups=has_groups)),
         on_progress=on_progress,
+    )
+
+
+def _log_run_progress(run: _RunContext, rows_read: int, results: list[PerSourceResult]) -> None:
+    run.run_log.progress(
+        rows_read=rows_read,
+        changed=sum(ps.changed for ps in results),
+        existing=sum(ps.existing for ps in results),
+        produced=sum(ps.produced for ps in results),
+    )
+
+
+@frozen
+class _FunnelCounts:
+    changed: int = 0
+    existing: int = 0
+    produced: int = 0
+    skipped_missing_person: int = 0
+
+    @classmethod
+    def of(cls, results: list[PerSourceResult]) -> "_FunnelCounts":
+        return cls(
+            changed=sum(ps.changed for ps in results),
+            existing=sum(ps.existing for ps in results),
+            produced=sum(ps.produced for ps in results),
+            skipped_missing_person=sum(ps.skipped_missing_person for ps in results),
+        )
+
+    def since(self, earlier: "_FunnelCounts") -> "_FunnelCounts":
+        return _FunnelCounts(
+            changed=self.changed - earlier.changed,
+            existing=self.existing - earlier.existing,
+            produced=self.produced - earlier.produced,
+            skipped_missing_person=self.skipped_missing_person - earlier.skipped_missing_person,
+        )
+
+
+def _log_run_timing(run: _RunContext, *, completed: bool, rows_read: int, results: list[PerSourceResult]) -> None:
+    """One line per run with the time spent in each phase. Logged for a failed or cancelled run too, since
+    a run that stops at its timeout is the one whose time most needs explaining."""
+    logger.info(
+        f"person-property {run.timer.mode}: phase timing",
+        team_id=run.team_id,
+        **_log_fields(run.binding),
+        run_token=run.run_token,
+        completed=completed,
+        rows_read=rows_read,
+        **dataclasses.asdict(_FunnelCounts.of(results)),
+        **run.timer.run_fields(),
     )
 
 
@@ -820,32 +913,53 @@ async def run_person_property_sync(
         )
         return result
 
+    timer = PhaseTimer("incremental")
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
     file_keys = await _list_staged_files(team_id, binding, job_id)
     result.sources = len(sources)
-    run = _run_context(team_id, team, binding, job_id, on_progress)
+    run = _run_context(team_id, team, binding, job_id, timer, sources, on_progress)
 
-    for start in range(0, len(sources), SOURCES_PER_STAGED_PASS):
-        pass_sources = sources[start : start + SOURCES_PER_STAGED_PASS]
-        read = await _read_staged_bundles(file_keys, pass_sources)
-        result.rows_read = read.rows_read
-        logger.info(
-            "person-property sync: read staged rows",
-            team_id=team_id,
-            **_log_fields(binding),
-            job_id=job_id,
-            sources=len(pass_sources),
-            rows_read=read.rows_read,
-        )
-        for source in pass_sources:
-            bundles = list(read.bundles_by_source.pop(str(source.source_id)).items())
-            _accumulate(result, await _process_source_bundles(run, source, bundles, read.rows_read))
-            del bundles
+    completed = False
+    try:
+        # A pass is the incremental run's batch: one read of the staged files, then its sources' syncs.
+        for pass_index, start in enumerate(range(0, len(sources), SOURCES_PER_STAGED_PASS)):
+            pass_sources = sources[start : start + SOURCES_PER_STAGED_PASS]
+            before = _FunnelCounts.of(result.per_source)
+            read = await _read_staged_bundles(file_keys, pass_sources, timer)
+            result.rows_read = read.rows_read
+            logger.info(
+                "person-property sync: read staged rows",
+                team_id=team_id,
+                **_log_fields(binding),
+                job_id=job_id,
+                sources=len(pass_sources),
+                rows_read=read.rows_read,
+            )
+            for source in pass_sources:
+                bundles = list(read.bundles_by_source.pop(str(source.source_id)).items())
+                _accumulate(result, await _process_source_bundles(run, source, bundles, read.rows_read))
+                del bundles
+            _log_run_progress(run, read.rows_read, result.per_source)
+            logger.info(
+                "person-property sync: batch timing",
+                team_id=team_id,
+                **_log_fields(binding),
+                job_id=job_id,
+                batch=pass_index,
+                sources=len(pass_sources),
+                rows_read=read.rows_read,
+                **dataclasses.asdict(_FunnelCounts.of(result.per_source).since(before)),
+                **timer.take_batch_fields(),
+            )
 
-    # Raise before the staged rows are cleared, so the retry can read them again.
-    _raise_if_undelivered(result)
-    await _clear_staged(team_id, binding, job_id)
-    return result
+        # Raise before the staged rows are cleared, so the retry can read them again.
+        _raise_if_undelivered(result)
+        await _clear_staged(team_id, binding, job_id)
+        run.run_log.finished(result.produced)
+        completed = True
+        return result
+    finally:
+        _log_run_timing(run, completed=completed, rows_read=result.rows_read, results=result.per_source)
 
 
 # --- backfill (full Delta read) ----------------------------------------------------------
@@ -1012,9 +1126,34 @@ async def run_person_property_backfill(
         )
         return result
 
+    timer = PhaseTimer("backfill")
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    run = _run_context(team_id, team, binding, BACKFILL_RUN_TOKEN, on_progress)
-    delta = await asyncio.to_thread(_open_delta_batches, uri, delta_storage_options(), sources)
+    run = _run_context(team_id, team, binding, BACKFILL_RUN_TOKEN, timer, sources, on_progress)
+    states: list[_SourceState] = []
+    completed = False
+    try:
+        await _backfill_table(run, uri, sources, trigger, result, states)
+        completed = True
+        return result
+    finally:
+        _log_run_timing(
+            run, completed=completed, rows_read=result.rows_read, results=[state.result for state in states]
+        )
+
+
+async def _backfill_table(
+    run: _RunContext,
+    uri: str,
+    sources: list[PersonPropertySyncSource],
+    trigger: str,
+    result: SyncResult,
+    states: list[_SourceState],
+) -> None:
+    """The backfill's two reads and per-batch sync, filling in ``result``. Appends to ``states`` as each
+    source opens, so the caller can report the counts of a run that stops part way."""
+    team_id, binding, timer = run.team_id, run.binding, run.timer
+    with timer.phase("read"):
+        delta = await asyncio.to_thread(_open_delta_batches, uri, delta_storage_options(), sources)
     result.sources = len(sources)
 
     active = [source for source in sources if str(source.source_id) not in delta.sources_missing_key_column]
@@ -1022,20 +1161,47 @@ async def run_person_property_backfill(
     # snapshots load, so the pass's id map is freed before they take memory.
     repeated: dict[str, dict[str, int]] = {}
     if active:
-        repeated = await asyncio.to_thread(_last_row_of_repeated_keys, delta, active)
-    states = [await _open_source(run, source) for source in active]
-    batches = await asyncio.to_thread(delta.open_batches, delta.columns)
-    while (batch := await asyncio.to_thread(next, batches, None)) is not None:
+        run.run_log.finding_latest_rows()
+        with timer.phase("read_key_pass"):
+            repeated = await asyncio.to_thread(_last_row_of_repeated_keys, delta, active)
+    for source in active:
+        states.append(await _open_source(run, source))
+    # The key pass and snapshot reads above are counted in the run's timing line, not the first batch's.
+    timer.take_batch_fields()
+    with timer.phase("read"):
+        batches = await asyncio.to_thread(delta.open_batches, delta.columns)
+    batch_index = 0
+    while True:
+        with timer.phase("read"):
+            batch = await asyncio.to_thread(next, batches, None)
+        if batch is None:
+            break
         offset = result.rows_read
-        result.rows_read += batch.num_rows
+        batch_rows = batch.num_rows
+        result.rows_read += batch_rows
         if not states:
             continue
-        bundles_per_source = await asyncio.to_thread(_batch_bundles, batch, active, offset, repeated)
+        before = _FunnelCounts.of([state.result for state in states])
+        with timer.phase("bundle_build"):
+            bundles_per_source = await asyncio.to_thread(_batch_bundles, batch, active, offset, repeated)
         del batch
         for state, bundles in zip(states, bundles_per_source):
             state.result.rows_read = result.rows_read
             await _sync_bundles(run, state, bundles)
         del bundles_per_source
+        _log_run_progress(run, result.rows_read, [state.result for state in states])
+        logger.info(
+            "person-property backfill: batch timing",
+            team_id=team_id,
+            **_log_fields(binding),
+            trigger=trigger,
+            batch=batch_index,
+            batch_rows=batch_rows,
+            rows_read=result.rows_read,
+            **dataclasses.asdict(_FunnelCounts.of([state.result for state in states]).since(before)),
+            **timer.take_batch_fields(),
+        )
+        batch_index += 1
 
     logger.info(
         "person-property backfill: read full Delta table",
@@ -1055,21 +1221,17 @@ async def run_person_property_backfill(
         # Nothing this source can match on, so every later stage is a no-op. Surfaced as a failed
         # run because the mapping stays broken until someone changes it — a completed run would
         # clear the source's last error and read as a healthy sync that happened to write nothing.
-        _accumulate(
-            result,
-            PerSourceResult(
-                source_id=source_id,
-                rows_read=result.rows_read,
-                error=(
-                    f"Key column '{source.key_column}' is not a column of the synced table, so no rows "
-                    "could be matched. It may have been renamed or dropped upstream, or it may be a "
-                    "query-time SQL expression rather than a synced column."
-                ),
-            ),
+        error = (
+            f"Key column '{source.key_column}' is not a column of the synced table, so no rows "
+            "could be matched. It may have been renamed or dropped upstream, or it may be a "
+            "query-time SQL expression rather than a synced column."
         )
+        run.run_log.failed(error)
+        _accumulate(result, PerSourceResult(source_id=source_id, rows_read=result.rows_read, error=error))
 
     _raise_if_undelivered(result)
-    return result
+    if not any(ps.error for ps in result.per_source):
+        run.run_log.finished(result.produced)
 
 
 # --- run recording (persisted history) ---------------------------------------------------
@@ -1087,6 +1249,8 @@ def _record(
     ps: PerSourceResult,
     error: str | None,
     count_failure: bool = True,
+    workflow_id: str | None = None,
+    workflow_run_id: str | None = None,
 ) -> None:
     record_person_property_sync_run(
         PersonPropertySyncRunRecord(
@@ -1106,8 +1270,23 @@ def _record(
             skipped_missing_person=ps.skipped_missing_person,
             error=error,
             count_failure=count_failure,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
         )
     )
+
+
+class _TemporalRunIds(TypedDict, total=False):
+    workflow_id: str | None
+    workflow_run_id: str | None
+
+
+def _temporal_run_ids() -> _TemporalRunIds:
+    """The workflow and run ids of the activity this runs in, to keep on the run row. Empty outside an activity."""
+    if not activity.in_activity():
+        return {}
+    info = activity.info()
+    return {"workflow_id": info.workflow_id, "workflow_run_id": info.workflow_run_id}
 
 
 def progress_recorder(*, team_id: int, binding: WarehouseBinding, job_id: str | None, trigger: str) -> ProgressCallback:
@@ -1166,6 +1345,7 @@ async def record_started_runs(
                 finished_at="",
                 ps=PerSourceResult(source_id=str(source.source_id)),
                 error=None,
+                **_temporal_run_ids(),
             )
     except Exception as e:
         logger.exception(
@@ -1204,6 +1384,7 @@ async def record_completed_runs(
                 finished_at=finished_at,
                 ps=ps,
                 error=ps.error,
+                **_temporal_run_ids(),
             )
     except Exception as e:
         logger.exception(
@@ -1247,6 +1428,7 @@ async def record_failed_runs(
                 ps=PerSourceResult(source_id=str(source.source_id)),
                 error=error,
                 count_failure=count_failure,
+                **_temporal_run_ids(),
             )
     except Exception as e:
         logger.exception(
