@@ -14,6 +14,7 @@ from products.metrics.backend.dashboard_import.promql_text import (
     strip_grafana_ranges,
 )
 from products.metrics.backend.dashboard_import.spec import GridLayout, Threshold
+from products.metrics.backend.dashboard_import.tiles import display_settings
 
 DASHBOARD: dict[str, Any] = {
     "title": "Checkout service",
@@ -182,6 +183,24 @@ def test_legacy_rows_place_spans_side_by_side_under_a_title() -> None:
     assert (graph.layout.x, graph.layout.y, graph.layout.w) == (0, 1, 6)
     assert (single_stat.layout.x, single_stat.layout.y, single_stat.layout.w) == (6, 1, 6)
     assert single_stat.display.reduce == "last"
+
+
+@pytest.mark.parametrize(
+    "panel, shows_graph",
+    [
+        ({"type": "stat", "options": {"graphMode": "area"}}, True),
+        ({"type": "stat", "options": {"graphMode": "none"}}, False),
+        ({"type": "stat"}, True),
+        # Legacy singlestat panels hide the sparkline unless they turn it on.
+        ({"type": "singlestat", "sparkline": {"show": True}}, True),
+        ({"type": "singlestat"}, False),
+        ({"type": "gauge", "options": {"graphMode": "none"}}, True),
+    ],
+)
+def test_maps_the_stat_graph_mode(panel: dict[str, Any], shows_graph: bool) -> None:
+    spec = GrafanaDashboardParser({"panels": [{**panel, "id": 1, "targets": [{"expr": "up"}]}]}).parse()
+
+    assert ("statSparkline" not in display_settings(spec.panels[0].display)) == shows_graph
 
 
 @pytest.mark.parametrize(

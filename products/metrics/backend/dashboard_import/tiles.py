@@ -33,6 +33,8 @@ def display_settings(display: DisplaySpec) -> dict[str, Any]:
         settings["unit"] = display.unit
     if display.reduce:
         settings["reduce"] = display.reduce
+    if display.type == "stat" and not display.sparkline:
+        settings["statSparkline"] = False
     if display.thresholds:
         settings["thresholds"] = [{"color": item.color, "value": item.value} for item in display.thresholds]
     y_axis: dict[str, Any] = {}
