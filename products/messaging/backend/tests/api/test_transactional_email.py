@@ -114,6 +114,9 @@ TEXT_LINK_INTO_LONG_PUNCTUATION = "Unsubscribe: {{ unsubscribe_url }}" + "." * 2
 UNMATCHED_CLOSES_INSIDE_A_TEMPLATE = (
     "<div><template>" + "<span>" * 65536 + "</div>" * 65536 + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
 )
+LINK_AFTER_MANY_SKIPPED_END_TAGS_SHARING_ONE_END = (
+    "<script><!--<script " + "</script x=x <script " * 65536 + '><a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+)
 LINK_AFTER_MANY_DOUBLE_ESCAPES = (
     "<script><!--" + "<script></script>" * 65536 + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
 )
@@ -138,6 +141,10 @@ MISSING_UNSUBSCRIBE_LINKS = [
         },
     ),
     ("link_after_many_double_escapes_in_one_script", {"html": LINK_AFTER_MANY_DOUBLE_ESCAPES, "text": ""}),
+    (
+        "link_after_many_skipped_script_end_tags_sharing_one_end",
+        {"html": LINK_AFTER_MANY_SKIPPED_END_TAGS_SHARING_ONE_END, "text": ""},
+    ),
 ]
 TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
