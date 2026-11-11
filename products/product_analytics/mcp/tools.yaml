@@ -257,6 +257,7 @@ tools:
             - tags
             - favorited
             - dashboards
+            - move_to_folder
         param_overrides:
             query:
                 schema_ref: InsightQuery
@@ -345,11 +346,12 @@ tools:
         title: Update insight
         description: >
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
-            status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
-            tool with the same identifier if you want to see the recomputed results. Query uses the same format as
-            insight-create. Replacing query replaces the entire definition; include all filters and visualization
-            settings you want to retain. After substantial visual changes, check the final saved insight once if browser
-            access is already available. Skip browser checks for small edits.
+            status, and dashboards. Set `move_to_folder` to file the insight in a project folder. Returns insight
+            metadata only — after updating the query, call the insight-query tool with the same identifier if you want
+            to see the recomputed results. Query uses the same format as insight-create. Replacing query replaces the
+            entire definition; include all filters and visualization settings you want to retain. After substantial
+            visual changes, check the final saved insight once if browser access is already available. Skip browser
+            checks for small edits.
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
             recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when
@@ -374,6 +376,7 @@ tools:
             - tags
             - favorited
             - dashboards
+            - move_to_folder
         param_overrides:
             id:
                 aliases:

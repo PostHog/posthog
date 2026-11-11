@@ -130,6 +130,12 @@ export const NotebooksCreateBody = () => zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    move_to_folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Project-tree folder to file this notebook in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The notebook keeps its own name. Returns a 400 error when the notebook doesn't appear in the project tree."
+        ),
 })
 
 /**
@@ -208,6 +214,12 @@ export const NotebooksPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
+        ),
+    move_to_folder: zod
+        .string()
+        .optional()
+        .describe(
+            "Project-tree folder to file this notebook in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The notebook keeps its own name. Returns a 400 error when the notebook doesn't appear in the project tree."
         ),
 })
 

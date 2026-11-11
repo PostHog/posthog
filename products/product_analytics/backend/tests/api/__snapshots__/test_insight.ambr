@@ -60,6 +60,41 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.100
   '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id"
+  FROM "posthog_organizationmembership"
+  WHERE "posthog_organizationmembership"."user_id" = 99999
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.101
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id"
+  FROM "posthog_organizationmembership"
+  WHERE "posthog_organizationmembership"."id" = '00000000000000000000000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.102
+  '''
+  SELECT "posthog_team"."id" AS "id"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_team"."receive_org_level_activity_logs")
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.103
+  '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
@@ -83,7 +118,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.101
+# name: TestInsight.test_listing_insights_does_not_nplus1.104
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -169,7 +204,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.102
+# name: TestInsight.test_listing_insights_does_not_nplus1.105
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -307,7 +342,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.103
+# name: TestInsight.test_listing_insights_does_not_nplus1.106
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -362,7 +397,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.104
+# name: TestInsight.test_listing_insights_does_not_nplus1.107
   '''
   SELECT "posthog_dashboard"."id" AS "id"
   FROM "posthog_dashboard"
@@ -382,7 +417,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.105
+# name: TestInsight.test_listing_insights_does_not_nplus1.108
   '''
   SELECT "posthog_dashboard"."id" AS "id",
          "posthog_dashboard"."name" AS "name"
@@ -395,7 +430,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.106
+# name: TestInsight.test_listing_insights_does_not_nplus1.109
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
@@ -406,182 +441,6 @@
          AND "posthog_dashboardtile"."dashboard_id" = 99999
          AND NOT ("posthog_dashboardtile"."deleted"
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.107
-  '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."last_refresh",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."variables",
-         "posthog_dashboard"."breakdown_colors",
-         "posthog_dashboard"."data_color_theme_id",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."quick_filter_ids",
-         "posthog_dashboard"."customization",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."id" IN (1,
-                                          2,
-                                          3,
-                                          4,
-                                          5 /* ... */))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.108
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."parent_team_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."onboarding_tasks",
-         "posthog_team"."ingested_event",
-         "posthog_team"."ingested_production_event",
-         "posthog_team"."ingested_production_event_last_checked_at",
-         "posthog_team"."person_processing_opt_out",
-         "posthog_team"."secret_api_token",
-         "posthog_team"."secret_api_token_backup",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_recording_masking_config",
-         "posthog_team"."session_recording_url_trigger_config",
-         "posthog_team"."session_recording_url_blocklist_config",
-         "posthog_team"."session_recording_event_trigger_config",
-         "posthog_team"."session_recording_trigger_match_type_config",
-         "posthog_team"."session_recording_trigger_groups",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
-         "posthog_team"."event_retention_months",
-         "posthog_team"."conversations_enabled",
-         "posthog_team"."conversations_settings",
-         "posthog_team"."proactive_tasks_enabled",
-         "posthog_team"."survey_config",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."product_tours_opt_in",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."capture_dead_clicks",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_web_vitals_opt_in",
-         "posthog_team"."autocapture_web_vitals_allowed_metrics",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."logs_settings",
-         "posthog_team"."llm_gateway_enabled_at",
-         "posthog_team"."llm_gateway_revoked_at",
-         "posthog_team"."llm_gateway_overspend_allowance_usd",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."receive_org_level_activity_logs",
-         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
-         "posthog_team"."web_analytics_pre_aggregated_tables_version",
-         "posthog_team"."flags_persistence_default",
-         "posthog_team"."feature_flag_confirmation_enabled",
-         "posthog_team"."feature_flag_confirmation_message",
-         "posthog_team"."default_evaluation_environments_enabled",
-         "posthog_team"."require_evaluation_environment_tags",
-         "posthog_team"."default_evaluation_contexts_enabled",
-         "posthog_team"."require_evaluation_contexts",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."human_friendly_comparison_periods",
-         "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."default_data_theme",
-         "posthog_team"."extra_settings",
-         "posthog_team"."modifiers",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit",
-         "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.109
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."enforce_verified_domains",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."members_can_see_org_members",
-         "posthog_organization"."uses_most_specific_access_resolution",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."member_notice",
-         "posthog_organization"."read_only_mcp_access",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."has_active_subscription",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.11
@@ -684,6 +543,38 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.110
   '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."quick_filter_ids",
+         "posthog_dashboard"."customization",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."id" IN (1,
+                                          2,
+                                          3,
+                                          4,
+                                          5 /* ... */))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.111
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -780,7 +671,151 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.111
+# name: TestInsight.test_listing_insights_does_not_nplus1.112
+  '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
+         "posthog_organization"."read_only_mcp_access",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.113
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
+         "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
+         "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_masking_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
+         "posthog_team"."survey_config",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
+         "posthog_team"."llm_gateway_overspend_allowance_usd",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
+         "posthog_team"."web_analytics_pre_aggregated_tables_version",
+         "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
+         "posthog_team"."default_evaluation_environments_enabled",
+         "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
+         "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."drop_events_older_than",
+         "posthog_team"."base_currency",
+         "posthog_team"."business_model"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.114
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -805,7 +840,22 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.112
+# name: TestInsight.test_listing_insights_does_not_nplus1.115
+  '''
+  SELECT "posthog_filesystem"."path" AS "path"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'insight'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.116
   '''
   SELECT "posthog_insightviewed"."id",
          "posthog_insightviewed"."team_id",
@@ -823,7 +873,7 @@
   UPDATE
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.113
+# name: TestInsight.test_listing_insights_does_not_nplus1.117
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -852,7 +902,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.114
+# name: TestInsight.test_listing_insights_does_not_nplus1.118
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -881,7 +931,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.115
+# name: TestInsight.test_listing_insights_does_not_nplus1.119
   '''
   SELECT "posthog_insightvariable"."id",
          "posthog_insightvariable"."name",
@@ -899,62 +949,6 @@
          OR ("posthog_team"."parent_team_id" IS NULL
              AND "posthog_insightvariable"."team_id" = 99999))
   ORDER BY "posthog_insightvariable"."name" ASC
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.116
-  '''
-  SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
-         "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
-         "posthog_teamrevenueanalyticsconfig"."notified_first_sync",
-         "posthog_teamrevenueanalyticsconfig"."events",
-         "posthog_teamrevenueanalyticsconfig"."goals",
-         "posthog_teamrevenueanalyticsconfig"."base_currency"
-  FROM "posthog_teamrevenueanalyticsconfig"
-  WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.117
-  '''
-  SELECT "posthog_teammarketinganalyticsconfig"."team_id",
-         "posthog_teammarketinganalyticsconfig"."attribution_window_days",
-         "posthog_teammarketinganalyticsconfig"."attribution_mode",
-         "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
-         "posthog_teammarketinganalyticsconfig"."sources_map",
-         "posthog_teammarketinganalyticsconfig"."conversion_goals",
-         "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
-         "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
-  FROM "posthog_teammarketinganalyticsconfig"
-  WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.118
-  '''
-  SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
-         "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."signup_pageview_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."signup_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."subscription_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
-         "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
-         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
-         "customer_analytics_teamcustomeranalyticsconfig"."properties"
-  FROM "customer_analytics_teamcustomeranalyticsconfig"
-  WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.119
-  '''
-  SELECT "posthog_tag"."name" AS "tag__name"
-  FROM "posthog_taggeditem"
-  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" = 99999)
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.12
@@ -1005,12 +999,68 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.120
   '''
+  SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
+         "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
+         "posthog_teamrevenueanalyticsconfig"."notified_first_sync",
+         "posthog_teamrevenueanalyticsconfig"."events",
+         "posthog_teamrevenueanalyticsconfig"."goals",
+         "posthog_teamrevenueanalyticsconfig"."base_currency"
+  FROM "posthog_teamrevenueanalyticsconfig"
+  WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.121
+  '''
+  SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."attribution_window_days",
+         "posthog_teammarketinganalyticsconfig"."attribution_mode",
+         "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
+         "posthog_teammarketinganalyticsconfig"."sources_map",
+         "posthog_teammarketinganalyticsconfig"."conversion_goals",
+         "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
+         "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+  FROM "posthog_teammarketinganalyticsconfig"
+  WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.122
+  '''
+  SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
+         "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."signup_pageview_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."signup_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."subscription_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index",
+         "customer_analytics_teamcustomeranalyticsconfig"."default_pinned_properties",
+         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules",
+         "customer_analytics_teamcustomeranalyticsconfig"."account_track_rules_enabled_at",
+         "customer_analytics_teamcustomeranalyticsconfig"."properties"
+  FROM "customer_analytics_teamcustomeranalyticsconfig"
+  WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.123
+  '''
+  SELECT "posthog_tag"."name" AS "tag__name"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE ("posthog_taggeditem"."content_type_id" = 99999
+         AND "posthog_taggeditem"."object_id" = 99999)
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.124
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE NOT ("posthog_dashboarditem"."deleted")
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.121
+# name: TestInsight.test_listing_insights_does_not_nplus1.125
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -1096,7 +1146,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.122
+# name: TestInsight.test_listing_insights_does_not_nplus1.126
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1234,7 +1284,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.123
+# name: TestInsight.test_listing_insights_does_not_nplus1.127
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -1289,7 +1339,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.124
+# name: TestInsight.test_listing_insights_does_not_nplus1.128
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
@@ -1298,7 +1348,7 @@
          AND NOT ("posthog_dashboarditem"."deleted"))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.125
+# name: TestInsight.test_listing_insights_does_not_nplus1.129
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -1482,75 +1532,6 @@
   ORDER BY "posthog_dashboarditem"."last_modified_at" DESC,
            "posthog_dashboarditem"."id" DESC
   LIMIT 100
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.126
-  '''
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" IN (1,
-                                                      2,
-                                                      3,
-                                                      4,
-                                                      5 /* ... */))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.127
-  '''
-  SELECT "posthog_taggeditem"."id",
-         "posthog_taggeditem"."tag_id",
-         "posthog_taggeditem"."content_type_id",
-         "posthog_taggeditem"."object_id",
-         "posthog_taggeditem"."object_uuid",
-         "posthog_taggeditem"."team_id"
-  FROM "posthog_taggeditem"
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.128
-  '''
-  SELECT "posthog_taggeditem"."id",
-         "posthog_taggeditem"."tag_id",
-         "posthog_taggeditem"."content_type_id",
-         "posthog_taggeditem"."object_id",
-         "posthog_taggeditem"."object_uuid",
-         "posthog_taggeditem"."team_id",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_taggeditem"
-  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_taggeditem"."content_type_id" = 99999
-         AND "posthog_taggeditem"."object_id" IN (1,
-                                                  2,
-                                                  3,
-                                                  4,
-                                                  5 /* ... */))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.129
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organizationmembership"."invited_by_id"
-  FROM "posthog_organizationmembership"
-  WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.13
@@ -1653,6 +1634,75 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.130
   '''
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" IN (1,
+                                                      2,
+                                                      3,
+                                                      4,
+                                                      5 /* ... */))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.131
+  '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."content_type_id",
+         "posthog_taggeditem"."object_id",
+         "posthog_taggeditem"."object_uuid",
+         "posthog_taggeditem"."team_id"
+  FROM "posthog_taggeditem"
+  WHERE ("posthog_taggeditem"."content_type_id" = 99999
+         AND "posthog_taggeditem"."object_id" IN (1,
+                                                  2,
+                                                  3,
+                                                  4,
+                                                  5 /* ... */))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.132
+  '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."content_type_id",
+         "posthog_taggeditem"."object_id",
+         "posthog_taggeditem"."object_uuid",
+         "posthog_taggeditem"."team_id",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE ("posthog_taggeditem"."content_type_id" = 99999
+         AND "posthog_taggeditem"."object_id" IN (1,
+                                                  2,
+                                                  3,
+                                                  4,
+                                                  5 /* ... */))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.133
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id"
+  FROM "posthog_organizationmembership"
+  WHERE "posthog_organizationmembership"."user_id" = 99999
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.134
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -1665,7 +1715,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.131
+# name: TestInsight.test_listing_insights_does_not_nplus1.135
   '''
   SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
@@ -1673,7 +1723,7 @@
          AND "posthog_team"."receive_org_level_activity_logs")
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.132
+# name: TestInsight.test_listing_insights_does_not_nplus1.136
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -1698,7 +1748,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.133
+# name: TestInsight.test_listing_insights_does_not_nplus1.137
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -1784,7 +1834,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.134
+# name: TestInsight.test_listing_insights_does_not_nplus1.138
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1922,7 +1972,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.135
+# name: TestInsight.test_listing_insights_does_not_nplus1.139
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -1977,7 +2027,32 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.136
+# name: TestInsight.test_listing_insights_does_not_nplus1.14
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'insight'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.140
   '''
   SELECT "posthog_dashboard"."id" AS "id"
   FROM "posthog_dashboard"
@@ -1997,7 +2072,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.137
+# name: TestInsight.test_listing_insights_does_not_nplus1.141
   '''
   SELECT "posthog_dashboard"."id" AS "id",
          "posthog_dashboard"."name" AS "name"
@@ -2010,7 +2085,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.138
+# name: TestInsight.test_listing_insights_does_not_nplus1.142
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
@@ -2023,7 +2098,7 @@
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.139
+# name: TestInsight.test_listing_insights_does_not_nplus1.143
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -2055,32 +2130,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.14
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."surface",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE (("posthog_filesystem"."surface" IS NULL
-          OR "posthog_filesystem"."surface" = 'web')
-         AND "posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'insight'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.140
+# name: TestInsight.test_listing_insights_does_not_nplus1.144
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2178,7 +2228,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.141
+# name: TestInsight.test_listing_insights_does_not_nplus1.145
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -2224,7 +2274,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.142
+# name: TestInsight.test_listing_insights_does_not_nplus1.146
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2322,7 +2372,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.143
+# name: TestInsight.test_listing_insights_does_not_nplus1.147
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -2347,7 +2397,22 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.144
+# name: TestInsight.test_listing_insights_does_not_nplus1.148
+  '''
+  SELECT "posthog_filesystem"."path" AS "path"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'insight'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.149
   '''
   SELECT "posthog_insightviewed"."id",
          "posthog_insightviewed"."team_id",
@@ -2365,7 +2430,22 @@
   UPDATE
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.145
+# name: TestInsight.test_listing_insights_does_not_nplus1.15
+  '''
+  SELECT "posthog_filesystem"."path" AS "path"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'insight'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.150
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -2394,7 +2474,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.146
+# name: TestInsight.test_listing_insights_does_not_nplus1.151
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -2423,7 +2503,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.147
+# name: TestInsight.test_listing_insights_does_not_nplus1.152
   '''
   SELECT "posthog_insightvariable"."id",
          "posthog_insightvariable"."name",
@@ -2443,7 +2523,7 @@
   ORDER BY "posthog_insightvariable"."name" ASC
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.148
+# name: TestInsight.test_listing_insights_does_not_nplus1.153
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -2456,7 +2536,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.149
+# name: TestInsight.test_listing_insights_does_not_nplus1.154
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
@@ -2472,25 +2552,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.15
-  '''
-  SELECT "posthog_insightviewed"."id",
-         "posthog_insightviewed"."team_id",
-         "posthog_insightviewed"."user_id",
-         "posthog_insightviewed"."insight_id",
-         "posthog_insightviewed"."last_viewed_at",
-         "posthog_insightviewed"."source",
-         "posthog_insightviewed"."dashboard_id"
-  FROM "posthog_insightviewed"
-  WHERE ("posthog_insightviewed"."insight_id" = 99999
-         AND "posthog_insightviewed"."team_id" = 99999
-         AND "posthog_insightviewed"."user_id" = 99999)
-  LIMIT 21
-  FOR
-  UPDATE
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.150
+# name: TestInsight.test_listing_insights_does_not_nplus1.155
   '''
   SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
          "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
@@ -2508,7 +2570,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.151
+# name: TestInsight.test_listing_insights_does_not_nplus1.156
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
@@ -2517,14 +2579,14 @@
          AND "posthog_taggeditem"."object_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.152
+# name: TestInsight.test_listing_insights_does_not_nplus1.157
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE NOT ("posthog_dashboarditem"."deleted")
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.153
+# name: TestInsight.test_listing_insights_does_not_nplus1.158
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -2610,7 +2672,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.154
+# name: TestInsight.test_listing_insights_does_not_nplus1.159
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2748,7 +2810,25 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.155
+# name: TestInsight.test_listing_insights_does_not_nplus1.16
+  '''
+  SELECT "posthog_insightviewed"."id",
+         "posthog_insightviewed"."team_id",
+         "posthog_insightviewed"."user_id",
+         "posthog_insightviewed"."insight_id",
+         "posthog_insightviewed"."last_viewed_at",
+         "posthog_insightviewed"."source",
+         "posthog_insightviewed"."dashboard_id"
+  FROM "posthog_insightviewed"
+  WHERE ("posthog_insightviewed"."insight_id" = 99999
+         AND "posthog_insightviewed"."team_id" = 99999
+         AND "posthog_insightviewed"."user_id" = 99999)
+  LIMIT 21
+  FOR
+  UPDATE
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.160
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -2803,7 +2883,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.156
+# name: TestInsight.test_listing_insights_does_not_nplus1.161
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
@@ -2812,7 +2892,7 @@
          AND NOT ("posthog_dashboarditem"."deleted"))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.157
+# name: TestInsight.test_listing_insights_does_not_nplus1.162
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -2998,7 +3078,7 @@
   LIMIT 100
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.158
+# name: TestInsight.test_listing_insights_does_not_nplus1.163
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -3016,7 +3096,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.159
+# name: TestInsight.test_listing_insights_does_not_nplus1.164
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -3033,36 +3113,7 @@
                                                   5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.16
-  '''
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."button_tile_id",
-         "posthog_dashboardtile"."widget_id",
-         "posthog_dashboardtile"."team_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."filters_overrides",
-         "posthog_dashboardtile"."show_description",
-         "posthog_dashboardtile"."transparent_background",
-         "posthog_dashboardtile"."group_key",
-         "posthog_dashboardtile"."badge",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" = 99999)
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.160
+# name: TestInsight.test_listing_insights_does_not_nplus1.165
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -3114,6 +3165,35 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.18
   '''
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
+         "posthog_dashboardtile"."widget_id",
+         "posthog_dashboardtile"."team_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."filters_overrides",
+         "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
+         "posthog_dashboardtile"."group_key",
+         "posthog_dashboardtile"."badge",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 99999)
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.19
+  '''
   SELECT "posthog_insightvariable"."id",
          "posthog_insightvariable"."name",
          "posthog_insightvariable"."code_name",
@@ -3132,7 +3212,15 @@
   ORDER BY "posthog_insightvariable"."name" ASC
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.19
+# name: TestInsight.test_listing_insights_does_not_nplus1.2
+  '''
+  SELECT "posthog_team"."id" AS "id"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_team"."receive_org_level_activity_logs")
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.20
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -3145,15 +3233,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.2
-  '''
-  SELECT "posthog_team"."id" AS "id"
-  FROM "posthog_team"
-  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_team"."receive_org_level_activity_logs")
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.20
+# name: TestInsight.test_listing_insights_does_not_nplus1.21
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
@@ -3169,7 +3249,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.21
+# name: TestInsight.test_listing_insights_does_not_nplus1.22
   '''
   SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
          "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
@@ -3187,7 +3267,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.22
+# name: TestInsight.test_listing_insights_does_not_nplus1.23
   '''
   SELECT "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index" AS "account_group_type_index"
   FROM "customer_analytics_teamcustomeranalyticsconfig"
@@ -3196,7 +3276,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.23
+# name: TestInsight.test_listing_insights_does_not_nplus1.24
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
@@ -3205,14 +3285,14 @@
          AND "posthog_taggeditem"."object_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.24
+# name: TestInsight.test_listing_insights_does_not_nplus1.25
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE NOT ("posthog_dashboarditem"."deleted")
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.25
+# name: TestInsight.test_listing_insights_does_not_nplus1.26
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -3298,7 +3378,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.26
+# name: TestInsight.test_listing_insights_does_not_nplus1.27
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -3436,7 +3516,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.27
+# name: TestInsight.test_listing_insights_does_not_nplus1.28
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -3491,7 +3571,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.28
+# name: TestInsight.test_listing_insights_does_not_nplus1.29
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
@@ -3500,7 +3580,32 @@
          AND NOT ("posthog_dashboarditem"."deleted"))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.29
+# name: TestInsight.test_listing_insights_does_not_nplus1.3
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'dashboard'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.30
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -3686,32 +3791,7 @@
   LIMIT 100
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.3
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."surface",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE (("posthog_filesystem"."surface" IS NULL
-          OR "posthog_filesystem"."surface" = 'web')
-         AND "posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'dashboard'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.30
+# name: TestInsight.test_listing_insights_does_not_nplus1.31
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -3729,7 +3809,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.31
+# name: TestInsight.test_listing_insights_does_not_nplus1.32
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -3746,7 +3826,7 @@
                                                   5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.32
+# name: TestInsight.test_listing_insights_does_not_nplus1.33
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -3767,7 +3847,7 @@
                                                   5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.33
+# name: TestInsight.test_listing_insights_does_not_nplus1.34
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -3780,7 +3860,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.34
+# name: TestInsight.test_listing_insights_does_not_nplus1.35
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -3794,7 +3874,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.35
+# name: TestInsight.test_listing_insights_does_not_nplus1.36
   '''
   SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
@@ -3802,7 +3882,7 @@
          AND "posthog_team"."receive_org_level_activity_logs")
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.36
+# name: TestInsight.test_listing_insights_does_not_nplus1.37
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -3827,7 +3907,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.37
+# name: TestInsight.test_listing_insights_does_not_nplus1.38
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -3913,7 +3993,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.38
+# name: TestInsight.test_listing_insights_does_not_nplus1.39
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -4048,61 +4128,6 @@
   FROM "posthog_team"
   INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.39
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organizationmembership"."invited_by_id",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."enforce_verified_domains",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."members_can_see_org_members",
-         "posthog_organization"."uses_most_specific_access_resolution",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."member_notice",
-         "posthog_organization"."read_only_mcp_access",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."has_active_subscription",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -4194,6 +4219,61 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.40
   '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
+         "posthog_organization"."read_only_mcp_access",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.41
+  '''
   SELECT "posthog_dashboard"."id" AS "id"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -4212,7 +4292,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.41
+# name: TestInsight.test_listing_insights_does_not_nplus1.42
   '''
   SELECT "posthog_dashboard"."id" AS "id",
          "posthog_dashboard"."name" AS "name"
@@ -4225,7 +4305,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.42
+# name: TestInsight.test_listing_insights_does_not_nplus1.43
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
@@ -4238,7 +4318,7 @@
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.43
+# name: TestInsight.test_listing_insights_does_not_nplus1.44
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -4270,7 +4350,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.44
+# name: TestInsight.test_listing_insights_does_not_nplus1.45
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -4368,7 +4448,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.45
+# name: TestInsight.test_listing_insights_does_not_nplus1.46
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -4414,7 +4494,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.46
+# name: TestInsight.test_listing_insights_does_not_nplus1.47
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -4512,7 +4592,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.47
+# name: TestInsight.test_listing_insights_does_not_nplus1.48
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -4537,51 +4617,19 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.48
-  '''
-  SELECT "posthog_insightviewed"."id",
-         "posthog_insightviewed"."team_id",
-         "posthog_insightviewed"."user_id",
-         "posthog_insightviewed"."insight_id",
-         "posthog_insightviewed"."last_viewed_at",
-         "posthog_insightviewed"."source",
-         "posthog_insightviewed"."dashboard_id"
-  FROM "posthog_insightviewed"
-  WHERE ("posthog_insightviewed"."insight_id" = 99999
-         AND "posthog_insightviewed"."team_id" = 99999
-         AND "posthog_insightviewed"."user_id" = 99999)
-  LIMIT 21
-  FOR
-  UPDATE
-  '''
-# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.49
   '''
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."button_tile_id",
-         "posthog_dashboardtile"."widget_id",
-         "posthog_dashboardtile"."team_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."filters_overrides",
-         "posthog_dashboardtile"."show_description",
-         "posthog_dashboardtile"."transparent_background",
-         "posthog_dashboardtile"."group_key",
-         "posthog_dashboardtile"."badge",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" = 99999)
+  SELECT "posthog_filesystem"."path" AS "path"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'insight'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.5
@@ -4724,6 +4772,24 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.50
   '''
+  SELECT "posthog_insightviewed"."id",
+         "posthog_insightviewed"."team_id",
+         "posthog_insightviewed"."user_id",
+         "posthog_insightviewed"."insight_id",
+         "posthog_insightviewed"."last_viewed_at",
+         "posthog_insightviewed"."source",
+         "posthog_insightviewed"."dashboard_id"
+  FROM "posthog_insightviewed"
+  WHERE ("posthog_insightviewed"."insight_id" = 99999
+         AND "posthog_insightviewed"."team_id" = 99999
+         AND "posthog_insightviewed"."user_id" = 99999)
+  LIMIT 21
+  FOR
+  UPDATE
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.51
+  '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
@@ -4751,7 +4817,36 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.51
+# name: TestInsight.test_listing_insights_does_not_nplus1.52
+  '''
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."button_tile_id",
+         "posthog_dashboardtile"."widget_id",
+         "posthog_dashboardtile"."team_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."filters_overrides",
+         "posthog_dashboardtile"."show_description",
+         "posthog_dashboardtile"."transparent_background",
+         "posthog_dashboardtile"."group_key",
+         "posthog_dashboardtile"."badge",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 99999)
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.53
   '''
   SELECT "posthog_insightvariable"."id",
          "posthog_insightvariable"."name",
@@ -4771,7 +4866,7 @@
   ORDER BY "posthog_insightvariable"."name" ASC
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.52
+# name: TestInsight.test_listing_insights_does_not_nplus1.54
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -4784,7 +4879,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.53
+# name: TestInsight.test_listing_insights_does_not_nplus1.55
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
@@ -4800,7 +4895,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.54
+# name: TestInsight.test_listing_insights_does_not_nplus1.56
   '''
   SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
          "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
@@ -4818,7 +4913,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.55
+# name: TestInsight.test_listing_insights_does_not_nplus1.57
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
@@ -4827,14 +4922,14 @@
          AND "posthog_taggeditem"."object_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.56
+# name: TestInsight.test_listing_insights_does_not_nplus1.58
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE NOT ("posthog_dashboarditem"."deleted")
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.57
+# name: TestInsight.test_listing_insights_does_not_nplus1.59
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -4920,7 +5015,62 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.58
+# name: TestInsight.test_listing_insights_does_not_nplus1.6
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
+         "posthog_organization"."read_only_mcp_access",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.60
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5058,7 +5208,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.59
+# name: TestInsight.test_listing_insights_does_not_nplus1.61
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -5113,62 +5263,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.6
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organizationmembership"."invited_by_id",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."enforce_verified_domains",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."members_can_see_org_members",
-         "posthog_organization"."uses_most_specific_access_resolution",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."member_notice",
-         "posthog_organization"."read_only_mcp_access",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."has_active_subscription",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.60
+# name: TestInsight.test_listing_insights_does_not_nplus1.62
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
@@ -5177,7 +5272,7 @@
          AND NOT ("posthog_dashboarditem"."deleted"))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.61
+# name: TestInsight.test_listing_insights_does_not_nplus1.63
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -5363,7 +5458,7 @@
   LIMIT 100
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.62
+# name: TestInsight.test_listing_insights_does_not_nplus1.64
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -5381,7 +5476,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.63
+# name: TestInsight.test_listing_insights_does_not_nplus1.65
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -5398,7 +5493,7 @@
                                                   5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.64
+# name: TestInsight.test_listing_insights_does_not_nplus1.66
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -5419,7 +5514,7 @@
                                                   5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.65
+# name: TestInsight.test_listing_insights_does_not_nplus1.67
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -5432,7 +5527,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.66
+# name: TestInsight.test_listing_insights_does_not_nplus1.68
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -5446,7 +5541,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.67
+# name: TestInsight.test_listing_insights_does_not_nplus1.69
   '''
   SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
@@ -5454,7 +5549,27 @@
          AND "posthog_team"."receive_org_level_activity_logs")
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.68
+# name: TestInsight.test_listing_insights_does_not_nplus1.7
+  '''
+  SELECT "posthog_dashboard"."id" AS "id"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND ("posthog_dashboard"."team_id" =
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
+                 LIMIT 1)
+              OR ("posthog_team"."parent_team_id" IS NULL
+                  AND "posthog_dashboard"."team_id" = 99999))
+         AND "posthog_dashboard"."id" IN (1,
+                                          2,
+                                          3,
+                                          4,
+                                          5 /* ... */))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.70
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -5479,7 +5594,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.69
+# name: TestInsight.test_listing_insights_does_not_nplus1.71
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -5565,27 +5680,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.7
-  '''
-  SELECT "posthog_dashboard"."id" AS "id"
-  FROM "posthog_dashboard"
-  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND ("posthog_dashboard"."team_id" =
-                (SELECT "U0"."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" "U0"
-                 WHERE "U0"."id" = 99999
-                 LIMIT 1)
-              OR ("posthog_team"."parent_team_id" IS NULL
-                  AND "posthog_dashboard"."team_id" = 99999))
-         AND "posthog_dashboard"."id" IN (1,
-                                          2,
-                                          3,
-                                          4,
-                                          5 /* ... */))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.70
+# name: TestInsight.test_listing_insights_does_not_nplus1.72
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5723,7 +5818,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.71
+# name: TestInsight.test_listing_insights_does_not_nplus1.73
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -5778,7 +5873,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.72
+# name: TestInsight.test_listing_insights_does_not_nplus1.74
   '''
   SELECT "posthog_dashboard"."id" AS "id"
   FROM "posthog_dashboard"
@@ -5798,7 +5893,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.73
+# name: TestInsight.test_listing_insights_does_not_nplus1.75
   '''
   SELECT "posthog_dashboard"."id" AS "id",
          "posthog_dashboard"."name" AS "name"
@@ -5811,7 +5906,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.74
+# name: TestInsight.test_listing_insights_does_not_nplus1.76
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
@@ -5824,7 +5919,7 @@
                   AND "posthog_dashboardtile"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.75
+# name: TestInsight.test_listing_insights_does_not_nplus1.77
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -5854,150 +5949,6 @@
                                           3,
                                           4,
                                           5 /* ... */))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.76
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."parent_team_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."onboarding_tasks",
-         "posthog_team"."ingested_event",
-         "posthog_team"."ingested_production_event",
-         "posthog_team"."ingested_production_event_last_checked_at",
-         "posthog_team"."person_processing_opt_out",
-         "posthog_team"."secret_api_token",
-         "posthog_team"."secret_api_token_backup",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_recording_masking_config",
-         "posthog_team"."session_recording_url_trigger_config",
-         "posthog_team"."session_recording_url_blocklist_config",
-         "posthog_team"."session_recording_event_trigger_config",
-         "posthog_team"."session_recording_trigger_match_type_config",
-         "posthog_team"."session_recording_trigger_groups",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."session_recording_retention_period",
-         "posthog_team"."event_retention_months",
-         "posthog_team"."conversations_enabled",
-         "posthog_team"."conversations_settings",
-         "posthog_team"."proactive_tasks_enabled",
-         "posthog_team"."survey_config",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."product_tours_opt_in",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."capture_dead_clicks",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_web_vitals_opt_in",
-         "posthog_team"."autocapture_web_vitals_allowed_metrics",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."logs_settings",
-         "posthog_team"."llm_gateway_enabled_at",
-         "posthog_team"."llm_gateway_revoked_at",
-         "posthog_team"."llm_gateway_overspend_allowance_usd",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."receive_org_level_activity_logs",
-         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
-         "posthog_team"."web_analytics_pre_aggregated_tables_version",
-         "posthog_team"."flags_persistence_default",
-         "posthog_team"."feature_flag_confirmation_enabled",
-         "posthog_team"."feature_flag_confirmation_message",
-         "posthog_team"."default_evaluation_environments_enabled",
-         "posthog_team"."require_evaluation_environment_tags",
-         "posthog_team"."default_evaluation_contexts_enabled",
-         "posthog_team"."require_evaluation_contexts",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."human_friendly_comparison_periods",
-         "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."default_data_theme",
-         "posthog_team"."extra_settings",
-         "posthog_team"."modifiers",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit",
-         "posthog_team"."drop_events_older_than",
-         "posthog_team"."base_currency",
-         "posthog_team"."business_model"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.77
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."enforce_verified_domains",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."members_can_see_org_members",
-         "posthog_organization"."uses_most_specific_access_resolution",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."member_notice",
-         "posthog_organization"."read_only_mcp_access",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."has_active_subscription",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.78
@@ -6100,6 +6051,163 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.79
   '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."member_notice",
+         "posthog_organization"."read_only_mcp_access",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.8
+  '''
+  SELECT "posthog_dashboard"."id" AS "id",
+         "posthog_dashboard"."name" AS "name"
+  FROM "posthog_dashboard"
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."id" IN (1,
+                                          2,
+                                          3,
+                                          4,
+                                          5 /* ... */))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.80
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."onboarding_tasks",
+         "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
+         "posthog_team"."person_processing_opt_out",
+         "posthog_team"."secret_api_token",
+         "posthog_team"."secret_api_token_backup",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_masking_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
+         "posthog_team"."survey_config",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."product_tours_opt_in",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
+         "posthog_team"."llm_gateway_overspend_allowance_usd",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
+         "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
+         "posthog_team"."web_analytics_pre_aggregated_tables_version",
+         "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
+         "posthog_team"."default_evaluation_environments_enabled",
+         "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
+         "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
+         "posthog_team"."api_query_rate_limit",
+         "posthog_team"."drop_events_older_than",
+         "posthog_team"."base_currency",
+         "posthog_team"."business_model"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.81
+  '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
          "posthog_filesystem"."path",
@@ -6123,20 +6231,22 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.8
+# name: TestInsight.test_listing_insights_does_not_nplus1.82
   '''
-  SELECT "posthog_dashboard"."id" AS "id",
-         "posthog_dashboard"."name" AS "name"
-  FROM "posthog_dashboard"
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."id" IN (1,
-                                          2,
-                                          3,
-                                          4,
-                                          5 /* ... */))
+  SELECT "posthog_filesystem"."path" AS "path"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'insight'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
+  LIMIT 1
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.80
+# name: TestInsight.test_listing_insights_does_not_nplus1.83
   '''
   SELECT "posthog_insightviewed"."id",
          "posthog_insightviewed"."team_id",
@@ -6154,7 +6264,7 @@
   UPDATE
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.81
+# name: TestInsight.test_listing_insights_does_not_nplus1.84
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -6183,7 +6293,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.82
+# name: TestInsight.test_listing_insights_does_not_nplus1.85
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -6212,7 +6322,7 @@
          AND "posthog_dashboardtile"."insight_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.83
+# name: TestInsight.test_listing_insights_does_not_nplus1.86
   '''
   SELECT "posthog_insightvariable"."id",
          "posthog_insightvariable"."name",
@@ -6232,7 +6342,7 @@
   ORDER BY "posthog_insightvariable"."name" ASC
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.84
+# name: TestInsight.test_listing_insights_does_not_nplus1.87
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -6245,7 +6355,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.85
+# name: TestInsight.test_listing_insights_does_not_nplus1.88
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
@@ -6261,7 +6371,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.86
+# name: TestInsight.test_listing_insights_does_not_nplus1.89
   '''
   SELECT "customer_analytics_teamcustomeranalyticsconfig"."team_id",
          "customer_analytics_teamcustomeranalyticsconfig"."activity_event",
@@ -6279,7 +6389,20 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.87
+# name: TestInsight.test_listing_insights_does_not_nplus1.9
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."dashboard_id" = 99999
+         AND NOT ("posthog_dashboardtile"."deleted"
+                  AND "posthog_dashboardtile"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.90
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
@@ -6288,14 +6411,14 @@
          AND "posthog_taggeditem"."object_id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.88
+# name: TestInsight.test_listing_insights_does_not_nplus1.91
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE NOT ("posthog_dashboarditem"."deleted")
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.89
+# name: TestInsight.test_listing_insights_does_not_nplus1.92
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -6381,20 +6504,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.9
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."dashboard_id" = 99999
-         AND NOT ("posthog_dashboardtile"."deleted"
-                  AND "posthog_dashboardtile"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.90
+# name: TestInsight.test_listing_insights_does_not_nplus1.93
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -6532,7 +6642,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.91
+# name: TestInsight.test_listing_insights_does_not_nplus1.94
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -6587,7 +6697,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.92
+# name: TestInsight.test_listing_insights_does_not_nplus1.95
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
@@ -6596,7 +6706,7 @@
          AND NOT ("posthog_dashboarditem"."deleted"))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.93
+# name: TestInsight.test_listing_insights_does_not_nplus1.96
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -6782,7 +6892,7 @@
   LIMIT 100
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.94
+# name: TestInsight.test_listing_insights_does_not_nplus1.97
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -6800,7 +6910,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.95
+# name: TestInsight.test_listing_insights_does_not_nplus1.98
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -6817,7 +6927,7 @@
                                                   5 /* ... */))
   '''
 # ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.96
+# name: TestInsight.test_listing_insights_does_not_nplus1.99
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -6836,40 +6946,5 @@
                                                   3,
                                                   4,
                                                   5 /* ... */))
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.97
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organizationmembership"."invited_by_id"
-  FROM "posthog_organizationmembership"
-  WHERE "posthog_organizationmembership"."user_id" = 99999
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.98
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organizationmembership"."invited_by_id"
-  FROM "posthog_organizationmembership"
-  WHERE "posthog_organizationmembership"."id" = '00000000000000000000000000000000'::uuid
-  LIMIT 21
-  '''
-# ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.99
-  '''
-  SELECT "posthog_team"."id" AS "id"
-  FROM "posthog_team"
-  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_team"."receive_org_level_activity_logs")
   '''
 # ---

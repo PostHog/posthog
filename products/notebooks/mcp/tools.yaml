@@ -229,12 +229,13 @@ tools:
         enrich_url: '{short_id}'
         title: Update notebook
         description: >
-            Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when
-            updating the content field, you must provide the current version number for optimistic concurrency control.
-            Retrieve the notebook first to get the latest version. If the notebook content is a single
-            ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of
-            replacing it with legacy rich-text blocks. After substantial visual changes, check the final saved notebook
-            once if browser access is already available. Skip browser checks for small edits.
+            Update an existing notebook by short_id. Can update title, content, and deleted status. Set `move_to_folder`
+            to file the notebook in a project folder. IMPORTANT: when updating the content field, you must provide the
+            current version number for optimistic concurrency control. Retrieve the notebook first to get the latest
+            version. If the notebook content is a single ph-markdown-notebook node, preserve that structure and update
+            attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks. After substantial
+            visual changes, check the final saved notebook once if browser access is already available. Skip browser
+            checks for small edits.
         exclude_params:
             - _create_in_folder
         param_overrides:

@@ -34,6 +34,10 @@
             ],
             "description": "Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight."
         },
+        "move_to_folder": {
+            "description": "Project-tree folder to file this insight in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The insight keeps its own name. Returns a 400 error when the insight doesn't appear in the project tree.",
+            "type": "string"
+        },
         "name": {
             "anyOf": [
                 {

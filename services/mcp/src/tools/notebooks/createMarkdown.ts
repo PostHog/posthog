@@ -15,6 +15,13 @@ export const NotebooksCreateMarkdownSchema = z
             .describe(
                 'Optional initial markdown body below the title: the question and the plan, not results computed elsewhere. Do not include executable cells here — add them with notebooks-add-cell.'
             ),
+        move_to_folder: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+                "Project-tree folder to file the notebook in, e.g. 'Experiments' or 'Unfiled/Notebooks/Growth'. Separate nested folders with '/'; folders that do not exist yet are created."
+            ),
     })
     .strict()
 
@@ -34,6 +41,7 @@ export const createMarkdownHandler: ToolBase<
             title: params.title,
             content: buildMarkdownNotebookContent(markdown),
             text_content: markdown,
+            ...(params.move_to_folder ? { move_to_folder: params.move_to_folder } : {}),
         },
     })
     return await withPostHogUrl(

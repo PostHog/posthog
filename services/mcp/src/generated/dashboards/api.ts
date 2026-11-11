@@ -236,6 +236,12 @@ export const DashboardsCreateBody = () => zod
             .boolean()
             .default(dashboardsCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this dashboard in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The dashboard keeps its own name. Returns a 400 error when the dashboard doesn't appear in the project tree."
+            ),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -507,6 +513,12 @@ export const DashboardsPartialUpdateBody = () => zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard.'),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this dashboard in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The dashboard keeps its own name. Returns a 400 error when the dashboard doesn't appear in the project tree."
+            ),
         grid_spacing: zod
             .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
             .describe(

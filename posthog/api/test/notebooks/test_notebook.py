@@ -6,6 +6,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.user import User
 
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
@@ -119,6 +120,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "user_access_level": "manager",
             "parent_resource": None,
             "variables": None,
+            "folder": "Unfiled/Notebooks",
         }
 
         self.assert_notebook_activity(
@@ -441,6 +443,33 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_304_NOT_MODIFIED
+
+    def test_update_notebook_moves_it_to_another_folder(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks", {"title": "Findings", "_create_in_folder": "Old"}, format="json"
+        )
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/notebooks/{short_id}", {"move_to_folder": "Experiments"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["folder"] == "Experiments"
+        fs_entry = FileSystem.objects.get(team=self.team, ref=short_id, type="notebook")
+        assert fs_entry.path == "Experiments/Findings"
+
+    def test_create_notebook_with_move_to_folder_files_it_in_that_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Findings", "move_to_folder": "Experiments"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["folder"] == "Experiments"
+        fs_entry = FileSystem.objects.get(team=self.team, ref=response.json()["short_id"], type="notebook")
+        assert fs_entry.path == "Experiments/Findings"
 
     def test_create_notebook_in_specific_folder(self):
         response = self.client.post(

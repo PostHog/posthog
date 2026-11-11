@@ -6577,6 +6577,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         _create_in_folder?: string | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        move_to_folder?: string | undefined;
     };
     export type MetricsFilterOp = "eq" | "neq" | "regex" | "not_regex";
     export type MetricsAttributeScope = "resource" | "attribute" | "auto";
@@ -13024,6 +13028,14 @@ export namespace Schemas {
          * Simplified serializer to speed response times when loading large amounts of objects.
          */
         _create_in_folder?: string | undefined;
+        /**
+         * Simplified serializer to speed response times when loading large amounts of objects.
+         */
+        move_to_folder?: string | undefined;
+        /**
+         * Project-tree folder this insight is filed in, e.g. 'Unfiled/Insights'. An empty string means the project root. Null when the insight isn't in the project tree, or when this response doesn't include it, such as inside another resource.
+         */
+        folder: string | null;
         alerts: Array<unknown>;
         /**
          * Resolved dashboard and tile filter layers used to explain filter precedence in the UI.
@@ -16243,6 +16255,8 @@ export namespace Schemas {
         query_scan: unknown;
         warnings: _InsightResultWarnings | null;
         _create_in_folder: string;
+        move_to_folder: string;
+        folder: string | null;
         alerts: Array<unknown>;
         filter_override_context: InsightFilterOverrideContext | null;
         last_viewed_at: string | null;
@@ -16263,6 +16277,7 @@ export namespace Schemas {
         data_color_theme_id: number | null;
         tags: Array<string>;
         quick_filter_ids: Array<string> | null;
+        move_to_folder: string;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
         group_display: TileGroupDisplayEnum;

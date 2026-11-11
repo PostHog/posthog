@@ -11,7 +11,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, QuerySet, prefetch_related_objects
+from django.db.models import Count, Exists, F, Max, OuterRef, QuerySet, prefetch_related_objects
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -50,6 +50,13 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
+from posthog.api.file_system.move_to_folder import (
+    FolderField,
+    file_in_folder_on_create,
+    load_folder_after_create,
+    move_to_folder_field,
+    move_to_folder_or_reject,
+)
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
@@ -111,7 +118,7 @@ from posthog.models.activity_logging.activity_page import (
     activity_page_response,
     parse_activity_page_params,
 )
-from posthog.models.file_system.file_system import delete_files
+from posthog.models.file_system.file_system import delete_files, file_system_path_subquery
 from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
@@ -674,6 +681,8 @@ class InsightSerializer(InsightBasicSerializer):
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    move_to_folder = move_to_folder_field("insight")
+    folder = FolderField("insight")
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
         read_only=True,
@@ -721,6 +730,8 @@ class InsightSerializer(InsightBasicSerializer):
             "query_scan",
             "warnings",
             "_create_in_folder",
+            "move_to_folder",
+            "folder",
             "alerts",
             "filter_override_context",
             "last_viewed_at",
@@ -838,6 +849,7 @@ class InsightSerializer(InsightBasicSerializer):
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
+        move_to_folder = file_in_folder_on_create(validated_data)
         team_id = self.context["team_id"]
 
         created_by = validated_data.pop("created_by", request.user)
@@ -867,12 +879,14 @@ class InsightSerializer(InsightBasicSerializer):
             # permission checks so rejected requests don't inflate the metric.
             _record_deprecated_dashboards_field_used(self.context, usage="write")
 
-        insight = Insight.objects.create(
-            team_id=team_id,
-            created_by=created_by,
-            last_modified_by=request.user,
-            **validated_data,
-        )
+        with transaction.atomic():
+            insight = Insight.objects.create(
+                team_id=team_id,
+                created_by=created_by,
+                last_modified_by=request.user,
+                **validated_data,
+            )
+            load_folder_after_create(insight, move_to_folder, "insight")
 
         record_insight_view(insight_id=insight.pk, team_id=team_id, user_id=request.user.pk)
 
@@ -944,6 +958,8 @@ class InsightSerializer(InsightBasicSerializer):
             key=lambda x: -1 if isinstance(x, str) else x["id"],
         )
 
+        move_to_folder = validated_data.pop("move_to_folder", None)
+
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
 
@@ -985,6 +1001,15 @@ class InsightSerializer(InsightBasicSerializer):
                     )
 
             updated_insight = super().update(instance, validated_data)
+            folder_changes = (
+                [
+                    move_to_folder_or_reject(
+                        updated_insight, move_to_folder, self.context["request"].user.id, "insight", "Insight"
+                    )
+                ]
+                if move_to_folder is not None
+                else []
+            )
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
         # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
         # the alert check cycle re-validates against the current query and auto-disables + notifies on
@@ -993,7 +1018,7 @@ class InsightSerializer(InsightBasicSerializer):
         if updated_insight.alertable_query_kind is None:
             delete_insight_alerts([instance.id])
 
-        self._log_insight_update(before_update, dashboards_before_change, updated_insight)
+        self._log_insight_update(before_update, dashboards_before_change, updated_insight, folder_changes)
 
         return updated_insight
 
@@ -1002,6 +1027,7 @@ class InsightSerializer(InsightBasicSerializer):
         before_update,
         dashboards_before_change,
         updated_insight,
+        folder_changes: list[Change],
     ):
         """
         KLUDGE: Automatic detection of insight dashboard updates is flaky
@@ -1014,7 +1040,7 @@ class InsightSerializer(InsightBasicSerializer):
             if c.field != "dashboards"
         ]
         synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
-        changes = detected_changes + synthetic_dashboard_changes
+        changes = detected_changes + synthetic_dashboard_changes + folder_changes
 
         activity = "updated"
         deleted_change = next((change for change in changes if change.field == "deleted"), None)
@@ -2279,6 +2305,14 @@ class InsightViewSet(
 
         if not include_deleted:
             queryset = queryset.exclude(deleted=True)
+
+        is_shared_link = isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        )
+        if not is_shared_link and not self._is_basic_request():
+            # Shared-link viewers don't see the folder: its name can encode internal structure.
+            queryset = queryset.annotate(_folder_path=file_system_path_subquery("insight", OuterRef("short_id")))
 
         # InsightBasicSerializer skips alerts and only needs PKs from dashboards plus
         # (id, dashboard_id, deleted) from tiles, so the heavy team→organization joins

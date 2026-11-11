@@ -4009,6 +4009,55 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         data_checks_response = self.client.get(f"/api/projects/{self.team.pk}/insights/{insight.id}/data_checks/")
         self.assertEqual(data_checks_response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_update_insight_moves_it_to_another_folder(self):
+        _, insight_data = self.dashboard_api.create_insight(
+            {"name": "Weekly signups", "_create_in_folder": "Old", "saved": True}
+        )
+        short_id = insight_data["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_data['id']}",
+            {"move_to_folder": "Experiments/Q4"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["folder"] == "Experiments/Q4"
+        fs_entry = FileSystem.objects.get(team=self.team, ref=short_id, type="insight")
+        assert fs_entry.path == "Experiments/Q4/Weekly signups"
+        assert FileSystem.objects.filter(team=self.team, type="folder", path="Experiments/Q4").exists()
+        log = ActivityLog.objects.filter(scope="Insight", item_id=str(insight_data["id"])).latest("created_at")
+        folder_change = next(c for c in log.detail["changes"] if c["field"] == "folder")
+        assert (folder_change["before"], folder_change["after"]) == ("Old", "Experiments/Q4")
+
+    def test_create_insight_with_move_to_folder_files_it_in_that_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {
+                "name": "Filed on create",
+                "query": default_pageview_query(),
+                "move_to_folder": "Experiments",
+                "saved": True,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["folder"] == "Experiments"
+        fs_entry = FileSystem.objects.get(team=self.team, ref=response.json()["short_id"], type="insight")
+        assert fs_entry.path == "Experiments/Filed on create"
+        assert FileSystem.objects.filter(team=self.team, type="folder", path="Experiments").exists()
+
+    def test_create_unsaved_insight_with_move_to_folder_is_rejected_and_not_created(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {"name": "Draft", "query": default_pageview_query(), "move_to_folder": "Experiments", "saved": False},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not Insight.objects.filter(team=self.team, name="Draft").exists()
+
     def test_create_insight_in_specific_folder(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/",

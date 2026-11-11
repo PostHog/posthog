@@ -743,6 +743,13 @@ export interface NotebookApi {
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
     _create_in_folder?: string
+    /** Project-tree folder to file this notebook in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The notebook keeps its own name. Returns a 400 error when the notebook doesn't appear in the project tree. */
+    move_to_folder?: string
+    /**
+     * Project-tree folder this notebook is filed in, e.g. 'Unfiled/Insights'. An empty string means the project root. Null when the notebook isn't in the project tree, or when this response doesn't include it, such as inside another resource.
+     * @nullable
+     */
+    readonly folder: string | null
 }
 
 /**
@@ -797,6 +804,13 @@ export interface PatchedNotebookApi {
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
     _create_in_folder?: string
+    /** Project-tree folder to file this notebook in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The notebook keeps its own name. Returns a 400 error when the notebook doesn't appear in the project tree. */
+    move_to_folder?: string
+    /**
+     * Project-tree folder this notebook is filed in, e.g. 'Unfiled/Insights'. An empty string means the project root. Null when the notebook isn't in the project tree, or when this response doesn't include it, such as inside another resource.
+     * @nullable
+     */
+    readonly folder?: string | null
 }
 
 export interface NotebookCollabCursorApi {

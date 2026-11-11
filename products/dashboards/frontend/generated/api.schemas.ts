@@ -573,6 +573,8 @@ export interface DashboardApi {
     /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
+    /** Project-tree folder to file this dashboard in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The dashboard keeps its own name. Returns a 400 error when the dashboard doesn't appear in the project tree. */
+    move_to_folder?: string
 }
 
 /**
@@ -1439,6 +1441,8 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * @nullable
      */
     quick_filter_ids?: string[] | null
+    /** Project-tree folder to file this dashboard in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The dashboard keeps its own name. Returns a 400 error when the dashboard doesn't appear in the project tree. */
+    move_to_folder?: string
     /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
      *
      * * `tight` - tight
@@ -10471,6 +10475,13 @@ export interface InsightApi {
     /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
     readonly warnings: _InsightResultWarningsApi | null
     _create_in_folder?: string
+    /** Project-tree folder to file this insight in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The insight keeps its own name. Returns a 400 error when the insight doesn't appear in the project tree. */
+    move_to_folder?: string
+    /**
+     * Project-tree folder this insight is filed in, e.g. 'Unfiled/Insights'. An empty string means the project root. Null when the insight isn't in the project tree, or when this response doesn't include it, such as inside another resource.
+     * @nullable
+     */
+    readonly folder: string | null
     readonly alerts: readonly unknown[]
     /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
     readonly filter_override_context: InsightFilterOverrideContextApi | null

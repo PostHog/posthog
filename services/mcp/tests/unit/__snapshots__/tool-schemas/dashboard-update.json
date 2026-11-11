@@ -445,6 +445,10 @@
             "enum": ["vertical", "horizontal", "stable"],
             "type": "string"
         },
+        "move_to_folder": {
+            "description": "Project-tree folder to file this dashboard in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The dashboard keeps its own name. Returns a 400 error when the dashboard doesn't appear in the project tree.",
+            "type": "string"
+        },
         "name": {
             "anyOf": [
                 {

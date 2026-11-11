@@ -356,6 +356,12 @@ export const InsightsCreateBody = () => zod
         tags: zod.array(zod.unknown()).optional(),
         favorited: zod.boolean().optional(),
         _create_in_folder: zod.string().optional(),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this insight in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The insight keeps its own name. Returns a 400 error when the insight doesn't appear in the project tree."
+            ),
     })
     .describe('Simplified serializer to speed response times when loading large amounts of objects.')
 
@@ -460,6 +466,12 @@ export const InsightsPartialUpdateBody = () => zod
         tags: zod.array(zod.unknown()).optional(),
         favorited: zod.boolean().optional(),
         _create_in_folder: zod.string().optional(),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this insight in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The insight keeps its own name. Returns a 400 error when the insight doesn't appear in the project tree."
+            ),
     })
     .describe('Simplified serializer to speed response times when loading large amounts of objects.')
 

@@ -512,6 +512,12 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .default(dashboardsCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
         _create_in_folder: zod.string().optional(),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this dashboard in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The dashboard keeps its own name. Returns a 400 error when the dashboard doesn't appear in the project tree."
+            ),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -652,6 +658,12 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .default(dashboardsUpdateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
         _create_in_folder: zod.string().optional(),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this dashboard in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The dashboard keeps its own name. Returns a 400 error when the dashboard doesn't appear in the project tree."
+            ),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -1230,6 +1242,12 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .default(dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
         _create_in_folder: zod.string().optional(),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this dashboard in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The dashboard keeps its own name. Returns a 400 error when the dashboard doesn't appear in the project tree."
+            ),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -1377,6 +1395,12 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .default(dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
         _create_in_folder: zod.string().optional(),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this dashboard in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The dashboard keeps its own name. Returns a 400 error when the dashboard doesn't appear in the project tree."
+            ),
     })
     .describe('Serializer mixin that handles tags for objects.')
 

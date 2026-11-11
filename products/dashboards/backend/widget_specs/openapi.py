@@ -10,6 +10,8 @@ from rest_framework import serializers
 
 from posthog.schema import BreakdownFilter, CompareFilter, IntervalType
 
+from posthog.api.file_system.move_to_folder import move_to_folder_field
+
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
     MAX_GROUP_KEY_LENGTH,
@@ -523,6 +525,7 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         allow_null=True,
         help_text="List of quick filter IDs associated with this dashboard.",
     )
+    move_to_folder = move_to_folder_field("dashboard")
     grid_spacing = serializers.ChoiceField(
         choices=tuple(DASHBOARD_GRID_SPACING_GAPS),
         required=False,

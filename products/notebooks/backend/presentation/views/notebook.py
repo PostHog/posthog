@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import OuterRef, Q, QuerySet
 from django.http import Http404, JsonResponse
 from django.utils.timezone import now
 
@@ -32,6 +32,13 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.direct_connection import get_direct_connection_source
 
+from posthog.api.file_system.move_to_folder import (
+    FolderField,
+    file_in_folder_on_create,
+    load_folder_after_create,
+    move_to_folder_field,
+    move_to_folder_or_reject,
+)
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.pagination import offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -46,6 +53,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.file_system.file_system import file_system_path_subquery
 from posthog.models.utils import UUIDT
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
@@ -286,6 +294,8 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    move_to_folder = move_to_folder_field("notebook")
+    folder = FolderField("notebook")
     variables = NotebookVariableSerializer(
         many=True,
         required=False,
@@ -323,6 +333,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "parent_resource",
             "variables",
             "_create_in_folder",
+            "move_to_folder",
+            "folder",
         ]
         read_only_fields = [
             "id",
@@ -369,6 +381,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
+        move_to_folder = file_in_folder_on_create(validated_data)
+
         # short_id is read-only in the serializer but can be provided on create
         short_id = request.data.get("short_id")
         if short_id:
@@ -398,12 +412,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
         validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
 
         created_by = validated_data.pop("created_by", request.user)
-        notebook = Notebook.objects.create(
-            team=team,
-            created_by=created_by,
-            last_modified_by=request.user,
-            **validated_data,
-        )
+        with transaction.atomic():
+            notebook = Notebook.objects.create(
+                team=team,
+                created_by=created_by,
+                last_modified_by=request.user,
+                **validated_data,
+            )
+            load_folder_after_create(notebook, move_to_folder, "notebook")
 
         log_notebook_activity(
             activity="created",
@@ -430,6 +446,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         return notebook
 
     def update(self, instance: Notebook, validated_data: dict, **kwargs) -> Notebook:
+        move_to_folder = validated_data.pop("move_to_folder", None)
         try:
             before_update = Notebook.objects.get(pk=instance.id)
         except Notebook.DoesNotExist:
@@ -438,6 +455,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         with transaction.atomic():
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
+            updated_notebook = locked_instance
             should_publish_update = False
 
             if validated_data.keys():
@@ -487,7 +505,17 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         )
                     )
 
-        changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
+            folder_changes = (
+                [
+                    move_to_folder_or_reject(
+                        updated_notebook, move_to_folder, self.context["request"].user.id, "notebook", "Notebook"
+                    )
+                ]
+                if move_to_folder is not None
+                else []
+            )
+
+        changes = changes_between("Notebook", previous=before_update, current=updated_notebook) + folder_changes
 
         activity = "updated"
         if changes:
@@ -505,6 +533,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
             changes=changes,
         )
 
+        if not hasattr(updated_notebook, "_folder_path") and hasattr(instance, "_folder_path"):
+            # The row lock re-reads the notebook without the queryset's folder annotation.
+            updated_notebook._folder_path = instance._folder_path
         return updated_notebook
 
     def validate_content(self, value: Any) -> Any:
@@ -1445,6 +1476,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             queryset = queryset.defer("content", "text_content")
         elif self.action in IDENTITY_ONLY_DETAIL_ACTIONS:
             queryset = queryset.defer("content", "text_content")
+        if self.action != "list":
+            queryset = queryset.annotate(_folder_path=file_system_path_subquery("notebook", OuterRef("short_id")))
 
         order = self.request.GET.get("order", None)
         if order:

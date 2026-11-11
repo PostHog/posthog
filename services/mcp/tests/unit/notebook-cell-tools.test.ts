@@ -974,11 +974,16 @@ describe('notebook cell tools', () => {
         const state = makeState('')
         const context = createMockContext(state)
 
-        const result = await createMarkdownHandler(context, { title: 'Signup analysis', markdown: 'Intro.' })
+        const result = await createMarkdownHandler(context, {
+            title: 'Signup analysis',
+            markdown: 'Intro.',
+            move_to_folder: 'Experiments/Q4',
+        })
 
         expect(result).toMatchObject({ notebook_id: 'nEw12345', title: 'Signup analysis' })
         const body = state.createBodies[0]
         expect(body.title).toBe('Signup analysis')
+        expect(body.move_to_folder).toBe('Experiments/Q4')
         expect(body.content).toEqual({
             type: 'doc',
             content: [

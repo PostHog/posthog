@@ -56,6 +56,12 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
+from posthog.api.file_system.move_to_folder import (
+    file_in_folder_on_create,
+    load_folder_after_create,
+    move_to_folder_field,
+    move_to_folder_or_reject,
+)
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
@@ -92,7 +98,7 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface
-from posthog.models.activity_logging.activity_log import ActivityLog, Change
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
@@ -314,9 +320,9 @@ def filed_entry(dashboard: Dashboard) -> FiledEntry | None:
     tile move and copy responses) all hand over. Those return a single dashboard, so the query cannot fan out
     over a list.
     """
-    if hasattr(dashboard, "_folder_path"):
+    if hasattr(dashboard, "_folder_id"):
         path = dashboard._folder_path
-        entry_id = dashboard._folder_id  # type: ignore[attr-defined]
+        entry_id = dashboard._folder_id
         return FiledEntry(id=str(entry_id), path=path) if path and entry_id else None
     row = dashboard_file_system_entries(dashboard.team_id, str(dashboard.id)).values("id", "path").first()
     return FiledEntry(id=str(row["id"]), path=row["path"]) if row else None
@@ -1923,6 +1929,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         help_text="When deleting, also delete insights that are only on this dashboard.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    move_to_folder = move_to_folder_field("dashboard")
 
     class Meta:
         model = Dashboard
@@ -1933,6 +1940,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "use_dashboard",
             "delete_insights",
             "_create_in_folder",
+            "move_to_folder",
         ]
         read_only_fields = [
             "creation_mode",
@@ -1974,6 +1982,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         request = self.context["request"]
         validated_data["created_by"] = request.user
+        move_to_folder = file_in_folder_on_create(validated_data)
         team_id = self.context["team_id"]
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
@@ -2063,6 +2072,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         with transaction.atomic():
             dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
+            load_folder_after_create(dashboard, move_to_folder, "dashboard")
 
             if use_template:
                 try:
@@ -2286,6 +2296,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
+        move_to_folder = validated_data.pop("move_to_folder", None)
         grid_spacing = validated_data.pop("grid_spacing", None)
         layout_compaction = validated_data.pop("layout_compaction", None)
         group_display = validated_data.pop("group_display", None)
@@ -2370,6 +2381,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
             for tile_data in tiles:
                 tile_results.append(self._update_tiles(instance, tile_data, user, request=self.context.get("request")))
+            if move_to_folder is not None:
+                # The model signal logs field changes; the folder lives in the file system, so log it here.
+                log_activity(
+                    organization_id=instance.team.organization_id,
+                    team_id=instance.team_id,
+                    user=user,
+                    item_id=instance.id,
+                    scope="Dashboard",
+                    activity="updated",
+                    detail=Detail(
+                        name=instance.name,
+                        changes=[move_to_folder_or_reject(instance, move_to_folder, user.id, "dashboard", "Dashboard")],
+                    ),
+                    was_impersonated=is_impersonated(self.context["request"]),
+                )
 
         # Text and button tiles are always added via PATCH (never during initial dashboard
         # creation), so this update() method is the right place to fire the "tile added"

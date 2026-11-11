@@ -103,6 +103,9 @@ const notebooksCreate = (): ToolBase<ReturnType<typeof NotebooksCreateSchema>, W
         if (params.variables !== undefined) {
             body['variables'] = params.variables
         }
+        if (params.move_to_folder !== undefined) {
+            body['move_to_folder'] = params.move_to_folder
+        }
         const result = await context.api.request<Schemas.Notebook>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
@@ -283,6 +286,9 @@ const notebooksPartialUpdate = (): ToolBase<
         }
         if (params.variables !== undefined) {
             body['variables'] = params.variables
+        }
+        if (params.move_to_folder !== undefined) {
+            body['move_to_folder'] = params.move_to_folder
         }
         const result = await context.api.request<Schemas.Notebook>({
             method: 'PATCH',

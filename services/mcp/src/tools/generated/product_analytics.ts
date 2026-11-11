@@ -512,6 +512,9 @@ const insightCreate = (): ToolBase<
         if (params.favorited !== undefined) {
             body['favorited'] = params.favorited
         }
+        if (params.move_to_folder !== undefined) {
+            body['move_to_folder'] = params.move_to_folder
+        }
         if (params.query !== undefined) {
             body['query'] = params.query
         }
@@ -658,6 +661,9 @@ const insightUpdate = (): ToolBase<
         }
         if (params.favorited !== undefined) {
             body['favorited'] = params.favorited
+        }
+        if (params.move_to_folder !== undefined) {
+            body['move_to_folder'] = params.move_to_folder
         }
         if (params.query !== undefined) {
             body['query'] = params.query
