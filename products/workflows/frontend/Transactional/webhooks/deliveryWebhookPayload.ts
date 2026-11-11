@@ -65,7 +65,6 @@ export function buildDeliveryWebhookPayload({
     events: DeliveryWebhookEventName[]
     signingSecret: string
 }): DeliveryWebhookCreateBody {
-    // Callers pass a URL that passed `isHttpsUrl`, so it parses.
     const { host, pathname } = new URL(url)
     // The API fills the template's code, inputs schema and icon from `template_id`.
     const payload = {

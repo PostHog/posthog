@@ -194,7 +194,6 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             hogFunctionsListLogic.findMounted(DELIVERY_WEBHOOK_LIST_PROPS)?.actions.loadHogFunctions()
         },
         submitWebhookFormFailure: ({ error }) => {
-            // The field shows a validation error, so only a failed request needs a toast.
             if (values.webhookFormHasErrors) {
                 return
             }

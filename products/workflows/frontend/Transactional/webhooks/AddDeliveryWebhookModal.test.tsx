@@ -64,7 +64,6 @@ describe('AddDeliveryWebhookModal', () => {
         const secret = deliveryWebhooksLogic.values.createdSecret
         expect(secret).toMatch(/^whsec_/)
 
-        // The secret is shown once, so only "Done" may close this view.
         fireEvent.keyDown(document.querySelector('.ReactModal__Content')!, { key: 'Escape', keyCode: 27 })
         fireEvent.click(document.querySelector('.LemonModal__overlay')!)
         expect(screen.getByText('Webhook added')).toBeInTheDocument()

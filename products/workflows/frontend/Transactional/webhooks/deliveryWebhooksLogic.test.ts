@@ -45,7 +45,6 @@ describe('deliveryWebhooksLogic', () => {
         const [webhook] = created
         expect(webhook.template_id).toEqual('template-webhook')
         expect(webhook.inputs.url.value).toEqual('https://example.com/hooks/prod')
-        // Two webhooks on one host stay apart in the list.
         expect(webhook.name).toEqual('Transactional email webhook: example.com/hooks/prod')
         expect(webhook.filters.events.map((e: { id: string }) => e.id)).toEqual([
             '$workflows_email_delivered',
