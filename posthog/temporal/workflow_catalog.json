@@ -765,6 +765,16 @@
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "llma-eval-suggestions-coordinator",
+    "product": "ai_observability",
+    "task_queues": "LLMA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "llma-eval-suggestions-team",
+    "product": "ai_observability",
+    "task_queues": "LLMA_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "llma-evaluation-backfill",
     "product": "ai_observability",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE,LLMA_TASK_QUEUE"
@@ -858,6 +868,11 @@
     "temporal_workflow_type": "metrics-alert-evaluate",
     "product": "metrics",
     "task_queues": "ALERTS_PLATFORM_EVALUATION_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "metrics-recording-rules-evaluate",
+    "product": "metrics",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "metrics-suggested-dashboards-discovery",
