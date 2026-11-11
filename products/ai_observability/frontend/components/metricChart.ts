@@ -63,10 +63,15 @@ export const METRIC_CHART_DEFINITIONS: Record<MetricChartKey, MetricChartDefinit
     },
 }
 
+/** A date-only end date covers its whole day, as in the tables. Spelled out because the chart sends exact bounds. */
+export function metricChartDateTo(dateTo: string | null): string | null {
+    return dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo) ? `${dateTo}T23:59:59` : dateTo
+}
+
 /** Bucket size for a date range. Short ranges get finer buckets than the app default so a spike isn't averaged away. */
 export function metricChartInterval(dateFrom: string | null, dateTo: string | null): IntervalType {
     const from = dateStringToDayJs(dateFrom)
-    const to = dateStringToDayJs(dateTo) ?? dayjs()
+    const to = dateStringToDayJs(metricChartDateTo(dateTo)) ?? dayjs()
     if (from && to.diff(from, 'minute') <= 60) {
         return 'minute'
     }

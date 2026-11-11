@@ -23,6 +23,7 @@ import {
     MetricChartKey,
     TRACE_EVENTS,
     metricChartBucketRange,
+    metricChartDateTo,
     metricChartInterval,
 } from './metricChart'
 
@@ -216,8 +217,12 @@ export const aiObservabilityMetricChartLogic = kea<aiObservabilityMetricChartLog
                     })
                 ),
                 interval,
-                // Verbatim bounds keep a rolling range's first bar to the rows the table shows.
-                dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo, explicitDate: true },
+                // Exact bounds keep a rolling range's first bar to the rows the table shows.
+                dateRange: {
+                    date_from: dateFilter.dateFrom,
+                    date_to: metricChartDateTo(dateFilter.dateTo),
+                    explicitDate: true,
+                },
                 filterTestAccounts: shouldFilterTestAccounts,
                 properties: scopeFilters,
             }),

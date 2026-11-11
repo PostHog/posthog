@@ -1,4 +1,4 @@
-import { metricChartBucketRange, metricChartInterval } from './metricChart'
+import { metricChartBucketRange, metricChartDateTo, metricChartInterval } from './metricChart'
 
 describe('metricChart', () => {
     it.each([
@@ -18,10 +18,20 @@ describe('metricChart', () => {
 
     it.each([
         ['a zoomed-in day', '2026-11-09T00:00:00', '2026-11-09T23:59:59', 'hour'],
+        ['a picked calendar day', '2026-11-09', '2026-11-09', 'hour'],
         ['a zoomed-in hour', '2026-11-09T13:00:00', '2026-11-09T13:59:59', 'minute'],
         ['the last 3 days', '-3d', null, 'hour'],
         ['the last 7 days', '-7d', null, 'day'],
     ])('picks the bucket size for %s', (_name, dateFrom, dateTo, interval) => {
         expect(metricChartInterval(dateFrom, dateTo)).toBe(interval)
+    })
+
+    it.each([
+        ['a calendar day', '2026-11-09', '2026-11-09T23:59:59'],
+        ['an exact time', '2026-11-09T13:05:00', '2026-11-09T13:05:00'],
+        ['a relative date', '-1dEnd', '-1dEnd'],
+        ['now', null, null],
+    ])('ends the range at the right moment for %s', (_name, dateTo, expected) => {
+        expect(metricChartDateTo(dateTo)).toBe(expected)
     })
 })
