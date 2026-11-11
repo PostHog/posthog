@@ -153,20 +153,20 @@ Nothing in the runner runs in production.
 
 The first slice is local only, on real time.
 
-- **Roles.** `cdp-processed-events`, `cdp-cyclotron-worker-hogflow`, `cdp-cyclotron-worker-email`, `cdp-api`, `cdp-cyclotron-v2-janitor`. Every card runs against all five.
+- **Roles.** `cdp-processed-events`, `cdp-cyclotron-worker-hogflow`, `cdp-cyclotron-worker-email`, `cdp-api`, `cdp-cyclotron-v2-janitor`. Every card runs against all five. The bounce card also needs `cdp-ses-webhooks`, which records SES feedback, and it joins the roles with the SES feedback.
 - **Traffic.** Events into event-triggered flows with email and webhook steps, and transactional email sends. Every job lives in the hogflow and email queues of `cyclotron_jobs`: a flow's webhook step runs inside the hogflow worker and retries by rescheduling its own row. The flows read the recipient from event properties, so the slice seeds no persons.
 - **Valves.** `role.kill`, `role.freeze`, `pg.drop_connections`, `ses.reject`, `ses.throttle`, `dest.status`.
-- **Settings.** `CDP_SES_WEBHOOKS_QUEUE_ENABLED` stays `false`, its default, so cdp-api handles SES feedback before it answers.
+- **SES feedback.** cdp-api verifies SES feedback and queues it, and the `cdp-ses-webhooks` consumer records it. The runner changes no setting to shorten that path.
 - **Origin.** `local-agent` only.
 
 ### Traffic kinds
 
-| Kind                  | Intake                                                                                                                                           | Flow                                                                                      | Expected per unit                           |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `event_email`         | An event on the events topic, with the recipient in `properties.email`                                                                           | Event trigger, then an email step                                                         | One email delivery                          |
-| `event_webhook`       | An event on the events topic                                                                                                                     | Event trigger, then a webhook step to `https://hooks.example.com/u/<unit id>/<action id>` | One webhook delivery                        |
-| `transactional_email` | cdp-api's template route `/transactional_email`, with `{ to, distinct_id, variables }` and a JWT the generator mints per team and flow           | API trigger, then an email step reading `properties.to`                                   | One email delivery                          |
-| `bounce_followup`     | After an `event_email` unit that the bounce fault answered: wait for the feedback's 200 in the truth, then a template-route send to that address | The transactional flow                                                                    | Refusal `recipient_suppressed`, no delivery |
+| Kind                  | Intake                                                                                                                                                                                               | Flow                                                                                      | Expected per unit                           |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `event_email`         | An event on the events topic, with the recipient in `properties.email`                                                                                                                               | Event trigger, then an email step                                                         | One email delivery                          |
+| `event_webhook`       | An event on the events topic                                                                                                                                                                         | Event trigger, then a webhook step to `https://hooks.example.com/u/<unit id>/<action id>` | One webhook delivery                        |
+| `transactional_email` | cdp-api's template route `/transactional_email`, with `{ to, distinct_id, variables }` and a JWT the generator mints per team and flow                                                               | API trigger, then an email step reading `properties.to`                                   | One email delivery                          |
+| `bounce_followup`     | After an `event_email` unit that the bounce fault answered: wait for the feedback's 200 in the truth and for the `cdp-ses-webhooks` consumer to catch up, then a template-route send to that address | The transactional flow                                                                    | Refusal `recipient_suppressed`, no delivery |
 
 ### First cards
 
@@ -300,6 +300,7 @@ sequenceDiagram
     participant W as Email worker
     participant P as Provider edge
     participant API as cdp-api
+    participant C as cdp-ses-webhooks
     participant X as Edge proxy
     participant J as Judge
     Note over P: ses.reject(bounce) for the unit's address
@@ -309,16 +310,19 @@ sequenceDiagram
     P->>API: POST the SES webhook, signed: a Permanent bounce<br/>with the destination, original headers and tags
     API->>X: fetch the certificate through the proxy
     X-->>API: certificate, signed by the edge CA
-    Note over API: verify, record the hard bounce
+    Note over API: verify, queue the notification
     API-->>P: 200
+    API->>C: the queued notification
+    Note over C: record the hard bounce
     G->>P: wait for the feedback's 200 in the truth, bounded
+    G->>C: wait for its consumer group to catch up, bounded
     G->>API: transactional send to the bounced address
     API-->>G: 422 recipient_suppressed
     G->>J: record(unit, refusal, expected refusal)
 ```
 
 The first send goes through the event path, so cdp-api has never looked the address up, and its suppression cache keeps misses per process.
-With the feedback queue disabled, cdp-api finishes handling the feedback before it answers 200, so the follow-up can go out then; the follow-up's refusal is what proves the suppression was written.
+cdp-api answers 200 once the feedback is queued, before anything records it, so the follow-up waits until the `cdp-ses-webhooks` consumer group has caught up; the follow-up's refusal is what proves the suppression was written.
 Suppression needs the signed tracking code, which only the `X-PostHog-Tracking-Code` header carries, and touches only the recipients in `mail.destination`, so the edge copies both from the send into the feedback.
 
 ### How a run gets its status
@@ -374,7 +378,7 @@ Only the Environment has two implementations, and only it knows how a role is fo
 The card format and the scorecard event are the external contracts: other people and tools read them, so they change only with a schema version.
 The other interfaces are internal seams; each module keeps the responsibilities in the module table.
 
-These contracts cover the whole first slice, so some members are not in the code yet; later stacks add them: the `role.freeze` and `pg.drop_connections` valves with the `freeze` and `pg.terminate` actuations, the edge's SNS feedback with `ses.reject` type `bounce` and `ses.throttle`, the `bounce_followup` traffic kind, the `bounced_suppressed` invariant, and the cards other than `smoke` and `email-worker-killed`.
+These contracts cover the whole first slice, so some members are not in the code yet; later stacks add them: the `role.freeze` and `pg.drop_connections` valves with the `freeze` and `pg.terminate` actuations, the `cdp-ses-webhooks` role, the edge's SNS feedback with `ses.reject` type `bounce` and `ses.throttle`, the `bounce_followup` traffic kind, the `bounced_suppressed` invariant, and the cards other than `smoke` and `email-worker-killed`.
 
 ### Cards
 
@@ -428,7 +432,7 @@ It rejects:
 - a `role.kill`, `role.freeze` or `pg.drop_connections` card whose `convergeWithin` does not exceed the janitor's stall timeout, its sweep interval, its first-retry spread and its backoff for repeated stalls, plus the role restart backoff, read from the profile settings or the repository defaults;
 - a `pg.drop_connections` entry scheduled by `at`: the main pools close idle connections quickly, so it waits for running jobs with `when`;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
-- a profile setting no role or the load producer reads, a profile whose name is not the card's, a profile that enables `CDP_SES_WEBHOOKS_QUEUE_ENABLED`, and traffic rates that fail their kind's profile schema.
+- a profile setting no role or the load producer reads, a profile whose name is not the card's, and traffic rates that fail their kind's profile schema.
 
 **Hashes.**
 The profile hash is the SHA-256 of the profile serialized with sorted keys.
@@ -814,7 +818,6 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 | **The rest of the valve vocabulary**: `role.cpu`, `pg.latency` (Toxiproxy in front of Postgres), `ses.drop_connection`, `dest.latency`, and `deploy.roll` with a base code tree.                                                                                                                 | Needed          | No first-slice invariant needs them.                                  |
 | **Hog function destinations** on the Kafka job queue, with the `cdp-cyclotron-worker` role, judged from the truth alone, because the probe cannot see that queue.                                                                                                                                | Needed          | First-slice traffic is Workflows only.                                |
 | **Load cards**: a parked-job backlog seeded under separate backlog teams, and measurement bands from baseline runs.                                                                                                                                                                              | Needed          | No first-slice invariant reads them.                                  |
-| **The queued SES feedback branch**, with the `cdp-ses-webhooks` role and a wait for its consumer to drain before the suppression check.                                                                                                                                                          | Needed          | The default keeps it off.                                             |
 | **The cloud Environment** and the slice it runs against, with the `cloud-manual` origin and a standalone edge process.                                                                                                                                                                           | Needed          | Built after local cards prove the contract.                           |
 | **Batch workflows and schedules**, with a person seed for audience resolution, and the scheduler and subscription-matcher roles.                                                                                                                                                                 | Needed          | Pulls ClickHouse persons into the seed.                               |
 | **PR runs**: paired base and head runs on one box, the `pr` and `master` origins, and evidence storage.                                                                                                                                                                                          | Needed          | Where they execute is not decided.                                    |
