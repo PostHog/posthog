@@ -1561,6 +1561,22 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert res.status_code == expected_status, res.json()
 
+    def test_copy_of_a_destination_as_the_api_returns_it_carries_no_secret(self) -> None:
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        original = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}").json()
+        assert original["inputs"]["token"] == {"secret": True}
+
+        copy = {key: original[key] for key in ("type", "name", "hog", "inputs_schema", "inputs", "filters")}
+        with secret_reentry_flag(True):
+            res = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/", data={**copy, "hog": MOVED_SENDER_HOG}
+            )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["attr"] == "inputs__token"
+        assert HogFunction.objects.filter(team=self.team).count() == 1
+
     def test_internal_save_that_changes_code_is_counted_but_not_refused(self) -> None:
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
         assert res.status_code == status.HTTP_201_CREATED, res.json()
