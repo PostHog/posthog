@@ -29,7 +29,7 @@ from posthog.hogql.errors import QueryError
 from posthog.api.documentation import PropertyGroupOperator, _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
@@ -1517,6 +1517,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                     # The slot expires after the limiter's ttl, so keep the response the query already produced.
                     logger.exception("logs_api_concurrency_slot_release_failed", team_id=self.team_id)
                 self._logs_api_slot = None
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # A query runner raises this when the org's app query slots are full. The client should retry, so it gets a
+        # 429 with Retry-After instead of a 500 that is reported to error tracking.
+        if isinstance(exc, ConcurrencyLimitExceeded):
+            logger.warning("logs_query_concurrency_limit_exceeded", team_id=self.team_id, detail=str(exc))
+            exc = Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+        return super().handle_exception(exc)
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:

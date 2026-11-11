@@ -11,9 +11,9 @@ from parameterized import parameterized
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework import status
 
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.limit import get_logs_api_team_rate_limiter
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, get_logs_api_team_rate_limiter
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -185,6 +185,28 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         self.assertEqual(limiter.redis_client.zcard(f"logs_api:query:per-team:{self.team.id}"), 0)
+
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_full_org_query_limit_returns_retryable_429_without_reporting_an_exception(self):
+        self.client.raise_request_exception = False
+
+        with (
+            patch(
+                "products.logs.backend.presentation.views.api.CountQueryRunner.run",
+                side_effect=ConcurrencyLimitExceeded("app:query:per-org limit reached"),
+            ),
+            patch("posthog.exceptions.capture_exception") as capture_exception,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/count",
+                data={"query": {"dateRange": _FIXTURE_WINDOW}},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertTrue(response.json()["detail"].startswith(CONCURRENCY_LIMIT_USER_MESSAGE))
+        self.assertEqual(response["Retry-After"], str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS))
+        capture_exception.assert_not_called()
 
     @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
     def test_personal_api_key_requests_pass_when_the_limiter_redis_is_down(self):
