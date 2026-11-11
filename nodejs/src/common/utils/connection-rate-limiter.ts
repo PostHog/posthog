@@ -21,6 +21,21 @@ export class ConnectionRateLimiter {
 
     /** Takes a token for the address. Returns false when the address has none left. */
     tryTake(address: string): boolean {
+        const bucket = this.refilled(address)
+        this.buckets.set(address, bucket)
+        if (bucket.tokens < 1) {
+            return false
+        }
+        bucket.tokens--
+        return true
+    }
+
+    /** Returns whether the address has a token, without taking it. */
+    hasToken(address: string): boolean {
+        return this.refilled(address).tokens >= 1
+    }
+
+    private refilled(address: string): Bucket {
         const now = Date.now()
         const bucket = this.buckets.get(address) ?? { tokens: this.options.burst, updatedAt: now }
         bucket.tokens = Math.min(
@@ -28,11 +43,6 @@ export class ConnectionRateLimiter {
             bucket.tokens + ((now - bucket.updatedAt) / 1000) * this.options.perSecond
         )
         bucket.updatedAt = now
-        this.buckets.set(address, bucket)
-        if (bucket.tokens < 1) {
-            return false
-        }
-        bucket.tokens--
-        return true
+        return bucket
     }
 }

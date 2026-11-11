@@ -476,8 +476,10 @@ describe('fetch', () => {
 
     describe('new connection limit per IP address', () => {
         const ipv4 = { address: '127.0.0.1', family: 4 }
-        // Nothing listens on ::1, so a request reaches the origin only through the fallback to IPv4.
+        // Nothing listens on ::1 or 127.0.0.2, so a request reaches the origin only through the fallback to 127.0.0.1.
         const ipv6First = [{ address: '::1', family: 6 }, ipv4]
+        const deadIpv4First = [{ address: '127.0.0.2', family: 4 }, ipv4]
+        const ipv4Mapped = [{ address: '::ffff:127.0.0.1', family: 6 }]
 
         test.each([
             {
@@ -501,6 +503,27 @@ describe('fetch', () => {
                 expected: [200, 200, 'ECONNREFUSED'],
                 expectedConnections: 2,
             },
+            {
+                name: 'keeps every IPv4 fallback when not enforced',
+                enforced: 'false',
+                addresses: deadIpv4First,
+                expected: [200, 200, 200],
+                expectedConnections: 3,
+            },
+            {
+                name: 'limits an IPv4-mapped IPv6 address as IPv4',
+                enforced: 'true',
+                addresses: ipv4Mapped,
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'limits an IPv4 address in the URL',
+                enforced: 'true',
+                addresses: [],
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
         ])(
             '$name, for an origin that closes every connection',
             async ({ enforced, addresses, expected, expectedConnections }) => {
@@ -511,7 +534,8 @@ describe('fetch', () => {
                 })
                 closing.on('connection', () => connections++)
                 await new Promise<void>((resolve) => closing.listen(0, '127.0.0.1', resolve))
-                const url = `http://localhost:${(closing.address() as AddressInfo).port}/`
+                const host = addresses.length === 0 ? '127.0.0.1' : 'localhost'
+                const url = `http://${host}:${(closing.address() as AddressInfo).port}/`
                 try {
                     await withIsolatedRequestModule(
                         {
