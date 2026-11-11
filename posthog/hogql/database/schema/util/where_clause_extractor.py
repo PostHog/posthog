@@ -830,6 +830,43 @@ def build_session_property_pre_aggregation_predicate(
     )
 
 
+def build_global_sessions_join_filter(
+    outer_node: ast.SelectQuery, join_to_add: LazyJoinToAdd, context: HogQLContext
+) -> Optional[ast.Expr]:
+    """The session predicate that can filter the sessions side of a ``GLOBAL LEFT JOIN`` without changing results.
+
+    The outer WHERE keeps the predicate, so filtering the joined sessions only removes rows that the outer
+    WHERE drops anyway, provided that the predicate is false for an event whose session was filtered out.
+    Such an event gets the column defaults from the LEFT JOIN, which are empty strings, zeros and NULLs. Only
+    an equality or IN against non-empty string constants is false for all of them, so every lifted term must
+    have that shape. Returns None otherwise, and the caller keeps the plain join.
+    """
+    extractor = WhereClauseExtractor(context)
+    extractor.add_local_tables(join_to_add)
+    lifted = extractor.get_inner_where(outer_node)
+    if lifted is None or isinstance(lifted, ast.Constant):
+        return None
+
+    terms = lifted.exprs if isinstance(lifted, ast.And) else [lifted]
+    if not all(_is_non_default_string_match(term) for term in terms):
+        return None
+    return lifted
+
+
+def _is_non_default_string_match(expr: ast.Expr) -> bool:
+    if not isinstance(expr, ast.CompareOperation) or not isinstance(expr.left, ast.Field):
+        return False
+    if expr.op == CompareOperationOp.Eq:
+        values = [expr.right]
+    elif expr.op == CompareOperationOp.In and isinstance(expr.right, ast.Tuple | ast.Array):
+        values = expr.right.exprs
+    else:
+        return False
+    return len(values) > 0 and all(
+        isinstance(value, ast.Constant) and isinstance(value.value, str) and value.value != "" for value in values
+    )
+
+
 def _collect_referenced_top_level_aliases(expr: ast.Expr) -> set[str]:
     visitor = _CollectTopLevelAliasesVisitor()
     visitor.visit(expr)

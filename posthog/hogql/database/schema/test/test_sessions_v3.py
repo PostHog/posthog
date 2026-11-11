@@ -835,6 +835,48 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         assert response.results == [(1,)]
 
 
+class TestSessionFilterGlobalJoin(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("eq", "events.session.$entry_referring_domain = 'a.example.com'", True),
+            ("in", "events.session.$entry_referring_domain in ('a.example.com', 'b.example.com')", True),
+            ("not_eq", "events.session.$entry_referring_domain != 'a.example.com'", False),
+            ("empty_string", "events.session.$entry_referring_domain = ''", False),
+            ("non_nullable_default", "events.session.$session_duration = 0", False),
+            ("or_with_event_filter", "events.session.$entry_referring_domain = 'a.example.com' or event = 'x'", False),
+        ]
+    )
+    def test_session_filter_global_join_keeps_results(self, _name, session_filter, expect_global_join):
+        for referring_domain, pageviews in (("a.example.com", 2), ("b.example.com", 1), (None, 1)):
+            session_id = str(uuid7())
+            properties = {"$session_id": session_id}
+            if referring_domain is not None:
+                properties["$referring_domain"] = referring_domain
+            for minute in range(pageviews):
+                _create_event(
+                    event="$pageview",
+                    team=self.team,
+                    distinct_id="d1",
+                    properties=properties,
+                    timestamp=datetime.now() - timedelta(hours=1) + timedelta(minutes=minute),
+                )
+
+        query = f"select count() from events where event = '$pageview' and {session_filter}"
+        responses = {
+            enabled: execute_hogql_query(
+                query=parse_select(query),
+                team=self.team,
+                modifiers=HogQLQueryModifiers(
+                    sessionTableVersion=SessionTableVersion.V3, sessionFilterGlobalJoin=enabled
+                ),
+            )
+            for enabled in (False, True)
+        }
+
+        assert responses[True].results == responses[False].results
+        assert ("GLOBAL LEFT JOIN" in (responses[True].clickhouse or "")) == expect_global_join
+
+
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v3(None)
