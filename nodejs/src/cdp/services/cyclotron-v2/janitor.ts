@@ -245,6 +245,7 @@ export class CyclotronV2Janitor {
         )
 
         const stalled = await this.stage('stall_reset', 0, () => this.resetStalledJobs())
+        janitorStalledLastRunGauge.set(stalled)
         const depths = await this.stage('queue_depths', new Map<string, number>(), () => this.measureQueueDepths())
 
         janitorRunCounter.inc()
@@ -540,7 +541,6 @@ export class CyclotronV2Janitor {
         )
 
         const count = result.rowCount ?? 0
-        janitorStalledLastRunGauge.set(count)
         if (count > 0) {
             janitorStalledCounter.inc(count)
             logger.info('CyclotronV2Janitor reset stalled jobs', { count })

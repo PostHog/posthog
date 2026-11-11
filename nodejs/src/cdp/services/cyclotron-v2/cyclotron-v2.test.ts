@@ -3090,6 +3090,49 @@ describe('Cyclotron V2', () => {
             }
         })
 
+        it('reports no stalled resets for a run whose stall reset fails', async () => {
+            const failingTeam = 525252
+            const janitor = createJanitor({ stallTimeoutMs: 1_000 })
+            try {
+                await insertRawJob({
+                    id: uuidv7(),
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                })
+                await janitor.runOnce()
+                expect(await counterValue('cdp_cyclotron_v2_janitor_stalled_last_run')).toBe(1)
+
+                await insertRawJob({
+                    id: uuidv7(),
+                    team_id: failingTeam,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                })
+                await assertPool.query(`
+                    CREATE OR REPLACE FUNCTION refuse_janitor_stall_test_update() RETURNS trigger AS $$
+                    BEGIN
+                        IF OLD.team_id = ${failingTeam} THEN
+                            RAISE EXCEPTION 'stall reset refused for the gauge test';
+                        END IF;
+                        RETURN NEW;
+                    END
+                    $$ LANGUAGE plpgsql`)
+                await assertPool.query(`
+                    CREATE TRIGGER refuse_janitor_stall_test_update BEFORE UPDATE ON cyclotron_jobs
+                    FOR EACH ROW EXECUTE FUNCTION refuse_janitor_stall_test_update()`)
+                const result = await janitor.runOnce()
+
+                expect(result.stalled).toBe(0)
+                expect(await counterValue('cdp_cyclotron_v2_janitor_stalled_last_run')).toBe(0)
+            } finally {
+                await janitor.stop()
+                await assertPool.query('DROP TRIGGER IF EXISTS refuse_janitor_stall_test_update ON cyclotron_jobs')
+                await assertPool.query('DROP FUNCTION IF EXISTS refuse_janitor_stall_test_update()')
+            }
+        })
+
         const holdJanitorRunsOnATerminalRow = async (): Promise<{
             stalledId: string
             release: () => Promise<void>
@@ -3228,7 +3271,7 @@ describe('Cyclotron V2', () => {
 
         it('stops within its drain limit while a janitor query waits on a lock in Postgres', async () => {
             const { release } = await holdJanitorRunsOnATerminalRow()
-            const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 60_000, stopDrainMs: 200 })
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 60_000, stopDrainMs: 1_000 })
             const started = janitor.start()
             try {
                 await waitForExpect(
@@ -3244,7 +3287,9 @@ describe('Cyclotron V2', () => {
                     10
                 )
 
+                const stopStarted = Date.now()
                 await janitor.stop()
+                expect(Date.now() - stopStarted).toBeLessThan(1_800)
             } finally {
                 await release()
                 await started
