@@ -60,7 +60,6 @@ export function AddDeliveryWebhookModal(): JSX.Element {
         <LemonModal
             isOpen={isAddModalOpen}
             onClose={closeAddModal}
-            // Closing mid-request would hide the secret of a webhook the request still creates.
             closable={!isWebhookFormSubmitting}
             hasUnsavedInput={webhookFormChanged}
             title="Add webhook"

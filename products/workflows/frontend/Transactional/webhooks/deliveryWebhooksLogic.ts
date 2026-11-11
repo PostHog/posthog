@@ -195,7 +195,6 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
                 }),
             },
         ],
-        // The secret is encrypted on save and never readable again, so the modal shows it once and then drops it.
         createdSecret: [
             null as string | null,
             {
@@ -246,11 +245,9 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             defaults: DEFAULT_FORM,
             errors: ({ url, events }: DeliveryWebhookForm) => ({
                 url: isHttpsUrl(url.trim()) ? undefined : 'Enter a URL that starts with https://',
-                // kea-forms types an array field's error as an array, but LemonField shows one message for the whole list.
                 events: events.length === 0 ? ('Choose at least one event' as any) : undefined,
             }),
             submit: async ({ url, events, workflowIds }: DeliveryWebhookForm) => {
-                // The route takes the team id, so the destination lands in the active environment, not its project's primary one.
                 const projectId = String(values.currentTeamId)
                 const signingSecret = generateSigningSecret()
                 try {
@@ -269,14 +266,12 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
     listeners(({ actions, values }) => ({
         openAddModal: () => {
             actions.loadTransactionalEmailOptions()
-            // pinned: analytics event name
             posthog.capture('transactional_webhook_add_opened')
         },
         closeAddModal: () => {
             actions.resetWebhookForm()
         },
         submitWebhookFormSuccess: () => {
-            // pinned: analytics event name
             posthog.capture('transactional_webhook_created', {
                 event_count: values.webhookForm.events.length,
                 email_filter_count: values.webhookForm.workflowIds.length,
@@ -284,9 +279,7 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             hogFunctionsListLogic.findMounted(DELIVERY_WEBHOOK_LIST_PROPS)?.actions.loadHogFunctions()
         },
         enableEngagementEvents: () => {
-            // pinned: analytics event name
             posthog.capture('transactional_webhook_engagement_events_enabled')
-            // The API merges a partial config, so sending one key cannot overwrite a setting changed in another tab.
             actions.updateCurrentTeam({ workflows_config: { capture_workflows_engagement_events: true } })
         },
     })),

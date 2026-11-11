@@ -79,7 +79,6 @@ function WebhooksStory({ engagementEvents, addOpen }: { engagementEvents: boolea
             openAddModal()
         }
     }, [engagementEvents, addOpen, loadCurrentTeamSuccess, openAddModal])
-    // 520px is the scene width left by a 1280px window with the side panel open.
     return (
         <div className="max-w-[520px]">
             <TransactionalWebhooks />

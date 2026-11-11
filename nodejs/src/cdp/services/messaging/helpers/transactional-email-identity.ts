@@ -4,7 +4,6 @@ export type TransactionalEmailIdentity = {
 }
 
 export const transactionalEmailIdentity = (
-    // Node reads saved workflows without parsing them, so a value of the wrong type can reach here.
     config: { template_uuid?: unknown; template_key?: unknown } | undefined
 ): TransactionalEmailIdentity => ({
     ...(typeof config?.template_uuid === 'string' && config.template_uuid
