@@ -128,7 +128,7 @@ class FakeCdpApi:
             stored_fingerprint, reply = self._idempotency_keys[key]
             if stored_fingerprint != fingerprint:
                 return 422, {}, json.dumps({"error": "idempotency_key_reused"})
-            return 202, {}, json.dumps({"status": "queued", "invocation_id": reply["invocation_id"], "replayed": True})
+            return 202, {}, json.dumps({"status": "queued", "replayed": True, **reply})
         self._queued.append(payload)
         reply = {"invocation_id": f"invocation-{len(self._queued)}", **self._sender_kind(send)}
         if key is not None:
@@ -1081,9 +1081,15 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["message_id"] == "invocation-1"
         assert [warning["setup_url"] for warning in response.json()["warnings"]] == [self._setup_url(unverified)]
 
-    @parameterized.expand([("the_team_verifies_a_sender", True), ("the_team_removes_its_verified_sender", False)])
-    def test_a_send_retried_after_the_team_changes_its_sender_replays_the_first_send_without_a_warning(
-        self, mock_post, _flag, _capture, _name, starts_on_the_sandbox
+    @parameterized.expand(
+        [
+            ("before_the_team_verifies_a_sender", True, None, True),
+            ("after_the_team_verifies_a_sender", True, "verify", False),
+            ("after_the_team_removes_its_verified_sender", False, "remove", False),
+        ]
+    )
+    def test_a_send_retried_with_the_same_key_replays_the_first_send(
+        self, mock_post, _flag, _capture, _name, starts_on_the_sandbox, change, retry_warned
     ):
         own_sender_id = self.sender.id
         if starts_on_the_sandbox:
@@ -1093,20 +1099,23 @@ class TestTransactionalEmail(APIBaseTest):
 
         with FakeCdpApi().serving(mock_post) as cdp:
             first = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
-            if starts_on_the_sandbox:
+            if change == "verify":
                 Integration.objects.create(
                     team=self.team, kind="email", integration_id="hello@example.org", config={"verified": True}
                 )
-            else:
+            elif change == "remove":
                 self._without_a_verified_sender(unverified_sender=False)
             retry = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
 
         assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
-        assert [warning["code"] for warning in first.json().get("warnings", [])] == (
-            ["sandbox_sender"] if starts_on_the_sandbox else []
-        )
+        first_warnings = first.json().get("warnings", [])
+        assert [warning["code"] for warning in first_warnings] == (["sandbox_sender"] if starts_on_the_sandbox else [])
         assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
-        assert retry.json() == {"message_id": first.json()["message_id"], "replayed": True}
+        assert retry.json() == {
+            "message_id": first.json()["message_id"],
+            "replayed": True,
+            **({"warnings": first_warnings} if retry_warned else {}),
+        }
         first_sender = self._sandbox_senders()[0].id if starts_on_the_sandbox else own_sender_id
         assert [email["from"] for email in cdp.emails()] == [{"integrationId": first_sender}]
 
