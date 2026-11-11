@@ -100,7 +100,7 @@ import {
 import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
-import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
+import { INBOX_REPORT_READY_EVENT, SAMPLE_GLOBALS_CONTEXTS, sampleInboxReportProperties } from './sampleGlobalsContexts'
 
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
@@ -1587,15 +1587,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                                     item_id: 'abcdef',
                                                 },
                                             }
-                                          : {
-                                                event: '$pageview',
-                                                properties: {
-                                                    $current_url: currentUrl,
-                                                    $browser: 'Chrome',
-                                                    $ip: '89.160.20.129',
-                                                    this_is_an_example_event: true,
-                                                },
-                                            }),
+                                          : contextId === 'inbox-reports'
+                                            ? {
+                                                  event: INBOX_REPORT_READY_EVENT,
+                                                  properties: sampleInboxReportProperties(
+                                                      `${window.location.origin}/project/${currentProject?.id}`
+                                                  ),
+                                              }
+                                            : {
+                                                  event: '$pageview',
+                                                  properties: {
+                                                      $current_url: currentUrl,
+                                                      $browser: 'Chrome',
+                                                      $ip: '89.160.20.129',
+                                                      this_is_an_example_event: true,
+                                                  },
+                                              }),
                               },
                               person:
                                   contextId !== 'error-tracking'

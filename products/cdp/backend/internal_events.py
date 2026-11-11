@@ -30,7 +30,7 @@ INBOX_REPORT_READY_EVENT = "$inbox_report_ready"
 # access to one of its resources. A destination may subscribe to one, but only a member who can read
 # that resource may create, edit, test, rerun, or read the logs of such a destination, and an API
 # key also needs the resource's read scope. Valued by the API scope object of that resource.
-READ_GATED_INTERNAL_EVENT_SCOPES: dict[str, str] = {INBOX_REPORT_READY_EVENT: "task"}
+READ_GATED_INTERNAL_EVENT_SCOPES: dict[str, str] = {INBOX_REPORT_READY_EVENT: "inbox"}
 
 
 def read_gated_internal_events(filters: object) -> set[str]:

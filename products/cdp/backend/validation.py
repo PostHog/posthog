@@ -23,7 +23,7 @@ from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import scopes_caller_lacks
+from posthog.permissions import get_authenticator_scopes, scopes_missing_after_legacy_fallback
 from posthog.scopes import APIScopeObject
 
 from products.actions.backend.facade.api import get_actions
@@ -1331,7 +1331,14 @@ def read_gated_access_denial(request: Any, user_access_control: Any, filters: An
     scopes = sorted(read_gated_internal_event_scopes(filters))
     if not scopes or request is None:
         return None
-    lacking_scopes = scopes_caller_lacks(request, [f"{scope}:read" for scope in scopes])
+    held_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    # Session auth and `*` keys carry the user's full authority. A legacy scope counts, as it does
+    # for the product's own API, so a key with `task:read` still reads the inbox.
+    lacking_scopes = (
+        []
+        if held_scopes is None or "*" in held_scopes
+        else scopes_missing_after_legacy_fallback(request, None, held_scopes, [f"{scope}:read" for scope in scopes])
+    )
     user = getattr(request, "user", None)
     # Synthetic principals (project secret API keys) bypass access control, so only their scopes count.
     denied_resources = (
@@ -1352,7 +1359,8 @@ def read_gated_access_denial(request: Any, user_access_control: Any, filters: An
     )
 
 
-READ_GATED_RESOURCE_NAMES = {"task": "Tasks"}
+# Access control governs the inbox through the Tasks rules.
+READ_GATED_RESOURCE_NAMES = {"inbox": "Tasks"}
 
 
 def dropped_read_gated_trigger(current_filters: Any, proposed_filters: Any) -> str | None:

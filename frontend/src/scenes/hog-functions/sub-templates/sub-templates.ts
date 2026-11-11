@@ -1947,7 +1947,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                                 type: 'mrkdwn',
                                 // verbatim stops Slack turning an `@channel` in a generated title into a ping.
                                 verbatim: true,
-                                text: 'New Inbox report: *{event.properties.title}*',
+                                text: `New Inbox report: *{${slackEscapeExpr('event.properties.title')}}*`,
                             },
                         },
                         {
@@ -1966,7 +1966,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                         },
                     ],
                 },
-                text: { value: 'New Inbox report: {event.properties.title}' },
+                text: { value: `New Inbox report: {${slackEscapeExpr('event.properties.title')}}` },
             },
         },
     ],

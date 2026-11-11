@@ -1762,11 +1762,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("without task:read", ["hog_function:write"], 400),
-            ("with task:read", ["hog_function:write", "task:read"], 201),
+            ("without inbox:read", ["hog_function:write"], 400),
+            ("with inbox:read", ["hog_function:write", "inbox:read"], 201),
+            ("with the legacy task:read", ["hog_function:write", "task:read"], 201),
         ]
     )
-    def test_inbox_report_destination_api_key_needs_task_read_scope(self, _name: str, scopes: list[str], expected: int):
+    def test_inbox_report_destination_api_key_needs_inbox_read_scope(
+        self, _name: str, scopes: list[str], expected: int
+    ):
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
