@@ -61377,6 +61377,8 @@ export namespace Schemas {
     export interface InboxOnboardingState {
       /** Whether this project can activate Self-driving without connecting GitHub. */
       github_optional_available?: boolean;
+      /** Canonical scout skill names that quick setup enables for this project, with the general scout first. */
+      setup_default_skills?: string[];
       /** Whether the current user can receive an in-app notification when this investigation finishes. */
       first_report_completion_notification?: boolean;
       /**
@@ -69807,6 +69809,44 @@ export namespace Schemas {
       labels?: MetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: MetricsPlatformAlertConfigurationEditAnnotations;
+    }
+
+    export interface MetricsRecordingRule {
+      /** Recording rule id. */
+      readonly id: string;
+      /**
+         * The metric the rule writes, in the level:metric:operations form, for example job:http_errors:rate5m. It must contain a colon and cannot change after create.
+         * @maxLength 200
+         */
+      metric_name: string;
+      /**
+         * A PromQL expression over this project's metrics that returns an instant vector or a scalar. Each series it returns is written as one series of `metric_name`, with the same labels.
+         * @maxLength 8192
+         */
+      query: string;
+      /** What the recorded metric means. */
+      description?: string;
+      /** When false, the rule is kept but not evaluated. */
+      enabled?: boolean;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last changed. */
+      readonly updated_at: string;
+      /**
+         * The minute the rule last wrote a result. Null until it first writes.
+         * @nullable
+         */
+      readonly last_evaluated_at: string | null;
+      /**
+         * How many series the last result had.
+         * @nullable
+         */
+      readonly last_series_count: number | null;
+      /**
+         * Why the last evaluation wrote nothing. Null when the last evaluation wrote a result.
+         * @nullable
+         */
+      readonly last_error: string | null;
     }
 
     export interface MetricsSuggestedDashboard {
@@ -88166,6 +88206,18 @@ export namespace Schemas {
       labels?: PatchedMetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: PatchedMetricsPlatformAlertConfigurationEditAnnotations;
+    }
+
+    export interface PatchedMetricsRecordingRuleUpdate {
+      /**
+         * A new PromQL expression for the rule.
+         * @maxLength 8192
+         */
+      query?: string;
+      /** What the recorded metric means. */
+      description?: string;
+      /** When false, the rule is kept but not evaluated. */
+      enabled?: boolean;
     }
 
     export interface PatchedMoveTileRequest {
