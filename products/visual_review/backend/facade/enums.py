@@ -154,6 +154,20 @@ class QuarantineLiftState(LabeledStrEnum):
     SUPERSEDED = "superseded", "superseded"
 
 
+class AutoQuarantineMode(LabeledStrEnum):
+    """Whether a repo quarantines a proven flaky snapshot, and lifts a quarantine that went clean, without a person.
+
+    The OpenAPI component name (AutoQuarantineModeEnum) derives from this class, so the field does
+    not collide with other products' `mode` enums. Each label repeats its value, because the API
+    documents these choices as plain values.
+    """
+
+    OFF = "off", "off"
+    # Finds proofs and clean streaks and records them in logs and analytics, and changes nothing
+    PREVIEW = "preview", "preview"
+    ON = "on", "on"
+
+
 class ToleratedReason(StrEnum):
     """Why a hash was tolerated."""
 

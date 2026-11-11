@@ -125,6 +125,88 @@ It works for Storybook runs only, and it is best effort: a story no team owns, a
 The task expires after 15 minutes in the queue, so a backed-up queue drops the notice instead of posting it late.
 The notice does not replace the weekly digest's expiry reminder: the digest lists a dated quarantine in the week before it runs out, and never lists one with no expiry.
 
+### Automatic quarantine
+
+A flaky story fails the gate of merge queue runs, and every pull request in the batch is kicked out until somebody quarantines it.
+Visual review can quarantine such a story itself, once trusted runs prove that it is flaky.
+
+A trusted run is a full run on the default branch without a pull request, or a full run on a merge queue branch (`trunk-merge/`).
+The default branch comes from GitHub, not from the branch name.
+When a trusted run finishes, the backend looks at the trusted runs of the same run type from the last `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
+
+One failure followed by a clean run is not enough.
+A pull request that broke the story and a later one that fixed or reverted it render the same way, and so does the default branch moving on between the two runs.
+A flake is proven only when the finishing run fails the story, and one of these holds:
+
+- **Same commit.** A clean run of the finishing run's commit rendered another picture against the same baseline. The code is identical, so only the rendering differs.
+- **Chain.** The story failed in run A, was clean in run B, and failed again in the finishing run C, where B's commit descends from A's and C's from B's. A deterministic story would need a break, a fix and a second break inside the window, all without a baseline edit.
+
+Tree order is plain git ancestry of the run commits, which GitHub answers; equal commits count.
+A default-branch run never descends from a merge queue run, because a squash merge writes new commits.
+The clean picture must differ from each failing picture, because a tolerated match of the failing picture is the same render.
+
+The finishing run's failing rows are read first, so a run that fails no story leaves after one query.
+Then up to `AUTO_QUARANTINE_RUNS_READ` window runs created before it or on its commit are read as possible ancestors.
+At most `AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY` candidate proofs are checked per story, built lazily and checked one at a time, and one evaluation stops after `AUTO_QUARANTINE_BUDGET_SECONDS`, leaving the rest to a later run.
+The decision is a pure function over the runs and the ancestry answers.
+Branch and pull request number are client-supplied, so before a proof counts, GitHub confirms where its runs came from: a default-branch run's commit must be in the default branch head, and a merge queue run must test the pull request its branch names.
+
+Guards:
+
+- Only `changed` counts. `new` and `removed` are problems of the baseline file.
+- The baseline of a failing run must be the default branch's baseline for the story, which the newest full default-branch run holds. A different baseline means the run's changes edited it, and the failure belongs to them.
+- An approved, tolerated, or quarantined result is no evidence either way.
+- At most `AUTO_QUARANTINE_MAX_STORIES_PER_RUN` stories are checked per finishing run.
+- At most `AUTO_QUARANTINE_DAILY_LIMIT` automatic quarantines per repository in 24 hours. Past that, a proof is logged and not applied, because many new flakes at once mean the capture harness regressed. The first proof the limit blocks in a window sends one Slack notice to whoever owns `products/visual_review/`, routed like the digest's items that no team owns.
+- The limit is counted again, and the story checked for an active quarantine, under a lock on the repository row, so two runs that finish together create one quarantine and stay within the limit.
+- A proof that is not applied is reported once per story per `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
+
+The check runs before the finishing run is counted, so when that run completes a proof, it passes.
+An error in the check is logged and never fails the run.
+
+`auto_quarantine_mode` on the repository decides what a proof does, and also covers [automatic release](#automatic-release):
+
+- `off`, the default: nothing is checked.
+- `preview`: each proof is logged and sent as a `vr_flake_proven` event, and nothing changes.
+- `on`: the story is quarantined for `AUTO_QUARANTINE_DAYS` with `source=auto`, the newest failing run as its source run, a reason that names the proof and its commits, and a notice to the owning team.
+
+Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
+
+### Automatic release
+
+Quarantines pile up, because a person has to come back and lift each one.
+Visual review lifts a quarantine by itself once trusted runs render its story clean for long enough.
+
+When a full default-branch run without a pull request finishes, a Celery task, `release clean quarantines`, checks every active quarantine of the run's type, whoever opened it.
+The task runs at most once an hour per repository and run type, and it checks with GitHub that the run is on the default branch.
+The window starts at the `AUTO_LIFT_CLEAN_RUNS`th newest completed full default-branch run, so it adapts to how busy the repository is.
+It ends at the finishing run, and newer runs stay out, because the lift records the finishing run's commit.
+With fewer default-branch runs than that, nothing lifts.
+A quarantine lifts when all of these hold:
+
+- It was created before the window started, so a quarantine somebody just opened is never lifted under them.
+- No stored trusted run since the window started, on the default branch or in the merge queue, rendered the story as anything but `unchanged`. A `changed`, `new` or `removed` row blocks, also one that a quarantine, an approval, or a toleration kept out of the gate.
+- Every default-branch run of the window rendered the story, so with no blocking row it was `unchanged` in each of them. The finishing run rendered it against a baseline.
+
+Merge queue runs are stored for 7 days and the window is usually longer, so a merge queue failure older than that is no longer visible: the evidence is the default-branch history, with the recent merge queue runs on top.
+The read counts only the rows that block, by a list of run ids, so it stays on the covering index.
+A second read counts the story's rows in the window's default-branch runs, by the same kind of list, on the unique run and identifier index.
+
+The run's branch name and commit come from the client, so before anything lifts, GitHub must confirm that the finishing run's commit is in the default branch's history.
+When it does not, or GitHub cannot say, nothing lifts and a warning is logged.
+
+The lift works like a manual one: every active row of the story ends, and `lifted_at_sha` is the finishing run's commit, so a branch that forked before it keeps the quarantine.
+`lift_reason` on the quarantine says why, for example "Lifted automatically: unchanged in the last 500 default-branch runs, since 1a2b3c4".
+A pending lift request on that quarantine is marked superseded the next time a default-branch run reconciles lift requests.
+No Slack notice goes out.
+A relapse needs nothing special: the story fails again, and automatic quarantine proves the flake again.
+
+The same `auto_quarantine_mode` decides what happens:
+
+- `off`: nothing is checked and no task is queued.
+- `preview`: each quarantine that would lift is logged and sent as a `vr_quarantine_clean` event, once per story per 24 hours, and nothing changes.
+- `on`: the quarantine lifts, and the log line and event record it.
+
 ## The flow
 
 ### Single-command flow (`vr submit`)
@@ -343,6 +425,5 @@ Variants recorded against a superseded baseline can never match again.
 
 **Not yet built:**
 
-- Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)
