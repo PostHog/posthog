@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 import { SMALL_MAPPING } from '../../test/parity/fixtures'
-import { detectCi } from './telemetry'
+import { detectCi } from './ci'
 
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
 const ON = { telemetryToken: 'phc_test' }
@@ -63,6 +63,7 @@ describe('telemetry', () => {
         ['with no identity cache', {}],
         // A broken cache must not fail the command.
         ['with a cache that is not an object', { '/home/test/.posthog/hog-telemetry-identity.json': 'null' }],
+        ['with a broken cache entry', { '/home/test/.posthog/hog-telemetry-identity.json': '{"other": null}' }],
     ])(
         'a PostHog Cloud key ties events to its user and groups, and hog looks them up once, %s',
         async (_name, files) => {
@@ -208,5 +209,39 @@ describe('telemetry', () => {
             ['error_tracking_cli_sourcemaps_upload_finished', 'proguard', 1],
         ])
         expect(uploads[1]!.properties).toMatchObject({ success: true, skipped_already_present: 1, uploaded: 0 })
+    })
+
+    test('a command that needs no credentials never opens the keychain for telemetry', async () => {
+        let keychainReads = 0
+        const result = await runHog(['commands'], {
+            ...ON,
+            env: { CLAUDECODE: '1' },
+            files: {
+                '/home/test/.config/hog/settings.json': JSON.stringify({
+                    logins: {
+                        'https://us.posthog.com': {
+                            store: 'keychain',
+                            type: 'personal_api_key',
+                            projectId: '1',
+                            host: 'https://us.posthog.com',
+                        },
+                    },
+                    host: 'https://us.posthog.com',
+                }),
+            },
+            secrets: () => ({
+                get: async () => {
+                    keychainReads++
+                    return null
+                },
+                set: async () => {},
+                delete: async () => true,
+            }),
+            respond: () => ({ status: 200, body: {} }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(events(result).length).toBeGreaterThan(0)
+        expect(keychainReads).toBe(0)
     })
 })

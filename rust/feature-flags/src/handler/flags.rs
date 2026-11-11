@@ -10,10 +10,10 @@ use crate::{
         flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList},
         flag_service::FlagService,
     },
+    team::team_models::Team,
     utils::user_agent::{RuntimeType, UserAgentInfo},
 };
 use axum::extract::State;
-use chrono_tz::Tz;
 use common_types::TeamId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -388,9 +388,7 @@ fn collect_excluded_by_tags(
 #[allow(clippy::too_many_arguments)]
 pub async fn evaluate_for_request(
     state: &State<router::State>,
-    team_id: i32,
-    team_timezone: Tz,
-    use_explicit_exact_matching: bool,
+    team: &Team,
     distinct_id: String,
     device_id: Option<String>,
     filtered_flags: FeatureFlagList,
@@ -426,8 +424,10 @@ pub async fn evaluate_for_request(
         });
 
         let ctx = FeatureFlagEvaluationContext {
-            team_id,
-            team_timezone,
+            team_id: team.id,
+            // Interpret naive datetime filter values in the team timezone so flag
+            // evaluation matches HogQL/ClickHouse cohort membership.
+            team_timezone: team.parsed_timezone(),
             distinct_id,
             device_id,
             feature_flags: filtered_flags,
@@ -452,11 +452,9 @@ pub async fn evaluate_for_request(
                 || only_use_override_person_properties.unwrap_or(false)
                 || *state.config.skip_writes,
             cohort_membership_provider: state.cohort_membership_provider.clone(),
-            enable_realtime_cohort_evaluation: state
-                .config
-                .realtime_cohort_evaluation_team_ids
-                .includes_team(team_id),
-            use_explicit_exact_matching,
+            enable_realtime_cohort_evaluation: team
+                .evaluates_realtime_cohorts(&state.config.realtime_cohort_evaluation_team_ids),
+            use_explicit_exact_matching: team.property_matching_version.uses_explicit_matching(),
             membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
             detailed_analysis: detailed_analysis.unwrap_or(false),
             only_use_override_person_properties: only_use_override_person_properties
@@ -731,6 +729,7 @@ mod tests {
             "posthog-ruby2.0.0",
             "posthog-rails/3.18.0",
             "posthog-php/3.0.0",
+            "posthog-laravel/0.1.0",
             "posthog-java/1.0.0",
             "posthog-server/1.0.0",
             "posthog-go/0.1.0",

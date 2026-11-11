@@ -7,8 +7,6 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.utils import timezone
 
-from parameterized import parameterized
-
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -162,67 +160,16 @@ class TestSetupPlanEndpoint(APIBaseTest):
         assert response.status_code in (403, 404)
 
 
-class TestSetupPlanFeatureFlag(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.url = f"/api/projects/{self.team.pk}/marketing_analytics/setup_plan"
-        cache.clear()
-
-    @parameterized.expand(
-        [
-            (False, False, False),
-            (False, False, True),
-            (False, True, False),
-            (True, False, False),
-            (True, True, True),
-        ]
-    )
-    def test_setup_availability(self, setup: bool, onboarding: bool, mcp: bool) -> None:
-        flags = {
-            "marketing-analytics-setup": setup,
-            "marketing-analytics-source-onboarding": onboarding,
-            "marketing-analytics-setup-plan-mcp": mcp,
-        }
+class TestSetupPlanAvailability(APIBaseTest):
+    def test_the_plan_needs_no_feature_flag(self) -> None:
         with (
-            patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flags[flag]),
+            patch(_FLAG_TARGET, return_value=False),
             patch(_PLAN_TARGET, return_value=_plan()) as build,
         ):
-            response = self.client.get(self.url)
+            response = self.client.get(f"/api/projects/{self.team.pk}/marketing_analytics/setup_plan")
 
-        assert response.status_code == (200 if setup or onboarding or mcp else 404)
-        assert build.call_count == int(setup or onboarding or mcp)
-
-    def test_marketing_access_does_not_enable_source_onboarding(self) -> None:
-        with (
-            patch(_FLAG_TARGET, side_effect=lambda flag, *args, **kwargs: flag == "marketing-analytics"),
-            patch(_PLAN_TARGET) as build,
-        ):
-            response = self.client.get(self.url)
-
-        assert response.status_code == 404
-        build.assert_not_called()
-
-    def test_the_flag_is_evaluated_once_per_request(self):
-        # A second call in the same request would fire a redundant `$feature_flag_called`.
-        with patch(_FLAG_TARGET, return_value=True) as flag, patch(_PLAN_TARGET, return_value=_plan()):
-            self.client.get(self.url)
-
-        assert flag.call_count == 1
-
-    def test_the_flag_is_evaluated_for_the_requesting_person(self):
-        # The flag targets people, and the frontend renders the Setup tab off that same
-        # per-person answer. Evaluating it against the team instead answers for nobody, so
-        # the tab lands on an endpoint that 404s. Two people to also catch an answer
-        # cached somewhere that outlives one request.
-        other_user = User.objects.create_and_join(self.organization, "second@posthog.com", None)
-
-        with patch(_FLAG_TARGET, return_value=True) as flag, patch(_PLAN_TARGET, return_value=_plan()):
-            self.client.get(self.url)
-            self.client.force_login(other_user)
-            self.client.get(self.url)
-
-        assert [call.args[1] for call in flag.call_args_list] == [self.user.distinct_id, other_user.distinct_id]
-        assert flag.call_args.kwargs["groups"] == {"organization": str(self.team.organization.id)}
+        assert response.status_code == 200
+        build.assert_called_once()
 
 
 def _clean_plan() -> SetupPlan:

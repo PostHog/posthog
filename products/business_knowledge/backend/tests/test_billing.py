@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from uuid import UUID
 
 from posthog.test.base import BaseTest
@@ -11,6 +12,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.business_knowledge.backend import billing, logic
+from products.business_knowledge.backend.facade import api as facade_api
 from products.business_knowledge.backend.llm_telemetry import RetrievalTrace, stable_trace_id
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
@@ -186,3 +188,36 @@ class TestRetrievalMetering(_UsageTest):
     def test_stable_trace_ids_repeat_for_the_same_parts_only(self) -> None:
         assert stable_trace_id("a", 1) == stable_trace_id("a", 1)
         assert stable_trace_id("a", 1) != stable_trace_id("a", 2)
+
+
+class TestUsageByTeam(_UsageTest):
+    PERIOD_START = datetime(2026, 1, 2, tzinfo=UTC)
+    PERIOD_END = datetime(2026, 1, 3, tzinfo=UTC)
+
+    def _record(self, usage_key: KnowledgeUsageKey, quantity: int, created_at: datetime, team_id: int) -> None:
+        row = KnowledgeUsageRecord.objects.unscoped().create(
+            team_id=team_id, usage_key=usage_key, quantity=quantity, surface="text"
+        )
+        # `created_at` is set on insert, so move the row into the period afterwards.
+        KnowledgeUsageRecord.objects.unscoped().filter(id=row.id).update(created_at=created_at)
+
+    def test_sums_each_meter_per_team_for_rows_written_in_the_period(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other project")
+        inside = datetime(2026, 1, 2, 12, tzinfo=UTC)
+        self._record(KnowledgeUsageKey.CHUNKS, 3, inside, self.team.id)
+        self._record(KnowledgeUsageKey.CHUNKS, 4, inside, self.team.id)
+        self._record(KnowledgeUsageKey.QUERIES, 1, inside, self.team.id)
+        self._record(KnowledgeUsageKey.QUERIES, 1, inside, other.id)
+        self._record(KnowledgeUsageKey.CHUNKS, 9, datetime(2026, 1, 1, 23, 59, tzinfo=UTC), self.team.id)
+        self._record(KnowledgeUsageKey.QUERIES, 1, self.PERIOD_END, self.team.id)
+
+        usage = facade_api.get_usage_by_team(self.PERIOD_START, self.PERIOD_END)
+
+        assert usage.chunks == [(self.team.id, 7)]
+        assert sorted(usage.queries) == sorted([(self.team.id, 1), (other.id, 1)])
+
+    def test_no_usage_returns_empty_meters(self) -> None:
+        usage = facade_api.get_usage_by_team(self.PERIOD_START, self.PERIOD_END)
+
+        assert usage.chunks == []
+        assert usage.queries == []

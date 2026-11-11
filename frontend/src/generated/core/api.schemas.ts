@@ -31,6 +31,84 @@ export interface ConnectedAppApi {
     is_self_registered: boolean
 }
 
+export interface DeviceApprovalApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+    /** The project the token is scoped to. */
+    project_id: number
+    /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+    scopes?: string[]
+}
+
+/**
+ * * `authorized` - Authorized
+ * * `denied` - Denied
+ */
+export type DeviceDecisionEnumApi = (typeof DeviceDecisionEnumApi)[keyof typeof DeviceDecisionEnumApi]
+
+export const DeviceDecisionEnumApi = {
+    Authorized: 'authorized',
+    Denied: 'denied',
+} as const
+
+export interface DeviceDecisionApi {
+    /** The device grant's status after the decision.
+     *
+     * * `authorized` - Authorized
+     * * `denied` - Denied */
+    status: DeviceDecisionEnumApi
+}
+
+export interface DeviceUserCodeApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+}
+
+export interface GrantedScopesApi {
+    /**
+     * The project these scopes work in. Null when the connection is not limited to projects.
+     * @nullable
+     */
+    project_id: number | null
+    /**
+     * The organization these scopes work in, for a connection limited to organizations. Null when the connection is not limited to organizations.
+     * @nullable
+     */
+    organization_id: string | null
+    /** The scopes granted in the project. */
+    scopes: string[]
+}
+
+export interface DeviceGrantDetailsApi {
+    /** The code, in the form the device shows it. */
+    user_code: string
+    /** The client that started the device grant. */
+    client_id: string
+    /** The client's display name. */
+    client_name: string
+    /**
+     * The client's logo, if it declared one.
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Whether PostHog has verified the client. */
+    is_verified: boolean
+    /** The scopes the token will carry if the person approves. */
+    scopes: string[]
+    /** The requested scopes the person can't leave out: the client's required scopes, the scopes the client marked as required when it started the grant, such as the new scopes of a step-up, and identity scopes such as `openid`. */
+    required_scopes: string[]
+    /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones. */
+    granted_scopes: GrantedScopesApi[]
+    /** When the code expires. */
+    expires_at: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -1842,6 +1920,13 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {
@@ -2015,6 +2100,7 @@ export interface ProjectCreateRequestApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -2863,6 +2949,11 @@ export interface ProjectBackwardCompatApi {
     readonly id: number
     readonly organization: string
     /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved: boolean | null
+    /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
@@ -3011,6 +3102,7 @@ export interface ProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -3753,6 +3845,11 @@ export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
     readonly organization?: string
     /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved?: boolean | null
+    /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
@@ -3901,6 +3998,7 @@ export interface PatchedProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -5373,6 +5471,16 @@ export const PropertyTypeEnumApi = {
     Duration: 'Duration',
 } as const
 
+export type PropertyDefinitionTypeNameEnumApi =
+    (typeof PropertyDefinitionTypeNameEnumApi)[keyof typeof PropertyDefinitionTypeNameEnumApi]
+
+export const PropertyDefinitionTypeNameEnumApi = {
+    Event: 'event',
+    Person: 'person',
+    Group: 'group',
+    Session: 'session',
+} as const
+
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -5396,6 +5504,13 @@ export interface EnterprisePropertyDefinitionApi {
     hidden?: boolean | null
     /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
     readonly warehouse_origin: unknown
+    /** Kind of property: an event, person, group or session property. */
+    readonly type: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Group type index of a group property, null for every other type.
+     * @nullable
+     */
+    readonly group_type_index: number | null
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -5430,6 +5545,13 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     hidden?: boolean | null
     /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
     readonly warehouse_origin?: unknown
+    /** Kind of property: an event, person, group or session property. */
+    readonly type?: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Group type index of a group property, null for every other type.
+     * @nullable
+     */
+    readonly group_type_index?: number | null
 }
 
 /**
@@ -5478,6 +5600,57 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface PropertyUsageEntryApi {
+    /** Property definition type the name belongs to.
+     *
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
+    type?: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Property name, for example `$current_url`.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
+}
+
+export interface PropertyUsageMetricsRequestApi {
+    /** Properties to fetch 30-day query usage for, at most 100 per request. */
+    properties: PropertyUsageEntryApi[]
+}
+
+export interface PropertyUsageMetricsItemApi {
+    /** Property definition type the name belongs to.
+     *
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
+    type: PropertyDefinitionTypeNameEnumApi
+    /** Property name. */
+    name: string
+    /**
+     * Group type index of a group property, null for other types.
+     * @nullable
+     */
+    group_type_index: number | null
+    /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+    query_usage_30_day: number
+}
+
+export interface PropertyUsageMetricsResponseApi {
+    /** One entry per requested property, in request order. */
+    results: PropertyUsageMetricsItemApi[]
 }
 
 export interface SearchIntentRequestApi {
@@ -5677,6 +5850,369 @@ export interface UploadedMediaUploadStartedApi {
     readonly form_fields: UploadedMediaUploadStartedApiFormFields
     /** Seconds before upload_url expires. */
     readonly expires_in: number
+}
+
+/**
+ * * `github_actions` - GitHub Actions
+ * * `gitlab` - GitLab
+ * * `depot_ci` - Depot CI
+ */
+export type WorkloadProviderKeyEnumApi = (typeof WorkloadProviderKeyEnumApi)[keyof typeof WorkloadProviderKeyEnumApi]
+
+export const WorkloadProviderKeyEnumApi = {
+    GithubActions: 'github_actions',
+    Gitlab: 'gitlab',
+    DepotCi: 'depot_ci',
+} as const
+
+/**
+ * The label of each condition claim the provider allows, keyed by claim name.
+ */
+export type WorkloadClaimLabelsApiConditions = { [key: string]: string }
+
+export interface WorkloadClaimLabelsApi {
+    /** What the provider calls the subject, for example Repository ID. */
+    subject: string
+    /** What the provider calls the subject name, for example Repository. */
+    subject_name: string
+    /** The label of each condition claim the provider allows, keyed by claim name. */
+    conditions: WorkloadClaimLabelsApiConditions
+}
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type WorkloadTrustPolicyApiConditions = { [key: string]: string }
+
+export interface WorkloadTrustPolicyApi {
+    readonly id: string
+    /**
+     * A name that says what the policy is for.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer: string
+    /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
+    readonly provider: WorkloadProviderKeyEnumApi
+    /**
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+     * @maxLength 255
+     */
+    subject_name: string
+    /**
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+     * @maxLength 255
+     */
+    subject: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: WorkloadTrustPolicyApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels: WorkloadClaimLabelsApi
+    /**
+     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+     * @items.maxLength 100
+     */
+    scopes: string[]
+    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+    enabled?: boolean
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedWorkloadTrustPolicyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkloadTrustPolicyApi[]
+}
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type PatchedWorkloadTrustPolicyApiConditions = { [key: string]: string }
+
+export interface PatchedWorkloadTrustPolicyApi {
+    readonly id?: string
+    /**
+     * A name that says what the policy is for.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer?: string
+    /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
+    readonly provider?: WorkloadProviderKeyEnumApi
+    /**
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+     * @maxLength 255
+     */
+    subject_name?: string
+    /**
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+     * @maxLength 255
+     */
+    subject?: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: PatchedWorkloadTrustPolicyApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels?: WorkloadClaimLabelsApi
+    /**
+     * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
+     * @items.maxLength 100
+     */
+    scopes?: string[]
+    /** Whether the policy can mint tokens. Disabling it cuts off its tokens. */
+    enabled?: boolean
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
+ */
+export type WorkloadProvidersResponseApiRiskyScopes = { [key: string]: string }
+
+export interface WorkloadClaimApi {
+    /** The claim's name in the provider's OIDC token. */
+    name: string
+    /** What to call the claim in the UI. */
+    label: string
+    /** A hint that says where to find the claim's value. */
+    help_text: string
+    /** An example value to show in an empty field. */
+    placeholder: string
+}
+
+/**
+ * Claim name to value. {value} stands for what the person types into the preset's field.
+ */
+export type ConditionPresetApiConditions = { [key: string]: string }
+
+export interface ConditionPresetApi {
+    /** Stable identifier of the preset within its provider. */
+    key: string
+    /** What the UI calls the preset, like Pushes to a branch. */
+    label: string
+    /** What runs the preset matches. */
+    help_text: string
+    /** Claim name to value. {value} stands for what the person types into the preset's field. */
+    readonly conditions: ConditionPresetApiConditions
+    /** Whether the preset has a field to type a value into. */
+    takes_value: boolean
+    /** An example value for the preset's field. */
+    placeholder: string
+    /** The value the preset's field starts with. */
+    default_value: string
+}
+
+export interface ConditionCompanionsApi {
+    /** Condition claims a policy may set only with a companion. */
+    claims: string[]
+    /** Claims of which a policy must set at least one beside them. */
+    companions: string[]
+    /** Why the claims need a companion, to show the person. */
+    reason: string
+}
+
+/**
+ * Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works.
+ */
+export type WorkloadProviderApiSubjectLookupConditions = { [key: string]: string }
+
+export interface WorkloadProviderApi {
+    /** Stable identifier of the provider.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
+    key: WorkloadProviderKeyEnumApi
+    /** Display name of the provider. */
+    name: string
+    /** OIDC issuer a policy for this provider uses. */
+    issuer: string
+    /** Where to read how to set the provider up. */
+    docs_url: string
+    /** The claim that carries the workload's immutable ID. */
+    subject_claim: WorkloadClaimApi
+    /** The claim that carries the workload's readable name. */
+    subject_name_claim: WorkloadClaimApi
+    /** The claims a policy can require an exact value for, in display order. */
+    condition_claims: WorkloadClaimApi[]
+    /** Condition claims every policy for this provider must set. */
+    required_condition_claims: string[]
+    /** Condition claims that name the account and match every run, so they never limit which runs get a token. */
+    account_condition_claims: string[]
+    /** Common choices of conditions to offer before the raw claims, in display order. */
+    condition_presets: ConditionPresetApi[]
+    /** Rules for condition claims that a policy may set only together with another claim. */
+    condition_companions: ConditionCompanionsApi[]
+    /** Keys of the presets that set a condition claim every policy must set. */
+    required_presets: string[]
+    /** Keys of the presets a new policy starts with, in display order. */
+    default_presets: string[]
+    /** Whether PostHog can look up the subject from its name with resolve_subject. */
+    readonly can_resolve_subject: boolean
+    /** Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works. */
+    readonly subject_lookup_conditions: WorkloadProviderApiSubjectLookupConditions
+    /** The CI config a job needs to get a token for PostHog, empty when the provider has none. */
+    readonly setup_snippet: string
+}
+
+export interface WorkloadJobSettingsApi {
+    /** The PostHog address a job sends its token to, which is its audience. */
+    host: string
+    /** The project a job's token works in. */
+    project_id: number
+    /** Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST. */
+    host_in_posthog_json: boolean
+}
+
+export interface WorkloadProvidersResponseApi {
+    /** Providers a policy can trust. */
+    supported: WorkloadProviderApi[]
+    /** Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID. */
+    job_settings: WorkloadJobSettingsApi
+    /** Every scope a policy's ceiling may hold. */
+    grantable_scopes: string[]
+    /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
+    risky_scopes: WorkloadProvidersResponseApiRiskyScopes
+}
+
+export type WorkloadTrustPolicyRequestStatusEnumApi =
+    (typeof WorkloadTrustPolicyRequestStatusEnumApi)[keyof typeof WorkloadTrustPolicyRequestStatusEnumApi]
+
+export const WorkloadTrustPolicyRequestStatusEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Expired: 'expired',
+} as const
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type WorkloadTrustPolicyRequestApiConditions = { [key: string]: string }
+
+/**
+ * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+ */
+export type WorkloadTrustPolicyRequestApiRiskyScopes = { [key: string]: string }
+
+export interface WorkloadTrustPolicyRequestApi {
+    readonly id: string
+    /**
+     * The name the policy gets once approved.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer: string
+    /** The key of the workload provider the issuer belongs to. PostHog sets it from the issuer.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
+    readonly provider: WorkloadProviderKeyEnumApi
+    /**
+     * The display name of the workload provider, or null.
+     * @nullable
+     */
+    readonly provider_name: string | null
+    /**
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+     * @maxLength 255
+     */
+    subject_name: string
+    /**
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+     * @maxLength 255
+     */
+    subject: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: WorkloadTrustPolicyRequestApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels: WorkloadClaimLabelsApi
+    /**
+     * The scopes the policy's tokens would carry.
+     * @items.maxLength 100
+     */
+    scopes: string[]
+    /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+    readonly risky_scopes: WorkloadTrustPolicyRequestApiRiskyScopes
+    /** Where the request stands. A request expires after 24 hours. */
+    readonly status: WorkloadTrustPolicyRequestStatusEnumApi
+    /** The link to send to an admin to approve the request. */
+    readonly approval_url: string
+    /** Whether the current user's role lets them approve the request, in the browser. */
+    readonly can_approve: boolean
+    /** Names of the organization admins and owners who can approve, when the current user cannot. */
+    readonly approvers: readonly string[]
+    readonly requested_by: UserBasicApi | null
+    /**
+     * The name of the OAuth app the request came through, or null for other credentials.
+     * @nullable
+     */
+    readonly requested_via: string | null
+    /**
+     * Whether PostHog verified the OAuth app the request came through, or null for other credentials.
+     * @nullable
+     */
+    readonly requested_via_verified: boolean | null
+    /** When the request was made. */
+    readonly created_at: string
+    /** When a pending request stops being approvable. */
+    readonly expires_at: string
+    readonly resolved_by: UserBasicApi | null
+    /**
+     * When an admin approved or rejected the request.
+     * @nullable
+     */
+    readonly resolved_at: string | null
+    /**
+     * The policy created on approval.
+     * @nullable
+     */
+    readonly policy_id: string | null
+}
+
+export interface PaginatedWorkloadTrustPolicyRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkloadTrustPolicyRequestApi[]
+}
+
+export interface ResolvedWorkloadSubjectApi {
+    /** The workload's immutable ID, for the policy's subject. */
+    subject: string
+    /** The provider's exact spelling of the name, which the token carries, for the policy's subject name. */
+    subject_name: string
+    /** Where PostHog found the workload, to show the user. */
+    found_via: string
 }
 
 export interface LeakedKeyReportApi {
@@ -5936,6 +6472,19 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning: string | null
 }
 
 /**
@@ -6012,6 +6561,7 @@ export const ShortcutPositionEnumApi = {
  * * `other` - Other
  * * `provisioned` - Account provisioned by a partner
  * * `connector` - Signed up through an OAuth connector
+ * * `device_login` - Signed up through an OAuth device login
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -6022,6 +6572,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Other: 'other',
     Provisioned: 'provisioned',
     Connector: 'connector',
+    DeviceLogin: 'device_login',
 } as const
 
 /**
@@ -6653,18 +7204,6 @@ export const OnboardingSkipRequestReasonEnumApi = {
 } as const
 
 /**
- * * `legacy` - Default onboarding
- * * `simple` - Simple onboarding
- */
-export type OnboardingFlowVariantEnumApi =
-    (typeof OnboardingFlowVariantEnumApi)[keyof typeof OnboardingFlowVariantEnumApi]
-
-export const OnboardingFlowVariantEnumApi = {
-    Legacy: 'legacy',
-    Simple: 'simple',
-} as const
-
-/**
  * Request body for POST /api/users/{id}/onboarding/skip/.
  *
  * Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
@@ -6682,11 +7221,6 @@ export interface OnboardingSkipRequestApi {
      * @maxLength 64
      */
     step_at_skip?: string
-    /** Which onboarding flow the user skipped from, for analytics only.
-     *
-     * * `legacy` - Default onboarding
-     * * `simple` - Simple onboarding */
-    flow_variant?: OnboardingFlowVariantEnumApi
 }
 
 /**
@@ -7133,6 +7667,7 @@ export type PropertyDefinitionsListParams = {
     is_numerical?: boolean | null
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -7233,6 +7768,48 @@ export type UploadedMediaCreateBody = {
     image: Blob
     /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
     purpose?: UploadedMediaCreateBodyPurpose
+}
+
+export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WorkloadTrustPolicyRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams = {
+    /**
+     * The policy's conditions as claim=value, repeated. PostHog refuses a lookup they rule out, like a repository on a forge the lookup doesn't ask.
+     * @items.maxLength 500
+     */
+    condition?: string[]
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @minLength 1
+     * @maxLength 255
+     */
+    issuer: string
+    /**
+     * The name people know the workload by, from the provider's subject name claim, for example owner/repo.
+     * @minLength 1
+     * @maxLength 255
+     */
+    subject_name: string
 }
 
 export type UsersListParams = {

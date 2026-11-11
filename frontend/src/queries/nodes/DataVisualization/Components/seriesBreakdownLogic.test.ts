@@ -222,32 +222,35 @@ describe('seriesBreakdownLogic', () => {
         })
     })
 
-    it('deletes a series breakdown when clearAxis is called', async () => {
-        logic = seriesBreakdownLogic({ key: testUniqueKey })
-        logic.mount()
+    it.each([{ breakdownLogicMounted: true }, { breakdownLogicMounted: false }])(
+        'deletes a series breakdown when clearAxis is called (breakdown logic mounted: $breakdownLogicMounted)',
+        async ({ breakdownLogicMounted }) => {
+            logic = seriesBreakdownLogic({ key: testUniqueKey })
+            logic.mount()
 
-        logic.actions.addSeriesBreakdown('test_column')
+            logic.actions.addSeriesBreakdown('test_column')
+            if (!breakdownLogicMounted) {
+                logic.unmount()
+            }
 
-        logic.actions.clearAxis()
-        await expectLogic(logic).toMatchValues({
-            showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: undefined,
-        })
+            builtDataVizLogic.actions.clearAxis()
+            await expectLogic(builtDataVizLogic).toFinishAllListeners()
 
-        expect(globalQuery).toEqual({
-            ...makeInitialQuery(),
-            tableSettings: {
-                columns: [],
-                conditionalFormatting: [],
-            },
-            chartSettings: {
-                goalLines: undefined,
-                seriesBreakdownColumn: undefined,
-                xAxis: undefined,
-                yAxis: [],
-            },
-        })
-    })
+            expect(globalQuery).toEqual({
+                ...makeInitialQuery(),
+                tableSettings: {
+                    columns: [],
+                    conditionalFormatting: [],
+                },
+                chartSettings: {
+                    goalLines: undefined,
+                    seriesBreakdownColumn: undefined,
+                    xAxis: undefined,
+                    yAxis: [],
+                },
+            })
+        }
+    )
 
     it('computes the correct data', async () => {
         logic = seriesBreakdownLogic({ key: testUniqueKey })

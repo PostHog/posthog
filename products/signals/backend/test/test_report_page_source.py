@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -80,6 +81,29 @@ class TestReportAccess(BaseTest):
 
 
 class TestReportAgentTexts(BaseTest):
+    @parameterized.expand([("analytics_query_context", []), ("restricted_to_user_id", None)])
+    def test_protected_notes_are_not_shared_figure_sources(self, restriction: str, value: object) -> None:
+        report = SignalReport.objects.create(team=self.team, title="Synthetic observation")
+        public = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "The public count was 12."}),
+            actor_kind=SignalActorKind.SYSTEM,
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.NOTE,
+            content=json.dumps({"note": "The private count was 17.", restriction: value}),
+            actor_kind=SignalActorKind.TASK,
+        )
+
+        texts = report_agent_texts(team=self.team, report_id=str(report.id), types=["note"])
+
+        assert [text.artefact_id for text in texts] == [str(public.id)]
+        assert "private count" not in texts[0].content
+
     def test_returns_the_newest_texts_an_agent_wrote(self) -> None:
         report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=1, total_weight=1.0

@@ -9,7 +9,10 @@
                 "backend/tasks/**",
                 "backend/models.py",
                 "backend/migrations/**",
-                "backend/routes.py"
+                "backend/routes.py",
+                "backend/apps.py",
+                "backend/task_profiles.py",
+                "backend/console.py"
             ],
             "outputs": [],
             "cache": true

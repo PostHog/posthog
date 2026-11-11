@@ -11,7 +11,12 @@ import type {
 import { parseJSON } from '~/common/utils/json-parse'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 
-import { PersonHogPersonOperations, PersonhogFencedError, PersonhogPropertiesSizeError } from './persons'
+import {
+    PersonHogPersonOperations,
+    PersonhogFencedError,
+    PersonhogPersonNotFoundError,
+    PersonhogPropertiesSizeError,
+} from './persons'
 
 const textEncoder = new TextEncoder()
 
@@ -279,7 +284,11 @@ describe('PersonHogPersonOperations', () => {
                     throw new ConnectError('person 42 not found', Code.NotFound)
                 },
             })
-            await expect(notFoundOps.updatePersonProperties(foldedUpdate)).rejects.toBeInstanceOf(NoRowsUpdatedError)
+            const notFoundError = await notFoundOps.updatePersonProperties(foldedUpdate).catch((e) => e)
+            expect(notFoundError).toBeInstanceOf(PersonhogPersonNotFoundError)
+            expect(notFoundError).toBeInstanceOf(NoRowsUpdatedError)
+            expect(notFoundError.handledVerdict).toBe('person_not_found')
+            expect(notFoundError.personId).toBe('42')
 
             const { ops: tooBigOps } = createOperations({
                 updatePersonProperties: () => {

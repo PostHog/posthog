@@ -1742,6 +1742,19 @@ def replace_breakdown_sentinels_in_query(hogql_query: dict) -> dict:
     return {**hogql_query, "query": query_text}
 
 
+def _has_variable_placeholders(hogql_query: dict[str, Any]) -> bool:
+    query_str = hogql_query.get("query")
+    if not isinstance(query_str, str) or not query_str:
+        return False
+    try:
+        ast_node = parse_select(query_str)
+    except Exception:
+        return False
+    finder = VariablePlaceholderFinder()
+    finder.visit(ast_node)
+    return bool(finder.variable_placeholders)
+
+
 def build_endpoint_hogql(
     insight_query: dict,
     team: Team,
@@ -1761,9 +1774,12 @@ def build_endpoint_hogql(
     )
 
     if insight_query.get("variables"):
-        can_materialize, _reason, variable_infos = analyze_variables_for_materialization(
+        can_materialize, reason, variable_infos = analyze_variables_for_materialization(
             insight_query, bucket_overrides=bucket_overrides
         )
+        # Untransformed placeholders can't resolve at materialization time, so the run would fail.
+        if not can_materialize and _has_variable_placeholders(insight_query):
+            raise MaterializationNotSupportedError(reason)
         if can_materialize and variable_infos:
             hogql_query = transform_query_for_materialization(
                 hogql_query,

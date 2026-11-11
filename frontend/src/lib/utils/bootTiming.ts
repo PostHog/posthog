@@ -8,6 +8,7 @@ export type BootPhase =
     | 'app_modules_loaded'
     | 'css_ready'
     | 'app_booted'
+    | 'scene_prefetched'
     | 'app_first_render'
     | 'app_ready'
     | 'scene_loaded'
@@ -15,6 +16,7 @@ export type BootPhase =
 
 export interface BootContext {
     scene?: string
+    prefetched_scene?: string
     logged_in?: boolean
     deferred_app_context?: boolean
     deferred_app_context_variant?: string

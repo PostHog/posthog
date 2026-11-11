@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 
-import { runScenario, withoutRandomIds, type ParityResult } from './run'
+import { readGolden, runScenario, withoutRandomIds } from './run'
 import { SCENARIOS } from './scenarios'
 
 // Each golden is what posthog-cli sent to the fake server for the same files and flags
@@ -10,9 +8,7 @@ import { SCENARIOS } from './scenarios'
 // exit with the same code.
 describe('hog error-tracking sends what posthog-cli sends', () => {
     test.each(SCENARIOS.map((scenario) => [scenario.name, scenario] as const))('%s', async (name, scenario) => {
-        const golden = JSON.parse(
-            readFileSync(join(import.meta.dir, 'golden', 'e2e', `${name}.json`), 'utf8')
-        ) as ParityResult
+        const golden = readGolden(name)
         const result = await runScenario(scenario, 'hog')
         if (scenario.randomIds) {
             expect(withoutRandomIds(result)).toEqual(withoutRandomIds(golden))

@@ -1,5 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { CSSProperties, KeyboardEvent, PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+    CSSProperties,
+    KeyboardEvent,
+    PointerEvent,
+    UIEvent,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
 import { List, useListRef } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -21,6 +31,8 @@ import { rowSpanNode, type TraceDialogRow } from './traceDialogRows'
 import { TraceDialogSpanRow } from './TraceDialogSpanRow'
 
 const ROW_HEIGHT = 32
+// Matches `h-[28px]` on the pinned bar.
+const PINNED_BAR_HEIGHT = 28
 const LOAD_MORE_THRESHOLD = 10
 const SCROLL_KEYS = new Set(['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'End', 'Home', ' '])
 
@@ -132,12 +144,26 @@ function SpanChainOrRunRow({
     )
 }
 
-function scrolledPastAncestors(row: TraceDialogRow | undefined): TraceDialogRow[] {
+interface ScrollRows {
+    hiddenCount: number
+    probeIndex: number
+}
+
+function scrollRowsAt(scrollTop: number): ScrollRows {
+    return {
+        hiddenCount: Math.floor(scrollTop / ROW_HEIGHT),
+        probeIndex: Math.floor((scrollTop + PINNED_BAR_HEIGHT) / ROW_HEIGHT),
+    }
+}
+
+function scrolledPastAncestors(spanRows: TraceDialogRow[], { hiddenCount, probeIndex }: ScrollRows): TraceDialogRow[] {
     const ancestors: TraceDialogRow[] = []
-    for (let ancestor = row?.parentRow ?? null; ancestor; ancestor = ancestor.parentRow) {
+    for (let ancestor = spanRows[probeIndex]?.parentRow ?? null; ancestor; ancestor = ancestor.parentRow) {
         ancestors.push(ancestor)
     }
-    return ancestors.reverse()
+    ancestors.reverse()
+    const outermost = ancestors[0]
+    return outermost && spanRows.indexOf(outermost) < hiddenCount ? ancestors : []
 }
 
 function rowLabel(row: TraceDialogRow): string {
@@ -200,8 +226,31 @@ export function TraceDialogSpanTree({
             runsShown(surface)
         }
     }, [showsFoldedRuns, shownTraceCount, runsShown, surface])
-    const [topIndex, setTopIndex] = useState(0)
+    const [scrollRows, setScrollRows] = useState<ScrollRows>(() => scrollRowsAt(0))
+    const onListScroll = useCallback((event: UIEvent<HTMLDivElement>): void => {
+        const next = scrollRowsAt(event.currentTarget.scrollTop)
+        setScrollRows((current) =>
+            current.hiddenCount === next.hiddenCount && current.probeIndex === next.probeIndex ? current : next
+        )
+    }, [])
     const listRef = useListRef(null)
+
+    const scrollToRowClearOfBar = useCallback(
+        (index: number, align: 'smart' | 'start'): void => {
+            const list = listRef.current
+            list?.scrollToRow({ index, align })
+            const element = list?.element
+            if (!element) {
+                return
+            }
+            const rowTop = index * ROW_HEIGHT
+            const barShows = scrolledPastAncestors(spanRows, scrollRowsAt(element.scrollTop)).length > 0
+            if (barShows && rowTop < element.scrollTop + PINNED_BAR_HEIGHT) {
+                element.scrollTop = Math.max(rowTop - PINNED_BAR_HEIGHT, 0)
+            }
+        },
+        [listRef, spanRows]
+    )
 
     const openedIndex = useMemo(
         () =>
@@ -251,7 +300,6 @@ export function TraceDialogSpanTree({
     }, [pagingGuard, loadMoreAfterScroll])
     const onRowsRendered = useCallback(
         (visibleRows: { startIndex: number; stopIndex: number }): void => {
-            setTopIndex(visibleRows.startIndex)
             lastVisibleIndexRef.current = visibleRows.stopIndex
             loadMoreAfterScroll()
             if (openedIndex < 0 || revealedIndexRef.current === openedIndex) {
@@ -279,9 +327,9 @@ export function TraceDialogSpanTree({
         }
         const index = spanRows.findIndex((row) => rowSpanNode(row)?.span.span_id === selectedSpanId)
         if (index >= 0 && (selectedSpanId !== openedSpanId || revealedIndexRef.current !== null)) {
-            listRef.current?.scrollToRow({ index, align: 'smart' })
+            scrollToRowClearOfBar(index, 'smart')
         }
-    }, [spanRows, spanTree, selectedSpanId, openedSpanId, listRef])
+    }, [spanRows, spanTree, selectedSpanId, openedSpanId, scrollToRowClearOfBar])
     // The view's key handler stops J and K before the list sees them, so a step reaches the list as a new
     // selection. A new selection among the same spans counts as the person's own movement, so a step to the end
     // of the loaded spans pages too. New spans or a new trace do not count.
@@ -312,13 +360,48 @@ export function TraceDialogSpanTree({
             // The opened rows can move the opened span to a new index, which the reveal in `onRowsRendered`
             // reads as a span still to bring into view. The person steers the list now, so that reveal stops.
             revealedIndexRef.current = openedIndex
-            listRef.current.scrollToRow({ index: firstOperationRowIndex, align: 'start' })
+            scrollToRowClearOfBar(firstOperationRowIndex, 'start')
             scrolledOperationKeyRef.current = highlightedOperationKey
         }
-    }, [highlightedOperationKey, firstOperationRowIndex, openedIndex, listRef])
+    }, [highlightedOperationKey, firstOperationRowIndex, openedIndex, listRef, scrollToRowClearOfBar])
 
-    const pinnedAncestors = scrolledPastAncestors(spanRows[topIndex])
+    const pinnedAncestors = scrolledPastAncestors(spanRows, scrollRows)
     const hiddenAncestorCount = Math.max(pinnedAncestors.length - MAX_PINNED_ANCESTORS, 0)
+
+    // Sticky inside the scroll element so wheel scrolls reach the list; the negative margin stops it moving the rows.
+    const pinnedBar = pinnedAncestors.length > 0 && (
+        <div
+            className="sticky top-0 z-10 -mb-[28px] flex items-center gap-1 h-[28px] px-2 border-b text-xs text-muted bg-surface-secondary min-w-0 overflow-hidden"
+            data-attr="trace-dialog-pinned-ancestors"
+        >
+            <span className="shrink-0">Inside</span>
+            {hiddenAncestorCount > 0 && (
+                <span className="shrink-0">
+                    <span translate="no">{hiddenAncestorCount}</span> more ›
+                </span>
+            )}
+            {pinnedAncestors.slice(hiddenAncestorCount).map((ancestor, i) => {
+                const node = rowSpanNode(ancestor)
+                return node ? (
+                    <span key={node.span.span_id} className="flex items-center gap-1 min-w-0">
+                        {i > 0 && <span aria-hidden>›</span>}
+                        <button
+                            type="button"
+                            className="truncate font-mono text-primary hover:underline"
+                            onClick={() => {
+                                selectSpan(node.span.span_id)
+                                // Selecting an already selected span changes nothing the scroll effect watches.
+                                scrollToRowClearOfBar(spanRows.indexOf(ancestor), 'smart')
+                            }}
+                            translate="no"
+                        >
+                            {rowLabel(ancestor)}
+                        </button>
+                    </span>
+                ) : null
+            })}
+        </div>
+    )
 
     return (
         <div className="flex flex-col h-full min-h-0">
@@ -340,42 +423,6 @@ export function TraceDialogSpanTree({
                 </span>
                 <span className="w-20 shrink-0 px-2 text-right">Duration</span>
             </div>
-            {pinnedAncestors.length > 0 && (
-                <div
-                    className="flex items-center gap-1 h-7 px-2 border-b text-xs text-muted bg-surface-secondary min-w-0 overflow-hidden"
-                    data-attr="trace-dialog-pinned-ancestors"
-                >
-                    <span className="shrink-0">Inside</span>
-                    {hiddenAncestorCount > 0 && (
-                        <span className="shrink-0">
-                            <span translate="no">{hiddenAncestorCount}</span> more ›
-                        </span>
-                    )}
-                    {pinnedAncestors.slice(hiddenAncestorCount).map((ancestor, i) => {
-                        const node = rowSpanNode(ancestor)
-                        return node ? (
-                            <span key={node.span.span_id} className="flex items-center gap-1 min-w-0">
-                                {i > 0 && <span aria-hidden>›</span>}
-                                <button
-                                    type="button"
-                                    className="truncate font-mono text-primary hover:underline"
-                                    onClick={() => {
-                                        selectSpan(node.span.span_id)
-                                        // Selecting an already selected span changes nothing the scroll effect watches.
-                                        listRef.current?.scrollToRow({
-                                            index: spanRows.indexOf(ancestor),
-                                            align: 'smart',
-                                        })
-                                    }}
-                                    translate="no"
-                                >
-                                    {rowLabel(ancestor)}
-                                </button>
-                            </span>
-                        ) : null
-                    })}
-                </div>
-            )}
             <div className="flex-1 min-h-0">
                 <AutoSizer
                     renderProp={({ width, height }: SizeProps) => (
@@ -406,6 +453,7 @@ export function TraceDialogSpanTree({
                             }}
                             listRef={listRef}
                             onRowsRendered={onRowsRendered}
+                            onScroll={onListScroll}
                             onWheel={onPersonScroll}
                             onTouchMove={onPersonScroll}
                             onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
@@ -419,7 +467,9 @@ export function TraceDialogSpanTree({
                                     onPersonScroll()
                                 }
                             }}
-                        />
+                        >
+                            {pinnedBar}
+                        </List>
                     )}
                 />
             </div>

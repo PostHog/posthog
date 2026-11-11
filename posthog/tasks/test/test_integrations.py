@@ -11,7 +11,12 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.redis import get_client as get_redis_client
-from posthog.tasks.integrations import refresh_github_branch_cache, refresh_integration, refresh_integrations
+from posthog.tasks.integrations import (
+    delete_ses_identity_if_unused,
+    refresh_github_branch_cache,
+    refresh_integration,
+    refresh_integrations,
+)
 
 
 class TestIntegrationsTasks(APIBaseTest):
@@ -41,7 +46,10 @@ class TestIntegrationsTasks(APIBaseTest):
         with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
             refresh_integrations()
             # Both 3 and 4 should be refreshed
-            assert refresh_integration_mock.call_args_list == [((integration_3.id,),), ((integration_4.id,),)]
+            assert refresh_integration_mock.call_args_list == [
+                ((integration_3.id, self.team.id),),
+                ((integration_4.id, self.team.id),),
+            ]
 
     def test_refresh_integrations_excludes_resend(self) -> None:
         # Resend's refresh token is single-use and rotates on every refresh; the periodic sweep is
@@ -53,7 +61,7 @@ class TestIntegrationsTasks(APIBaseTest):
         with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
             refresh_integrations()
 
-        assert refresh_integration_mock.call_args_list == [((eligible.id,),)]
+        assert refresh_integration_mock.call_args_list == [((eligible.id, self.team.id),)]
 
     def test_refresh_integration_skips_resend(self) -> None:
         # Defense in depth for a task enqueued before the sweep exclusion shipped: even if a Resend
@@ -61,7 +69,7 @@ class TestIntegrationsTasks(APIBaseTest):
         integration = self.create_integration("resend", config={"refreshed_at": time.time() - 3600})
 
         with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
-            refresh_integration(integration.id)
+            refresh_integration(integration.id, self.team.id)
 
         assert refresh_mock.called is False
 
@@ -83,7 +91,19 @@ class TestIntegrationsTasks(APIBaseTest):
         with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
             refresh_integrations()
 
-        assert refresh_integration_mock.call_args_list == [((eligible.id,),), ((backoff_elapsed.id,),)]
+        assert refresh_integration_mock.call_args_list == [
+            ((eligible.id, self.team.id),),
+            ((backoff_elapsed.id, self.team.id),),
+        ]
+
+    def test_refresh_integration_without_team_does_nothing(self) -> None:
+        # A task that a sweep enqueued before the team id existed cannot read a row.
+        integration = self.create_integration("slack", config={"refreshed_at": time.time() - 3600})
+
+        with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
+            refresh_integration(integration.id)
+
+        assert refresh_mock.called is False
 
     def test_refresh_integration_skips_when_backed_off(self) -> None:
         integration = self.create_integration(
@@ -96,7 +116,7 @@ class TestIntegrationsTasks(APIBaseTest):
         )
 
         with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
-            refresh_integration(integration.id)
+            refresh_integration(integration.id, self.team.id)
 
         assert refresh_mock.called is False
 
@@ -114,7 +134,7 @@ class TestIntegrationsTasks(APIBaseTest):
         integration = self.create_integration("github", config={"refreshed_at": refreshed_at, "expires_in": 3600})
 
         with patch("posthog.models.integration.github.GitHubIntegration.refresh_access_token") as refresh_mock:
-            refresh_integration(integration.id)
+            refresh_integration(integration.id, self.team.id)
 
         assert refresh_mock.called is expected_refreshed
 
@@ -137,9 +157,44 @@ class TestIntegrationsTasks(APIBaseTest):
             patch("posthog.models.integration.github.GitHubIntegration.refresh_branch_cache", side_effect=error),
             pytest.raises(type(error)),
         ):
-            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "token")
+            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "token", self.team.id)
 
         assert (get_redis_client().get(lock_key) == b"token") is lock_held
+
+    @parameterized.expand(
+        [
+            ("queued_before_team_id_was_added", False),
+            ("row_of_another_team", True),
+        ]
+    )
+    def test_branch_refresh_skips_a_row_it_cannot_read_in_scope(self, _name: str, with_other_team: bool) -> None:
+        integration = self.create_integration("github", config={"installation_id": "INSTALL"})
+        other_team_id = self.team.id + 1000
+
+        with patch("posthog.models.integration.github.GitHubIntegration.refresh_branch_cache") as mock_refresh:
+            if with_other_team:
+                refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "token", other_team_id)
+            else:
+                refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "token")
+
+        mock_refresh.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("domain_still_used", "example.com", False),
+            ("domain_unused", None, True),
+            ("only_other_domain_used", "other.example.com", True),
+        ]
+    )
+    def test_delete_ses_identity_only_when_no_team_uses_the_domain(
+        self, _name: str, row_domain: Optional[str], expect_delete: bool
+    ) -> None:
+        if row_domain:
+            self.create_integration("email", config={"domain": row_domain})
+        with patch("posthog.tasks.integrations.delete_ses_identity") as mock_delete:
+            delete_ses_identity_if_unused("example.com")
+
+        assert mock_delete.called is expect_delete
 
     def test_branch_refresh_leaves_a_newer_refresh_lock_alone(self) -> None:
         integration = self.create_integration("github", config={"installation_id": "INSTALL"})
@@ -149,6 +204,6 @@ class TestIntegrationsTasks(APIBaseTest):
         self.addCleanup(get_redis_client().delete, lock_key)
 
         with patch("posthog.models.integration.github.GitHubIntegration.refresh_branch_cache"):
-            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "older")
+            refresh_github_branch_cache(str(integration.id), "posthog/posthog", False, "older", self.team.id)
 
         assert get_redis_client().get(lock_key) == b"newer"

@@ -1,17 +1,19 @@
 import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { IconPin, IconPinFilled } from '@posthog/icons'
+import { IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { HOGQLX_TAGS_NO_ATTRIBUTES, parseHogQLX } from '~/queries/nodes/HogQLX/render'
-import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { AnyResponseType, VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
@@ -63,6 +65,12 @@ function getDisplayedColumnTitle(
 
 function isDateColumn(type: ColumnScalar | undefined): boolean {
     return type === 'DATE' || type === 'DATETIME'
+}
+
+function getColumnFormat(response: AnyResponseType | null, sourceColumnName: string): string | null | undefined {
+    return response && 'column_formats' in response
+        ? response.column_formats?.[response.columns.indexOf(sourceColumnName)]
+        : undefined
 }
 
 // Numbers sort numerically, dates chronologically by epoch, everything else by a
@@ -205,6 +213,11 @@ function getCellTitle(cell: TableDataCell<any>): string | undefined {
     return undefined
 }
 
+// Defined at module level so the tooltip's `onOpen` effect doesn't re-run, and re-capture, on every render
+const captureColumnDescriptionViewed = (): void => {
+    posthog.capture('sql column description viewed')
+}
+
 // Header labels are clamped to a few lines with a CSS ellipsis when they don't fit. The full text stays
 // in the DOM, so we compare the rendered box against the content and reveal the full name on hover only
 // when it's actually cut off. The tooltip prefers the explicit label but falls back to the rendered text,
@@ -212,10 +225,14 @@ function getCellTitle(cell: TableDataCell<any>): string | undefined {
 function ColumnHeaderTitle({
     formattedTitle,
     fullTitle,
+    description,
+    truncateTitle,
     children,
 }: {
     formattedTitle: React.ReactNode
     fullTitle?: string
+    description?: string
+    truncateTitle?: boolean
     children?: React.ReactNode
 }): JSX.Element {
     const titleRef = useRef<HTMLSpanElement>(null)
@@ -235,12 +252,41 @@ function ColumnHeaderTitle({
     }, [detectTruncation])
 
     return (
-        <div className="flex items-center gap-1">
+        <div className={cn('flex items-center gap-1', truncateTitle && 'min-w-0')}>
             <Tooltip title={tooltip}>
-                <span ref={titleRef} onMouseEnter={detectTruncation}>
+                <span
+                    ref={titleRef}
+                    onMouseEnter={detectTruncation}
+                    className={truncateTitle ? 'min-w-0 truncate' : undefined}
+                >
                     {formattedTitle}
                 </span>
             </Tooltip>
+            {description?.trim() && (
+                <Tooltip
+                    title={
+                        <div
+                            className="ph-no-capture max-h-[min(20rem,calc(100vh-4rem))] overflow-y-auto whitespace-pre-wrap"
+                            tabIndex={0}
+                        >
+                            {description}
+                        </div>
+                    }
+                    openOnClick
+                    interactive
+                    onOpen={captureColumnDescriptionViewed}
+                >
+                    <LemonButton
+                        className="ph-no-capture shrink-0"
+                        size="xsmall"
+                        noPadding
+                        icon={<IconInfo />}
+                        aria-label={`Description for ${fullTitle ?? 'column'}`}
+                        aria-description={description}
+                        onClick={(event) => event.stopPropagation()}
+                    />
+                </Tooltip>
+            )}
             {children}
         </div>
     )
@@ -347,7 +393,11 @@ export const Table = (props: TableProps): JSX.Element => {
                       return compareTableCells(sortCells[a.rowIndex], sortCells[b.rowIndex])
                   },
             title: (
-                <ColumnHeaderTitle formattedTitle={formattedTitle} fullTitle={fullColumnTitle}>
+                <ColumnHeaderTitle
+                    formattedTitle={formattedTitle}
+                    fullTitle={fullColumnTitle}
+                    description={settings?.display?.description}
+                >
                     {isPinningEnabled && (
                         <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
                             <span
@@ -390,10 +440,20 @@ export const Table = (props: TableProps): JSX.Element => {
 
                     return (
                         <div
-                            className="truncate"
+                            className="min-w-0"
                             title={typeof sourceColumnTitle === 'string' ? sourceColumnTitle : undefined}
                         >
-                            {renderedSourceColumnTitle}
+                            <ColumnHeaderTitle
+                                truncateTitle
+                                formattedTitle={renderedSourceColumnTitle}
+                                fullTitle={typeof sourceColumnTitle === 'string' ? sourceColumnTitle : undefined}
+                                description={
+                                    cell.sourceColumnName
+                                        ? sourceTabularColumnsByName.get(cell.sourceColumnName)?.settings?.display
+                                              ?.description
+                                        : undefined
+                                }
+                            />
                         </div>
                     )
                 }
@@ -424,10 +484,13 @@ export const Table = (props: TableProps): JSX.Element => {
                     )
                 }
 
+                const sourceColumnName = cell.sourceColumnName ?? column.name
+                const columnFormat = getColumnFormat(response, sourceColumnName)
+
                 return (
                     <div className="truncate" title={getCellTitle(cell)}>
                         {renderColumn(
-                            cell.sourceColumnName ?? column.name,
+                            sourceColumnName,
                             cell.formattedValue,
                             tableResults[isTransposed ? index - 1 : data.rowIndex],
                             recordIndex,
@@ -435,7 +498,10 @@ export const Table = (props: TableProps): JSX.Element => {
                             {
                                 kind: NodeKind.DataTableNode,
                                 source: props.query.source,
-                            }
+                            },
+                            undefined,
+                            undefined,
+                            columnFormat
                         )}
                     </div>
                 )

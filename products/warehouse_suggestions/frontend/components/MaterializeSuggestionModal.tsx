@@ -6,17 +6,14 @@ import {
     INCREMENTAL_CHECK_LOADING,
     IncrementalConfigOptions,
 } from 'scenes/data-warehouse/editor/IncrementalConfigFields'
-import { CADENCE_LABELS, SyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
+import { SyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
-import { INTERVAL_SECONDS, intervalForSeconds } from '../refreshIntervals'
+import { materializeScheduleNotes } from '../materializeScheduleNotes'
 import {
     dataAgeLabel,
     isMaterializePayload,
-    materializeSaving,
+    materializeSavingLines,
     refreshModeLabel,
-    savingSentence,
-    shorterScheduleWarning,
-    suggestedScheduleHint,
     todayAgeLabel,
 } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
@@ -42,13 +39,12 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
         return null
     }
     const inFlight = !!actionsInFlight[materializeModalSuggestion.id]
-    const suggestedInterval = intervalForSeconds(payload.refresh_interval_seconds)
-    const suggestedCadence = suggestedInterval ? CADENCE_LABELS[suggestedInterval] : null
-    const pickedSeconds = materializeInterval ? INTERVAL_SECONDS[materializeInterval] : payload.refresh_interval_seconds
-    const shorterWarning =
-        materializeIntervalShorterThanSuggested && suggestedCadence
-            ? shorterScheduleWarning(payload.refresh_interval_basis, suggestedCadence)
-            : null
+    const { pickedSeconds, suggestedHint, shorterWarning } = materializeScheduleNotes(
+        payload,
+        materializeInterval,
+        materializeIntervalShorterThanSuggested
+    )
+    const [estimateHeadline, ...estimateDetails] = materializeSavingLines(payload)
 
     return (
         <LemonModal
@@ -87,11 +83,7 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                         onChange={setMaterializeInterval}
                         loading={inFlight}
                     />
-                    {suggestedCadence && (
-                        <span className="text-xs text-secondary">
-                            {suggestedScheduleHint(payload.refresh_interval_basis, suggestedCadence)}
-                        </span>
-                    )}
+                    {suggestedHint && <span className="text-xs text-secondary">{suggestedHint}</span>}
                 </div>
                 <fieldset disabled={inFlight} className="flex flex-col">
                     <h4 className="m-0 text-sm font-semibold">Refresh mode</h4>
@@ -116,7 +108,12 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                         <span className="text-xs font-semibold text-secondary">
                             Estimated at the suggested settings
                         </span>
-                        <span className="text-sm">{savingSentence(materializeSaving(payload))}</span>
+                        <span className="text-sm">{estimateHeadline}</span>
+                        {estimateDetails.map((line) => (
+                            <span key={line} className="text-xs text-secondary">
+                                {line}
+                            </span>
+                        ))}
                     </div>
                 </div>
                 {shorterWarning && <LemonBanner type="warning">{shorterWarning}</LemonBanner>}

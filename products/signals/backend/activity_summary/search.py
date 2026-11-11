@@ -27,13 +27,16 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.prompt import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_RENDERING
 from products.signals.backend.activity_summary.read import (
+    SKIPPED_REBUILD_STATUSES,
     ActivitySummaryTheme,
     ActivitySummaryView,
     readable_config,
     ready_view,
 )
+from products.signals.backend.hybrid_search import SearchMode, SemanticSearchUnavailable, reciprocal_rank_fusion
 from products.signals.backend.models import UserActivitySummary
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
@@ -44,9 +47,10 @@ logger = structlog.get_logger(__name__)
 SEARCH_FLAG = "activity-summary-search"
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 25
-# The standard constant from the reciprocal rank fusion paper. It keeps one top rank from outweighing
-# agreement between the two rankings.
-RRF_K = 60
+# The member roster attaches activity only to a narrowed result, so a full roster stays small.
+MAX_MEMBERS_WITH_ACTIVITY = 10
+# The roster carries a short activity block per member, so it keeps only the most active objects.
+MAX_MEMBER_ACTIVITY_OBJECTS = 5
 EMBEDDING_TIMEOUT_S = 10.0
 # A stalled read must end inside the MCP request deadline, so that a hybrid search can still return its keyword ranking.
 VECTOR_READ_MAX_EXECUTION_S = 10
@@ -78,12 +82,6 @@ LIMIT %(limit)s
 """
 
 
-class SearchMode(models.TextChoices):
-    HYBRID = "hybrid"
-    SEMANTIC = "semantic"
-    KEYWORD = "keyword"
-
-
 class MatchKind(models.TextChoices):
     SEMANTIC = "semantic"
     HEADLINE = "headline"
@@ -91,10 +89,6 @@ class MatchKind(models.TextChoices):
     OWNED = "owned"
     WATCHED = "watched"
     PROFILE = "profile"
-
-
-class SemanticSearchUnavailable(Exception):
-    """The query embedding or the vector read failed, so a semantic-only search has no ranking."""
 
 
 @frozen
@@ -131,6 +125,22 @@ class ActivitySummarySearchResult:
 
 
 @frozen
+class MemberActivityObject:
+    type: str
+    name: str
+
+
+@frozen
+class MemberActivity:
+    headline: str | None
+    themes: tuple[str, ...]
+    owned: tuple[MemberActivityObject, ...]
+    watched: tuple[MemberActivityObject, ...]
+    generated_at: datetime.datetime | None
+    stale: bool
+
+
+@frozen
 class _Candidate:
     user: User
     view: ActivitySummaryView
@@ -156,6 +166,14 @@ def search_enabled(team: Team) -> bool:
         return False
 
 
+def searchable_config(team: Team) -> ActivitySummaryConfig | None:
+    """The read config when `team` can search summaries: the team is enrolled for reads and the search flag is on."""
+    config = readable_config(team)
+    if config is None or not search_enabled(team):
+        return None
+    return config
+
+
 def search_summaries(
     team: Team,
     *,
@@ -171,8 +189,8 @@ def search_summaries(
     Returns `None` when the team is not enrolled for reads or the search flag is off. Raises
     `SemanticSearchUnavailable` only for a semantic search, because a hybrid one keeps its keyword ranking.
     """
-    config = readable_config(team)
-    if config is None or not search_enabled(team):
+    config = searchable_config(team)
+    if config is None:
         return None
     limit = max(1, min(limit, MAX_LIMIT))
     members = {user.id: user for user in team.all_users_with_access().order_by("id")}
@@ -219,7 +237,7 @@ def search_summaries(
             if search_mode == SearchMode.SEMANTIC:
                 raise SemanticSearchUnavailable() from error
 
-    scores = _fuse([keyword_ranking, semantic_ranking])
+    scores = reciprocal_rank_fusion([keyword_ranking, semantic_ranking])
     semantic_ids = set(semantic_ranking)
     top_scores = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
     _prefetch_github_identities([candidates[user_id] for user_id, _ in top_scores])
@@ -240,13 +258,60 @@ def search_summaries(
     )
 
 
+def member_activities(team: Team, user_uuids: Sequence[str]) -> dict[str, MemberActivity] | None:
+    """The ready activity summaries of the given members, keyed by user UUID.
+
+    Returns `None` when the team is not enrolled for reads or the search flag is off. A member without
+    a ready summary, or without access to `team`, has no key.
+    """
+    config = searchable_config(team)
+    if config is None:
+        return None
+    members = {
+        user_id: str(user_uuid)
+        for user_id, user_uuid in team.all_users_with_access().filter(uuid__in=user_uuids).values_list("id", "uuid")
+    }
+    # Two queries, not a join: the summary's user FK has no database constraint.
+    rows = UserActivitySummary.objects.for_team(team.id).filter(user_id__in=members.keys())
+    activities: dict[str, MemberActivity] = {}
+    for row in rows:
+        view = ready_view(row, config)
+        # Same readiness rule as `get_summary`: a stale summary whose rebuild skipped is not ready.
+        if view is None or (view.stale and row.status in SKIPPED_REBUILD_STATUSES):
+            continue
+        computed = view.computed or {}
+        activities[members[row.user_id]] = MemberActivity(
+            headline=view.headline,
+            themes=tuple(theme.label for theme in view.themes),
+            owned=_activity_objects(computed, "owned"),
+            watched=_activity_objects(computed, "watched"),
+            generated_at=view.generated_at,
+            stale=view.stale,
+        )
+    return activities
+
+
+def _activity_objects(computed: dict[str, Any], key: str) -> tuple[MemberActivityObject, ...]:
+    items = computed.get(key)
+    if not isinstance(items, list):
+        return ()
+    return tuple(
+        MemberActivityObject(type=str(item.get("type") or ""), name=str(item.get("name") or ""))
+        for item in items
+        if isinstance(item, dict)
+    )[:MAX_MEMBER_ACTIVITY_OBJECTS]
+
+
 def _prefetch_github_identities(candidates: Sequence[_Candidate]) -> None:
     # Deferred: resolve_reviewers imports the engineering_analytics facade, which imports the signals facade.
     from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
         _github_identity_prefetches,
+        _with_team_github_integrations,
     )
 
-    prefetch_related_objects([candidate.user for candidate in candidates], *_github_identity_prefetches())
+    users = [candidate.user for candidate in candidates]
+    prefetch_related_objects(users, *_github_identity_prefetches())
+    _with_team_github_integrations(users)
 
 
 def _uses_product(computed: dict[str, Any], product: str) -> bool:
@@ -342,14 +407,6 @@ def _semantic_ranking(team: Team, query: str, user_ids: Iterable[int], *, limit:
         or [],
     )
     return [int(user_id) for user_id, _ in rows]
-
-
-def _fuse(rankings: Sequence[Sequence[int]]) -> dict[int, float]:
-    scores: dict[int, float] = {}
-    for ranking in rankings:
-        for rank, user_id in enumerate(ranking, start=1):
-            scores[user_id] = scores.get(user_id, 0.0) + 1.0 / (RRF_K + rank)
-    return scores
 
 
 def _hit(

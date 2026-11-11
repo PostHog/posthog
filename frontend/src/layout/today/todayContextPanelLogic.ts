@@ -10,7 +10,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
-import { ConversationTicket, SidePanelViewState } from 'products/conversations/frontend/types'
+import type { SidePanelTicketFilter, TicketsLoadState } from 'products/conversations/frontend/types'
 
 import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'
 import { todayShellLogic } from './todayShellLogic'
@@ -57,10 +57,10 @@ export interface todayContextPanelLogicValues {
     enabledTabs: SidePanelTab[] // sidePanelLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
-    canCreateTicket: boolean // sidepanelTicketsLogic
-    currentTicket: ConversationTicket | null // sidepanelTicketsLogic
-    supportView: SidePanelViewState // sidepanelTicketsLogic
-    tickets: ConversationTicket[] // sidepanelTicketsLogic
+    canAccessTickets: boolean // sidepanelTicketsLogic
+    myTicketsUrl: string // sidepanelTicketsLogic
+    ticketFilterCounts: Record<SidePanelTicketFilter, number> // sidepanelTicketsLogic
+    ticketsLoadState: TicketsLoadState // sidepanelTicketsLogic
     onAiPage: boolean // todayShellLogic
     activeTab: SidePanelTab
     canUndock: boolean
@@ -91,6 +91,9 @@ export interface todayContextPanelLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
+    loadTickets: (force?: boolean | undefined) => {
+        force: boolean
+    } // sidepanelTicketsLogic
     close: () => {
         value: true
     }
@@ -154,10 +157,8 @@ export interface todayContextPanelLogicMeta {
         fullScreenUrl: (
             activeTab: SidePanelTab,
             selectedNotebook: string,
-            tickets: ConversationTicket[],
-            canCreateTicket: boolean,
-            supportView: SidePanelViewState,
-            currentTicket: ConversationTicket | null
+            canAccessTickets: boolean,
+            myTicketsUrl: string
         ) => string | null
     }
 }
@@ -184,11 +185,11 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             notebookPanelLogic,
             ['selectedNotebook'],
             sidepanelTicketsLogic,
-            ['tickets', 'canCreateTicket', 'view as supportView', 'currentTicket'],
+            ['canAccessTickets', 'myTicketsUrl', 'ticketFilterCounts', 'ticketsLoadState'],
             todayShellLogic,
             ['onAiPage'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel'], sidepanelTicketsLogic, ['loadTickets']],
     })),
     actions({
         setFloatingOpen: (open: boolean) => ({ open }),
@@ -322,25 +323,20 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         ],
         fullScreenUrl: [
             // PostHog AI's URL comes from the chat logic, which the header reads only while the panel is open.
-            (s) => [s.activeTab, s.selectedNotebook, s.tickets, s.canCreateTicket, s.supportView, s.currentTicket],
+            (s) => [s.activeTab, s.selectedNotebook, s.canAccessTickets, s.myTicketsUrl],
             (
                 activeTab: SidePanelTab,
                 selectedNotebook: string,
-                tickets: ConversationTicket[],
-                canCreateTicket: boolean,
-                supportView: SidePanelViewState,
-                currentTicket: ConversationTicket | null
+                canAccessTickets: boolean,
+                myTicketsUrl: string
             ): string | null => {
                 switch (activeTab) {
                     case SidePanelTab.Activity:
                         return urls.advancedActivityLogs()
                     case SidePanelTab.Notebooks:
                         return urls.notebook(selectedNotebook)
-                    // Matches the support panel's own expand button: the tickets page, on the open ticket if any.
                     case SidePanelTab.Support:
-                        return canCreateTicket || tickets.length > 0
-                            ? urls.myTickets(supportView === 'ticket' ? currentTicket?.id : undefined)
-                            : null
+                        return canAccessTickets ? myTicketsUrl : null
                     default:
                         return null
                 }

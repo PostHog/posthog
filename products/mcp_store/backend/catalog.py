@@ -159,6 +159,8 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="dev",
         icon_domain="firetiger.com",
+        # As of November 2026, the MCP host does not resolve in DNS, so no install can reach the server.
+        disabled=True,
     ),
     CatalogEntry(
         name="GitLab",

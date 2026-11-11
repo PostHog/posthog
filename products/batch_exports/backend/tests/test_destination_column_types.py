@@ -75,7 +75,7 @@ SCHEMA_MAPPERS: list[
     [pa.decimal256(76, 9), pa.map_(pa.string(), pa.string()), pa.struct([("a", pa.int64())]), pa.null()],
     ids=str,
 )
-async def test_schema_mapping_logs_and_retries_an_unsupported_column_type(
+async def test_schema_mapping_logs_and_classifies_an_unsupported_column_type(
     destination: str,
     mapper: collections.abc.Callable[[AnyBatchExportModel, pa.Schema], object],
     non_retryable_error_types: collections.abc.Sequence[str],
@@ -84,6 +84,8 @@ async def test_schema_mapping_logs_and_retries_an_unsupported_column_type(
     column_type: pa.DataType,
 ) -> None:
     schema = pa.schema([pa.field("amount", column_type, nullable=True)])
+    expected_exception = expected_error(destination, "amount", column_type)
+    retryable = expected_error is ColumnTypeMappingError
 
     @handle_non_retryable_errors(non_retryable_error_types)
     async def map_schema() -> BatchExportResult:
@@ -93,15 +95,15 @@ async def test_schema_mapping_logs_and_retries_an_unsupported_column_type(
     with (
         patch("products.batch_exports.backend.temporal.utils.LOGGER", get_write_only_logger(__name__)),
         capture_logs() as logs,
-        pytest.raises(expected_error) as exc_info,
     ):
-        await map_schema()
+        if retryable:
+            with pytest.raises(expected_error) as exc_info:
+                await map_schema()
+            assert str(exc_info.value) == str(expected_exception)
+        else:
+            result = await map_schema()
+            assert result == BatchExportResult.from_exception(expected_exception)
 
-    assert "amount" in str(exc_info.value)
-    assert destination in str(exc_info.value)
-    assert str(column_type) in str(exc_info.value)
-    if expected_error is UnsupportedColumnTypeError:
-        assert isinstance(exc_info.value.__cause__, ColumnTypeMappingError)
     warnings = [log for log in logs if log["log_level"] == "warning"]
     assert warnings == [
         {
@@ -111,7 +113,7 @@ async def test_schema_mapping_logs_and_retries_an_unsupported_column_type(
             "column": "amount",
             "column_type": str(column_type),
             "error_type": expected_error.__name__,
-            "retryable": True,
+            "retryable": retryable,
         }
     ]
 

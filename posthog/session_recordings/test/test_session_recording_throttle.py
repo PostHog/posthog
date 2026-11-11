@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -25,6 +25,7 @@ from posthog.session_recordings.session_recording_api import (
     SharingTokenReplayThrottle,
     SnapshotsBurstRateThrottle,
     SnapshotsSustainedRateThrottle,
+    SnapshotsUserBurstRateThrottle,
     get_cached_org_tier,
     listing_rates,
     snapshot_rates,
@@ -476,3 +477,16 @@ class TestSessionRecordingViewSetThrottleSelection(BaseTest):
         throttles = viewset.get_throttles()
 
         assert not any(isinstance(t, SharingTokenReplayThrottle) for t in throttles)
+
+
+class TestSnapshotUserRateThrottle(SimpleTestCase):
+    @patch("posthog.session_recordings.session_recording_api.capture_exception")
+    @patch("posthog.session_recordings.session_recording_api.team_is_allowed_to_bypass_throttle", return_value=False)
+    @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
+    def test_allows_the_fetch_when_the_cache_errors(self, _enabled, _bypass, mock_capture) -> None:
+        throttle = SnapshotsUserBurstRateThrottle()
+        throttle.cache = MagicMock(get=MagicMock(side_effect=ConnectionError("cache unavailable")))
+        request = type("FakeRequest", (), {"user": type("FakeUser", (), {"is_authenticated": True, "pk": 1})()})()
+
+        assert throttle.allow_request(request, type("FakeView", (), {"team_id": 1})()) is True
+        mock_capture.assert_called_once()

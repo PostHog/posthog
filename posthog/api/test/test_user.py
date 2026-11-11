@@ -760,6 +760,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_dashboard_must_exist(self, _mock_capture):
@@ -769,6 +770,7 @@ class TestUserAPI(APIBaseTest):
             {"user": 12345, "team": 12345, "dashboard": 12345, "scene": "Person"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Dashboard must belong to the user's current team."
 
     @patch("posthoganalytics.capture")
     def test_set_scene_personalisation_for_user_must_send_dashboard(self, _mock_capture):
@@ -2898,6 +2900,19 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("unknown_analytics_list_sort", {"version": 1, "analytics_list": {"default_sort": "name"}}),
             ("unknown_analytics_list_key", {"version": 1, "analytics_list": {"columns": ["owner"]}}),
             ("non_boolean_hide_insights", {"version": 1, "analytics_list": {"hide_insights": "nope"}}),
+            ("non_list_ticket_sidebar_order", {"version": 1, "ticket_sidebar": {"order": "activity"}}),
+            (
+                "non_boolean_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "nope"}},
+            ),
+            (
+                "coercible_string_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "false"}},
+            ),
+            (
+                "coercible_int_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": 1}},
+            ),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2914,6 +2929,15 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             (
                 "analytics_list",
                 {"version": 1, "analytics_list": {"hide_insights": True, "default_sort": "-created_at"}},
+            ),
+            ("session_replay", {"version": 1, "session_replay": {"filter_test_accounts": False}}),
+            (
+                # A layout can name a widget that a later release removed. Rejecting it would block every later save.
+                "ticket_sidebar_with_removed_widget",
+                {
+                    "version": 1,
+                    "ticket_sidebar": {"order": ["removed_widget", "activity"], "hidden": ["removed_widget"]},
+                },
             ),
             (
                 # Sidebar settings an older client stored. Rejecting them would block every later save.
@@ -4200,6 +4224,7 @@ class TestUserDeletionAfterOrgDeletion(NonAtomicBaseTest):
     """
 
     CLASS_DATA_LEVEL_SETUP = False
+    databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
 
     @patch("posthoganalytics.capture")
     def test_can_delete_account_after_deleting_only_organization(self, mock_capture):

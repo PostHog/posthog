@@ -10,8 +10,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     DraftStatusResponseApi,
-    GenerateRequestApi,
-    GenerateResponseApi,
     PaginatedProductTourListApi,
     PatchedProductTourSerializerCreateUpdateOnlyApi,
     ProductTourApi,
@@ -214,27 +212,6 @@ export const productToursDraftStatusRetrieve = async (
     return apiMutator<DraftStatusResponseApi>(getProductToursDraftStatusRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getProductToursGenerateCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/product_tours/${id}/generate/`
-}
-
-/**
- * Generate tour step content using AI.
- */
-export const productToursGenerateCreate = async (
-    projectId: string,
-    id: string,
-    generateRequestApi?: GenerateRequestApi,
-    options?: RequestInit
-): Promise<GenerateResponseApi> => {
-    return apiMutator<GenerateResponseApi>(getProductToursGenerateCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(generateRequestApi),
     })
 }
 

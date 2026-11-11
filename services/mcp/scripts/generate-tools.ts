@@ -22,7 +22,12 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { hasScope } from '../src/lib/api'
-import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
+import {
+    discoverDefinitions,
+    isQueryWrappersConfig,
+    modulesWithStrictBodies,
+    operationIdToPascal,
+} from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
@@ -41,8 +46,6 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const TOOLS_SRC_DIR = path.resolve(MCP_ROOT, 'src/tools')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
-const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
-const TOOL_DEFINITIONS_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions.json')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const SCHEMA_JSON_PATH = path.resolve(REPO_ROOT, 'frontend/src/queries/schema.json')
 
@@ -448,14 +451,6 @@ function parseEnrichUrl(enrichUrl: string): {
     }
 }
 
-/** Convert operationId (snake_case) to PascalCase for Orval schema names */
-function operationIdToPascal(operationId: string): string {
-    return operationId
-        .split(/[_.]/)
-        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-        .join('')
-}
-
 // ------------------------------------------------------------------
 // Schema composition — determine Orval imports and build expressions
 // ------------------------------------------------------------------
@@ -507,7 +502,8 @@ function composeToolSchema(
     config: ToolConfig,
     resolved: ResolvedOperation,
     spec: OpenApiSpec,
-    getQuerySchema: () => JsonSchemaRoot
+    getQuerySchema: () => JsonSchemaRoot,
+    hasStrictBody = false
 ): SchemaComposition {
     const pascal = operationIdToPascal(config.operation)
     const orvalImports: string[] = []
@@ -525,6 +521,7 @@ function composeToolSchema(
      * Path params are omitted (always required).
      */
     const optionalParamNames = new Set<string>()
+    let composesBody = false
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
@@ -607,6 +604,7 @@ function composeToolSchema(
         const bodySchemaRef = resolved.operation.requestBody?.content?.['application/json']?.schema
         if (bodySchemaRef) {
             const importName = `${pascal}Body`
+            composesBody = true
             orvalImports.push(importName)
 
             const bodyOmitFields = new Set<string>()
@@ -685,6 +683,9 @@ function composeToolSchema(
         schemaExpr = schemaParts[0]!
         for (let i = 1; i < schemaParts.length; i++) {
             schemaExpr += `.extend(${schemaParts[i]}.shape)`
+        }
+        if (hasStrictBody && composesBody) {
+            schemaExpr += '.strict()'
         }
     }
 
@@ -1136,7 +1137,8 @@ function generateToolCode(
     category: CategoryConfig,
     spec: OpenApiSpec,
     knownTypes: Set<string>,
-    getQuerySchema: () => JsonSchemaRoot
+    getQuerySchema: () => JsonSchemaRoot,
+    hasStrictBody = false
 ): {
     code: string
     orvalImports: string[]
@@ -1159,7 +1161,7 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const composition = composeToolSchema(config, resolved, spec, getQuerySchema)
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema, hasStrictBody)
     let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
@@ -1570,6 +1572,8 @@ function buildConfirmedActionFactories(args: {
     }
     const prepareArgsExpr =
         resolvedFallbackNames.length > 0 ? `{ ...params, ${resolvedFallbackNames.join(', ')} }` : 'params'
+    const executeResolvedArgsField =
+        resolvedFallbackNames.length > 0 ? `            resolvedArgs: ${JSON.stringify(resolvedFallbackNames)},\n` : ''
 
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
@@ -1579,6 +1583,7 @@ function buildConfirmedActionFactories(args: {
 ${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmedAction(context, {
             args: ${prepareArgsExpr},
             purpose: ${JSON.stringify(toolName)},
+            inputSchema: ${schemaName}(),
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
@@ -1593,8 +1598,8 @@ ${prepareScopeField}        })
 ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ${schemaName}>>>(context, {
             incomingArgs: confirmationParams,
             purpose: ${JSON.stringify(toolName)},
-            codec: __runtime.codec,
-            ledger: __runtime.ledger,
+            inputSchema: ${schemaName}(),
+${executeResolvedArgsField}            codec: __runtime.codec,
             stash: __runtime.stash,
 ${executeScopeField}        })
         if (!__guard.ok) {
@@ -1951,7 +1956,16 @@ function generateCategoryFile(
     const requiredToolUtilsValueImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
-        const result = generateToolCode(name, config, resolved, category, spec, knownTypes, getQuerySchema)
+        const result = generateToolCode(
+            name,
+            config,
+            resolved,
+            category,
+            spec,
+            knownTypes,
+            getQuerySchema,
+            modulesWithStrictBodies.has(moduleName)
+        )
         toolCodes.push(result.code)
         for (const imp of result.orvalImports) {
             allOrvalImports.add(imp)
@@ -2232,6 +2246,18 @@ function generateDefinitionsJson(
             const supersededBy = toolConfig.superseded_by
             const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
+            const optionalFields = {
+                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
+                ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                ...(redirectHint ? { redirect_hint: redirectHint } : {}),
+                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
+            }
             // The endpoint the handler calls. The Django API reads it to refuse a write that a
             // sandbox run did not pick a tool for (posthog/mcp_tool_operations.py).
             const apiOperations = [`${handlerHttpMethod(toolConfig, resolved).toUpperCase()} ${resolved.path}`]
@@ -2258,15 +2284,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: true,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
                 definitions[`${name}-execute`] = {
                     description:
@@ -2286,15 +2304,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             } else {
                 definitions[name] = {
@@ -2311,15 +2321,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             }
         }
@@ -2356,6 +2358,7 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
+                ...(wrapperConfig.search_keywords?.length ? { search_keywords: wrapperConfig.search_keywords } : {}),
             }
         }
     }
@@ -2536,6 +2539,7 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+            ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
         }
     }
     return definitions
@@ -2659,19 +2663,12 @@ ${spreads}
     const definitions = sortKeys({ ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions })
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
-    // Combined tool definitions for external consumers (docs site)
-    const handwrittenDefinitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_PATH, 'utf-8'))
-    const allDefinitions = sortKeys({ ...handwrittenDefinitions, ...definitions })
-    fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
-
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
     const totalQueryWrappers = Object.keys(queryWrapperDefinitions).length
-    const totalAllTools = Object.keys(allDefinitions).length
     process.stdout.write(`Generated ${totalTools} tool(s) from ${allCategories.length} category file(s)\n`)
     if (totalQueryWrappers > 0) {
         process.stdout.write(`Generated ${totalQueryWrappers} query wrapper tool(s)\n`)
     }
-    process.stdout.write(`Combined ${totalAllTools} total tool(s) into tool-definitions-all.json\n`)
 
     const generatedTsFiles = [
         ...generatedModules.map((m) => path.join(GENERATED_DIR, `${m}.ts`)),
@@ -2684,7 +2681,7 @@ ${spreads}
     if (format.status !== 0) {
         console.warn(`hogli format:js failed:\n${format.stderr?.toString() ?? ''}${format.stdout?.toString() ?? ''}`)
     }
-    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH, ALL_DEFINITIONS_JSON_PATH], {
+    spawnSync(path.join(REPO_ROOT, 'bin/hogli'), ['format:yaml', DEFINITIONS_JSON_PATH], {
         stdio: 'pipe',
         cwd: REPO_ROOT,
     })

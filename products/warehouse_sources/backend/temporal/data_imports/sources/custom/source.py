@@ -1,5 +1,7 @@
+import re
 import copy
 import json
+import string
 import hashlib
 import inspect
 import graphlib
@@ -276,6 +278,74 @@ def validate_manifest_structure(manifest: Any) -> None:
         raise ManifestValidationError(_format_validation_errors(exc)) from exc
 
 
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
+def _declared_params(manifest: dict[str, Any], endpoint: dict[str, Any]) -> set[str]:
+    defaults = manifest.get("resource_defaults")
+    default_endpoint = defaults.get("endpoint") if isinstance(defaults, dict) else None
+    default_params = default_endpoint.get("params") if isinstance(default_endpoint, dict) else None
+    params = endpoint.get("params")
+    return {
+        *(default_params if isinstance(default_params, dict) else {}),
+        *(params if isinstance(params, dict) else {}),
+    }
+
+
+def _unbound_placeholders(path: str, declared: set[str]) -> list[str] | None:
+    """Placeholders in ``path`` that no param fills, or ``None`` when the engine can't parse the path."""
+    try:
+        return [name for _, name, _, _ in string.Formatter().parse(path) if name and name not in declared]
+    except ValueError:
+        return None
+
+
+def _double_braces(text: str) -> str:
+    return text.replace("{", "{{").replace("}", "}}")
+
+
+def _escape_literal_query_braces(manifest: dict[str, Any]) -> None:
+    """Keep braces in a path's query string literal unless a declared param fills them.
+
+    The REST engine formats every path with ``str.format``, so query syntax that uses braces, such
+    as Graph API field expansion (``?fields=attachments{media_type}``), would otherwise be read as
+    a placeholder and rejected. A path the engine already accepts is left untouched.
+    """
+    for resource in manifest["resources"]:
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        if not isinstance(endpoint, dict):
+            continue
+        path = endpoint.get("path")
+        if not isinstance(path, str) or "?" not in path:
+            continue
+        declared = _declared_params(manifest, endpoint)
+        if _unbound_placeholders(path, declared) == []:
+            continue
+        base, query = path.split("?", 1)
+        escaped: list[str] = []
+        position = 0
+        for match in _PLACEHOLDER_RE.finditer(query):
+            escaped.append(_double_braces(query[position : match.start()]))
+            escaped.append(match.group(0) if match.group(1) in declared else _double_braces(match.group(0)))
+            position = match.end()
+        escaped.append(_double_braces(query[position:]))
+        endpoint["path"] = f"{base}?{''.join(escaped)}"
+
+
+def _check_path_placeholders(manifest: dict[str, Any]) -> None:
+    # The engine's own error for this echoes the whole path, which can carry account ids.
+    for resource in manifest["resources"]:
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        if not isinstance(endpoint, dict) or not isinstance(endpoint.get("path"), str):
+            continue
+        unbound = _unbound_placeholders(endpoint["path"], _declared_params(manifest, endpoint))
+        if unbound:
+            raise ManifestValidationError(
+                f"Table {resource.get('name')!r} has {{{unbound[0]}}} in its path, but no parent field fills it. "
+                "Link the table to a parent table with that field, or remove the braces."
+            )
+
+
 def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[list[ResolvedParam]]]:
     """Surface parent/child fan-out errors at create-time instead of first sync.
 
@@ -300,6 +370,7 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[lis
     ``None`` for top-level resources) so callers that need it — the probe's
     child filter — don't rebuild the graph.
     """
+    _check_path_placeholders(manifest)
     try:
         graph, resource_map, resolved = _build_resource_graph(manifest)
         list(graph.static_order())
@@ -476,12 +547,17 @@ def _validate_paginator_configs(manifest: dict[str, Any]) -> None:
     if isinstance(client, dict):
         _check_paginator_config(client.get("paginator"), "client.paginator")
 
+    defaults = manifest.get("resource_defaults")
+    default_endpoint = defaults.get("endpoint") if isinstance(defaults, dict) else None
+    default_paginator = default_endpoint.get("paginator") if isinstance(default_endpoint, dict) else None
+
     for resource in manifest.get("resources") or []:
-        if not isinstance(resource, dict):
-            continue
-        endpoint = resource.get("endpoint")
-        paginator = endpoint.get("paginator") if isinstance(endpoint, dict) else None
-        _check_paginator_config(paginator, f"Resource {resource.get('name')!r}: endpoint.paginator")
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        # The engine replaces the default paginator wholesale when a resource declares its own.
+        if isinstance(endpoint, dict) and "paginator" in endpoint:
+            _check_paginator_config(endpoint["paginator"], f"Resource {resource.get('name')!r}: endpoint.paginator")
+        else:
+            _check_paginator_config(default_paginator, "resource_defaults.endpoint.paginator")
 
 
 def _check_paginator_config(paginator: Any, location: str) -> None:
@@ -496,16 +572,25 @@ def _check_paginator_config(paginator: Any, location: str) -> None:
     # "auto" (and any type mapped to None) applies no paginator, so extra keys are ignored.
     if paginator_class is None:
         return
-    supported = {
-        name
+    params = {
+        name: param
         for name, param in inspect.signature(paginator_class).parameters.items()
         if param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
     }
-    unsupported = sorted(set(paginator) - {"type"} - supported)
+    unsupported = sorted(set(paginator) - {"type"} - set(params))
     if unsupported:
         raise ManifestValidationError(
             f"{location} has unsupported {'keys' if len(unsupported) > 1 else 'key'} "
-            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(supported))}"
+            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(params))}"
+        )
+    # A missing required key fails the constructor with a retryable TypeError, and a null one
+    # (e.g. offset `limit`) only fails once pagination does arithmetic on it.
+    missing = sorted(
+        name for name, param in params.items() if param.default is param.empty and paginator.get(name) is None
+    )
+    if missing:
+        raise ManifestValidationError(
+            f"{location} requires a non-null value for {', '.join(missing)} when type is {paginator.get('type')!r}"
         )
 
 
@@ -885,6 +970,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # Custom keeps its own `job_inputs`, and its OAuth rows are not `Integration` rows.
         return None
 
+    @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        # The OAuth2 row pointer of Custom is a `CustomOAuth2Integration` id.
+        return False
+
     # Custom REST sources are capped per team to keep abuse of the arbitrary-URL fetcher bounded.
     max_instances_per_team = MAX_CUSTOM_SOURCES_PER_TEAM
 
@@ -1122,6 +1212,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # schemas (graph rules are enforced on the API validation paths in
         # `validate_credentials`, and per-schema at sync time in `_fanout_chain`).
         validate_manifest_structure(manifest)
+        _escape_literal_query_braces(manifest)
         _inject_auth_secrets(manifest, config)
         return manifest
 
@@ -1409,7 +1500,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # endpoint.incremental block missing start_param crashes the engine with a bare,
             # retryable KeyError. Reject it as a ValueError so it fails fast and non-retryably.
             _validate_incremental_configs({"resources": engine_resources})
-            _validate_paginator_configs({"client": manifest.get("client"), "resources": engine_resources})
+            _validate_paginator_configs(
+                {
+                    "client": manifest.get("client"),
+                    "resource_defaults": manifest.get("resource_defaults"),
+                    "resources": engine_resources,
+                }
+            )
 
             # The engine serializes a datetime watermark via str() (space-separated),
             # which strict APIs reject — format it to the declared wire format first.

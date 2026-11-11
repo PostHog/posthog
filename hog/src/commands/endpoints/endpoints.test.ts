@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 
 import { runHog, TEST_CREDENTIALS } from '@/testing'
 
@@ -41,15 +42,19 @@ const HOGQL = endpoint('by-type', {
     query: 'SELECT count()\r\nFROM events\r\nWHERE event = {variables.event_type}',
     variables: { 'var-1': { variableId: 'var-1', code_name: 'event_type', value: '$pageview' } },
 })
-const VARIABLES = [{ id: 'var-1', name: 'event_type', code_name: 'event_type', type: 'String' }]
+// PostHog allows a variable without a code name, which no endpoint can use.
+const VARIABLES = [
+    { id: 'var-1', name: 'event_type', code_name: 'event_type', type: 'String' },
+    { id: 'var-0', name: 'Old variable', code_name: null, type: 'String' },
+]
 
 function server(endpoints: unknown[], extra: (url: string, body: unknown) => unknown = () => undefined) {
     return (url: string, body: unknown) => {
         const reply = extra(url, body)
         if (reply) {
-            return reply as { status: number; body: unknown }
+            return reply as { status: number; body: unknown; headers?: Record<string, string> }
         }
-        if (url === `${BASE}endpoints/`) {
+        if (url.replace(/\?.*/, '') === `${BASE}endpoints/`) {
             return { status: 200, body: { results: endpoints } }
         }
         if (url === `${BASE}insight_variables/`) {
@@ -75,20 +80,81 @@ variables:
 `
 
 describe('hog endpoints', () => {
-    test('list follows pages until PostHog has no more', async () => {
-        const result = await runHog(['endpoints', 'list'], {
-            env: AGENT,
+    test.each([
+        ['', BASE],
+        ['under a path', 'https://ph.example.com/posthog/api/environments/7/'],
+    ])('list reads one page and gives agents the next offset, for a host %s', async (_name, base) => {
+        const result = await runHog(['endpoints', 'list', '--limit', '1', '--offset', '1'], {
+            env: { ...AGENT, HOG_HOST: new URL('../../../', base).toString() },
             respond: (url) =>
-                url === `${BASE}endpoints/`
-                    ? { status: 200, body: { results: [TRENDS], next: `${BASE}endpoints/?offset=1` } }
-                    : { status: 200, body: { results: [HOGQL], next: null } },
+                url === `${base}endpoints/?limit=1&offset=1`
+                    ? { status: 200, body: { count: 3, results: [HOGQL], next: `${base}endpoints/?limit=1&offset=2` } }
+                    : { status: 404, body: {} },
         })
-        expect(
-            result.stdout
-                .trim()
-                .split('\n')
-                .map((line) => JSON.parse(line).name)
-        ).toEqual(['weekly', 'by-type'])
+
+        expect(result.requests).toHaveLength(1)
+        expect(result.json()).toMatchObject({ endpoints: [{ name: 'by-type' }], count: 3, nextOffset: 2 })
+    })
+
+    test('list tells a person the command for the next page', async () => {
+        const result = await runHog(['endpoints', 'list', '--limit', '1'], {
+            stdoutIsTTY: true,
+            env: TEST_CREDENTIALS,
+            respond: () => ({
+                status: 200,
+                body: { count: 2, results: [TRENDS], next: `${BASE}endpoints/?limit=1&offset=1` },
+            }),
+        })
+
+        expect(result.stdout).toContain('Endpoints 1-1 of 2 in project 7')
+        expect(result.stdout).toContain('Run hog endpoints list --offset 1 --limit 1 for the next page.')
+    })
+
+    test.each([
+        ['stops at the page that holds every local name', false, [`${BASE}endpoints/`]],
+        [
+            'looks names up one by one in a project too large to read',
+            true,
+            [...Array.from({ length: 20 }, () => `${BASE}endpoints/`), `${BASE}endpoints/weekly/`],
+        ],
+    ])('diff %s', async (_name, endless, expectedUrls) => {
+        const result = await runHog(['endpoints', 'diff', 'weekly.yaml'], {
+            env: AGENT,
+            files: { '/work/weekly.yaml': PULLED_WEEKLY },
+            respond: (url) =>
+                url === `${BASE}endpoints/weekly/`
+                    ? { status: 200, body: TRENDS }
+                    : {
+                          status: 200,
+                          body: { results: endless ? [HOGQL] : [TRENDS], next: `${BASE}endpoints/?offset=1` },
+                      },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.requests.map((request) => request.url.replace(/\?.*/, ''))).toEqual(expectedUrls)
+    })
+
+    test('pull --all fails instead of pulling part of a project too large to read', async () => {
+        const result = await runHog(['endpoints', 'pull', '--all', '--yes'], {
+            env: AGENT,
+            respond: () => ({ status: 200, body: { results: [TRENDS], next: `${BASE}endpoints/?offset=1` } }),
+        })
+
+        expect(result.error()).toMatchObject({ code: 'list_too_long' })
+        expect(result.files).toEqual({})
+    })
+
+    test('pull refuses a pagination link to another host, so the token stays on the host', async () => {
+        const result = await runHog(['endpoints', 'pull', '--all', '--dry-run'], {
+            env: AGENT,
+            respond: () => ({
+                status: 200,
+                body: { results: [TRENDS], next: 'https://ph.example.com//attacker.example/endpoints/' },
+            }),
+        })
+
+        expect(result.error()).toMatchObject({ code: 'unexpected_response' })
+        expect(result.requests.map((request) => new URL(request.url).host)).toEqual(['ph.example.com'])
     })
 
     test('pull writes short files with the project variable types, and updates a file in place', async () => {
@@ -119,6 +185,34 @@ describe('hog endpoints', () => {
     })
 
     test.each([
+        ['finds a variable on a late page by paging, without a request per variable', 25, 200, 'String', false],
+        ['fetches a variable past the page cap by its ID', null, 200, 'String', true],
+        ['takes the type from the value when the variable was deleted', null, 404, 'string', true],
+    ])('pull %s', async (_name, foundOnPage, detailStatus, type, fetchesById) => {
+        const result = await runHog(['endpoints', 'pull', 'by-type', '--yes'], {
+            env: AGENT,
+            respond: server([HOGQL], (url) => {
+                if (url === `${BASE}insight_variables/var-1/`) {
+                    return {
+                        status: detailStatus,
+                        body: detailStatus === 200 ? VARIABLES[0] : { detail: 'Not found.' },
+                    }
+                }
+                if (!url.startsWith(`${BASE}insight_variables/`)) {
+                    return undefined
+                }
+                const page = Number(new URL(url).searchParams.get('page') ?? '1')
+                const results = page === foundOnPage ? [VARIABLES[0]] : []
+                return { status: 200, body: { results, next: `${BASE}insight_variables/?page=${page + 1}` } }
+            }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.files['/work/by-type.yaml']).toBe(PULLED_BY_TYPE.replace('type: String', `type: ${type}`))
+        expect(result.requests.some((request) => request.url.endsWith('/insight_variables/var-1/'))).toBe(fetchesById)
+    })
+
+    test.each([
         [
             'a file that defines another endpoint',
             { '/work/weekly.yaml': 'name: by-type\nquery: SELECT 1\n' },
@@ -137,7 +231,7 @@ describe('hog endpoints', () => {
         })
         expect(result.exitCode).toBe(1)
         expect(result.files).toMatchObject(expected)
-        expect(result.json().problems).toEqual([expect.objectContaining({ path: 'weekly.yaml' })])
+        expect(result.json()).toMatchObject({ problems: [expect.objectContaining({ path: 'weekly.yaml' })] })
     })
 
     test.each([
@@ -179,7 +273,17 @@ describe('hog endpoints', () => {
             respond: server([TRENDS, HOGQL]),
         })
         expect(result.exitCode).toBe(exitCode)
-        const plan = result.json().plan as { name: string; action: string; changes: { field: string }[] }[]
+        const { plan } = result.json(
+            z.object({
+                plan: z.array(
+                    z.object({
+                        name: z.string(),
+                        action: z.string(),
+                        changes: z.array(z.object({ field: z.string() })),
+                    })
+                ),
+            })
+        )
         expect(
             plan
                 .filter((item) => item.action !== 'skip')
@@ -229,6 +333,73 @@ describe('hog endpoints', () => {
         })
         expect(result.error().code).toBe('confirmation_required')
         expect(result.requests.filter((request) => request.method !== 'GET')).toEqual([])
+    })
+
+    test('push stops with the step-up details when PostHog refuses a write for a missing scope', async () => {
+        const result = await runHog(['endpoints', 'push', 'new.yaml', '--yes'], {
+            env: AGENT,
+            files: { '/work/new.yaml': 'name: new\nquery: SELECT 1\n' },
+            respond: server([], (url, body) =>
+                url === `${BASE}endpoints/` && body
+                    ? {
+                          status: 403,
+                          body: { detail: 'missing scope' },
+                          headers: { 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="endpoint:write"' },
+                      }
+                    : undefined
+            ),
+        })
+        expect(result.error()).toMatchObject({ code: 'step_up_required', scopes: ['endpoint:write'] })
+    })
+
+    test.each([
+        ['outside CI shows', {}, 'PostHog answered with HTTP 400: An endpoint with this name already exists.'],
+        [
+            'in CI hides',
+            { CI: 'true' },
+            "PostHog answered with HTTP 400. PostHog's reason is hidden in CI. Run the command outside CI to see it.",
+        ],
+    ])("push of an endpoint PostHog refuses %s PostHog's reason in its outcome", async (_name, env, error) => {
+        const result = await runHog(['endpoints', 'push', 'new.yaml', '--yes'], {
+            env: { ...AGENT, ...env },
+            files: { '/work/new.yaml': 'name: new\nquery: SELECT 1\n' },
+            respond: server([], (url, body) =>
+                url === `${BASE}endpoints/` && body
+                    ? {
+                          status: 400,
+                          body: { type: 'validation_error', detail: 'An endpoint with this name already exists.' },
+                      }
+                    : undefined
+            ),
+        })
+
+        expect(result.json()).toMatchObject({ outcomes: [{ name: 'new', status: 'failed', error }] })
+    })
+
+    test.each([{}, { CI: 'true' }])('push omits response values when decoding fails with env %j', async (env) => {
+        const result = await runHog(['endpoints', 'push', 'new.yaml', '--yes'], {
+            env: { ...AGENT, ...env },
+            files: { '/work/new.yaml': 'name: new\nquery: SELECT 1\n' },
+            respond: server([], (url, body) =>
+                url === `${BASE}endpoints/` && body
+                    ? {
+                          status: 201,
+                          body: endpoint(
+                              'new',
+                              { kind: 'HogQLQuery', query: 'SELECT 1' },
+                              { is_active: 'SYNTHETIC_RESPONSE_VALUE' }
+                          ),
+                      }
+                    : undefined
+            ),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.json()).toMatchObject({
+            outcomes: [{ status: 'failed', error: expect.stringContaining('is_active') }],
+        })
+        expect(result.stdout).not.toContain('SYNTHETIC_RESPONSE_VALUE')
+        expect(result.stderr).not.toContain('SYNTHETIC_RESPONSE_VALUE')
     })
 
     test('push creates the variables a file needs, then the endpoint, and skips files PostHog would reject', async () => {

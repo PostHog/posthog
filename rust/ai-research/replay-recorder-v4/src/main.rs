@@ -19,6 +19,7 @@ use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use replay_recorder_v4::config::Config;
 use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings, Sources};
 use replay_recorder_v4::flush::{Writer, PRODUCER_FLUSH_ON_SHUTDOWN};
+use replay_recorder_v4::history::{AwsFetchHistory, FetchHistory};
 use replay_recorder_v4::limits::{Restrictions, SessionLimiter};
 use replay_recorder_v4::store::S3Store;
 use replay_recorder_v4::teams::TeamCache;
@@ -245,7 +246,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .await?,
             index_topic: config.index_topic.clone(),
+            index_delivery_timeout: Duration::from_millis(config.index_delivery_timeout_ms.into()),
             sent_urls: replay_recorder_v4::urls::sent_urls(500_000),
+            fetch_history: (!config.image_fetch_history_table.is_empty()).then(
+                || -> Arc<dyn FetchHistory> {
+                    // A failed read only sends its jobs unchecked, so SDK retries would only use up the retry quota
+                    // that this process's key table reads share.
+                    let client = aws_sdk_dynamodb::Client::from_conf(
+                        aws_sdk_dynamodb::config::Builder::from(&aws)
+                            .retry_config(aws_sdk_dynamodb::config::retry::RetryConfig::disabled())
+                            .build(),
+                    );
+                    Arc::new(AwsFetchHistory::new(
+                        client,
+                        config.image_fetch_history_table.clone(),
+                    ))
+                },
+            ),
             seal_permits: Arc::new(tokio::sync::Semaphore::new(settings.flush_concurrency)),
         })
     } else {

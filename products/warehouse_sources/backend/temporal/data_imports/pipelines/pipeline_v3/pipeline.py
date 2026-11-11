@@ -86,11 +86,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     reconcile_batch_to_accumulated_schema,
     source_uses_delta_write_column_selection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import (
+    async_iterate,
+    run_in_source_executor,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
+    mask_table_if_configured,
+    raise_if_masked_key_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_cursor_partition_keys,
 )
@@ -340,7 +347,7 @@ class PipelineV3(Generic[ResumableData]):
         # and loads it again. The reset then stages that target (see `handle_reset_or_full_refresh`),
         # so no rewrite of the old table is necessary.
         replaces_table = attempt <= 1 and resets_table_before_extraction(
-            reset_pipeline, is_resume, self._schema, self._resource.webhook_only
+            reset_pipeline, is_resume, self._schema, self._resource.webhook_only, self._keeps_table_on_reset()
         )
         staged_scheme = self._schema.pending_scheme_for_table_replacement if replaces_table else None
         self._writes_staged_repartition_scheme = staged_scheme is not None
@@ -414,6 +421,7 @@ class PipelineV3(Generic[ResumableData]):
                 resume_manager=self._resumable_source_manager, is_webhook=self._schema.is_webhook
             ),
             primary_keys=self._resource.primary_keys,
+            masked_columns=self._schema.masked_columns,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(
@@ -622,6 +630,13 @@ class PipelineV3(Generic[ResumableData]):
             await database_sync_to_async_pool(TableRebuildRun.record)(self._schema, run_uuid)
         except Exception:
             await self._logger.aexception("V3 Pipeline: Failed to record the table rebuild")
+
+    def _keeps_table_on_reset(self) -> bool:
+        return False
+
+    async def _clear_history_staging(self) -> None:
+        """Drop the rows a history lane staged before a reset. Only a laned run has history lanes."""
+        return None
 
     def _maintains_companion_table(self) -> bool:
         """Whether this run's own table is a `_cdc` history table, keyed under its own watermark.
@@ -883,6 +898,10 @@ class PipelineV3(Generic[ResumableData]):
                 self._resource,
                 is_first_sync=self._table is None or self._reset_pipeline,
             )
+            # Before the reset below deletes the table: a full-refresh table stores no key, so the API
+            # can accept a mask on the key that only this run resolves.
+            if self._resource.cdc_write_mode is None:
+                raise_if_masked_key_columns(self._schema, self._resource)
 
             await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 
@@ -903,7 +922,11 @@ class PipelineV3(Generic[ResumableData]):
             # overwrite handles it. Wiping the delta table mid-retry while the consumer
             # is loading the previous attempt's batches causes data loss.
             table_will_be_reset = self._attempt <= 1 and resets_table_before_extraction(
-                self._reset_pipeline, should_resume, self._schema, self._resource.webhook_only
+                self._reset_pipeline,
+                should_resume,
+                self._schema,
+                self._resource.webhook_only,
+                self._keeps_table_on_reset(),
             )
             if self._writes_staged_repartition_scheme and not table_will_be_reset:
                 # The batches of this attempt carry a scheme that is only correct for a new table.
@@ -921,8 +944,12 @@ class PipelineV3(Generic[ResumableData]):
                     self._delta_table_ref,
                     self._logger,
                     table_will_be_reset=table_will_be_reset,
+                    keeps_table=self._keeps_table_on_reset(),
                 )
 
+                # Before the reset consumes its flag, so a failed clear leaves the reset for the next run.
+                if self._reset_pipeline and not should_resume and not self._resource.webhook_only:
+                    await self._clear_history_staging()
                 await handle_reset_or_full_refresh(
                     self._reset_pipeline,
                     should_resume,
@@ -930,6 +957,7 @@ class PipelineV3(Generic[ResumableData]):
                     self._delta_table_ref,
                     self._logger,
                     webhook_only=self._resource.webhook_only,
+                    keeps_table=self._keeps_table_on_reset(),
                 )
                 # A reset drops the earliest value of the table it deletes. No reloaded row is older than
                 # that value, so a run that kept it would never stage an earliest value of its own.
@@ -998,7 +1026,10 @@ class PipelineV3(Generic[ResumableData]):
             ):
                 await self._record_table_rebuild(self._run_uuid)
 
-            items = self._resource.items()
+            # A source can do blocking work when it builds its items, such as the DNS lookup of a
+            # host check. The source thread pool keeps that work off the event loop, as iteration
+            # already is, without tying up the default executor.
+            items = await run_in_source_executor(self._resource.items)
             safe_point_scope = self._activate_safe_point(items)
             source_items = self._source_items(items, source_type)
             awaiting_source = True
@@ -1168,6 +1199,7 @@ class PipelineV3(Generic[ResumableData]):
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
         pa_table = _append_debug_column_to_pyarrows_table(drop_internal_columns(pa_table), self._load_id)
+        source_column_names = pa_table.column_names
         if not self._resource.preserve_column_names:
             pa_table = normalize_table_column_names(pa_table)
 
@@ -1193,6 +1225,10 @@ class PipelineV3(Generic[ResumableData]):
 
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
+        # After the null-column backfill, so a masked column the batch lacked is typed as text too.
+        # Capture masks a change before it writes the change buffer, so a buffered batch is masked already.
+        if self._resource.cdc_write_mode is None:
+            pa_table = await mask_table_if_configured(pa_table, self._schema, self._resource, source_column_names)
 
         # Converge this batch onto the column types earlier batches in this run already used,
         # and backfill columns they had that this one doesn't. The cursor column is named both

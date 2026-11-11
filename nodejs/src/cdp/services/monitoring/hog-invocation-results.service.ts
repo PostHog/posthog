@@ -165,7 +165,7 @@ export const classifyError = (error: unknown): { kind: string; message: string }
         kind = 'http_5xx'
     } else if (http4xxRegex.test(lower)) {
         kind = 'http_4xx'
-    } else if (lower.includes('out of memory') || lower.includes('oom')) {
+    } else if (lower.includes('out of memory') || /\boom\b/.test(lower)) {
         kind = 'oom'
     }
 
@@ -208,7 +208,7 @@ const INPUT_KEYS: ReadonlySet<string> = new Set(['inputs'])
 // A sensitive message carries reset links, login codes or private text, so its snapshot keeps no
 // variables either, and a rerun can't rebuild the send. A step paused mid-send (e.g. for a provider
 // retry) holds the rendered message on its VM stack, and the person and group properties it read, so those go too.
-const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables', 'vmState', 'person', 'groups'])
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables', 'vmState', 'person', 'groups', 'send'])
 export const SENSITIVE_VARIABLES_OMITTED = 'sensitive_variables_omitted'
 
 const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {

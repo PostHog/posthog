@@ -24,7 +24,6 @@ const USER_APP_CONTEXT_KEYS = new Set([
     'current_project',
     'effective_resource_access_control',
     'resource_access_control',
-    'frontend_apps',
     'default_event_name',
     'has_pageview',
     'has_screen',

@@ -5,6 +5,9 @@ Native changes still need a new build, see [RELEASING.md](RELEASING.md).
 
 Production OTA updates use a release request merged to `master` and approval from a required `mobile-production` environment reviewer. See [Releasing](RELEASING.md#request-a-hosted-release) for request creation, prerequisites and recovery.
 
+The `ota-180-20261102` request publishes the JavaScript and assets from the `1.8.0` native release to production.
+Merge it only after `native-180` has a completed release receipt. It targets `1.8.0` builds; older runtimes need the native store update first.
+
 ## How a device gets an update
 
 - `expo-updates` checks `https://u.expo.dev/4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` each time the app starts.

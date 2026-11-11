@@ -5,7 +5,7 @@ reads the report's priority levels.
 One examples asset, and a candidate and a champion asset per family, on the dataset dag's daily
 partition, registered by the `signals_ml` code location, which runs on the image that carries torch:
 
-    inbox_ranking_nn_examples/v1/dt=D/                      rows, labels, holdout flags and priority (`nn/examples.py`)
+    inbox_ranking_nn_examples/v1/dt=D/                      rows, labels, holdout flags and state columns (`nn/examples.py`)
     inbox_ranking_models/v1/<model_name>/dt=D/model.onnx    the refit that serves, + model.holdout.onnx and metadata.json
     (no object)                                             the champion asset grades the candidate and records the decision
 
@@ -65,9 +65,12 @@ from products.signals.dags.inbox_ranking.nn.model import (
     TrainedNetwork,
     candidate_metadata,
     champion_grades,
+    feature_group_columns,
+    group_importance_block,
     network_recipe,
     network_vector_kinds,
     vs_baseline_block,
+    zero_unfitted_groups,
 )
 from products.signals.dags.inbox_ranking.training.calibration import bucket_rows
 from products.signals.dags.inbox_ranking.training.dag import (
@@ -198,9 +201,10 @@ def inbox_ranking_nn_examples(context: dagster.AssetExecutionContext) -> None:
 
 
 def _missing_state_columns(family: ModelFamily, table: ExampleTable) -> list[str]:
-    """The state columns `family`'s set reads that the examples rows lack. An examples object written
-    before a column existed lacks it, and building the set from it would raise."""
-    return [column for column in family.feature_set.state_columns if column not in table.rows]
+    """The required state columns of `family`'s set that the examples rows lack. An examples object
+    written before a column existed lacks it, and building the set from it would raise. A set builds
+    without its optional columns and records that they are missing."""
+    return [column for column in family.feature_set.required_state_columns() if column not in table.rows]
 
 
 @frozen
@@ -288,6 +292,12 @@ def train_candidate(
         examples.table, extras, day.labels, day.embeddings, family.feature_set, family.project_vector_kinds
     )
     del day
+    zeroed_groups = zero_unfitted_groups(inputs.reports, examples.table.network_train_rows(), family.feature_set)
+    if zeroed_groups:
+        context.log.info(
+            f"{family.name} reads zeros for {', '.join(zeroed_groups)} on dt={partition_key}: too few training "
+            "rows carry them"
+        )
     check_recipe(
         client,
         bucket,
@@ -298,7 +308,9 @@ def train_candidate(
     )
 
     from products.signals.dags.inbox_ranking.nn.train import (  # noqa: PLC0415 — keeps torch off the location's import path
+        seed_networks,
         seed_scores,
+        shuffled_group_scores,
         train_network,
     )
 
@@ -306,13 +318,30 @@ def train_candidate(
     vs_baseline = None
     if baseline_reports is not None and family.baseline is not None:
         baseline_inputs = NetworkInputs(reports=baseline_reports, context=baseline_context or inputs.context)
+        experiment_seeds = family.experiment_seeds(EXPERIMENT_SEEDS)
+        networks = seed_networks(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, experiment_seeds)
+        all_rows = np.arange(len(inputs))
+        experiment_scores = [network.predict(inputs, all_rows) for network in networks]
         vs_baseline = vs_baseline_block(
             examples.table,
             baseline=family.baseline,
             seeds=EXPERIMENT_SEEDS,
-            experiment_scores=seed_scores(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
+            experiment_seeds=experiment_seeds,
+            experiment_scores=experiment_scores,
             baseline_scores=seed_scores(examples.table, baseline_inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
         )
+        if family.feature_set.late_feature_groups:
+            vs_baseline["zeroed_feature_groups"] = zeroed_groups
+        groups = feature_group_columns(family.feature_set)
+        if groups:
+            # Scored by the arm's own seed fits, so the read adds no fit.
+            holdout_rows = np.flatnonzero(examples.table.holdout.any(axis=1))
+            vs_baseline["group_importance"] = group_importance_block(
+                examples.table,
+                experiment_scores,
+                holdout_rows,
+                shuffled_group_scores(networks, inputs, holdout_rows, groups),
+            )
     metadata = write_candidate(
         context, client, bucket, partition_key, family, trained, windows=examples.windows, vs_baseline=vs_baseline
     )

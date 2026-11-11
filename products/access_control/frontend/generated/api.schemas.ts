@@ -48,6 +48,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `action` - action
  * * `access_control` - access_control
  * * `account` - account
+ * * `account_note` - account_note
  * * `activity_log` - activity_log
  * * `alert` - alert
  * * `annotation` - annotation
@@ -100,6 +101,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `insight` - insight
  * * `insight_variable` - insight_variable
  * * `integration` - integration
+ * * `knowledge_writer` - knowledge_writer
  * * `legal_document` - legal_document
  * * `link` - link
  * * `live_debugger` - live_debugger
@@ -115,6 +117,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `marketing_analytics` - marketing_analytics
  * * `mcp_analytics` - mcp_analytics
  * * `mcp_registry` - mcp_registry
+ * * `messaging_preference` - messaging_preference
  * * `metrics` - metrics
  * * `notebook` - notebook
  * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -148,6 +151,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `today` - today
  * * `toolbar` - toolbar
  * * `tracing` - tracing
+ * * `transactional_email` - transactional_email
  * * `field_note` - field_note
  * * `uploaded_media` - uploaded_media
  * * `usage_metric` - usage_metric
@@ -163,6 +167,8 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `webhook` - webhook
  * * `wizard_session` - wizard_session
  * * `wizard_run` - wizard_run
+ * * `workload_trust_policy` - workload_trust_policy
+ * * `workload_trust_policy_request` - workload_trust_policy_request
  */
 export type ScopeObjectEnumApi = (typeof ScopeObjectEnumApi)[keyof typeof ScopeObjectEnumApi]
 
@@ -170,6 +176,7 @@ export const ScopeObjectEnumApi = {
     Action: 'action',
     AccessControl: 'access_control',
     Account: 'account',
+    AccountNote: 'account_note',
     ActivityLog: 'activity_log',
     Alert: 'alert',
     Annotation: 'annotation',
@@ -222,6 +229,7 @@ export const ScopeObjectEnumApi = {
     Insight: 'insight',
     InsightVariable: 'insight_variable',
     Integration: 'integration',
+    KnowledgeWriter: 'knowledge_writer',
     LegalDocument: 'legal_document',
     Link: 'link',
     LiveDebugger: 'live_debugger',
@@ -237,6 +245,7 @@ export const ScopeObjectEnumApi = {
     MarketingAnalytics: 'marketing_analytics',
     McpAnalytics: 'mcp_analytics',
     McpRegistry: 'mcp_registry',
+    MessagingPreference: 'messaging_preference',
     Metrics: 'metrics',
     Notebook: 'notebook',
     OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
@@ -270,6 +279,7 @@ export const ScopeObjectEnumApi = {
     Today: 'today',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
+    TransactionalEmail: 'transactional_email',
     FieldNote: 'field_note',
     UploadedMedia: 'uploaded_media',
     UsageMetric: 'usage_metric',
@@ -285,6 +295,8 @@ export const ScopeObjectEnumApi = {
     Webhook: 'webhook',
     WizardSession: 'wizard_session',
     WizardRun: 'wizard_run',
+    WorkloadTrustPolicy: 'workload_trust_policy',
+    WorkloadTrustPolicyRequest: 'workload_trust_policy_request',
 } as const
 
 /**
@@ -315,6 +327,7 @@ export interface ProjectAccessSourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -367,6 +380,7 @@ export interface ProjectAccessSourceApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -382,6 +396,7 @@ export interface ProjectAccessSourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -415,6 +430,7 @@ export interface ProjectAccessSourceApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -429,7 +445,9 @@ export interface ProjectAccessSourceApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -480,6 +498,7 @@ export interface AccessControlObjectRuleApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -532,6 +551,7 @@ export interface AccessControlObjectRuleApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -547,6 +567,7 @@ export interface AccessControlObjectRuleApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -580,6 +601,7 @@ export interface AccessControlObjectRuleApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -594,7 +616,9 @@ export interface AccessControlObjectRuleApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     resource: ScopeObjectEnumApi
     /** The object's primary key. */
     resource_id: string
@@ -635,6 +659,7 @@ export interface AccessControlPropertyRulesResponseApi {
 
 /**
  * * `account` - account
+ * * `account_note` - account_note
  * * `action` - action
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
@@ -659,6 +684,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `feature_flag` - feature_flag
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
+ * * `inbox` - inbox
  * * `insight` - insight
  * * `llm_analytics` - llm_analytics
  * * `llm_playground` - llm_playground
@@ -693,6 +719,7 @@ export type RuleResourceEnumApi = (typeof RuleResourceEnumApi)[keyof typeof Rule
 
 export const RuleResourceEnumApi = {
     Account: 'account',
+    AccountNote: 'account_note',
     Action: 'action',
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
@@ -717,6 +744,7 @@ export const RuleResourceEnumApi = {
     FeatureFlag: 'feature_flag',
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
+    Inbox: 'inbox',
     Insight: 'insight',
     LlmAnalytics: 'llm_analytics',
     LlmPlayground: 'llm_playground',
@@ -756,6 +784,7 @@ export interface AccessControlRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -780,6 +809,7 @@ export interface AccessControlRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -870,6 +900,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -922,6 +953,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -937,6 +969,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -970,6 +1003,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -984,7 +1018,9 @@ export interface AccessControlObjectRuleResourceApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     resource: ScopeObjectEnumApi
     /** The levels an object rule on this resource type accepts, lowest first. */
     available_access_levels: string[]
@@ -1036,6 +1072,7 @@ export interface AccessControlMemberRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -1060,6 +1097,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1157,6 +1195,7 @@ export interface ResolvedAccessApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1209,6 +1248,7 @@ export interface ResolvedAccessApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -1224,6 +1264,7 @@ export interface ResolvedAccessApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1257,6 +1298,7 @@ export interface ResolvedAccessApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -1271,7 +1313,9 @@ export interface ResolvedAccessApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -1348,6 +1392,7 @@ export interface AccessControlRoleRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -1372,6 +1417,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground

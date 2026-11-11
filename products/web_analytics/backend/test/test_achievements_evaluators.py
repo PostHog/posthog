@@ -16,7 +16,8 @@ from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, Cli
 from posthog.models import Element, Team, User
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, filter_through_warehouse_join
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_DAILY, STREAK_ARM_WEEKLY
 from products.web_analytics.backend.achievements.evaluators import (
     INGESTION_LAG,
@@ -92,7 +93,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         return EvalContext(team=self.team, user=None, today=date.today(), arm=None)
 
     def _pay_action(self, event: str | None) -> Action:
-        return Action.objects.create(
+        return create_action(
             team=self.team,
             name="Clicked Pay",
             steps_json=[{"event": event, "tag_name": "button", "text": "Pay $10"}],
@@ -576,8 +577,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         assert prior_checkpoint is not None
         actions = prior_checkpoint["actions"]
         if change == "edited_steps":
-            action.steps_json = [{"event": "$autocapture", "text": "Pay $10"}]
-            action.save()
+            update_action(action, steps_json=[{"event": "$autocapture", "text": "Pay $10"}])
         elif change == "other_actions":
             actions = [[action.id + 1, "0"]]
         now = timezone.now()

@@ -1,7 +1,8 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { redactDestinationSecretsInReplay } from 'lib/utils/destinationSecretRedaction'
+import { inStorybook } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import {
     dropHandledAuthGateExceptions,
@@ -13,12 +14,29 @@ import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
 import { isOAuthMode } from 'lib/utils/oauthClient'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
+import { consumeMobileHandoff, installMobileHandoff } from 'lib/utils/webMobileHandoff'
 
 import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
+
+const suppressPassiveTelemetryLastSeen: BeforeSendFn = (event) => {
+    if (
+        event &&
+        (event.event === '$exception' ||
+            event.event === '$web_vitals' ||
+            event.event === '$performance' ||
+            event.event === '$snapshot' ||
+            event.event.startsWith('$ai_'))
+    ) {
+        return { ...event, properties: { ...event.properties, $update_person_last_seen_at: false } }
+    }
+    return event
+}
+
+let removeMobileHandoff: (() => void) | undefined
 
 const LAST_SEEN_FEATURE_FLAGS_KEY = 'posthog-app-last-seen-feature-flags'
 
@@ -58,6 +76,17 @@ export function withLastSeenFeatureFlags(
 const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
     event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
 
+const dropExceptions: BeforeSendFn = (event) => (event?.event === '$exception' ? null : event)
+
+/**
+ * Local development without self-capture sends its events to PostHog Cloud. Its crashes come from
+ * dev-only state, for example a stale Vite prebundle, and file issues that no user can hit.
+ * This reads the raw context because getAppContext() hides it in OAuth mode, which also runs locally.
+ */
+function sendsLocalDevelopmentToCloud(): boolean {
+    return window.POSTHOG_APP_CONTEXT?.run_mode === 'LOCAL' && !window.JS_POSTHOG_SELF_CAPTURE
+}
+
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
         const stored = window.localStorage.getItem(LAST_SEEN_FEATURE_FLAGS_KEY)
@@ -92,6 +121,9 @@ function loadFeatureFlagsForPage(): void {
 }
 
 export function loadPostHogJS(): void {
+    const incomingHandoff = consumeMobileHandoff()
+    removeMobileHandoff?.()
+    removeMobileHandoff = undefined
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
@@ -130,7 +162,7 @@ export function loadPostHogJS(): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            metrics: { network: true, serviceName: 'posthog-app' },
+            metrics: { network: true, flags: true, serviceName: 'posthog-app' },
             before_send: [
                 dropScopeNotFoundExceptions,
                 dropHandledAuthGateExceptions,
@@ -138,9 +170,12 @@ export function loadPostHogJS(): void {
                 dropInjectedScriptReferenceErrors,
                 dropWebMCPToolErrors,
                 redactMetricVariableUrls,
+                redactDestinationSecretsInReplay,
+                suppressPassiveTelemetryLastSeen,
                 // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
                 // `register` would persist the property in storage the main window shares, so it is stamped per event.
                 ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : []),
+                ...(sendsLocalDevelopmentToCloud() ? [dropExceptions] : []),
             ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
@@ -152,6 +187,7 @@ export function loadPostHogJS(): void {
                     loadedInstance.opt_out_capturing()
                 } else {
                     loadedInstance.opt_in_capturing()
+                    removeMobileHandoff = installMobileHandoff(loadedInstance, incomingHandoff)
 
                     if (
                         !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
@@ -178,6 +214,7 @@ export function loadPostHogJS(): void {
                             const memory = (window.performance as any).memory
                             if (memory && memory.usedJSHeapSize) {
                                 loadedInstance.capture('memory_usage', {
+                                    $update_person_last_seen_at: false,
                                     totalJSHeapSize: memory.totalJSHeapSize,
                                     usedJSHeapSize: memory.usedJSHeapSize,
                                     visibility_trigger: visibilityTrigger,
@@ -262,7 +299,7 @@ export function loadPostHogJS(): void {
                 writeLastSeenFeatureFlags({ distinctId: posthog.get_distinct_id(), featureFlags: variants })
             }
 
-            if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {
+            if (inStorybook() || !context?.errorsLoading) {
                 return
             }
 

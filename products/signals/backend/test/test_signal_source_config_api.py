@@ -3,23 +3,41 @@ from threading import Barrier
 from typing import TYPE_CHECKING
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import patch
 
 from django.db import connection, connections
 from django.test import SimpleTestCase
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.signals.backend.models import SignalSourceConfig
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.emission.steering import afetch_source_config
+from products.signals.backend.facade.api import set_signal_source_types_enabled
+from products.signals.backend.facade.source_configs import (
+    AlertFilterOutcome,
+    AlertNamePatterns,
+    enabled_issue_filters,
+    evaluate_alert_filter,
+    get_analytics_alert_name_patterns,
+    get_analytics_alert_scope,
+)
+from products.signals.backend.models import SignalFilterCatalogVersion, SignalFilterSourceDefinition, SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
+from products.signals.backend.source_filters import writes_open
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+
+from common.hogvm.python.execute import execute_bytecode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -37,6 +55,52 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         if config_id:
             return f"{base}{config_id}/"
         return base
+
+    # --- Alert pattern preview ---
+
+    @parameterized.expand(
+        [
+            (
+                "valid",
+                {"alert_allow_patterns": ["(?i)^checkout", "revenue"], "alert_block_patterns": [" test"]},
+                None,
+                None,
+                ["not_allowed", "blocked", "passed"],
+            ),
+            ("no_patterns", {}, None, None, ["passed", "passed", "passed"]),
+            (
+                "invalid_allow",
+                {"alert_allow_patterns": ["(checkout"], "alert_block_patterns": ["test"]},
+                "Pattern '(checkout' is not a valid RE2 regex: missing ): (checkout",
+                None,
+                [],
+            ),
+            (
+                "too_many_block",
+                {"alert_block_patterns": [f"p{i}" for i in range(21)]},
+                None,
+                "Must have at most 20 patterns",
+                [],
+            ),
+        ]
+    )
+    def test_alert_pattern_preview(self, _name, body, allow_error, block_error, outcomes):
+        for alert_name, insight_name in [
+            ("Checkout conversion", "Weekly revenue"),
+            ("Checkout test", "Checkout funnel"),
+            ("Signups", "Daily signups"),
+        ]:
+            insight = Insight.objects.create(team=self.team, name=insight_name)
+            AlertConfiguration.objects.create(team=self.team, insight=insight, name=alert_name, enabled=True)
+
+        response = self.client.post(f"{self._url()}alert_pattern_preview/", data=body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["alert_allow_patterns_error"] == allow_error
+        assert data["alert_block_patterns_error"] == block_error
+        assert [alert["outcome"] for alert in data["alerts"]] == outcomes
+        assert data["has_more"] is False
 
     # --- Create ---
 
@@ -412,6 +476,158 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["config"] == {"default_not_actionable": True}
 
+    def test_issue_filters_are_compiled_on_the_server(self) -> None:
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="error_tracking",
+            source_type="issue_spiking",
+            enabled=False,
+            config={"steering": "Skip errors from bots"},
+        )
+        production = {"key": "$environment", "value": ["production"], "operator": "exact", "type": "event"}
+
+        response = self.client.patch(
+            self._url(str(config.id)),
+            # Client bytecode that matches everything must not reach emission.
+            {"config_set": {"issue_filters": {"properties": [production], "bytecode": ["_H", 1, 29]}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.enabled is False
+        assert config.config["steering"] == "Skip errors from bots"
+        bytecode = config.config["issue_filters"]["bytecode"]
+        assert execute_bytecode(bytecode, {"properties": {"$environment": "production"}}).result is True
+        assert execute_bytecode(bytecode, {"properties": {"$environment": "staging"}}).result is False
+        log = ActivityLog.objects.get(scope="SignalSourceConfig", item_id=str(config.id), activity="updated")
+        assert log.detail is not None
+        assert [change["field"] for change in log.detail["changes"]] == ["config"]
+
+    @parameterized.expand(
+        [
+            ("not_error_tracking", "linear", "issue", {"properties": []}),
+            ("not_an_object", "error_tracking", "issue_created", []),
+            (
+                "event_branch",
+                "error_tracking",
+                "issue_created",
+                {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+            ),
+            (
+                "person_property",
+                "error_tracking",
+                "issue_created",
+                {"properties": [{"key": "email", "value": ["a@example.com"], "type": "person"}]},
+            ),
+            # A leaf without a value compiles to a match-all branch.
+            ("leaf_without_value", "error_tracking", "issue_created", {"properties": [{"key": "$environment"}]}),
+        ]
+    )
+    def test_invalid_issue_filters_are_rejected(
+        self, _name: str, source_product: str, source_type: str, filters: object
+    ) -> None:
+        config = SignalSourceConfig.objects.create(
+            team=self.team, source_product=source_product, source_type=source_type, config={}
+        )
+
+        response = self.client.patch(
+            self._url(str(config.id)), {"config_set": {"issue_filters": filters}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.config == {}
+
+    def _linear_filter_catalog(self, *, eligible: bool = True) -> None:
+        source = SignalFilterSourceDefinition.objects.create(
+            source_product="linear", source_type="issue", adapter_kind="warehouse", rollout_state="internal"
+        )
+        version = SignalFilterCatalogVersion.objects.create(
+            source=source,
+            version=1,
+            bundle={
+                "schema_version": 1,
+                "fields": [
+                    {
+                        "name": "project_name",
+                        "type": "string",
+                        "description": "Name of the issue's project.",
+                        "binding": {"kind": "json_path", "column": "project", "path": ["name"]},
+                        "missing_value": "null",
+                        "malformed_value": "error",
+                    }
+                ],
+                "starter_expressions": [],
+            },
+        )
+        source.activate(version)
+        source.filter_query_eligible = eligible
+        source.save()
+
+    @patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=True)
+    def test_hogql_filter_is_pinned_to_the_catalog_version(self, _flag: object) -> None:
+        self._linear_filter_catalog()
+        config = SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue")
+
+        response = self.client.patch(
+            self._url(str(config.id)), {"config_set": {"hogql_filter": "project_name = 'Core'"}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        saved = {"expression": "project_name = 'Core'", "catalog_version": 1}
+        assert config.config["hogql_filter"] == saved
+        source = SignalFilterSourceDefinition.objects.get(source_product="linear", source_type="issue")
+        source.filter_query_eligible = False
+        source.save()
+
+        response = self.client.patch(self._url(str(config.id)), {"config_set": {"steering": "Skip"}}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.config == {"hogql_filter": saved, "steering": "Skip"}
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, "project_name = 'Core'"),
+            ("unknown_field", True, "category = 'Core'"),
+            ("not_boolean", True, "project_name"),
+            ("client_pinned_version", True, {"expression": "true", "catalog_version": 1}),
+        ]
+    )
+    def test_invalid_hogql_filter_is_rejected(self, _name: str, flag_enabled: bool, value: object) -> None:
+        self._linear_filter_catalog()
+        config = SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue")
+
+        with patch("products.signals.backend.source_filters.feature_enabled_or_false", return_value=flag_enabled):
+            response = self.client.patch(
+                self._url(str(config.id)), {"config_set": {"hogql_filter": value}}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.config == {}
+
+    def test_bulk_disable_is_logged(self) -> None:
+        enabled = SignalSourceConfig.objects.create(
+            team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+        )
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="error_tracking", source_type="issue_reopened", enabled=False
+        )
+
+        set_signal_source_types_enabled(
+            team_id=self.team.id,
+            source_product="error_tracking",
+            source_types=("issue_created", "issue_reopened"),
+            enabled=False,
+            created_by_id=self.user.id,
+        )
+
+        logs = ActivityLog.objects.filter(scope="SignalSourceConfig", activity="updated")
+        assert [log.item_id for log in logs] == [str(enabled.id)]
+
     def test_config_keys_require_write_scope(self) -> None:
         config = SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue")
         raw = generate_random_token_personal()
@@ -510,6 +726,29 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
 
+class TestSourceFilterWriteGate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("enabled", "enabled", True, False, True),
+            ("internal_with_flag", "internal", True, True, True),
+            ("internal_without_flag", "internal", True, False, False),
+            ("disabled_with_flag", "disabled", True, True, False),
+            ("not_eligible", "enabled", False, True, False),
+        ]
+    )
+    def test_writes_open(
+        self, _name: str, rollout_state: str, eligible: bool, internal_flag_enabled: bool, expected: bool
+    ) -> None:
+        assert (
+            writes_open(
+                SignalFilterSourceDefinition.RolloutState(rollout_state),
+                eligible=eligible,
+                internal_flag_enabled=internal_flag_enabled,
+            )
+            is expected
+        )
+
+
 class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
     @parameterized.expand(
         [
@@ -567,6 +806,56 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         )
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["config"]["linear_team_ids"] == ["team-1", "team-2"]
+
+    @parameterized.expand(
+        [
+            ("investigated_only", "analytics", "anomaly_investigation", "investigated_only", True),
+            ("all_firing_alerts", "analytics", "anomaly_investigation", "all_firing_alerts", True),
+            ("off", "analytics", "anomaly_investigation", "off", True),
+            ("unknown_value", "analytics", "anomaly_investigation", "everything", False),
+            ("null", "analytics", "anomaly_investigation", None, False),
+            ("unhashable", "analytics", "anomaly_investigation", ["all_firing_alerts"], False),
+            ("other_source", "github", "issue", "all_firing_alerts", False),
+        ]
+    )
+    def test_alert_scope(self, _name, source_product, source_type, value, expected_valid):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": source_product, "source_type": source_type, "config": {"alert_scope": value}}
+        )
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "alert_scope" in str(serializer.errors["config"])
+
+    def test_alert_scope_is_validated_on_config_set(self) -> None:
+        instance = SignalSourceConfig(source_product="github", source_type="issue", config={})
+        serializer = SignalSourceConfigSerializer(
+            instance, data={"config_set": {"alert_scope": "all_firing_alerts"}}, partial=True
+        )
+        assert not serializer.is_valid()
+
+    @parameterized.expand(
+        [
+            ("allow", "analytics", "anomaly_investigation", "alert_allow_patterns", ["(?i)checkout", "^Daily"], None),
+            ("block", "analytics", "anomaly_investigation", "alert_block_patterns", ["test"], None),
+            ("empty_list", "analytics", "anomaly_investigation", "alert_block_patterns", [], None),
+            ("not_a_list", "analytics", "anomaly_investigation", "alert_allow_patterns", "checkout", "list"),
+            ("empty_pattern", "analytics", "anomaly_investigation", "alert_allow_patterns", [""], "list"),
+            ("too_many", "analytics", "anomaly_investigation", "alert_allow_patterns", ["a"] * 21, "at most 20"),
+            ("too_long", "analytics", "anomaly_investigation", "alert_block_patterns", ["a" * 201], "at most 200"),
+            ("lookahead", "analytics", "anomaly_investigation", "alert_block_patterns", ["ok", "(?=x)"], "'(?=x)'"),
+            ("unbalanced", "analytics", "anomaly_investigation", "alert_allow_patterns", ["a("], "'a('"),
+            ("other_source", "github", "issue", "alert_allow_patterns", ["checkout"], "only supported"),
+        ]
+    )
+    def test_alert_patterns(self, _name, source_product, source_type, key, value, expected_error):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": source_product, "source_type": source_type, "config": {key: value}}
+        )
+        assert serializer.is_valid() is (expected_error is None), serializer.errors
+        if expected_error is not None:
+            error = str(serializer.errors["config"])
+            assert key in error
+            assert expected_error in error
 
 
 class TestScoutSourceCanonicalization(APIBaseTest):
@@ -719,6 +1008,21 @@ class TestIsSourceEnabledGating(APIBaseTest):
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "session_replay", "session_problem") is True
 
+    @parameterized.expand([("no_row", None, False), ("enabled_row", True, True), ("disabled_row", False, False)])
+    def test_alert_firing_gated_by_product_analytics_row(self, _name, existing_enabled, expected):
+        if existing_enabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.ANALYTICS,
+                source_type=SignalSourceConfig.SourceType.ANOMALY_INVESTIGATION,
+                enabled=existing_enabled,
+                config={"steering": "Skip the staging alerts."},
+            )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "analytics", "alert_firing") is expected
+        steering = async_to_sync(afetch_source_config)(self.team.id, "analytics", "alert_firing").get("steering")
+        assert steering == (None if existing_enabled is None else "Skip the staging alerts.")
+
     def test_pganalyze_issue_requires_own_config(self):
         SignalSourceConfig.objects.create(
             team=self.team,
@@ -773,6 +1077,146 @@ class TestIsSourceEnabledGating(APIBaseTest):
             )
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected
+
+
+class TestGetAnalyticsAlertScope(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_row", None, True, "investigated_only"),
+            ("no_key", {}, True, "investigated_only"),
+            ("unknown_stored_value", {"alert_scope": "everything"}, True, "investigated_only"),
+            ("unhashable_stored_value", {"alert_scope": ["all_firing_alerts"]}, True, "investigated_only"),
+            ("all_firing_alerts_flag_on", {"alert_scope": "all_firing_alerts"}, True, "all_firing_alerts"),
+            ("all_firing_alerts_flag_off", {"alert_scope": "all_firing_alerts"}, False, "investigated_only"),
+            ("off_flag_off", {"alert_scope": "off"}, False, "off"),
+        ]
+    )
+    def test_scope(self, _name, config, flag_enabled, expected):
+        if config is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="analytics", source_type="anomaly_investigation", config=config
+            )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            assert get_analytics_alert_scope(team_id=self.team.id) == expected
+
+    def test_flag_service_error_reads_default_scope(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="analytics",
+            source_type="anomaly_investigation",
+            config={"alert_scope": "all_firing_alerts"},
+        )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false",
+            side_effect=RuntimeError("flag service down"),
+        ):
+            assert get_analytics_alert_scope(team_id=self.team.id) == "investigated_only"
+
+
+class TestGetAnalyticsAlertNamePatterns(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_row", None, True, AlertNamePatterns()),
+            ("no_keys", {"alert_scope": "all_firing_alerts"}, True, AlertNamePatterns()),
+            (
+                "valid",
+                {"alert_allow_patterns": ["^Daily"], "alert_block_patterns": ["test"]},
+                True,
+                AlertNamePatterns(allow=("^Daily",), block=("test",)),
+            ),
+            ("flag_off", {"alert_block_patterns": ["test"]}, False, AlertNamePatterns()),
+            ("not_a_list", {"alert_block_patterns": "test"}, True, AlertNamePatterns(invalid=True)),
+            ("null", {"alert_allow_patterns": None}, True, AlertNamePatterns(invalid=True)),
+            ("no_longer_compiles", {"alert_block_patterns": ["(?=x)"]}, True, AlertNamePatterns(invalid=True)),
+        ]
+    )
+    def test_patterns(self, _name, config, flag_enabled, expected):
+        if config is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="analytics", source_type="anomaly_investigation", config=config
+            )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            assert get_analytics_alert_name_patterns(team_id=self.team.id) == expected
+
+    def test_flag_service_error_fails_closed(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="analytics",
+            source_type="anomaly_investigation",
+            config={"alert_allow_patterns": ["^Daily"]},
+        )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false",
+            side_effect=RuntimeError("flag service down"),
+        ):
+            assert get_analytics_alert_name_patterns(team_id=self.team.id) == AlertNamePatterns(invalid=True)
+
+
+class TestEnabledIssueFilters(BaseTest):
+    FILTERS = {"properties": [{"key": "severity", "value": ["high"], "operator": "exact", "type": "event"}]}
+
+    @parameterized.expand(
+        [
+            ("enabled_row_with_filter", "issue_created", True, {"issue_filters": FILTERS}, FILTERS),
+            ("disabled_row", "issue_created", False, {"issue_filters": FILTERS}, None),
+            ("other_source_type", "issue_spiking", True, {"issue_filters": FILTERS}, None),
+            ("no_filter_key", "issue_created", True, {}, None),
+            ("malformed_filter_returned_as_stored", "issue_created", True, {"issue_filters": "nope"}, "nope"),
+        ]
+    )
+    def test_reads_only_the_enabled_row_for_the_source_type(self, _name, stored_type, enabled, config, expected):
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="error_tracking",
+            source_type=stored_type,
+            enabled=enabled,
+            config=config,
+        )
+
+        assert (
+            enabled_issue_filters(team_id=self.team.id, source_product="error_tracking", source_type="issue_created")
+            == expected
+        )
+
+
+class TestEvaluateAlertFilter(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_patterns", AlertNamePatterns(), AlertFilterOutcome.PASSED),
+            ("allow_matches", AlertNamePatterns(allow=("Checkout",)), AlertFilterOutcome.PASSED),
+            ("allow_misses", AlertNamePatterns(allow=("signups",)), AlertFilterOutcome.NOT_ALLOWED),
+            ("block_misses", AlertNamePatterns(block=("signups",)), AlertFilterOutcome.PASSED),
+            ("block_matches", AlertNamePatterns(block=("conversion",)), AlertFilterOutcome.BLOCKED),
+            (
+                "block_wins_over_allow",
+                AlertNamePatterns(allow=("Checkout",), block=("conversion",)),
+                AlertFilterOutcome.BLOCKED,
+            ),
+            (
+                "allow_matches_and_block_misses",
+                AlertNamePatterns(allow=("Checkout",), block=("signups",)),
+                AlertFilterOutcome.PASSED,
+            ),
+            ("matches_the_insight_name", AlertNamePatterns(allow=("^Weekly revenue$",)), AlertFilterOutcome.PASSED),
+            ("search_not_full_match", AlertNamePatterns(allow=("out conv",)), AlertFilterOutcome.PASSED),
+            ("case_sensitive_by_default", AlertNamePatterns(allow=("^checkout",)), AlertFilterOutcome.NOT_ALLOWED),
+            ("case_insensitive_flag", AlertNamePatterns(allow=("(?i)^checkout",)), AlertFilterOutcome.PASSED),
+            ("pattern_that_does_not_compile", AlertNamePatterns(block=("(?=x)",)), AlertFilterOutcome.INVALID),
+            ("invalid_stored_patterns", AlertNamePatterns(invalid=True), AlertFilterOutcome.INVALID),
+        ]
+    )
+    def test_outcome(self, _name, patterns, expected):
+        outcome = evaluate_alert_filter(patterns, alert_name="Checkout conversion", insight_name="Weekly revenue")
+
+        assert outcome == expected
 
 
 @pytest.mark.django_db(transaction=True)

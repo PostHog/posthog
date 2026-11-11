@@ -2,21 +2,18 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
-import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
-import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
+import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
@@ -28,12 +25,21 @@ import { SceneExport } from '../sceneTypes'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
-export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
+export const OAuthAuthorizeError = ({
+    title,
+    description,
+    action,
+}: {
+    title: string
+    description: string
+    action?: JSX.Element
+}): JSX.Element => {
     return (
         <div className="AuthScene__card flex flex-col items-center gap-4 p-8 text-center">
             <IconWarning className="text-muted-alt text-4xl" />
             <div className="text-xl font-semibold">{title}</div>
             <div className="text-sm text-muted">{description}</div>
+            {action}
         </div>
     )
 }
@@ -86,7 +92,7 @@ const InlineCreateForm = ({
     placeholder: string
     loading: boolean
     onSubmit: (name: string) => void
-    onCancel: () => void
+    onCancel?: () => void
 }): JSX.Element => {
     const [name, setName] = useState('')
 
@@ -106,7 +112,7 @@ const InlineCreateForm = ({
                             onSubmit(name.trim())
                         }
                         if (e.key === 'Escape') {
-                            onCancel()
+                            onCancel?.()
                         }
                     }}
                     disabled={loading}
@@ -120,9 +126,11 @@ const InlineCreateForm = ({
                 >
                     Create
                 </LemonButton>
-                <LemonButton type="secondary" size="small" onClick={onCancel} disabled={loading}>
-                    Cancel
-                </LemonButton>
+                {onCancel && (
+                    <LemonButton type="secondary" size="small" onClick={onCancel} disabled={loading}>
+                        Cancel
+                    </LemonButton>
+                )}
             </div>
         </div>
     )
@@ -155,6 +163,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         accessControlsApply,
         showCreateProject,
         newProjectLoading,
+        newOrganizationLoading,
         selectedOrganization,
         user,
     } = useValues(oauthAuthorizeLogic)
@@ -162,6 +171,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         cancel,
         submitOauthAuthorization,
         createNewProject,
+        createNewOrganization,
         setShowCreateProject,
         setSelectedOrganization,
         setOauthAuthorizationValue,
@@ -258,6 +268,39 @@ export const OAuthAuthorize = (): JSX.Element => {
         return (
             <OAuthAuthorizeLayout>
                 <OAuthAuthorizeRedirecting appName={appName} redirectUrl={redirectUrl} />
+            </OAuthAuthorizeLayout>
+        )
+    }
+
+    if (user && allOrganizations.length === 0) {
+        return (
+            <OAuthAuthorizeLayout>
+                <OAuthAuthorizeError
+                    title="Create an organization to continue"
+                    description={`${appName} needs access to a PostHog organization, and your account doesn't belong to one yet. Create one here and PostHog adds a project to it. If your team already uses PostHog, ask an admin to invite you instead.`}
+                    action={
+                        <div className="w-full flex flex-col items-center gap-2">
+                            <div className="w-full text-left" data-attr="oauth-authorize-create-organization">
+                                <InlineCreateForm
+                                    label="Organization name"
+                                    placeholder="e.g. Acme"
+                                    loading={newOrganizationLoading}
+                                    onSubmit={createNewOrganization}
+                                />
+                            </div>
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                onClick={cancel}
+                                loading={isCanceling}
+                                disabledReason={newOrganizationLoading ? 'Creating the organization' : undefined}
+                                data-attr="oauth-authorize-no-organization-cancel"
+                            >
+                                Cancel and return to {appName}
+                            </LemonButton>
+                        </div>
+                    }
+                />
             </OAuthAuthorizeLayout>
         )
     }
@@ -451,48 +494,17 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 )}
                             </div>
                             <div className="flex flex-col gap-3 px-4 sm:px-6 py-4">
-                                {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
-                                    <ul className="space-y-2">
-                                        {identityScopeDescriptions.map((description, idx) => (
-                                            <li key={idx} className="flex items-center space-x-2">
-                                                <IconCheck color="var(--success)" className="shrink-0" />
-                                                <span className="font-medium">{description}</span>
-                                            </li>
-                                        ))}
-                                        {requiredScopeRows.map((row) => (
-                                            <li key={row.key} className="flex items-center space-x-2">
-                                                <IconCheck color="var(--success)" className="shrink-0" />
-                                                <span className="font-medium">{row.description}</span>
-                                                {!allScopesRequired && (
-                                                    <Tooltip title={`${appName} requires this permission`}>
-                                                        <LemonTag>Required</LemonTag>
-                                                    </Tooltip>
-                                                )}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                                {scopeRowsGrouped ? (
-                                    <div className="flex flex-col">
-                                        {scopeGroups.map((group) => (
-                                            <ScopeAccessGroup
-                                                key={group.label}
-                                                group={group}
-                                                onChangeRow={setScopeAccess}
-                                                onChangeGroup={setScopeGroupAccess}
-                                                dataAttrPrefix="oauth-scope-group"
-                                            />
-                                        ))}
-                                    </div>
-                                ) : (
-                                    adjustableScopeRows.length > 0 && (
-                                        <div className="flex flex-col">
-                                            {adjustableScopeRows.map((row) => (
-                                                <ScopeAccessRow key={row.key} row={row} onChange={setScopeAccess} />
-                                            ))}
-                                        </div>
-                                    )
-                                )}
+                                <OAuthScopeList
+                                    appName={appName}
+                                    identityScopeDescriptions={identityScopeDescriptions}
+                                    requiredScopeRows={requiredScopeRows}
+                                    adjustableScopeRows={adjustableScopeRows}
+                                    scopeGroups={scopeRowsGrouped ? scopeGroups : null}
+                                    allScopesRequired={allScopesRequired}
+                                    onChangeRow={setScopeAccess}
+                                    onChangeGroup={setScopeGroupAccess}
+                                    dataAttrPrefix="oauth-scope-group"
+                                />
                                 {accessControlsApply && (
                                     <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
                                         <strong className="block">Access controls still apply.</strong>

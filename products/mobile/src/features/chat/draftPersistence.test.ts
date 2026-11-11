@@ -1,5 +1,6 @@
 const mockAuth = { signedIn: true, host: 'https://example.com', user: { uuid: 'user-1' }, projectId: 1 }
 const mockSecure = new Map<string, string>()
+let mockFailedRead: string | undefined
 let mockRevision = 0
 
 jest.mock('@/auth/tokens', () => ({ getSessionTokens: () => ({ accessToken: 'fake' }) }))
@@ -14,7 +15,13 @@ jest.mock('expo-crypto', () => ({
     randomUUID: () => `revision-${mockRevision++}`,
 }))
 jest.mock('expo-secure-store', () => ({
-    getItemAsync: async (key: string) => mockSecure.get(key) ?? null,
+    getItemAsync: async (key: string) => {
+        if (key === mockFailedRead) {
+            mockFailedRead = undefined
+            throw new Error('SecureStore read failed')
+        }
+        return mockSecure.get(key) ?? null
+    },
     setItemAsync: async (key: string, value: string) => {
         if (Buffer.byteLength(value, 'utf8') > 2048) {
             throw new Error('SecureStore item too large')
@@ -27,10 +34,12 @@ jest.mock('expo-secure-store', () => ({
 }))
 
 import { chatDrafts, draftIdentity, draftScope } from './draftPersistence'
+import { EMPTY_QUEUE, queueActions, queueReducer } from './messageQueue'
 
 beforeEach(async () => {
     await chatDrafts.clear([])
     mockSecure.clear()
+    mockFailedRead = undefined
     mockAuth.projectId = 1
 })
 
@@ -46,6 +55,21 @@ describe('chat draft persistence', () => {
             expect(Buffer.byteLength(value, 'utf8')).toBeLessThanOrEqual(2048)
             expect(value).not.toMatch(/[\uD800-\uDBFF]$|^[\uDC00-\uDFFF]/)
         }
+    })
+
+    it('preserves all saved queues when a project manifest read fails', async () => {
+        const scope = (await draftScope(draftIdentity() as string)) as string
+        const first = queueReducer(EMPTY_QUEUE, queueActions.enqueue('First saved question'))
+        const second = queueReducer(EMPTY_QUEUE, queueActions.enqueue('Second saved question'))
+        await chatDrafts.saveQueue(scope, 'task:first', first)
+        const before = new Map(mockSecure)
+        mockFailedRead = scope
+        await expect(chatDrafts.saveQueue(scope, 'task:second', second)).rejects.toThrow('SecureStore read failed')
+        expect(mockSecure).toEqual(before)
+        expect((await chatDrafts.loadQueue(scope, 'task:first')).rows).toMatchObject([{ text: 'First saved question' }])
+        await chatDrafts.saveQueue(scope, 'task:second', second)
+        expect((await chatDrafts.loadQueue(scope, 'task:first')).rows).toHaveLength(1)
+        expect((await chatDrafts.loadQueue(scope, 'task:second')).rows).toHaveLength(1)
     })
 
     it('wipes encrypted drafts for every project on session end and invalidates pending sends', async () => {

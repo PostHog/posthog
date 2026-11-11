@@ -255,7 +255,12 @@ describe('StateManager', () => {
         const cacheOnlyApi = { config: { apiToken: 'phx_test' } } as unknown as ApiClient
         const cacheOnlyOauthApi = { config: { apiToken: 'pha_test' } } as unknown as ApiClient
 
-        function oauthApi(clientName: string | null, impersonated?: boolean, scope = 'insight:read'): ApiClient {
+        function oauthApi(
+            clientName: string | null,
+            impersonated?: boolean,
+            scope = 'insight:read',
+            supportsStepUp?: boolean
+        ): ApiClient {
             return {
                 config: { apiToken: 'pha_test' },
                 apiKeys: () => ({
@@ -269,6 +274,7 @@ describe('StateManager', () => {
                             scope,
                             client_name: clientName,
                             is_impersonated: impersonated,
+                            supports_step_up: supportsStepUp,
                         },
                     }),
                 }),
@@ -300,6 +306,14 @@ describe('StateManager', () => {
                 expect((await stateManager.getApiKey()).suppress_analytics).toBe(suppressed)
             }
         )
+
+        it.each([true, false, undefined])('reads supports_step_up=%s from introspection', async (supportsStepUp) => {
+            stateManager = new StateManager(cache, oauthApi(null, false, 'insight:read', supportsStepUp))
+
+            const result = await stateManager.getApiKey()
+
+            expect(result.supports_step_up === true).toBe(supportsStepUp === true)
+        })
 
         it.each([{ scopes: [] }, { scopes: ['scout_experiment_internal:read'] }])(
             'does not suppress personal-key telemetry for scopes $scopes',
@@ -980,6 +994,27 @@ describe('StateManager', () => {
     })
 
     describe('getAiConsentGiven', () => {
+        it.each([
+            [true, true],
+            [false, false],
+            [null, false],
+        ])('reads consent from the project when the org is unreachable (flag %s)', async (flag, expected) => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: { id: 'org-other', name: 'Other Org', is_ai_data_processing_approved: !expected },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+                is_ai_data_processing_approved: flag,
+            } as any)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBe(expected)
+        })
+
         it.each([
             [true, true],
             [false, false],

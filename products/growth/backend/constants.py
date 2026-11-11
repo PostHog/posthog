@@ -19,6 +19,7 @@ SdkTypes = Literal[
     "posthog-node",
     "posthog-python",
     "posthog-php",
+    "posthog-laravel",
     "posthog-ruby",
     "posthog-go",
     "posthog-flutter",
@@ -39,6 +40,7 @@ SdkTypes = Literal[
     "posthog-unreal",
     "posthog-go-mcp",
     "posthog-ruby-mcp",
+    "posthog-roblox",
     "js",
 ]
 SDK_TYPES: list[SdkTypes] = [
@@ -50,6 +52,7 @@ SDK_TYPES: list[SdkTypes] = [
     "posthog-node",
     "posthog-python",
     "posthog-php",
+    "posthog-laravel",
     "posthog-ruby",
     "posthog-go",
     "posthog-flutter",
@@ -70,6 +73,7 @@ SDK_TYPES: list[SdkTypes] = [
     "posthog-unreal",
     "posthog-go-mcp",
     "posthog-ruby-mcp",
+    "posthog-roblox",
     "js",
 ]
 LEGACY_JAVA_SDK = "posthog-java"

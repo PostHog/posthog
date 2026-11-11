@@ -41,6 +41,8 @@ export const ConversationsTicketsListParams = () => zod.object({
         ),
 })
 
+export const conversationsTicketsListQueryLimitMax = 1000
+
 export const ConversationsTicketsListQueryParams = () => zod.object({
     ai_triage_result: zod
         .string()
@@ -91,7 +93,11 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .describe(
             'Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(conversationsTicketsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -216,7 +222,12 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
-        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                "Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags."
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
@@ -232,8 +243,14 @@ export const ConversationsTicketsMessagesListParams = () => zod.object({
         ),
 })
 
+export const conversationsTicketsMessagesListQueryLimitMax = 200
+
 export const ConversationsTicketsMessagesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(conversationsTicketsMessagesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

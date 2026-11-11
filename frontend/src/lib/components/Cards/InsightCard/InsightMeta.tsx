@@ -10,6 +10,8 @@ import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButto
 import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import type { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
+import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
@@ -77,7 +79,7 @@ import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
-import { useInsightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
+import { insightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -134,7 +136,26 @@ interface InsightMetaProps extends Pick<
     onCreateAnomalyAlert?: () => void
 }
 
-export function InsightMeta({
+const NO_DISPLAY_OPTION_TABS: DisplayOptionTab[] = []
+
+// SQL tiles have no display option tabs, so they skip the hook and the insight logics it mounts.
+export function InsightMeta(props: InsightMetaProps): JSX.Element {
+    return isDataVisualizationNode(props.insight.query) ? (
+        <InsightMetaBody {...props} displayOptionTabs={NO_DISPLAY_OPTION_TABS} />
+    ) : (
+        <InsightMetaWithDisplayOptions {...props} />
+    )
+}
+
+function InsightMetaWithDisplayOptions(props: InsightMetaProps): JSX.Element {
+    // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
+    // portal, which cascades into closing the dropdown before the user can interact with it.
+    const { tabs } = useDisplayOptions(insightDisplayOptions)
+    return <InsightMetaBody {...props} displayOptionTabs={tabs} />
+}
+
+function InsightMetaBody({
+    displayOptionTabs,
     headerStatus,
     tile,
     insight,
@@ -175,7 +196,7 @@ export function InsightMeta({
     onCreateAnomalyAlert,
     projectId,
     contextHeading,
-}: InsightMetaProps): JSX.Element {
+}: InsightMetaProps & { displayOptionTabs: DisplayOptionTab[] }): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
     const insightLogicProps: InsightLogicProps = {
@@ -301,9 +322,6 @@ export function InsightMeta({
     const copyTableAdapter = useMemo(() => getInsightExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
-    // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
-    // portal, which cascades into closing the dropdown before the user can interact with it.
-    const { tabs: displayOptionTabs } = useInsightDisplayOptions()
     const dashboardVisualizationPersistence: DashboardVisualizationPersistence | undefined = persistDisplayOptions
         ? {
               saving: savingSqlVisualization,

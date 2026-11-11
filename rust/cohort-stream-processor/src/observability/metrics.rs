@@ -15,7 +15,7 @@ pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
 /// Unix timestamp of the last *successful* catalog refresh (gauge, seconds). Stamped inside
-/// `CatalogHandle::refresh`, so the boot load and the periodic loop both advance it. **Alert on
+/// `CatalogRefresher::refresh`, so the boot load and the periodic loop both advance it. **Alert on
 /// staleness** via `time() - gauge`: a failed refresh keeps serving the previous snapshot silently,
 /// so cohort edits go invisible with nothing else moving. A gauge written only on success would go
 /// flat rather than climb, and the refresh loop is a detached task — a per-tick age gauge would
@@ -366,8 +366,13 @@ pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant
 /// The seed path counts once per corrupt row its run reads, not once per tile that touches it;
 /// `cohort_seed_tiles_dropped_total{reason="corrupt_state"}` is still per tile-leaf.
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
-/// End-to-end per-event processing latency in the worker (histogram, seconds).
+/// Per-event Stage 1 fold latency in the worker (histogram, seconds). It excludes the redirect
+/// lookup before the fold ([`STAGE1_REDIRECT_LOOKUP_DURATION`]) and the Stage 2 composition after it.
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
+/// Time one event spends resolving its person through the merge tombstones, labelled by `partition`
+/// (histogram, seconds). A partition's `rate(..._sum)` is the fraction of its worker's wall time the
+/// lookup takes.
+pub const STAGE1_REDIRECT_LOOKUP_DURATION: &str = "stage1_redirect_lookup_duration_seconds";
 /// Keys in the event's single batched Stage-1 pre-read — the reads-per-event distribution
 /// (histogram).
 pub const STAGE1_SNAPSHOT_KEYS: &str = "stage1_snapshot_keys";
@@ -481,6 +486,9 @@ pub const SWEEP_READ_CHUNK_BYTES: &str = "sweep_read_chunk_bytes";
 pub const SWEEP_QUEUE_LAG_SECONDS: &str = "sweep_queue_lag_seconds";
 /// Person merges handled, labelled by `path` (`same_partition`|`cross_partition`) (counter).
 pub const MERGE_HANDLED_TOTAL: &str = "merge_handled_total";
+/// Merge and transfer messages of teams the processor does not process, dropped before they touch
+/// the store, labelled by `path` (`drain`|`apply`) (counter).
+pub const MERGE_DROPPED_TOTAL: &str = "merge_dropped_total";
 /// Drain messages short-circuited by a `cf_merge_drains_applied` hit (counter).
 pub const MERGE_DRAINS_SKIPPED_REPLAY_TOTAL: &str = "merge_drains_skipped_replay_total";
 /// Transfer messages short-circuited by a `cf_merge_applied` hit (counter).

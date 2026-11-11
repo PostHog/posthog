@@ -520,7 +520,7 @@ export interface TicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
-    /** Tag names to set on the ticket. */
+    /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
     tags?: string[]
 }
 
@@ -564,7 +564,7 @@ export interface PatchedTicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
-    /** Tag names to set on the ticket. */
+    /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
     tags?: string[]
 }
 
@@ -632,6 +632,17 @@ export interface TicketErrorApi {
     detail: string
     /** Machine-readable error code. */
     error_type?: string
+}
+
+export interface TicketAttachmentApi {
+    /** ID of the stored file. */
+    id: string
+    /** Public download URL of the stored file. */
+    url: string
+    /** Sanitized file name. */
+    name: string
+    /** Stored content type. Inline-safe images come back as their decoded image type. */
+    content_type: string
 }
 
 /**
@@ -1215,6 +1226,7 @@ export type ConversationsTicketsListParams = {
     emails?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1296,9 +1308,15 @@ export const ConversationsTicketsListSla = {
     OnTrack: 'on-track',
 } as const
 
+export type ConversationsTicketsAttachmentsCreateBody = {
+    /** File to attach. Must be under 20 MiB. */
+    file: Blob
+}
+
 export type ConversationsTicketsMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**

@@ -1,9 +1,14 @@
+import { z } from 'zod'
+
 import { HogError } from '@/core/errors'
-import { parseLossless } from '@/core/raw-json'
+import { parseLosslessJson } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
+import { parseOrThrow, type Schema } from '@/core/schema'
 import { VERSION } from '@/version'
 
-import type { Credentials } from './credentials'
+import { hostUrl } from './host'
+import type { KeySession } from './key-session'
+import { challengedScopes, fewestScopes, isScopeName, stepUpCommand, workloadScopesHint } from './scope-challenge'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -14,7 +19,9 @@ type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 export interface HttpRequest {
     method: Method
     body?: unknown
-    apiKey?: string
+    // Sent form encoded instead of `body`, as the OAuth endpoints expect.
+    form?: Record<string, string>
+    token?: string
     timeoutMs?: number
 }
 
@@ -23,14 +30,18 @@ export interface HttpResponse {
     ok: boolean
     json: unknown
     text: string
+    headers: Headers
 }
 
 // Sends one JSON request to PostHog. Any failure before the whole body arrives, including the
 // deadline, is a `network_error`, so callers handle a dropped connection in one place.
 export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: HttpRequest): Promise<HttpResponse> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT }
-    if (request.apiKey) {
-        headers.Authorization = `Bearer ${request.apiKey}`
+    const headers: Record<string, string> = {
+        'Content-Type': request.form ? 'application/x-www-form-urlencoded' : 'application/json',
+        'User-Agent': USER_AGENT,
+    }
+    if (request.token) {
+        headers.Authorization = `Bearer ${request.token}`
     }
     let response: Response
     let text: string
@@ -38,24 +49,35 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
         response = await fetchFn(url, {
             method: request.method,
             headers,
-            body: request.body === undefined ? undefined : JSON.stringify(request.body),
+            body: request.form
+                ? new URLSearchParams(request.form).toString()
+                : request.body === undefined
+                  ? undefined
+                  : JSON.stringify(request.body),
             timeoutMs: request.timeoutMs ?? REQUEST_TIMEOUT_MS,
         })
         text = await response.text()
     } catch (error) {
         throw new HogError(
             'network_error',
-            `hog couldn't reach ${url.origin}: ${error instanceof Error ? error.message : String(error)}`,
+            `hog couldn't reach ${url.origin}${transportReason(error)}.`,
             'Check the host and your network connection.'
         )
     }
-    let json: unknown
-    try {
-        json = text ? parseLossless(text) : undefined
-    } catch {
-        json = undefined
+    // Callers check `json` against a schema of their own. A body that isn't JSON leaves it undefined.
+    const json = text ? parseLosslessJson(text) : undefined
+    return { status: response.status, ok: response.ok, json, text, headers: response.headers }
+}
+
+// Bun's fetch message can hold a request header value, such as the whole Authorization header when
+// the token has a character a header can't carry. So the reason comes only from the error's name or
+// its code, like ENOTFOUND or CERT_HAS_EXPIRED, never from its message.
+function transportReason(error: unknown): string {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+        return ' (timed out)'
     }
-    return { status: response.status, ok: response.ok, json, text }
+    const code = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
+    return typeof code === 'string' && /^[A-Z][A-Za-z0-9_]*$/.test(code) ? ` (${code})` : ''
 }
 
 // A non-2xx answer from PostHog. `type` is the DRF error type, such as `validation_error`.
@@ -65,68 +87,155 @@ export class ApiError extends HogError {
         readonly type: string | undefined,
         code: string,
         message: string,
-        hint?: string
+        hint?: string,
+        details?: Readonly<Record<string, unknown>>,
+        serverDetail?: string
     ) {
-        super(code, message, hint)
+        super(code, message, hint, undefined, details, serverDetail)
     }
 
     override withHint(hint: string): ApiError {
-        return new ApiError(this.status, this.type, this.code, this.message, hint)
+        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details, this.serverDetail)
     }
 }
 
+export type StepUp = (scopes: readonly string[]) => Promise<boolean>
+
+// A 403, so callers that treat a missing scope as a missing detail keep working.
+export function stepUpRequired(
+    scopes: readonly string[],
+    { host, message = `Your login needs ${scopes.join(', ')} for this.` }: { host?: string; message?: string } = {}
+): ApiError {
+    const named = scopes.filter(isScopeName)
+    const command = stepUpCommand(named, host)
+    return new ApiError(
+        403,
+        undefined,
+        'step_up_required',
+        message,
+        `Run \`${command}\` to add the scopes to your login, then run the command again.`,
+        { scopes: named, command }
+    )
+}
+
+// A DRF error body. `type` is the DRF error type, such as `validation_error`.
+// A field of another type reads as missing, so the others still reach the error message.
+const DRFErrorBody = z.object({
+    type: z.string().optional().catch(undefined),
+    code: z.string().optional().catch(undefined),
+    detail: z.string().optional().catch(undefined),
+})
+
 export class PostHogApi {
     constructor(
-        private readonly credentials: Credentials,
-        private readonly fetchFn: RuntimeFetch
+        private readonly session: KeySession,
+        private readonly fetchFn: RuntimeFetch,
+        private readonly stepUp?: StepUp
     ) {}
 
     // Paths are relative to the project, so `query` is /api/environments/<project id>/query. A path
     // that starts with `/`, like `/api/users/@me/`, is relative to the host instead.
     private url(path: string): URL {
-        const base = path.startsWith('/')
-            ? this.credentials.host
-            : new URL(`api/environments/${this.credentials.projectId}/`, this.credentials.host)
-        return new URL(path, base)
+        const { host, projectId } = this.session.current
+        // hostUrl keeps the path a self-hosted PostHog can sit under, which `new URL` would drop. A
+        // path from a pagination link already starts with it.
+        const root = hostUrl(host, '')
+        let url: URL
+        if (path.startsWith('/')) {
+            url = path.startsWith(root.pathname) ? new URL(path, root) : hostUrl(host, path.slice(1))
+        } else {
+            url = new URL(path, hostUrl(host, `api/environments/${projectId}/`))
+        }
+        // A path from a link PostHog sent, such as `//other.example/`, must not carry the token elsewhere.
+        if (url.origin !== root.origin) {
+            throw new HogError('unexpected_response', `PostHog sent a link to another host: ${url.origin}.`)
+        }
+        return url
     }
 
-    get<T>(path: string): Promise<T> {
-        return this.request<T>('GET', path)
+    // Each call names the schema of the answer it expects, so a command never works with a shape
+    // PostHog didn't send.
+    get<T>(path: string, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
+        return this.request('GET', path, schema, undefined, options.timeoutMs)
     }
 
-    post<T>(path: string, body: unknown): Promise<T> {
-        return this.request<T>('POST', path, body)
+    post<T>(path: string, body: unknown, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
+        return this.request('POST', path, schema, body, options.timeoutMs)
     }
 
-    patch<T>(path: string, body: unknown): Promise<T> {
-        return this.request<T>('PATCH', path, body)
+    patch<T>(path: string, body: unknown, schema: Schema<T>): Promise<T> {
+        return this.request('PATCH', path, schema, body)
     }
 
-    delete<T>(path: string): Promise<T> {
-        return this.request<T>('DELETE', path)
-    }
-
-    private async request<T>(method: Method, path: string, body?: unknown): Promise<T> {
-        const response = await sendRequest(this.fetchFn, this.url(path), {
-            method,
-            body,
-            apiKey: this.credentials.apiKey,
-        })
-        if (response.text && response.json === undefined) {
-            throw new HogError(
-                'unexpected_response',
-                `PostHog answered with HTTP ${response.status} and a body that isn't JSON.`,
-                response.status === 404 ? 'Check the host and the project ID.' : undefined
+    private async request<T>(
+        method: Method,
+        path: string,
+        schema: Schema<T>,
+        body?: unknown,
+        timeoutMs?: number
+    ): Promise<T> {
+        const url = this.url(path)
+        const send = (): Promise<HttpResponse> =>
+            this.session.send(
+                (token) => sendRequest(this.fetchFn, url, { method, body, token, timeoutMs }),
+                (answer) => answer.status === 401
             )
+        let response = await send()
+        let missing = await this.missingScopes(response)
+        const workload = this.session.current.status().kind === 'workload'
+        // PostHog checks scopes before any work, so one retry is safe for a POST too.
+        if (missing && !workload && (await this.stepUp?.(missing))) {
+            response = await send()
+            missing = await this.missingScopes(response)
+        }
+        if (missing && workload) {
+            throw new ApiError(
+                403,
+                undefined,
+                'missing_scopes',
+                `The job's token needs ${missing.join(', ')} for this.`,
+                workloadScopesHint(missing)
+            )
+        }
+        if (missing) {
+            throw stepUpRequired(missing, { host: this.session.current.host })
+        }
+        if (response.text && response.json === undefined) {
+            const message = `PostHog answered with HTTP ${response.status} and a body that isn't JSON.`
+            const hint = response.status === 404 ? 'Check the host and the project ID.' : undefined
+            throw response.ok
+                ? new HogError('unexpected_response', message, hint)
+                : new ApiError(response.status, undefined, 'unexpected_response', message, hint)
         }
         if (!response.ok) {
             throw this.failure(response.status, response.json)
         }
-        return response.json as T
+        return parseOrThrow(schema, response.json, {
+            code: 'unexpected_response',
+            context: `PostHog's answer to ${method} ${url.pathname} isn't what hog expects.`,
+            hint: 'Check that the host runs a recent version of PostHog.',
+        })
+    }
+
+    // A login that holds every challenged scope gets the plain 403, since adding them changes nothing.
+    private async missingScopes(response: HttpResponse): Promise<string[] | undefined> {
+        const challenged =
+            response.status === 403 ? challengedScopes(response.headers.get('www-authenticate')) : undefined
+        if (!challenged || !this.stepUp) {
+            return challenged
+        }
+        const { scopesNotCovered } = await import('./scopes')
+        const missing = scopesNotCovered(this.session.current.status().scopes ?? [], challenged)
+        return missing.length > 0 ? fewestScopes(missing) : undefined
+    }
+
+    // For lookups that only add detail: a missing scope fails them without a prompt.
+    withoutStepUp(): PostHogApi {
+        return new PostHogApi(this.session, this.fetchFn)
     }
 
     private failure(status: number, body: unknown): ApiError {
-        const error = (body ?? {}) as { type?: string; code?: string; detail?: string }
+        const error = DRFErrorBody.safeParse(body).data ?? {}
         const hints: Record<number, string> = {
             401: 'Check that the personal API key is valid.',
             403: 'Check that the personal API key has access to this project.',
@@ -136,8 +245,10 @@ export class PostHogApi {
             status,
             error.type,
             error.code ?? `http_${status}`,
-            error.detail ?? `PostHog answered with HTTP ${status}.`,
-            hints[status]
+            `PostHog answered with HTTP ${status}.`,
+            hints[status],
+            undefined,
+            error.detail
         )
     }
 }

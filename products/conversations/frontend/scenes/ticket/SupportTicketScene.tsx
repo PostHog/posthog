@@ -14,6 +14,7 @@ import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,9 +23,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { conversationsTicketsAttachmentsCreate } from 'products/conversations/frontend/generated/api'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
@@ -35,6 +38,7 @@ import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
+import { SupportTicketSidebarWidgets } from '../../components/SupportTicketSidebarWidgets/SupportTicketSidebarWidgets'
 import { TicketTags } from '../../components/TicketTags'
 import {
     type Ticket,
@@ -43,26 +47,18 @@ import {
     priorityOptions,
     statusOptionsWithoutAll,
 } from '../../types'
-import { AIPanel } from './AIPanel'
-import { ExceptionsPanel } from './ExceptionsPanel'
-import { PreviousTicketsPanel } from './PreviousTicketsPanel'
-import { RecentEventsPanel } from './RecentEventsPanel'
-import { RelatedGroupsPanel } from './RelatedGroupsPanel'
-import { SessionRecordingPanel } from './SessionRecordingPanel'
-import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
 import { reportTimelineExtras } from './ThreadReports'
-import { TicketActivityPanel } from './TicketActivityPanel'
 
 // The list's filters / saved view ride along in the ticket page's query string
 // (the ticket row carries them through on navigation). Rebuild the list URL from
 // them so the back arrow returns to the view the user came from rather than the
 // unfiltered ticket list.
-export function ticketListBackTo(searchParams: Record<string, any>): Breadcrumb {
+export function ticketListBackTo(searchParams: Record<string, any>, name: string = 'Ticket list'): Breadcrumb {
     return {
-        name: 'Ticket list',
+        name,
         path: combineUrl(urls.supportTickets(), searchParams).url,
         key: 'supportTickets',
     }
@@ -105,7 +101,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
-        person,
         ticketLoading,
         status,
         priority,
@@ -117,11 +112,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         messageSending,
         hasMoreMessages,
         olderMessagesLoading,
-        eventsQuery,
-        previousTickets,
-        previousTicketsLoading,
         linkedReports,
-        exceptionsQuery,
         chatPanelWidth,
         hasUnsavedChanges,
         unsavedTicketChanges,
@@ -177,8 +168,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const ticketsTitle = useTodayPeopleTitle('support')
     const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
-    const macrosEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_MACROS]
+    // Widget tickets stay images only until the widget can render file links.
+    const canAttachFiles =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS] &&
+        !!ticket &&
+        ticket.channel_source !== 'widget'
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -276,8 +272,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     ) : undefined
                 }
                 description=""
-                resourceType={{ type: 'conversation' }}
-                forceBackTo={ticketListBackTo(searchParams)}
+                resourceType={ticketsTitle?.resourceType ?? { type: 'conversation' }}
+                forceBackTo={ticketListBackTo(searchParams, ticketsTitle?.name ?? undefined)}
             />
             <LemonModal title="Full email" isOpen={fullEmailMessageId !== null} onClose={closeFullEmail}>
                 {fullEmailContentLoading ? (
@@ -348,15 +344,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         composerPrefillAt={composerPrefillAt}
                         composerInsertAt={composerInsertAt}
                         composerInsertContent={pendingComposerInsert}
-                        enableMacros={macrosEnabled}
-                        onInsertMacro={macrosEnabled ? (macro) => insertMacro(macro, 'slash') : undefined}
+                        enableMacros
+                        onAttachFile={
+                            canAttachFiles
+                                ? (file) =>
+                                      conversationsTicketsAttachmentsCreate(String(getCurrentTeamId()), ticketId, {
+                                          file,
+                                      })
+                                : undefined
+                        }
+                        onInsertMacro={(macro) => insertMacro(macro, 'slash')}
                         macroPicker={
-                            macrosEnabled ? (
-                                <MacroPicker
-                                    disabledReason={sendDisabledReason}
-                                    onInsert={(macro) => insertMacro(macro, 'button')}
-                                />
-                            ) : undefined
+                            <MacroPicker
+                                disabledReason={sendDisabledReason}
+                                onInsert={(macro) => insertMacro(macro, 'button')}
+                            />
                         }
                         aiSources={ticket?.ai_triage?.sources}
                         aiDraftApplying={aiDraftApplying}
@@ -658,54 +660,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         </div>
                     </LemonCard>
 
-                    {/* Related Groups Panel */}
-                    {(person?.uuid || ticket?.organization_id) && (
-                        <RelatedGroupsPanel
-                            personUuid={person?.uuid}
-                            organizationId={ticket?.organization_id}
-                            organizationIdSource={ticket?.organization_id_source}
-                        />
-                    )}
-
-                    {/* Staff Actions Panel */}
-                    {user?.is_staff && ticket && <StaffActionsPanel />}
-
-                    {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
-
-                    {ticket?.channel_source === 'widget' && (
-                        <>
-                            {/* Session Recording Panel */}
-                            <SessionRecordingPanel
-                                sessionContext={ticket?.session_context}
-                                distinctId={ticket?.distinct_id}
-                            />
-
-                            {/* Recent Events Panel */}
-                            <RecentEventsPanel
-                                eventsQuery={eventsQuery}
-                                distinctId={ticket?.distinct_id}
-                                sessionId={ticket?.session_id}
-                            />
-
-                            {/* Exceptions Panel */}
-                            <ExceptionsPanel
-                                exceptionsQuery={exceptionsQuery}
-                                sessionId={ticket?.session_id}
-                                distinctId={ticket?.distinct_id}
-                            />
-
-                            {/* Previous Tickets Panel */}
-                            <PreviousTicketsPanel
-                                previousTickets={previousTickets}
-                                previousTicketsLoading={previousTicketsLoading}
-                                personDistinctIds={person?.distinct_ids}
-                            />
-                        </>
-                    )}
-
-                    {/* Activity History Panel */}
-                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
+                    <SupportTicketSidebarWidgets ticketId={ticketId || 'new'} />
                 </div>
             </div>
         </SceneContent>

@@ -396,6 +396,38 @@ class TestInboxOnboarding(APIBaseTest):
         assert safe_detail is not None
         assert next(change for change in safe_detail["changes"] if change["field"] == "onboarding")["after"] == "masked"
 
+    @parameterized.expand(
+        [
+            ("inbox_only_with_implementation", ["inbox:write"], True, 403),
+            ("inbox_only_without_implementation", ["inbox:write"], False, 200),
+            ("inbox_and_task_with_implementation", ["inbox:write", "task:write"], True, 200),
+        ]
+    )
+    def test_completion_with_automatic_implementation_needs_task_scope(
+        self, _name: str, scopes: list[str], automatic_implementation: bool, expected: int
+    ) -> None:
+        self.draft["automatic_implementation"] = automatic_implementation
+        raw = self.create_personal_api_key_with_scopes([*scopes, "signal_scout:write", "llm_skill:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        with (
+            patch(
+                "products.signals.backend.onboarding_completion.InboxOnboardingReconciler.has_repository",
+                return_value=object(),
+            ),
+            patch("products.signals.backend.tasks.launch_inbox_onboarding_job.delay"),
+        ):
+            response = self.client.post(f"{self.url}complete/", self.draft, format="json")
+        assert response.status_code == expected, response.content
+        if expected == 403:
+            assert "task:write" in response.json()["detail"]
+        config = SignalTeamConfig.objects.get(team=self.team)
+        assert bool((config.onboarding or {}).get("completed_at")) is (expected == 200)
+        if expected == 200:
+            assert config.autostart_enabled is automatic_implementation
+        else:
+            assert config.autostart_enabled is not True
+
     @parameterized.expand([("unchanged", True), ("user_paused", False), ("withheld", False), ("task_only", False)])
     def test_activation_resumes_only_onboarding_operational_pauses(self, state: str, enabled: bool) -> None:
         seed_canonical_skills(self.team)
@@ -558,6 +590,106 @@ class TestInboxOnboarding(APIBaseTest):
         assert response.json()["jobs"] == {"scout": "started", "recommendations": expected_status}
         config.refresh_from_db()
         assert config.onboarding["jobs"]["recommendations"] == "started"
+
+    @parameterized.expand(
+        [
+            ("no_payload", None, None, [], ["signals-scout-general"]),
+            (
+                "team_layer",
+                {"setup_default_skills": ["signals-scout-anomaly-detection"]},
+                {"setup_default_skills": ["signals-scout-logs"]},
+                [],
+                ["signals-scout-general", "signals-scout-anomaly-detection"],
+            ),
+            (
+                "malformed_team_layer_falls_through",
+                {"setup_default_skills": "signals-scout-anomaly-detection"},
+                {"setup_default_skills": ["signals-scout-logs"]},
+                [],
+                ["signals-scout-general", "signals-scout-logs"],
+            ),
+            (
+                "drops_unusable_names",
+                {
+                    "setup_default_skills": [
+                        "signals-scout-logs",
+                        "signals-scout-not-shipped",
+                        "signals-scout-first-report",
+                        "signals-scout-error-tracking",
+                        "signals-scout-general",
+                        "signals-scout-logs",
+                    ],
+                    "withheld_skills": ["signals-scout-error-tracking"],
+                },
+                None,
+                [],
+                ["signals-scout-general", "signals-scout-logs"],
+            ),
+            (
+                "draft_cap",
+                {
+                    "setup_default_skills": [
+                        "signals-scout-logs",
+                        "signals-scout-apm",
+                        "signals-scout-surveys",
+                        "signals-scout-experiments",
+                        "signals-scout-web-vitals",
+                    ]
+                },
+                None,
+                [],
+                [
+                    "signals-scout-general",
+                    "signals-scout-logs",
+                    "signals-scout-apm",
+                    "signals-scout-surveys",
+                    "signals-scout-experiments",
+                ],
+            ),
+            (
+                "enabled_scout_cap",
+                {
+                    "setup_default_skills": ["signals-scout-logs", "signals-scout-apm"],
+                    "max_enabled_scouts": 3,
+                },
+                None,
+                ["custom-scout"],
+                ["signals-scout-general", "signals-scout-logs"],
+            ),
+            (
+                "enabled_scout_cap_keeps_listed_enabled_scouts",
+                {
+                    "setup_default_skills": ["signals-scout-logs", "signals-scout-apm"],
+                    "max_enabled_scouts": 3,
+                },
+                None,
+                ["signals-scout-apm", "custom-scout"],
+                ["signals-scout-general", "signals-scout-apm"],
+            ),
+        ]
+    )
+    def test_state_reports_setup_default_skills_from_flag_payload(
+        self,
+        _name: str,
+        team_layer: dict | None,
+        default_layer: dict | None,
+        enabled_skills: list[str],
+        expected: list[str],
+    ) -> None:
+        payload = (
+            None
+            if team_layer is None and default_layer is None
+            else {
+                "team_configs": {str(self.team.id): team_layer} if team_layer else {},
+                "default_team_config": default_layer or {},
+            }
+        )
+        for skill_name in enabled_skills:
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, enabled=True)
+        with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value=payload):
+            response = self.client.get(self.url)
+        assert response.status_code == 200, response.content
+        assert response.json()["setup_default_skills"] == expected
 
 
 class TestInboxOnboardingActivation(BaseTest):

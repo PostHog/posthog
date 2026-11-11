@@ -9,16 +9,20 @@ Two meters, matching the pricing RFC:
 - `business_knowledge_queries`: every knowledge search made with a `RetrievalTrace`, on any customer
   surface. PostHog's internal docs-shadow comparison is not metered.
 
-This is metering only. Nothing is sent to the usage report or the billing service yet, and no quota is
-enforced, so a metering failure is logged and never fails the ingest or search that triggered it.
+The nightly usage report reads these totals (`usage_by_team`) and sends them to the billing service, which
+does not charge for them until it has Business Knowledge products. No quota is enforced yet, so a metering
+failure is logged and never fails the ingest or search that triggered it.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Sum
 
 import structlog
 
+from .facade.contracts import KnowledgeUsageByTeam
 from .models import KnowledgeUsageKey, KnowledgeUsageRecord
 
 logger = structlog.get_logger(__name__)
@@ -78,3 +82,21 @@ def record_query(*, team_id: int, trace_id: str, surface: str) -> None:
         logger.exception(
             "business_knowledge.usage_record_failed", usage_key=KnowledgeUsageKey.QUERIES.value, team_id=team_id
         )
+
+
+def usage_by_team(begin: datetime, end: datetime) -> KnowledgeUsageByTeam:
+    """(team_id, total) rows for each meter, from rows written in [begin, end).
+
+    Buckets by write time, so a row written late lands in the next report instead of being missed.
+    """
+    rows = (
+        KnowledgeUsageRecord.objects.unscoped()
+        .filter(created_at__gte=begin, created_at__lt=end)
+        .values("team_id", "usage_key")
+        .annotate(total=Sum("quantity"))
+        .order_by("team_id", "usage_key")
+    )
+    totals: dict[KnowledgeUsageKey, list[tuple[int, int]]] = {key: [] for key in KnowledgeUsageKey}
+    for row in rows:
+        totals[KnowledgeUsageKey(row["usage_key"])].append((row["team_id"], row["total"]))
+    return KnowledgeUsageByTeam(chunks=totals[KnowledgeUsageKey.CHUNKS], queries=totals[KnowledgeUsageKey.QUERIES])

@@ -78,6 +78,10 @@ def get_download(team_id: int, symbol_set_id: str) -> contracts.ErrorTrackingSym
     return contracts.ErrorTrackingSymbolSetDownload(has_file=has_file, url=url)
 
 
+def check_upload_size(size: int) -> None:
+    _logic.check_upload_size(size)
+
+
 def create_deprecated_symbol_set(team: Any, chunk_id: str, release_id: str | None, data: bytearray) -> None:
     _logic.create_deprecated_symbol_set(team, chunk_id, release_id, data)
 

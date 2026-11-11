@@ -398,6 +398,12 @@ export class PushNotificationService {
                 if (!integration || integration.team_id !== invocation.teamId) {
                     throw new Error('Push notification integration not found')
                 }
+                const decryptFailures = await this.integrationManager.getDecryptFailures([integrationId])
+                if ((decryptFailures[integrationId]?.length ?? 0) > 0) {
+                    throw new Error(
+                        'The push notification integration could not be decrypted. Reconnect the integration.'
+                    )
+                }
 
                 let sent: boolean
                 if (integration.kind === 'firebase') {

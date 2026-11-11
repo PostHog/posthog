@@ -361,8 +361,16 @@ class TestBuildFixVerificationPrompt:
         assert ("70-80% confidence" in prompt) is preferred
         assert ('Prefer `kind: "metric_threshold"`' in prompt) is preferred
         assert ("4-8 hours" in prompt) is preferred
-        assert ("Default\n24 hours" in prompt) is (not preferred and (metric_checks_enabled or agent_checks_enabled))
+        assert ("Default\n24 hours" in prompt) is (
+            not preferred and not monitoring_enabled and (metric_checks_enabled or agent_checks_enabled)
+        )
         assert ('Use `kind: "agent"`' in prompt) is agent_checks_enabled
+        if monitoring_enabled and (metric_checks_enabled or agent_checks_enabled):
+            assert "recorded Monitoring start through start + soak_hours" in prompt
+            assert "PR completion uses the latest implementation PR merge timestamp" in prompt
+            assert "Manual entry uses the time Monitoring starts" in " ".join(prompt.split())
+            assert "wait before measuring" not in prompt
+            assert "deployment delay of several hours" not in prompt
 
     def test_reresearch_reviews_approved_checks_without_gating_them(self):
         prompt = build_fix_verification_prompt(
@@ -426,8 +434,9 @@ class TestBuildFixVerificationPrompt:
 
     @pytest.mark.parametrize("with_check", [False, True])
     @pytest.mark.parametrize("existing_wait", [None, 72])
+    @pytest.mark.parametrize("monitoring_enabled", [False, True])
     def test_formats_plan_as_a_note_with_the_expected_headings(
-        self, with_check: bool, existing_wait: int | None
+        self, with_check: bool, existing_wait: int | None, monitoring_enabled: bool
     ) -> None:
         current_state = (
             'Run query-trends with {"kind":"TrendsQuery","dateRange":{"date_from":"-1h"},'
@@ -465,13 +474,18 @@ class TestBuildFixVerificationPrompt:
             else None,
         )
         proposed = (
-            "\n\n_Proposed follow-up check: **Uploads recover**, with a minimum wait of "
-            f"{existing_wait or 24} hours after this report is resolved._"
+            "\n\n_Proposed follow-up check: **Uploads recover**, "
+            + (
+                f"observing the full {existing_wait or 24} hours from the recorded Monitoring start "
+                "(the merge time for PR completion)._"
+                if monitoring_enabled
+                else f"with a minimum wait of {existing_wait or 24} hours after this report is resolved._"
+            )
             if with_check
             else ""
         )
 
-        assert result.to_note().note == (
+        assert result.to_note(monitoring_enabled=monitoring_enabled).note == (
             f"## Verification plan\n\n"
             f"### Confirm the current state\n\n{current_state}\n\n"
             f"### Confirm the outcome\n\n{outcome}{proposed}"
@@ -558,6 +572,29 @@ class TestBuildReportPresentationPrompt:
         assert "owners.yaml" not in prompt
         assert ("Match reviewer UUIDs" in prompt) == enabled
         assert ("not a global ban" in prompt) == enabled
+
+    @pytest.mark.parametrize("selection", [False, True])
+    @pytest.mark.parametrize("evidence", [False, True])
+    @pytest.mark.parametrize("code", [False, True])
+    def test_assignee_evidence_requires_both_flags_and_a_repository(
+        self, selection: bool, evidence: bool, code: bool
+    ) -> None:
+        prompt = build_report_presentation_prompt(
+            1, reviewer_selection_enabled=selection, assignee_evidence_enabled=evidence, code_available=code
+        )
+        assert ("posthog-assignee-evidence" in prompt) == (selection and evidence and code)
+        if selection and evidence and code:
+            assert "--paths-file" in prompt
+            assert "`owners.yaml`, and standard CODEOWNERS rules" in prompt
+            assert "organization-qualified GitHub teams" in prompt
+            assert "without a GitHub account" in prompt
+            assert "not an eligibility list" in prompt
+            assert "If absent in an older image" in prompt
+            assert "Team membership, implementation authorship, and review alone do not establish" in prompt
+            assert "leave that candidate unselected" in prompt
+            assert "Do not add the original author as an extra reviewer" in prompt
+        else:
+            assert "leave that candidate unselected" not in prompt
 
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)

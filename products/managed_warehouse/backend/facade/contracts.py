@@ -25,8 +25,10 @@ __all__ = [
     "CPUnavailableError",
     "DuckLakeBackfillCatalog",
     "DuckLakeDayReplacement",
+    "DuckLakeTableLayoutError",
     "DuckLakeTableReplacement",
     "DuckgresQueryServerConfig",
+    "DuckgresServerSummary",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
     "DuckLakeCatalogConnectionConfig",
@@ -39,6 +41,7 @@ __all__ = [
     "ManagedWarehousePostgresConnection",
     "ManagedWarehouseTrinoConnection",
     "ManagedWarehouseTrinoConnectionUnavailable",
+    "ProvisionedWarehouseLogin",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
@@ -51,6 +54,8 @@ __all__ = [
     "ServiceCredentialConnect",
     "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
+    "StaffActionOutcome",
+    "StaffProvisionPreview",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
 ]
@@ -447,12 +452,20 @@ class DuckLakeTableReplacement:
     """All rows of the table, which a full backfill export replaces."""
 
 
+class DuckLakeTableLayoutError(ValueError):
+    """The table's column types differ from the backfill export, so add_files refuses the export's files."""
+
+
 class DuckLakeBackfillCatalog(Protocol):
     """The DuckLake statements a backfill runs in the organization's Trino catalog."""
 
     def ensure_table(
         self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
     ) -> None: ...
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None: ...
+
+    def validate_file_count(self, files: Sequence[str]) -> None: ...
 
     def register_files(
         self,
@@ -464,3 +477,58 @@ class DuckLakeBackfillCatalog(Protocol):
     ) -> int: ...
 
     def delete_rows(self, table: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement) -> None: ...
+
+
+@frozen
+class DuckgresServerSummary:
+    """An organization's warehouse server as staff see it in PostHog Admin. No credentials."""
+
+    server_id: UUID
+    host: str
+    bucket: str | None
+    internal_testing: bool
+    deprovisioned: bool
+
+
+@frozen
+class ProvisionedWarehouseLogin:
+    """The root login of a newly provisioned warehouse. The control plane returns the password only once."""
+
+    host: str
+    port: int
+    database: str
+    username: str
+    # Empty when the control plane returned no password.
+    password: str = field(repr=False)
+
+
+@frozen
+class StaffActionOutcome:
+    ok: bool
+    status_code: int
+    message: str
+    login: ProvisionedWarehouseLogin | None = None
+
+
+@frozen
+class StaffProvisionPreview:
+    """What provisioning would set up, for staff to confirm. `problem` says why it cannot run."""
+
+    team_name: str
+    host: str
+    problem: str | None = None
+
+
+@frozen
+class ViewTranslationSummary:
+    """An organization's view translation jobs as staff see them in PostHog Admin."""
+
+    latest_status: str
+    total_count: int
+    compiled_count: int
+    failed_count: int
+    stale_count: int
+    # True while a job is pending or running. An organization runs one job at a time.
+    active: bool
+    # The latest job, when it has failed or stale views to retry. None otherwise.
+    retry_job_id: UUID | None

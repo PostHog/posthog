@@ -58,7 +58,7 @@ class EvalContext:
     when no selected suite requires demo data."""
 
     posthog_client: Posthog | None
-    """Analytics client for eval traces, with the default capture guards."""
+    """Analytics client for eval traces, honoring OPT_OUT_CAPTURE."""
 
     sandbox_slots: asyncio.Semaphore | None
     """The one global limiter on concurrently live sandboxes, shared by every
@@ -100,3 +100,6 @@ class EvalContext:
 
     skills_sha256: str | None = None
     skills_source_sha256: str | None = None
+
+    service_tier: str | None = None
+    """OpenAI request tier for the sandboxed agent; ``None`` sends the request untiered."""

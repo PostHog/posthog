@@ -4,7 +4,6 @@ import base64
 from concurrent import futures
 from typing import TYPE_CHECKING, Any, cast
 
-import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
 
@@ -12,7 +11,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import bigquery_direct_query_enabled, is_direct_capable
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 if TYPE_CHECKING:
@@ -83,8 +82,7 @@ def bigquery_error_to_message(error: Exception) -> str:
 
 
 def ensure_read_only_raw_bigquery_statement(sql: str) -> str:
-    sql = ensure_single_direct_statement(sql)
-    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    statements = parse_direct_statements(sql, dialect="bigquery")
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_BIGQUERY_READ_ONLY_ERROR)
     # BigQuery has no read-only session switch, and a single query job will run a

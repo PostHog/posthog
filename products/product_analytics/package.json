@@ -11,6 +11,7 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
+        "lucide-react": "^0.577.0",
         "posthog-js": "catalog:"
     },
     "devDependencies": {

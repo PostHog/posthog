@@ -294,6 +294,35 @@ export function AiPromptFields({
                                                     />
                                                 )
                                             })}
+                                            {targetType === 'slack' && (
+                                                <LemonSwitch
+                                                    checked={Boolean(deliveryConfig?.post_all_insights_in_main_message)}
+                                                    onChange={(enabled) =>
+                                                        onChange({
+                                                            ...deliveryConfig,
+                                                            post_all_insights_in_main_message: enabled,
+                                                        })
+                                                    }
+                                                    disabledReason={
+                                                        getAiSubscriptionDisplayOptionState(deliveryConfig, 'images')
+                                                            ? undefined
+                                                            : 'Turn on chart images to choose where charts go.'
+                                                    }
+                                                    bordered
+                                                    fullWidth
+                                                    data-attr="ai-subscription-post-all-insights-in-main-message"
+                                                    label={
+                                                        <div className="flex flex-col gap-1 py-1">
+                                                            <div className="leading-tight">
+                                                                Post all charts in the main message
+                                                            </div>
+                                                            <div className="text-xs text-secondary font-normal leading-tight">
+                                                                When off, charts go in the first thread reply.
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                />
+                                            )}
                                         </div>
                                     ),
                                 },

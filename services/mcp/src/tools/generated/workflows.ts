@@ -505,6 +505,7 @@ const workflowsList = (): ToolBase<
                     id: params.id,
                     latest_send_first: params.latest_send_first,
                     limit: params.limit,
+                    name: params.name,
                     offset: params.offset,
                     optimization_enabled: params.optimization_enabled,
                     origin_product: params.origin_product,
@@ -896,6 +897,9 @@ const workflowsSendingRulesUpdate = (): ToolBase<
             }
             if (params.marketing_frequency_cap_window_days !== undefined) {
                 body['marketing_frequency_cap_window_days'] = params.marketing_frequency_cap_window_days
+            }
+            if (params.marketing_frequency_cap_hold_hours !== undefined) {
+                body['marketing_frequency_cap_hold_hours'] = params.marketing_frequency_cap_hold_hours
             }
             if (params.email_tracking_consent_mode !== undefined) {
                 body['email_tracking_consent_mode'] = params.email_tracking_consent_mode

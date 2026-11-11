@@ -196,7 +196,7 @@ export function InviteRow({
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAccessControl = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
 
-    const { invitesToSend, existingMemberInviteRows } = useValues(inviteLogic)
+    const { invitesToSend, existingMemberInviteRows, canSubmit } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
     const isExistingMember = existingMemberInviteRows[index]
     const { preflight } = useValues(preflightLogic)
@@ -279,7 +279,7 @@ export function InviteRow({
                         <LemonButton
                             type="primary"
                             className="flex-1"
-                            disabled={!isEmail(invitesToSend[index].target_email) || isExistingMember}
+                            disabled={!isEmail(invitesToSend[index].target_email) || !canSubmit}
                             onClick={() => {
                                 inviteTeamMembers()
                             }}

@@ -21,6 +21,7 @@ aws-sdk-dynamodb = { workspace = true, optional = true }
 aws-sdk-kms = { workspace = true, optional = true }
 base64 = { workspace = true }
 chrono = { workspace = true, optional = true }
+cssparser = { version = "0.38", default-features = false, features = ["fast_match_byte"] }
 futures = { workspace = true, optional = true }
 governor = { workspace = true, optional = true }
 hkdf = "0.12"
@@ -31,7 +32,6 @@ md5 = "0.8"
 memchr = "2"
 moka = { workspace = true, optional = true }
 percent-encoding = { workspace = true }
-posthog-replay-anonymizer = { path = "../../replay-anonymizer", default-features = false }
 public-suffix = { workspace = true }
 rand = { workspace = true, optional = true }
 serde = { workspace = true }

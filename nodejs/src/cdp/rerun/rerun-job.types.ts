@@ -39,11 +39,8 @@ export type RerunStatusValue = 'running' | 'succeeded' | 'failed' | 'canceled'
 /**
  * Filter shape for a rerun request.
  *
- * `window_start` / `window_end` are REQUIRED — the lifecycle table is
- * partitioned by `toYYYYMMDD(scheduled_at)`, so a query without a time bound
- * scans every partition (up to 30 of them, since the TTL drops parts older
- * than that). The window also caps rerun to data that's still resident in the
- * table — older rows are gone via TTL anyway.
+ * `window_start` / `window_end` are REQUIRED and match the run's first scheduled time.
+ * The window also caps rerun to data that's still resident in the table — older rows are gone via TTL anyway.
  *
  * `invocation_ids` is an OPTIONAL additional restriction. When set, the
  * paginator pulls only those ids within the window — a UI "rerun these
@@ -68,6 +65,7 @@ export interface RerunFilter {
 
 export interface RerunRequest {
     filter: RerunFilter
+    replay_code_sends?: boolean
 }
 
 /**
@@ -81,10 +79,16 @@ export interface RerunCursor {
     invocation_id: string
 }
 
+/**
+ * Fixed when the job is created, because a previous-release worker resuming a `run_start` cursor collapses
+ * only part of a run's rows. A job without the field pages as `last_row`, as the previous release does.
+ */
+export type RerunPagingMode = 'run_start' | 'last_row'
+
 export interface RerunJobProgress {
     queued: number
     skipped: number
-    /** Keyset cursor on (scheduled_at, invocation_id). Undefined on first page; null when exhausted. */
+    /** Keyset cursor on the paging mode's time and invocation_id. Undefined on first page; null when exhausted. */
     cursor?: RerunCursor | null
     /** True once the worker has processed every page or exhausted max_count. */
     done: boolean
@@ -110,11 +114,12 @@ export interface RerunJobProgress {
 export interface RerunJobState {
     function_kind: RerunFunctionKind
     function_id: string
+    paging?: RerunPagingMode
     request: RerunRequest
     progress: RerunJobProgress
 }
 
-/** Hard cap on rows fetched per rerun page (also caps a by-IDs request slice). */
+/** Hard cap on rows fetched per rerun page, and the number of IDs a by-IDs page sends to ClickHouse. */
 export const RERUN_PAGE_SIZE = 200
 
 /**

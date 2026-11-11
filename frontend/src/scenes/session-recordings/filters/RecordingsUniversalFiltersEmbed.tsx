@@ -45,6 +45,7 @@ import { MaxTool } from 'scenes/max/MaxTool'
 import { RecordingEventMatchScopeSelect } from 'scenes/session-recordings/filters/RecordingEventMatchScopeSelect'
 import { hasPageFilter } from 'scenes/session-recordings/utils'
 
+import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -58,15 +59,17 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { ReplayFiltersScannerButton } from 'products/replay_vision/frontend/replay_scanners/components/ReplayFiltersScannerButton'
+import { ReplayFiltersScannerEntryPoint } from 'products/replay_vision/frontend/replay_scanners/components/ReplayFiltersScannerEntryPoint'
 import { scannerHandoffFromFilters } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffFromFilters'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
+    accountFilterTestAccountsStorage,
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
+    withSessionReplayListPatch,
 } from '../playlist/sessionRecordingsPlaylistLogic'
 import { FilterTemplates } from '../templates/FilterTemplates'
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
@@ -571,7 +574,6 @@ export const ReplayFiltersTab = ({
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
     const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
-    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_REPLAY_FILTERS')
     // A scanner keeps less of the filter set than this panel does, so what it would actually watch
     // decides both the destination and whether the button is worth offering.
     const scannerHandoff = useMemo(() => scannerHandoffFromFilters(filters), [filters])
@@ -614,6 +616,8 @@ export const ReplayFiltersTab = ({
         sessionRecordingSavedFiltersLogic
     )
     const { setActiveFilterTab } = useActions(playlistFiltersLogic)
+    const { uiConfiguration } = useValues(uiCustomizationLogic)
+    const { updateUiConfiguration } = useActions(uiCustomizationLogic)
     const applyFilters = applySavedFilter ?? setFilters
 
     useEffect(() => {
@@ -767,11 +771,18 @@ export const ReplayFiltersTab = ({
                         <TestAccountFilter
                             size="small"
                             filters={filters}
-                            onChange={(testFilters) =>
+                            onChange={(testFilters) => {
                                 setFilters({
                                     filter_test_accounts: testFilters.filter_test_accounts,
                                 })
-                            }
+                                const filterTestAccounts = !!testFilters.filter_test_accounts
+                                accountFilterTestAccountsStorage.set(filterTestAccounts)
+                                updateUiConfiguration(
+                                    withSessionReplayListPatch(uiConfiguration, {
+                                        filter_test_accounts: filterTestAccounts,
+                                    })
+                                )
+                            }}
                         />
                     )}
                 </div>
@@ -881,14 +892,7 @@ export const ReplayFiltersTab = ({
                             </LemonButton>
                         )}
                         <div className="flex gap-2 ml-auto">
-                            {scannerCrossSellEnabled && (
-                                <>
-                                    <ReplayFiltersScannerButton handoff={scannerHandoff} />
-                                    {/* Grouped away from the buttons that act on the filters themselves:
-                                        this one leaves for another product. */}
-                                    <LemonDivider vertical className="mx-1 self-stretch" />
-                                </>
-                            )}
+                            <ReplayFiltersScannerEntryPoint handoff={scannerHandoff} />
                             {resetButton}
                             <LemonButton
                                 data-attr="filters-save-modal-open"

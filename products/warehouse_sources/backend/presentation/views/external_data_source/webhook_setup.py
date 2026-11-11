@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 from drf_spectacular.utils import extend_schema
@@ -31,8 +31,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     ExternalWebhookInfo,
     SourceSchema,
     WebhookSource,
+    known_source_key,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from . import base
 
@@ -186,6 +186,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         source_id: str,
         source_schemas: list[SourceSchema],
         permission_errors: Mapping[str, str | None] | None = None,
+        only_tables: Collection[str] | None = None,
     ) -> dict | None:
         """Best-effort webhook auto-registration for one-shot setup.
 
@@ -203,6 +204,9 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
         webhook_capable = {
             s.name for s in source_schemas if s.supports_webhooks and s.should_sync_default and s.name not in denied
         }
+        if only_tables is not None:
+            # The caller chose its tables, so the webhook must not turn on any others.
+            webhook_capable &= set(only_tables)
         if not webhook_capable or source.webhook_template is None:
             return None
 
@@ -327,7 +331,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -437,7 +441,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "Source has no configuration"},
             )
 
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -533,7 +537,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "Source has no configuration"},
             )
 
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -622,7 +626,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
     def delete_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):

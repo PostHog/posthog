@@ -9,14 +9,17 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TagSelect } from 'lib/components/TagSelect'
+import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { MessageTemplate } from '../TemplateLibrary/types'
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 
@@ -27,10 +30,10 @@ export function TransactionalEmailsTable(): JSX.Element {
         templatesLoading,
         filters,
         isFiltered,
-        tags: allTags,
         savingTagsFor,
     } = useValues(transactionalEmailsLogic)
     const { setFilters, saveTransactionalTags } = useActions(transactionalEmailsLogic)
+    const { currentTeam } = useValues(teamLogic)
     // Same check as the "New transactional email" button: changing a template needs Editor access.
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Workflow,
@@ -52,6 +55,13 @@ export function TransactionalEmailsTable(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
+            {/* The sparklines read '-7d', which starts at midnight 7 days ago in the project's timezone. */}
+            <EmailMetricsIncidentBanner
+                dateFrom={dayjs()
+                    .tz(currentTeam?.timezone ?? 'UTC')
+                    .subtract(7, 'day')
+                    .startOf('day')}
+            />
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"
@@ -131,7 +141,6 @@ export function TransactionalEmailsTable(): JSX.Element {
                                     {...shown}
                                     onChange={(tags) => saveTransactionalTags(template, tags)}
                                     saving={savingTagsFor === template.id}
-                                    tagsAvailable={allTags}
                                 />
                             )
                         },

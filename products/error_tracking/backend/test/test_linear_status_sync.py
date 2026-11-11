@@ -23,7 +23,7 @@ from products.error_tracking.backend.facade import contracts, issues
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
-    ErrorTrackingSettings,
+    ErrorTrackingIssueChange,
 )
 from products.error_tracking.backend.tasks.linear import process_linear_status_sync
 
@@ -172,13 +172,6 @@ class TestErrorTrackingLinearWebhook(BaseTest):
 
 
 class TestLinearStatusSync(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self._opt_in(self.team)
-
-    def _opt_in(self, team: Team) -> None:
-        ErrorTrackingSettings.objects.create(team=team, linear_status_sync_enabled=True)
-
     def _linear_integration(
         self, team: Team, organization_id: str = ORGANIZATION_ID, token: str = "linear-token"
     ) -> Integration:
@@ -272,32 +265,82 @@ class TestLinearStatusSync(BaseTest):
         )
         assert system_status_changes.count() == (0 if expected_status == initial_status else 1)
 
-    def test_changes_only_opted_in_projects_linked_through_the_same_workspace(self) -> None:
+    def test_changes_every_project_linked_through_the_same_workspace(self) -> None:
         linked_issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
         other_workspace_issue = self._linked_issue(
             self.team, self._linear_integration(self.team, organization_id="linear-org-2"), ["ENG-1"]
         )
-        opted_in_team = Team.objects.create(organization=self.organization, name="Opted in")
-        self._opt_in(opted_in_team)
-        opted_in_issue = self._linked_issue(opted_in_team, self._linear_integration(opted_in_team), ["ENG-1"])
-        not_opted_in_team = Team.objects.create(organization=self.organization, name="Not opted in")
-        not_opted_in_issue = self._linked_issue(
-            not_opted_in_team, self._linear_integration(not_opted_in_team), ["ENG-1"]
-        )
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_team_issue = self._linked_issue(other_team, self._linear_integration(other_team), ["ENG-1"])
 
         self._sync(_FakeLinear({"ENG-1": "completed"}, "started"))
 
         statuses = dict(
             ErrorTrackingIssue.objects.filter(
-                id__in=[linked_issue.id, other_workspace_issue.id, opted_in_issue.id, not_opted_in_issue.id]
+                id__in=[linked_issue.id, other_workspace_issue.id, other_team_issue.id]
             ).values_list("id", "status")
         )
         assert statuses == {
             linked_issue.id: "resolved",
             other_workspace_issue.id: "active",
-            opted_in_issue.id: "resolved",
-            not_opted_in_issue.id: "active",
+            other_team_issue.id: "resolved",
         }
+
+    @parameterized.expand(
+        [
+            ("flag_off_skips_the_project", False, "active"),
+            ("flag_on_syncs_the_project", True, "resolved"),
+            ("failed_lookup_or_disabled_sdk_syncs_the_project", None, "resolved"),
+            ("raising_lookup_syncs_the_project", RuntimeError("flags are down"), "resolved"),
+        ]
+    )
+    def test_kill_switch_decides_for_each_project(
+        self, _name: str, flag_answer: bool | None | Exception, expected_status: str
+    ) -> None:
+        integration = self._linear_integration(self.team)
+        issues = [self._linked_issue(self.team, integration, ["ENG-1"]) for _ in range(2)]
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_team_issue = self._linked_issue(other_team, self._linear_integration(other_team), ["ENG-1"])
+        lookups: Counter[str] = Counter()
+
+        def answer(flag: str, distinct_id: str, **_kwargs: object) -> bool | None:
+            if flag != "error-tracking-linear-status-sync":
+                return None
+            lookups[distinct_id] += 1
+            if distinct_id != str(self.team.id):
+                return None
+            if isinstance(flag_answer, Exception):
+                raise flag_answer
+            return flag_answer
+
+        with patch(
+            "products.error_tracking.backend.logic.team_flags.posthoganalytics.feature_enabled", side_effect=answer
+        ):
+            self._sync(_FakeLinear({"ENG-1": "completed"}, "started"))
+
+        statuses = dict(
+            ErrorTrackingIssue.objects.filter(
+                id__in=[*(issue.id for issue in issues), other_team_issue.id]
+            ).values_list("id", "status")
+        )
+        assert statuses == {
+            issues[0].id: expected_status,
+            issues[1].id: expected_status,
+            other_team_issue.id: "resolved",
+        }
+        assert lookups == {str(self.team.id): 1, str(other_team.id): 1}
+
+    def test_records_the_sync_as_an_automation_in_the_change_log(self) -> None:
+        issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
+
+        with patch("products.error_tracking.backend.logic.issue_changes.issue_change_log_enabled", return_value=True):
+            self._sync(_FakeLinear({"ENG-1": "completed"}, "started"))
+
+        issue.refresh_from_db()
+        assert issue.status == "resolved"
+        change = ErrorTrackingIssueChange.objects.for_team(self.team.id).get(issue_id=issue.id)
+        assert change.actor_type == "automation"
+        assert change.actor_automation_id is not None
 
     @parameterized.expand([("move_job_first", True), ("completion_job_first", False)])
     def test_a_ticket_that_moved_teams_holds_its_issue_open_until_it_closes(
@@ -319,7 +362,6 @@ class TestLinearStatusSync(BaseTest):
 
     def test_each_project_reads_the_previous_state_with_its_own_token(self) -> None:
         blind_team = Team.objects.create(organization=self.organization, name="Cannot see the previous team")
-        self._opt_in(blind_team)
         blind_issue = self._linked_issue(
             blind_team, self._linear_integration(blind_team, token="blind-token"), ["ENG-1"], status="resolved"
         )
@@ -337,7 +379,6 @@ class TestLinearStatusSync(BaseTest):
 
     def test_a_project_whose_linear_read_fails_raises_without_holding_back_the_others(self) -> None:
         revoked_team = Team.objects.create(organization=self.organization, name="Revoked token")
-        self._opt_in(revoked_team)
         failing_issue = self._linked_issue(
             revoked_team, self._linear_integration(revoked_team, token="revoked-token"), ["ENG-1"]
         )
@@ -365,7 +406,6 @@ class TestLinearStatusSync(BaseTest):
     ) -> None:
         if failing_project_first:
             revoked_team = Team.objects.create(organization=self.organization, name="Revoked token")
-            self._opt_in(revoked_team)
             self._linked_issue(revoked_team, self._linear_integration(revoked_team, token="revoked-token"), ["ENG-1"])
         integration = self._linear_integration(self.team)
         self._linked_issue(self.team, integration, ["ENG-1"])

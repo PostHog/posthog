@@ -56,13 +56,21 @@ from posthog.api.tagged_item import (
     normalize_tag_names,
     resolve_bulk_tags,
 )
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, ServiceRequest, action
+from posthog.api.utils import (
+    MAX_LISTED_IDS,
+    ClassicBehaviorBooleanFieldSerializer,
+    ErrorResponseSerializer,
+    ServiceRequest,
+    action,
+    parse_id_list,
+)
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     TeamSecretTokenAuthentication,
+    WorkloadAccessTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
@@ -71,8 +79,9 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
+from posthog.ip_restrictions import ip_restrictions_exempt_for_secret_keys
+from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Detail, Trigger, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.person.point_in_time_properties import (
@@ -92,6 +101,13 @@ from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
 from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    property_key_overlaps_restriction,
+    redact_restricted_properties,
+    split_restricted_property_names,
+)
+from products.access_control.backend.facade.contracts import RestrictedPropertyNames
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -103,8 +119,9 @@ from products.approvals.backend.policies import lock_approval_policies
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.dashboards.backend.api.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.facade.contracts import LinkedExperiment
+from products.feature_flags.backend.api.code_analysis import FeatureFlagCodeAnalysisMixin
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -147,6 +164,7 @@ from products.feature_flags.backend.facade.config import (
     require_v1_config,
 )
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
+from products.feature_flags.backend.facade.enums import VERSION_RESTORE_JOB_TYPE
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import (
@@ -181,6 +199,7 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.feature_flags.backend.version_history import (
     VersionHistoryIncomplete,
     VersionNotFound,
+    build_restore_write,
     reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
 )
@@ -445,6 +464,8 @@ def _scope_audit_identity(authenticator) -> tuple[list[str], str, str | None, st
         return scopes, "oauth_access_token", str(raw_id) if raw_id is not None else None, None
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return scopes, "id_jag_access_token", None, None
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return scopes, "workload_access_token", authenticator.policy_id, None
     psak = authenticator.project_secret_api_key
     return scopes, "project_secret_api_key", str(getattr(psak, "id", "")) or None, None
 
@@ -742,6 +763,54 @@ def _filter_person_properties_for_flag(
             referenced_keys.add(override["key"])
 
     return {key: value for key, value in person_properties.items() if key in referenced_keys}
+
+
+def _group_type_indexes_for_condition_property(
+    filters: dict[str, Any], condition_index: Any, key: str
+) -> set[int | None]:
+    # Mirrors the flags service: a group filter's own group_type_index, else the condition's
+    # aggregation, else the flag's. {None} (any group type) when the filter cannot be located.
+    groups = filters.get("groups") or []
+    if not isinstance(condition_index, int) or not 0 <= condition_index < len(groups):
+        return {None}
+    condition = groups[condition_index] or {}
+    aggregation = flag_filters.condition_aggregation(condition, filters.get("aggregation_group_type_index"))
+    indexes: set[int | None] = {
+        aggregation if prop.get("group_type_index") is None else prop["group_type_index"]
+        for prop in condition.get("properties") or []
+        if isinstance(prop, dict) and prop.get("type") == "group" and prop.get("key") == key
+    }
+    return indexes if indexes else {None}
+
+
+def _redact_restricted_actual_values(
+    conditions: Any, filters: dict[str, Any], restricted: RestrictedPropertyNames
+) -> Any:
+    if (not restricted.person and not restricted.group) or not isinstance(conditions, list):
+        return conditions
+
+    def is_restricted(condition_index: Any, prop: dict[str, Any]) -> bool:
+        key = prop.get("key")
+        if not isinstance(key, str):
+            return False
+        if prop.get("type") != "group":
+            return property_key_overlaps_restriction(key, restricted.person)
+        indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
+        return any(property_key_overlaps_restriction(key, restricted.group_property_names(index)) for index in indexes)
+
+    redacted: list[Any] = []
+    for condition in conditions:
+        if not isinstance(condition, dict) or not isinstance(condition.get("properties"), list):
+            redacted.append(condition)
+            continue
+        properties: list[Any] = []
+        for prop in condition["properties"]:
+            if isinstance(prop, dict) and is_restricted(condition.get("index"), prop):
+                properties.append({**prop, "actual_value": None})
+            else:
+                properties.append(prop)
+        redacted.append({**condition, "properties": properties})
+    return redacted
 
 
 def check_flag_limits_for_team(
@@ -3602,7 +3671,13 @@ class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
     operator = serializers.CharField(help_text="Comparison operator")
     value = serializers.JSONField(help_text="Expected property value")
     type = serializers.CharField(help_text="Property type (person, group, etc.)")
-    actual_value = serializers.JSONField(allow_null=True, help_text="Actual property value from user")
+    actual_value = serializers.JSONField(
+        allow_null=True,
+        help_text=(
+            "Actual property value from user. Null when the property is not set, "
+            "or when property access control hides it from the requesting user."
+        ),
+    )
     matched = serializers.BooleanField(help_text="Whether this property condition matched")
     explanation = serializers.CharField(help_text="Human-readable explanation of the match result")
 
@@ -3661,7 +3736,10 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     )
     payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")
     person_properties = serializers.DictField(
-        help_text="Person properties at the time of evaluation (for historical evaluations)"
+        help_text=(
+            "Person properties at the time of evaluation (for historical evaluations). "
+            "Properties that property access control hides from the requesting user are omitted."
+        )
     )
     evaluation_distinct_id = serializers.CharField(
         allow_null=True,
@@ -3712,6 +3790,7 @@ class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
             "filters",
             "active",
             "deleted",
+            "archived",
             "version",
             "ensure_experience_continuity",
             "has_enriched_analytics",
@@ -4135,6 +4214,18 @@ class FeatureFlagSetActiveRequestSerializer(serializers.Serializer):
     )
 
 
+class FeatureFlagRestoreVersionRequestSerializer(FeatureFlagRollbackReasonSerializer):
+    version = serializers.IntegerField(
+        min_value=0,
+        allow_null=True,
+        help_text=(
+            "The flag's current `version`, from your most recent read of it. This is not the version to restore, "
+            "which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. "
+            "A flag written before versioning reads as `null`; send that back unchanged and it is read as 0."
+        ),
+    )
+
+
 class FeatureFlagRollOutToEveryoneRequestSerializer(serializers.Serializer):
     version = serializers.IntegerField(min_value=0, allow_null=True, help_text=FLAG_VERSION_PRECONDITION_HELP)
     variant_key = serializers.CharField(
@@ -4242,6 +4333,7 @@ class CreateStaticCohortForFlagResponseSerializer(serializers.Serializer):
 # See products/feature_flags/backend/user_blast_radius.py for the pattern.
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
+    FeatureFlagCodeAnalysisMixin,
     ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -4378,8 +4470,11 @@ class FeatureFlagViewSet(
             # never read the field.
             queryset = queryset.annotate(is_used_in_replay_settings_annotation=self._replay_gates.as_q())
 
+            requested_ids = parse_id_list(self.request.GET.get("ids"), name="ids", parse=int)
+            # Soft-deleted flags can be restored, so the list returns them when asked for them, and only them.
+            show_deleted = str_to_bool(self.request.GET.get("deleted", False))
             queryset = (
-                queryset.filter(deleted=False)
+                queryset.filter(deleted=show_deleted)
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related(
                     Prefetch(
@@ -4393,6 +4488,13 @@ class FeatureFlagViewSet(
                 )
             )
 
+            if requested_ids is not None:
+                return (
+                    queryset.filter(id__in=requested_ids)
+                    .order_by("-created_at")
+                    .select_related("created_by", "last_modified_by")
+                )
+
             survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
             # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
             product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
@@ -4402,7 +4504,10 @@ class FeatureFlagViewSet(
                 Q(id__in=product_tour_internal_targeting_flags)
             )
 
-            queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
+            # A flag that was archived before it was deleted still belongs in the deleted list.
+            queryset = exclude_archived_unless_requested(
+                queryset, requested="archived" in self.request.GET or show_deleted
+            )
 
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
@@ -4443,6 +4548,17 @@ class FeatureFlagViewSet(
                 description=(
                     "Search by feature flag key or name. Case insensitive. "
                     "Spaces, underscores, and hyphens count as the same separator."
+                ),
+            ),
+            OpenApiParameter(
+                "ids",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    f"Comma-separated flag IDs, at most {MAX_LISTED_IDS}. Returns exactly those flags, including "
+                    "archived flags and flags that surveys or product tours own. Other filters are ignored, "
+                    "and soft-deleted flags are left out unless deleted=true."
                 ),
             ),
             OpenApiParameter(
@@ -4495,6 +4611,17 @@ class FeatureFlagViewSet(
                 required=False,
                 enum=["true", "false"],
                 description="Filter by archived state. When omitted, archived flags are excluded.",
+            ),
+            OpenApiParameter(
+                "deleted",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+                description=(
+                    "Pass `true` to list only soft-deleted flags, which can be restored, archived or not. "
+                    "When omitted, deleted flags are excluded."
+                ),
             ),
             OpenApiParameter(
                 "has_evaluation_contexts",
@@ -5037,6 +5164,98 @@ class FeatureFlagViewSet(
             )
 
         return Response(FeatureFlagVersionResponseSerializer(instance=result).data)
+
+    @validated_request(
+        FeatureFlagRestoreVersionRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                "version_number",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                required=True,
+                description="The past version to restore.",
+            ),
+        ],
+        responses={
+            **flag_lifecycle_responses(
+                "The flag is archived, has encrypted payloads, or uses a configuration format other than 1, or the "
+                "past version no longer passes validation, for example because it targets a deleted cohort.",
+                version_precondition=True,
+            ),
+            404: OpenApiResponse(description="Version not found."),
+            422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path=r"versions/(?P<version_number>[0-9]+)/restore",
+        required_scopes=["feature_flag:write"],
+    )
+    def restore_version(self, request: ValidatedRequest, version_number: str, **kwargs) -> Response:
+        """
+        Restore a past version of a feature flag.
+
+        Sets the flag's release conditions, variants, payloads, name and evaluation options back to
+        what they were at `version_number`. Read that version first with the versions endpoint to see
+        what will change. The flag's key, its enabled state, and its archived state stay as they are,
+        as do tags, evaluation contexts and how its cohorts are defined. The restore is saved as a new
+        version, so it can be undone by restoring the version before it.
+
+        Send the flag's current `version`. A change after that version is refused with 409. An
+        approval policy that gates the change opens a change request instead. A restore to a version
+        that matches the current configuration writes nothing and returns the flag.
+        """
+        from products.feature_flags.backend.facade.api import update_flag
+
+        deleted_hint = "restoring a past version"
+        feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
+        if rejection is not None:
+            return rejection
+        version = request.validated_data["version"] or 0
+        # Runs before the approval gate so a stale caller never opens a change request for a
+        # write the serializer would then refuse under its row lock.
+        self._version_precondition(feature_flag, version)
+        target_version = int(version_number)
+
+        try:
+            with transaction.atomic():
+                # The same sequence as `_rollout_action`: the write is computed from the locked row,
+                # so a change landing after the read is refused rather than answered as a no-op, and
+                # a bulk delete, which leaves `version` untouched, is refused rather than rewritten.
+                locked_flag = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=feature_flag.pk)
+                _carry_loaded_state(feature_flag, locked_flag)
+                rejection = self._deleted_flag_rejection(locked_flag, deleted_hint)
+                if rejection is not None:
+                    return rejection
+                self._version_precondition(locked_flag, version)
+                restore_write = build_restore_write(locked_flag, target_version)
+        except VersionNotFound as e:
+            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except VersionHistoryIncomplete as e:
+            return Response({"detail": str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        # The write leaves the transaction for the reasons `_rollout_action` gives, and takes the
+        # row lock again with the same version check.
+        if not restore_write:
+            return self._lifecycle_response(locked_flag)
+        rollback_reason = {
+            field: request.validated_data[field] for field in ROLLBACK_REASON_FIELDS if field in request.validated_data
+        }
+        locked_flag._activity_trigger = Trigger(
+            job_type=VERSION_RESTORE_JOB_TYPE,
+            job_id=str(target_version),
+            payload={"restored_from_version": target_version},
+        )
+        restored = update_flag(
+            locked_flag,
+            {**rollback_reason, **restore_write},
+            team=self.team,
+            user=request.user,
+            request=FlagVersionCheckedWriteRequest(request, version=version),
+        )
+        return self._lifecycle_response(restored)
 
     @validated_request(
         query_serializer=MyFlagsQuerySerializer,
@@ -6238,6 +6457,12 @@ class FeatureFlagViewSet(
             response_evaluation_distinct_id = (
                 evaluation_distinct_id if distinct_id and distinct_id in distinct_ids else None
             )
+            restricted_properties = split_restricted_property_names(
+                get_restricted_properties_with_group_type_index_for_team(
+                    user=cast(User, request.user) if request.user.is_authenticated else None,
+                    team_id=self.team_id,
+                )
+            )
             response_data = {
                 "flag_key": feature_flag.key,
                 "result": result,
@@ -6245,11 +6470,16 @@ class FeatureFlagViewSet(
                 "reason_description": reason_description,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": _filter_person_properties_for_flag(
-                    evaluation_filters, person_properties, flag_key=feature_flag.key
+                "person_properties": redact_restricted_properties(
+                    _filter_person_properties_for_flag(
+                        evaluation_filters, person_properties, flag_key=feature_flag.key
+                    ),
+                    restricted_properties.person,
                 ),
                 "evaluation_distinct_id": response_evaluation_distinct_id,
-                "conditions": detailed_conditions,
+                "conditions": _redact_restricted_actual_values(
+                    detailed_conditions, evaluation_filters, restricted_properties
+                ),
             }
             if detect_config_format(evaluation_filters).kind == "v2":
                 response_data["conditions_unavailable_reason"] = V2_CONDITIONS_UNAVAILABLE_REASON
@@ -6356,6 +6586,7 @@ class FeatureFlagViewSet(
         permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
+    @ip_restrictions_exempt_for_secret_keys
     def remote_config(self, request: request.Request, **kwargs):
         response = self._remote_config_response(request, **kwargs)
         # Temporary (Rust remote_config port, phase 2): shadow-compare against Rust; delete after cutover.
