@@ -465,7 +465,7 @@ class ReplayStatus:
 @console.register_tool
 class ReplayFailedRunsTool(ConsoleTool):
     key = TOOL_KEY
-    title = "Replay failed destination runs"
+    title = "Replay failed CDP runs"
     owner = WORKFLOWS
     group = "Incidents"
     description = "Send failed destination and workflow runs from an incident window again, across teams. You review the runs first."
