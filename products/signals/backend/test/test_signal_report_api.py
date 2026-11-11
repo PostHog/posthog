@@ -91,6 +91,7 @@ from products.signals.backend.task_run_artefacts import (
     record_report_task,
 )
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
+from products.signals.backend.test.test_refunds import _make_refund
 from products.signals.backend.throttles import ReportMetricRefreshThrottle
 from products.signals.backend.views import (
     PR_CI_STATUS_MAX_REPORTS,
@@ -3556,14 +3557,12 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 restored_attempt = current_monitoring_attempt(report)
                 assert restored_attempt is not None and restored_attempt.id == attempt.id
                 assert report.monitoring_started_at == attempt.monitoring_started_at
-                assert (
-                    self.client.post(url, {**body, "state": "potential"}, format="json").status_code
-                    == status.HTTP_200_OK
-                )
+                reopened = self.client.post(url, {**body, "state": "ready"}, format="json")
+                assert reopened.status_code == status.HTTP_200_OK
+                assert (reopened.json()["results"][0] if bulk else reopened.json())["status"] == "ready"
                 report.refresh_from_db()
+                assert report.status == SignalReport.Status.READY
                 assert current_monitoring_attempt(report) is None
-                report.status = SignalReport.Status.READY
-                report.save(update_fields=["status"])
                 assert self.client.post(url, body, format="json").status_code == status.HTTP_200_OK
                 report.refresh_from_db()
                 reopened_attempt = current_monitoring_attempt(report)
@@ -4569,6 +4568,30 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             data=json.dumps({"state": "resolved"}),
             content_type="application/json",
         )
+        assert response.status_code == expected_code, response.json()
+        report.refresh_from_db()
+        assert report.status == expected_status
+
+    @parameterized.expand(
+        [
+            ("closed", SignalReport.Status.CLOSED, False, status.HTTP_200_OK, SignalReport.Status.READY),
+            ("refunded_closed", SignalReport.Status.CLOSED, True, status.HTTP_409_CONFLICT, SignalReport.Status.CLOSED),
+            ("resolved", SignalReport.Status.RESOLVED, False, status.HTTP_409_CONFLICT, SignalReport.Status.RESOLVED),
+            (
+                "monitoring_with_rollout_disabled",
+                SignalReport.Status.MONITORING,
+                False,
+                status.HTTP_409_CONFLICT,
+                SignalReport.Status.MONITORING,
+            ),
+        ]
+    )
+    def test_reopen_state_transition_by_status(self, _name, initial_status, refunded, expected_code, expected_status):
+        report = self._create_report(report_status=initial_status)
+        if refunded:
+            _make_refund(report)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=False):
+            response = self.client.post(self._state_url(str(report.id)), {"state": "ready"}, format="json")
         assert response.status_code == expected_code, response.json()
         report.refresh_from_db()
         assert report.status == expected_status

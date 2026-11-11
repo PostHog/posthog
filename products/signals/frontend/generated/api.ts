@@ -1221,7 +1221,7 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
  * can't be injected.
  *
  * Body: {
- *     "state": "suppressed" | "potential" | "resolved",
+ *     "state": "suppressed" | "potential" | "resolved" | "monitoring" | "ready",
  *     # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
  *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
