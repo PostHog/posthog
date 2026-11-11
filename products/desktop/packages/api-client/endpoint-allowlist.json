@@ -24,6 +24,7 @@
     "/api/projects/{project_id}/hog_flows/{id}/schedules/{schedule_id}/",
     "/api/projects/{project_id}/insights/{id}/",
     "/api/projects/{project_id}/integrations/{id}/",
+    "/api/projects/{project_id}/integrations/{id}/gitlab_projects/",
     "/api/projects/{project_id}/persons/",
     "/api/projects/{project_id}/persons/batch_by_distinct_ids/",
     "/api/projects/{project_id}/persons/{id}/",
