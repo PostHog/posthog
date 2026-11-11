@@ -113,16 +113,31 @@ describe('valves', () => {
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
     })
 
-    it.each<[string, boolean]>([
-        ['whose predicate never held', false],
-        ['whose predicate held only once the release had begun', true],
-    ])('never kills for a waiting entry %s before the drive ended', async (_story, heldAcrossRelease) => {
+    const NEVER_HELD = 'never applied: running_on_queue email at least 2 did not hold before the drive ended'
+
+    it.each<[string, ValveEntry, boolean, string]>([
+        ['a waiting entry whose predicate never held', kill({ when: RUNNING_ON_EMAIL }), false, NEVER_HELD],
+        [
+            'a waiting entry whose predicate held only once the release had begun',
+            kill({ when: RUNNING_ON_EMAIL }),
+            true,
+            NEVER_HELD,
+        ],
+        [
+            'an entry whose offset the drive did not reach',
+            kill({ at: '1m' }),
+            false,
+            'never applied: released before its offset',
+        ],
+    ])('never kills for %s', async (_story, entry, heldAcrossRelease, error) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
 
-        await valves.start([kill({ when: RUNNING_ON_EMAIL })], stack.context)
+        await valves.start([entry], stack.context)
         const open = heldAcrossRelease ? stack.holdReads() : () => undefined
-        await stack.nextRead()
+        if (entry.when) {
+            await stack.nextRead()
+        }
         const releasing = valves.releaseAll()
         if (heldAcrossRelease) {
             stack.run(2)
@@ -131,11 +146,7 @@ describe('valves', () => {
         await releasing
 
         expect(stack.gone()).toEqual([])
-        expect(valves.timeline()).toEqual([
-            expect.objectContaining({
-                error: 'never applied: running_on_queue email at least 2 did not hold before the drive ended',
-            }),
-        ])
+        expect(valves.timeline()).toEqual([expect.objectContaining({ error })])
     })
 
     it.each<[string, Parameters<typeof stackOf>[0], string]>([

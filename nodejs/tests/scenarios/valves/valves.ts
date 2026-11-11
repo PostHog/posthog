@@ -56,12 +56,12 @@ export function createValves({ pollMs = POLL_MS, definitions = VALVES } = {}): V
     const scheduled = async (entry: ValveEntry, context: ValveContext): Promise<boolean> => {
         if (entry.at !== undefined) {
             await sleep(durationMs(entry.at), undefined, { signal: released.signal }).catch(() => undefined)
-            return !released.signal.aborted
+            return true
         }
         const { queue, atLeast } = entry.when!.params
         while (!released.signal.aborted) {
             const jobs = await context.probe.runningJobs({ teams: context.teams, queues: [queue] }).catch(() => 0)
-            if (jobs >= atLeast && !released.signal.aborted) {
+            if (jobs >= atLeast) {
                 return true
             }
             await sleep(pollMs, undefined, { signal: released.signal }).catch(() => undefined)
@@ -70,7 +70,7 @@ export function createValves({ pollMs = POLL_MS, definitions = VALVES } = {}): V
     }
 
     const run = async (entry: ValveEntry, context: ValveContext, record: ValveTimelineEntry): Promise<void> => {
-        if (!(await scheduled(entry, context))) {
+        if (!(await scheduled(entry, context)) || released.signal.aborted) {
             const { queue, atLeast } = entry.when?.params ?? {}
             record.error = entry.when
                 ? `never applied: running_on_queue ${queue} at least ${atLeast} did not hold before the drive ended`
