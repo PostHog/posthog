@@ -349,12 +349,6 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             return err
         assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
 
-        if not base.is_cdc_enabled_for_team(self.team):
-            return Response(
-                status=status.HTTP_403_FORBIDDEN,
-                data={"message": "CDC is not enabled for this team."},
-            )
-
         existing = adapter.parse_cdc_config(instance)
         if existing.enabled:
             return Response(
