@@ -11,6 +11,14 @@ export const UNIT_EMAIL_DOMAIN = 'www.example.com'
 
 export type ConfigurationSets = Record<string, { tracking: boolean }>
 
+export interface SesAttachment {
+    filename: string
+    contentType: string | undefined
+    contentId: string | undefined
+    inline: boolean
+    bytes: Buffer
+}
+
 export interface SesMessage {
     messageId: string
     from: string
@@ -28,6 +36,7 @@ export interface SesMessage {
     tenant: string | undefined
     configurationSet: string | undefined
     tracked: boolean | undefined
+    attachments: SesAttachment[]
 }
 
 export type SesRequest = { message: Omit<SesMessage, 'messageId'> } | { error: SesStatusAnswer }
@@ -35,6 +44,17 @@ export type SesRequest = { message: Omit<SesMessage, 'messageId'> } | { error: S
 const Part = z.object({ Data: z.string(), Charset: z.string().optional() })
 const NameValues = z.array(z.object({ Name: z.string(), Value: z.string() })).optional()
 const Addresses = z.array(z.string()).optional()
+const Attachment = z
+    .object({
+        RawContent: z.string(),
+        FileName: z.string(),
+        ContentDisposition: z.enum(['ATTACHMENT', 'INLINE']).optional(),
+        ContentDescription: z.string().optional(),
+        ContentId: z.string().optional(),
+        ContentTransferEncoding: z.string().optional(),
+        ContentType: z.string().optional(),
+    })
+    .strict()
 
 const SendEmailRequest = z.object({
     FromEmailAddress: z.string(),
@@ -46,6 +66,7 @@ const SendEmailRequest = z.object({
             Subject: Part,
             Body: z.object({ Text: Part.optional(), Html: Part.optional() }).optional(),
             Headers: NameValues,
+            Attachments: z.array(Attachment).optional(),
         }),
     }),
     EmailTags: NameValues,
@@ -92,7 +113,7 @@ export function readSendEmail(body: unknown, configurationSets: ConfigurationSet
             },
         }
     }
-    const { Subject, Body, Headers } = request.Content.Simple
+    const { Subject, Body, Headers, Attachments } = request.Content.Simple
     return {
         message: {
             from: request.FromEmailAddress,
@@ -110,6 +131,13 @@ export function readSendEmail(body: unknown, configurationSets: ConfigurationSet
             tenant: request.TenantName,
             configurationSet: request.ConfigurationSetName,
             tracked: configurationSet.tracking,
+            attachments: (Attachments ?? []).map((attachment) => ({
+                filename: attachment.FileName,
+                contentType: attachment.ContentType,
+                contentId: attachment.ContentId,
+                inline: attachment.ContentDisposition === 'INLINE',
+                bytes: Buffer.from(attachment.RawContent, 'base64'),
+            })),
         },
     }
 }

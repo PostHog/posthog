@@ -1,17 +1,37 @@
-import { SesMessage, startProviderEdge } from '~/tests/scenarios/provider-edge'
+import { FaultRule, SesAttachment, SesMessage, startProviderEdge } from '~/tests/scenarios/provider-edge'
+
+export type FakeSesAttachment = SesAttachment
 
 export type FakeSesMessage = SesMessage
 
-export type FakeSesFault = { status: number; type: string; message: string } | 'drop-connection'
+export type FakeSesFault =
+    | { status: number; type: string; message: string }
+    | 'drop-connection'
+    | 'no-answer'
+    | 'stalled-body'
 
 export interface FakeSes {
     endpoint: string
     readonly sent: FakeSesMessage[]
-    failWith(fault: FakeSesFault): void
+    failWith(fault: FakeSesFault | null): void
     close(): Promise<void>
 }
 
 type ConfigurationSets = Record<string, { tracking: boolean }>
+
+function faultRuleOf(fault: FakeSesFault): FaultRule {
+    const dose = { share: 1 }
+    switch (fault) {
+        case 'drop-connection':
+            return { name: 'ses.drop_connection', answer: { kind: 'drop-connection' }, dose }
+        case 'no-answer':
+            return { name: 'ses.no_answer', answer: { kind: 'no-answer' }, dose }
+        case 'stalled-body':
+            return { name: 'ses.stalled_body', answer: { kind: 'stalled-body' }, dose }
+        default:
+            return { name: 'ses.status', answer: { kind: 'status', answer: fault }, dose }
+    }
+}
 
 export async function startFakeSes(configurationSets: ConfigurationSets): Promise<FakeSes> {
     const edge = await startProviderEdge({ port: 0, configurationSets })
@@ -45,11 +65,9 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
         // connections on its own before the caller sees an error.
         failWith: (fault) => {
             edge.clearFaults()
-            edge.addFault(
-                fault === 'drop-connection'
-                    ? { name: 'ses.drop_connection', answer: { kind: 'drop-connection' }, dose: { share: 1 } }
-                    : { name: 'ses.status', answer: { kind: 'status', answer: fault }, dose: { share: 1 } }
-            )
+            if (fault) {
+                edge.addFault(faultRuleOf(fault))
+            }
         },
         close: async () => {
             setVariables(previousCredentials)
