@@ -9,6 +9,8 @@ repeat (N+1 queries), and which spans failed and why.
 from collections import defaultdict
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 NANOS_PER_MS = 1_000_000
 STATUS_ERROR = 2
 
@@ -104,9 +106,14 @@ def _critical_spans(root: dict, children_by_parent: dict[str, list[dict]]) -> li
     return path
 
 
-def _critical_path(
-    root: dict, children_by_parent: dict[str, list[dict]], max_entries: int
-) -> tuple[list[dict], int, bool]:
+@frozen
+class _CriticalPath:
+    entries: list[dict]
+    omitted: int
+    truncated: bool
+
+
+def _critical_path(root: dict, children_by_parent: dict[str, list[dict]], max_entries: int) -> _CriticalPath:
     """The critical path, with runs of same-named siblings (N+1 loops) collapsed into one entry.
 
     Entries shorter than 1% of the root are dropped (their spans counted): a slow request's path is
@@ -141,9 +148,7 @@ def _critical_path(
             entry["duration_ms"] = _ms(total)
             entry["self_ms"] = _ms(total_self)
         kept.append(entry)
-    if len(kept) > max_entries:
-        return kept[:max_entries], omitted, True
-    return kept, omitted, False
+    return _CriticalPath(entries=kept[:max_entries], omitted=omitted, truncated=len(kept) > max_entries)
 
 
 def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, truncated: bool = False) -> dict:
@@ -201,9 +206,7 @@ def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, tr
         for span in sorted(error_spans, key=lambda s: s["timestamp"])[:limit]
     ]
 
-    critical_path, critical_path_omitted, critical_path_truncated = _critical_path(
-        root, children_by_parent, min(limit, MAX_CRITICAL_PATH_ENTRIES)
-    )
+    critical_path = _critical_path(root, children_by_parent, min(limit, MAX_CRITICAL_PATH_ENTRIES))
     root_service = root["service_name"]
 
     return {
@@ -217,9 +220,9 @@ def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, tr
         "root": _span_ref(root),
         "services": top_services,
         "top_self_time": [_span_ref(span, root_service=root_service) for span in by_self_time],
-        "critical_path": critical_path,
-        "critical_path_omitted": critical_path_omitted,
-        "critical_path_truncated": critical_path_truncated,
+        "critical_path": critical_path.entries,
+        "critical_path_omitted": critical_path.omitted,
+        "critical_path_truncated": critical_path.truncated,
         "repeated_spans": repeated,
         "errors": errors,
     }

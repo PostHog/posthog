@@ -1020,7 +1020,9 @@ class _TraceSummarySerializer(serializers.Serializer):
         required=False,
         help_text="Service and name pairs that occur more than once, by total duration. Many fast repeats point at an N+1 pattern.",
     )
-    errors = _TraceSummaryErrorSerializer(many=True, required=False, help_text="Error spans, earliest first.")
+    errors = _TraceSummaryErrorSerializer(  # type: ignore[assignment]  # API field intentionally shadows Serializer.errors.
+        many=True, required=False, help_text="Error spans, earliest first."
+    )
 
 
 class _TracingTraceResponseSerializer(serializers.Serializer):

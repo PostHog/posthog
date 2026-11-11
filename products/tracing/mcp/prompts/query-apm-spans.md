@@ -117,7 +117,7 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 }
 ```
 
-## Find traces with a slow child span (filter on a child, so `rootSpans: false`)
+## Find traces with a child span over 1 s (filter on a child, so `rootSpans: false`)
 
 ```json
 {
@@ -125,7 +125,7 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
     "rootSpans": false,
     "filterGroup": [
       { "key": "name", "operator": "exact", "type": "span", "value": "clickhouse.query" },
-      { "key": "duration", "operator": "gt", "type": "span", "value": "10000" }
+      { "key": "duration", "operator": "gt", "type": "span", "value": "1000" }
     ],
     "dateRange": { "date_from": "-1d" }
   }
