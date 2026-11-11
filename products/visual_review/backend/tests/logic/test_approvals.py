@@ -1,9 +1,12 @@
 """Unit tests for logic/approvals.py — Approving snapshots and finalizing a run."""
 
+from contextlib import ExitStack
+
 import pytest
 from unittest.mock import MagicMock
 
-from django.db import transaction
+from django.db import connections, transaction
+from django.test.utils import CaptureQueriesContext
 
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
@@ -79,9 +82,12 @@ class TestApproveRun:
         assert snapshot.reviewed_at is not None
         assert snapshot.reviewed_by_id == user.id
 
-    def _completed_two_change_run(self, repo, mocker):
-        artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="ha", storage_path="p/a")
-        artifact_store.get_or_create_artifact(repo_id=repo.id, content_hash="hb", storage_path="p/b")
+    def _completed_change_run(self, repo, mocker, identifiers=("A", "B")):
+        for identifier in identifiers:
+            artifact_store.get_or_create_artifact(
+                repo_id=repo.id, content_hash=f"h{identifier.lower()}", storage_path=f"p/{identifier.lower()}"
+            )
+        baseline_hashes = {identifier: f"old{identifier.lower()}" for identifier in identifiers}
         run, _ = runs.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -90,16 +96,16 @@ class TestApproveRun:
                 branch="main",
                 pr_number=None,
                 snapshots=[
-                    SnapshotManifestItem(identifier="A", content_hash="ha"),
-                    SnapshotManifestItem(identifier="B", content_hash="hb"),
+                    SnapshotManifestItem(identifier=identifier, content_hash=f"h{identifier.lower()}")
+                    for identifier in identifiers
                 ],
-                baseline_hashes={"A": "olda", "B": "oldb"},
+                baseline_hashes=baseline_hashes,
             ),
             team_id=repo.team_id,
         )
         mocker.patch(
             "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
-            return_value=({"A": "olda", "B": "oldb"}, 0),
+            return_value=(baseline_hashes, 0),
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         runs.complete_run(run.id)
@@ -108,7 +114,7 @@ class TestApproveRun:
 
     def test_finalize_requires_full_resolution(self, repo, user, mocker):
         # Finalize is all-or-nothing: it refuses while any changed/new snapshot is unreviewed.
-        run = self._completed_two_change_run(repo, mocker)
+        run = self._completed_change_run(repo, mocker)
 
         approvals.approve_snapshots(
             run_id=run.id, user_id=user.id, approved_snapshots=[{"identifier": "A", "new_hash": "ha"}]
@@ -125,7 +131,7 @@ class TestApproveRun:
 
     def test_finalize_leaves_tolerated_snapshot_alone(self, repo, user, mocker):
         # A tolerated snapshot resolves the run without being approved or committed.
-        run = self._completed_two_change_run(repo, mocker)
+        run = self._completed_change_run(repo, mocker)
         snap_b = run.snapshots.get(identifier="B")
         toleration.mark_snapshot_as_tolerated(run.id, snap_b.id, user.id, repo.team_id)
 
@@ -138,7 +144,7 @@ class TestApproveRun:
 
     def test_finalize_is_idempotent_on_approved_run(self, repo, user, mocker):
         # Re-finalizing an already-finalized run is a no-op — no second commit/status/comment.
-        run = self._completed_two_change_run(repo, mocker)
+        run = self._completed_change_run(repo, mocker)
         approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, commit_to_github=False)
         approved_at = run_queries.get_run_with_snapshots(run.id).approved_at
 
@@ -146,6 +152,19 @@ class TestApproveRun:
 
         assert again.approved is True
         assert again.approved_at == approved_at  # unchanged — the second call did no work
+
+    def test_approve_all_query_count_does_not_grow_with_the_snapshots(self, repo, user, mocker):
+        query_counts = []
+        for identifiers in (("A", "B"), ("C", "D", "E", "F", "G", "H")):
+            run = self._completed_change_run(repo, mocker, identifiers)
+            contexts = [CaptureQueriesContext(connections[alias]) for alias in sorted(PRODUCT_DATABASES)]
+            with ExitStack() as stack:
+                for context in contexts:
+                    stack.enter_context(context)
+                approvals.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, commit_to_github=False)
+            query_counts.append(sum(len(context.captured_queries) for context in contexts))
+
+        assert query_counts[0] == query_counts[1]
 
     @pytest.mark.parametrize(
         ("approve", "tolerate", "expected"),
@@ -158,7 +177,7 @@ class TestApproveRun:
     def test_completing_again_reports_what_still_fails_the_gate(self, repo, user, mocker, approve, tolerate, expected):
         # A re-run of the completing CI job calls complete on a finished run and gates on this
         # count, so an untouched or approved-but-uncommitted change must still count.
-        run = self._completed_two_change_run(repo, mocker)
+        run = self._completed_change_run(repo, mocker)
         for identifier in tolerate:
             toleration.mark_snapshot_as_tolerated(
                 run.id, run.snapshots.get(identifier=identifier).id, user.id, repo.team_id
@@ -175,7 +194,7 @@ class TestApproveRun:
     def test_finalize_always_comments_and_forwards_add_images(self, repo, user, mocker, add_images):
         # The PR comment is always dispatched on finalize; add_images_to_comment_on_pr only
         # controls whether the snapshot images are embedded — forwarded to the task.
-        run = self._completed_two_change_run(repo, mocker)
+        run = self._completed_change_run(repo, mocker)
         mocker.patch.object(ci_status, "_post_commit_status")
         mocker.patch.object(transaction, "on_commit", side_effect=lambda fn, *args, **kwargs: fn())
         delay = mocker.patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay")

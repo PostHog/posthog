@@ -10,6 +10,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 import structlog
@@ -214,12 +215,19 @@ def _finalize_run(
     if approve_all:
         pending = [s for s in actionable if s.review_state not in (ReviewState.APPROVED, ReviewState.TOLERATED)]
         _validate_approval(run, {s.identifier: s.current_hash for s in pending})
+        # One statement for all pending snapshots, because in ledger mode this runs under the repo-wide
+        # ledger lock. The objects get the same values, because the check below reads them.
+        run.snapshots.using(WRITER_DB).filter(id__in=[s.id for s in pending]).update(
+            review_state=ReviewState.APPROVED,
+            reviewed_at=now,
+            reviewed_by_id=user_id,
+            approved_hash=F("current_hash"),
+        )
         for snapshot in pending:
             snapshot.review_state = ReviewState.APPROVED
             snapshot.reviewed_at = now
             snapshot.reviewed_by_id = user_id
             snapshot.approved_hash = snapshot.current_hash
-            snapshot.save(update_fields=["review_state", "reviewed_at", "reviewed_by_id", "approved_hash"])
 
     # All-or-nothing: refuse to commit while any actionable snapshot is still unreviewed.
     unresolved = [
@@ -341,7 +349,7 @@ def _validate_approval(run: Run, approvals: dict[str, str]) -> None:
                 f"approved {expected_hash[:12]} but current is {snapshot.current_hash[:12]}"
             )
 
+    missing_hashes = set(artifact_store.find_missing_hashes(repo.id, list(approvals.values())))
     for identifier, new_hash in approvals.items():
-        artifact = artifact_store.get_artifact(repo.id, new_hash)
-        if not artifact:
+        if new_hash in missing_hashes:
             raise errors.ArtifactNotFoundError(f"Artifact not found for hash {new_hash} (snapshot: {identifier})")
