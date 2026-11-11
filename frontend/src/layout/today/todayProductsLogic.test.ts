@@ -99,7 +99,6 @@ describe('todayProductsLogic', () => {
                     '/api/projects/:team_id/file_system_shortcut/:id/': {},
                 },
             })
-            // The section open states persist, so a state saved by one test would replace the next test's default.
             localStorage.clear()
             initKeaTests()
             capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)

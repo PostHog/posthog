@@ -218,8 +218,7 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
             (shortcuts: FileSystemEntry[], products: FileSystemImport[]): Set<string> =>
                 new Set(resolveStarredProducts(shortcuts, products).map((item) => item.href ?? '')),
         ],
-        // Without stars, All products is the only list of products, so it opens by default. It stays closed until
-        // the shortcuts load, so that a person with stars does not see it open and then close.
+        // Closed until stars load, so a person with stars does not see the list open and then close.
         allProductsVisible: [
             (s) => [s.allProductsOpen, s.shortcutDataHasLoaded, s.starredHrefs],
             (allProductsOpen: boolean | null, shortcutDataHasLoaded: boolean, starredHrefs: Set<string>): boolean =>
