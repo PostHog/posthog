@@ -8,7 +8,13 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import AccountActivityMatrixEmptyReason, AccountActivityMatrixQuery, CacheMissResponse, QueryStatus
+from posthog.schema import (
+    AccountActivityMatrixEmptyReason,
+    AccountActivityMatrixQuery,
+    CachedAccountActivityMatrixQueryResponse,
+    CacheMissResponse,
+    QueryStatus,
+)
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
@@ -202,12 +208,14 @@ class TestAccountActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
         first = get_query_runner(query, self.team, user=self.user).run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
         )
+        assert isinstance(first, CachedAccountActivityMatrixQueryResponse)
         assert first.results.rows == []
 
         Account.objects.for_team(self.team.id).filter(id=self.account.id).update(external_id="new-group")
         refreshed = get_query_runner(query, self.team, user=self.user).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
         )
+        assert isinstance(refreshed, CachedAccountActivityMatrixQueryResponse)
         assert [row.key for row in refreshed.results.rows] == [BO]
 
     @parameterized.expand(
