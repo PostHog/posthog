@@ -8,9 +8,10 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformControlChange,
     PlatformControlHistory,
     PlatformStateChange,
+    StateInterval,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
-from products.alerts_platform.backend.logic.state_timeline import StateInterval, state_timeline
+from products.alerts_platform.backend.logic.state_timeline import state_timeline
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 END = START + timedelta(hours=24)
