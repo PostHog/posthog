@@ -1069,20 +1069,23 @@ class TestStatusByCommit:
         assert api.get_run(run.id).stale_approval_count == 0
 
     @pytest.mark.parametrize(
-        ("mode", "status_gate", "runs_before", "expected", "posted"),
+        ("mode", "status_gate", "runs_before", "report_run_type", "expected", "posted"),
         [
-            (BaselineMode.LEDGER, True, 0, NoRunNeededOutcome.POSTED, [NO_RUN_NEEDED]),
-            (BaselineMode.LEDGER, True, 1, NoRunNeededOutcome.RUN_EXISTS, []),
-            (BaselineMode.YAML, False, 0, NoRunNeededOutcome.STATUS_GATE_OFF, []),
-            (BaselineMode.SHADOW, False, 0, NoRunNeededOutcome.STATUS_GATE_OFF, []),
-            (BaselineMode.SHADOW, True, 0, NoRunNeededOutcome.POSTED, [NO_RUN_NEEDED]),
+            (BaselineMode.LEDGER, True, 0, "storybook", NoRunNeededOutcome.POSTED, [NO_RUN_NEEDED]),
+            (BaselineMode.LEDGER, True, 1, "storybook", NoRunNeededOutcome.RUN_EXISTS, []),
+            (BaselineMode.LEDGER, True, 1, "Storybook", NoRunNeededOutcome.RUN_EXISTS, []),
+            (BaselineMode.YAML, False, 0, "storybook", NoRunNeededOutcome.STATUS_GATE_OFF, []),
+            (BaselineMode.SHADOW, False, 0, "storybook", NoRunNeededOutcome.STATUS_GATE_OFF, []),
+            (BaselineMode.SHADOW, True, 0, "storybook", NoRunNeededOutcome.POSTED, [NO_RUN_NEEDED]),
         ],
     )
-    def test_the_no_run_needed_report(self, repo, sender, mode, status_gate, runs_before, expected, posted) -> None:
+    def test_the_no_run_needed_report(
+        self, repo, sender, mode, status_gate, runs_before, report_run_type, expected, posted
+    ) -> None:
         set_baseline_mode(repo, mode, status_gate=status_gate)
         for _ in range(runs_before):
             _run(repo)
-        report = NoRunNeededInput(repo_id=repo.id, run_type=RunType.STORYBOOK, commit_sha="c1", branch="feat")
+        report = NoRunNeededInput(repo_id=repo.id, run_type=report_run_type, commit_sha="c1", branch="feat")
 
         assert commit_status.report_no_run_needed(repo, report) == expected
 
