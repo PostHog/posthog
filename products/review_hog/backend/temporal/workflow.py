@@ -938,7 +938,7 @@ class ReviewPRWorkflow:
                     lens_chunks_capped=meta.lens_chunks_capped,
                     delta_review=delta_since_head_sha is not None,
                     # The event names its head, and the turn reviews the live head, which can be newer.
-                    hand_off=not inputs.answered_by_queue
+                    marks_ready=not inputs.answered_by_queue
                     and inputs.marks_ready
                     and inputs.requested_head_sha == head_sha,
                 )

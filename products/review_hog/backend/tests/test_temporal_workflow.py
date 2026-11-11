@@ -18,6 +18,7 @@ from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
+from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
@@ -760,6 +761,7 @@ _FINISHED_TURN = FinishedStandardAutomaticTurn(
     run_index=1,
     lens_chunks_capped=True,
     delta_review=False,
+    marks_ready=False,
 )
 _SILENT_STAMPHOG = SilentStamphogRequest(team_id=1, repository="o/r", pr_number=7, head_sha="sha1")
 
@@ -796,6 +798,23 @@ async def test_review_pr_workflow_records_automatic_standard_coverage(
     assert recorded["finished_turns"] == expected_finished
 
 
+def test_a_finish_payload_scheduled_before_the_change_still_asks_for_the_hand_off():
+    old_payload = {
+        "team_id": 1,
+        "report_id": "rep-1",
+        "repository": "o/r",
+        "pr_number": 7,
+        "head_sha": "sha1",
+        "run_index": 1,
+        "lens_chunks_capped": False,
+        "delta_review": False,
+        "marks_ready": True,
+    }
+    converter = DataConverter.default.payload_converter
+    [turn] = converter.from_payloads(converter.to_payloads([old_payload]), [FinishedStandardAutomaticTurn])
+    assert turn.marks_ready is True
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "answered_by_queue, marks_ready, already_completed, expected_hand_off, expected_silent",
@@ -823,7 +842,7 @@ async def test_review_pr_workflow_hands_off_itself_only_when_the_queue_does_not_
         answered_by_queue=answered_by_queue,
         already_completed=already_completed,
     )
-    assert [turn.hand_off for turn in recorded["finished_turns"]] == expected_hand_off
+    assert [turn.marks_ready for turn in recorded["finished_turns"]] == expected_hand_off
     assert recorded["silent_stamphog"] == expected_silent
 
 

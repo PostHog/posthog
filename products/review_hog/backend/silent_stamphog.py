@@ -57,7 +57,7 @@ def finish_standard_automatic_turn(
     run_index: int,
     lens_chunks_capped: bool,
     delta_review: bool,
-    hand_off: bool,
+    marks_ready: bool,
 ) -> bool:
     """Record the turn's coverage, so the ready event of the head can use it later.
 
@@ -73,7 +73,7 @@ def finish_standard_automatic_turn(
         lens_chunks_capped=lens_chunks_capped,
         delta_review=delta_review,
     )
-    if not hand_off:
+    if not marks_ready:
         return False
     if not _recorded_clean(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha):
         return False

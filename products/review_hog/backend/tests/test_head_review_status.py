@@ -402,7 +402,7 @@ class TestHeadReviewStatus(BaseTest):
             run_index=run_index,
             lens_chunks_capped=lens_chunks_capped,
             delta_review=setup == "delta_review",
-            hand_off=False,
+            marks_ready=False,
         )
         if setup == "newer_deep_turn":
             self._add_marker(report, 2, REVIEW_MODE_FULL)

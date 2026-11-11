@@ -2976,7 +2976,7 @@ def _finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> Non
         run_index=input.run_index,
         lens_chunks_capped=input.lens_chunks_capped,
         delta_review=input.delta_review,
-        hand_off=input.hand_off,
+        marks_ready=input.marks_ready,
     )
     if queued:
         _log_silent_stamphog(input.repository, input.pr_number, input.head_sha)

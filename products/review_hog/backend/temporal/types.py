@@ -121,8 +121,9 @@ class FinishedStandardAutomaticTurn:
     run_index: int
     lens_chunks_capped: bool
     delta_review: bool
-    # Only a turn that the queue does not answer for sets this: queue the silent review when the turn was clean.
-    hand_off: bool = False
+    # The turn's own event marked the PR ready at the head the turn reviewed, and the queue does not answer
+    # for the turn: queue the silent review when the turn was clean. The name is the persisted payload's.
+    marks_ready: bool
 
 
 @frozen
