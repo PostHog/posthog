@@ -209,6 +209,21 @@ function stoppedRefreshKind(attention: AttentionRow, syncFailed: boolean): Issue
     return STOPPED_REFRESH_KINDS.find((kind) => attention.issueKinds.includes(kind)) ?? (syncFailed ? 'failed' : null)
 }
 
+interface RowMaterialization {
+    shownProblem: MaterializationProblem | null
+    stopped: boolean
+}
+
+function rowMaterialization(
+    problem: MaterializationProblem | null,
+    savedQuery: DataWarehouseSavedQuerySummary | null
+): RowMaterialization {
+    if (savedQuery?.is_materialized !== false) {
+        return { shownProblem: problem, stopped: false }
+    }
+    return { shownProblem: null, stopped: problem !== null && problem.kind !== 'behind' }
+}
+
 function freshnessFor(
     kind: TableKind,
     refreshedAt: string | null,
@@ -276,13 +291,15 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         certificationLookupKey: string | null
     ): CatalogTableRow => {
         const failingChecks = row.checkGroup?.checks.filter(isFailingCheck) ?? []
-        const materialization = node ? (problemsByNodeId.get(node.id) ?? null) : null
-        const materializationTurnedOff = row.savedQuery?.is_materialized === false
+        const materialization = rowMaterialization(
+            node ? (problemsByNodeId.get(node.id) ?? null) : null,
+            row.savedQuery
+        )
         const attention = buildAttentionRow(
             {
                 key: row.key,
                 node,
-                materialization: materializationTurnedOff ? null : materialization,
+                materialization: materialization.shownProblem,
                 failingChecks,
             },
             sources.healthBySubjectKey,
@@ -297,8 +314,7 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         return {
             ...row,
             refreshing,
-            materializationStopped:
-                materializationTurnedOff && materialization !== null && materialization.kind !== 'behind',
+            materializationStopped: materialization.stopped,
             freshness: freshnessFor(row.kind, row.refreshedAt, attention, refreshing, syncStatus === FAILED_STATUS),
             subtitle: subtitleFor(origin, node),
             checkCounts: rolledUpCheckCounts(subjectHealth, row.checkGroup),
