@@ -234,9 +234,10 @@ def apply_cut_guards(
         if candidate.owner in proposed and guarded[candidate.owner] is None
     }
     reasons = {owner: guard or RoutingOwnerReason.MODEL_KEPT for owner, guard in guarded.items()}
-    if candidates and len(cuts) == len(candidates):
+    keepable = [candidate for candidate in candidates if candidate.owner not in (shared_behavior_cuts or {})]
+    if keepable and len(cuts) == len(candidates):
         # A pull request always keeps at least one reviewer: the owner with the largest part.
-        largest = max(candidates, key=lambda candidate: candidate.lines)
+        largest = max(keepable, key=lambda candidate: candidate.lines)
         del cuts[largest.owner]
         reasons[largest.owner] = RoutingOwnerReason.LARGEST_OWNER
     reasons.update(dict.fromkeys(cuts, RoutingOwnerReason.MODEL_CUT))
@@ -310,7 +311,8 @@ def decide_cuts(
     """Which candidates to request. Never raises: any failure of the model call cuts nobody."""
     if files_truncated:
         return _keep_all(candidates, LlmSkipReason.FILES_TRUNCATED)
-    if len(candidates) < 2:
+    single = len(candidates) < 2
+    if single and (is_fork or not any(candidate.owner in shared_behavior_teams for candidate in candidates)):
         return _keep_all(candidates, LlmSkipReason.SINGLE_CANDIDATE)
     if is_fork:
         return _keep_all(candidates, LlmSkipReason.FORK)
@@ -318,11 +320,13 @@ def decide_cuts(
     if all(_guard_reason(candidate, prompt.owners_left_out) for candidate in candidates):
         return _keep_all(candidates, LlmSkipReason.NOTHING_CUTTABLE, prompt.owners_left_out)
 
-    try:
-        model_output = call_model(CUT_SYSTEM_PROMPT, prompt.user_prompt, CUT_SCHEMA)
-    except Exception as exc:  # noqa: BLE001 - the cut is optional, so any failure keeps every owner
-        logger.warning("stamphog_reviewer_routing_cut_failed", error_type=type(exc).__name__)
-        return _keep_all(candidates, LlmSkipReason.NO_ANSWER)
+    model_output: Mapping[str, object] | None = {"cuts": []}
+    if not single:
+        try:
+            model_output = call_model(CUT_SYSTEM_PROMPT, prompt.user_prompt, CUT_SCHEMA)
+        except Exception as exc:  # noqa: BLE001 - the cut is optional, so any failure keeps every owner
+            logger.warning("stamphog_reviewer_routing_cut_failed", error_type=type(exc).__name__)
+            return _keep_all(candidates, LlmSkipReason.NO_ANSWER)
     if model_output is None:
         return _keep_all(candidates, LlmSkipReason.NO_ANSWER)
     shared_behavior_cuts = _shared_behavior_cuts(

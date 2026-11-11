@@ -39,7 +39,8 @@ SHARED_BEHAVIOR_LABELS_HELP = (
     "run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their "
     "code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as "
     "'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still "
-    "always requested, and a pull request always keeps at least one reviewer."
+    "always requested. When such a team is the only owner and its part changes no shared behavior, routing "
+    "requests no reviewer."
 )
 
 

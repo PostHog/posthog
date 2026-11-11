@@ -400,6 +400,22 @@ class TestSharedBehaviorCuts:
                 1,
             ),
             (
+                "cuts_a_sole_owner_team_without_a_normal_call",
+                [_candidate("team-platform")],
+                None,
+                {"cuts": [{"owner": "team-platform", "reason": "Tests only."}]},
+                ["team-platform"],
+                -1,
+            ),
+            (
+                "keeps_the_other_owner_when_both_are_cut",
+                [_candidate("team-small", lines=2), _candidate("team-platform", lines=50)],
+                {"cuts": [{"owner": "team-small", "reason": "Only a rename."}]},
+                {"cuts": [{"owner": "team-platform", "reason": "Tests only."}]},
+                ["team-platform"],
+                2,
+            ),
+            (
                 "skips_the_second_call_for_a_pinned_team",
                 [_candidate("team-big", lines=50), _candidate("team-platform", pins=_SENSITIVE_PIN)],
                 {"cuts": []},
@@ -440,7 +456,10 @@ class TestSharedBehaviorCuts:
         )
 
         assert [cut.candidate.owner for cut in decision.cut] == expected_cut
-        assert prompts == [CUT_SYSTEM_PROMPT, SHARED_BEHAVIOR_SYSTEM_PROMPT][:expected_calls]
+        if expected_calls == -1:
+            assert prompts == [SHARED_BEHAVIOR_SYSTEM_PROMPT]
+        else:
+            assert prompts == [CUT_SYSTEM_PROMPT, SHARED_BEHAVIOR_SYSTEM_PROMPT][:expected_calls]
         assert all("team-big/code.py" not in user for user in second_users)
 
 
