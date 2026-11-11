@@ -89,7 +89,7 @@ export interface workflowsSavedViewsLogicValues {
     addedText: string | null
     available: boolean
     canUpdateActiveView: boolean
-    conflictedViewId: string | null
+    conflictedViewIds: string[]
     defaultView: WorkflowViewApi | null
     enabled: boolean
     hasAdditions: boolean
@@ -208,8 +208,8 @@ export interface workflowsSavedViewsLogicActions {
     setAddedText: (text: string | null) => {
         text: string | null
     }
-    setConflictedViewId: (id: string | null) => {
-        id: string | null
+    setConflictedViewIds: (ids: string[]) => {
+        ids: string[]
     }
     setDefaultView: (view: WorkflowViewApi | null) => {
         view: WorkflowViewApi | null
@@ -260,7 +260,7 @@ export interface workflowsSavedViewsLogicMeta {
         isModified: (activeViewChanges: string[]) => boolean
         hasAdditions: (addedFilters: FacetFilter[], addedText: string | null) => boolean
         canUpdateActiveView: (activeView: WorkflowSavedView) => boolean
-        activeViewConflicted: (conflictedViewId: string | null, activeViewId: string) => boolean
+        activeViewConflicted: (conflictedViewIds: string[], activeViewId: string) => boolean
         sharedSaveDisabledReason: (activeViewConflicted: boolean) => string | undefined
         myWorkflowsDeleted: (defaultView: WorkflowViewApi | null) => boolean
         saving: (pendingAction: SavedViewAction | null) => boolean
@@ -352,7 +352,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         removeSavedView: (id: string) => ({ id }),
         setDefaultView: (view: WorkflowViewApi | null) => ({ view }),
         setPendingAction: (action: SavedViewAction | null) => ({ action }),
-        setConflictedViewId: (id: string | null) => ({ id }),
+        setConflictedViewIds: (ids: string[]) => ({ ids }),
         syncViewFromUrl: true,
         clearSavedViews: true,
     }),
@@ -454,10 +454,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             null as SavedViewAction | null,
             { setPendingAction: (_, { action }) => action, clearSavedViews: () => null },
         ],
-        conflictedViewId: [
-            null as string | null,
-            { setConflictedViewId: (_, { id }) => id, clearSavedViews: () => null },
-        ],
+        conflictedViewIds: [[] as string[], { setConflictedViewIds: (_, { ids }) => ids, clearSavedViews: () => [] }],
         defaultView: [
             null as WorkflowViewApi | null,
             { setDefaultView: (_, { view }) => view, clearSavedViews: () => null },
@@ -538,8 +535,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         ],
         canUpdateActiveView: [(s) => [s.activeView], (view: WorkflowSavedView): boolean => !view.builtIn],
         activeViewConflicted: [
-            (s) => [s.conflictedViewId, s.activeViewId],
-            (conflictedViewId: string | null, activeViewId: string): boolean => conflictedViewId === activeViewId,
+            (s) => [s.conflictedViewIds, s.activeViewId],
+            (conflictedViewIds: string[], activeViewId: string): boolean => conflictedViewIds.includes(activeViewId),
         ],
         sharedSaveDisabledReason: [
             (s) => [s.activeViewConflicted],
@@ -682,15 +679,13 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         }
         const removeDeletedView = (id: string): void => {
             actions.removeSavedView(id)
+            actions.setConflictedViewIds(values.conflictedViewIds.filter((known) => known !== id))
             if (values.defaultView?.id === id) {
                 actions.setDefaultView({ ...values.defaultView, deleted: true })
             }
         }
         const forgetDeletedView = (id: string): void => {
             removeDeletedView(id)
-            if (values.conflictedViewId === id) {
-                actions.setConflictedViewId(null)
-            }
             if (values.activeViewId === id) {
                 actions.setAddedFilters(values.value.filters)
                 actions.setAddedText(userText(values.value.text))
@@ -700,7 +695,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         const handleFailure = (action: SavedViewAction, error: unknown, target?: WorkflowSavedView): unknown => {
             lemonToast.error(savedViewFailureMessage(action, target?.name ?? 'this view', error))
             if (target && error instanceof ApiError && error.status === 409) {
-                actions.setConflictedViewId(target.id)
+                actions.setConflictedViewIds([...values.conflictedViewIds, target.id])
                 return null
             }
             if (target && isMissingViewError(error)) {
@@ -863,7 +858,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 actions.setVisibleColumns(normalizeViewColumns(view.state.columns))
                 cache.applyingView = false
                 writeUrl()
-                if (values.conflictedViewId === view.id) {
+                if (values.conflictedViewIds.includes(view.id)) {
                     actions.resetView(true)
                 }
             },
@@ -891,7 +886,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                                     return
                                 }
                                 actions.upsertSavedView(latest)
-                                actions.setConflictedViewId(null)
+                                actions.setConflictedViewIds(
+                                    values.conflictedViewIds.filter((known) => known !== currentViewId)
+                                )
                                 if (values.activeViewId === currentViewId && !editedWhileLoading()) {
                                     clearAddedFiltersUnless(keepAddedFilters)
                                     actions.applyView(latest)
@@ -913,7 +910,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                                     actions.applyView(BUILT_IN_WORKFLOW_VIEWS[0])
                                 }
                             }
-                            actions.setConflictedViewId(null)
                         },
                         values.activeView
                     )
