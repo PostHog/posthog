@@ -220,10 +220,10 @@ class TestLegalDocumentAdminPermissions(APIBaseTest):
         request.user = self.user
         return request
 
-    def test_staff_can_add_and_delete(self) -> None:
+    def test_staff_can_add_but_delete_only_in_the_console(self) -> None:
         request = self._request_for(is_staff=True)
         self.assertTrue(self.admin.has_add_permission(request))
-        self.assertTrue(self.admin.has_delete_permission(request))
+        self.assertFalse(self.admin.has_delete_permission(request))
         self.assertNotIn("delete_selected", self.admin.get_actions(request))
 
     def test_non_staff_cannot_add_or_delete(self) -> None:
