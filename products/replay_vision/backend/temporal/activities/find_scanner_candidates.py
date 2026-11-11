@@ -318,7 +318,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         _fail_on_filter_error(scanner, exc)
         raise
     clear_filter_error(scanner)
-    candidates = [c for c in fetched if c.session_id not in excluded]
+    candidates = _drop_observed(scanner, [c for c in fetched if c.session_id not in excluded])
 
     # Deep candidates dispatch alongside fast ones, so the two share one in-flight budget: the deep
     # pass gets whatever headroom the fast pass left. At zero there is nothing left to dispatch, which
@@ -568,15 +568,24 @@ def _deep_sweep(
         progress = _DeepProgress(swept_through=last.session_end, seen_session_id=last.session_id)
     else:
         progress = _DeepProgress(swept_through=window_end)
-    if deep_candidates:
-        # The in-query exclusion is a bounded cost optimization; this filter is what guarantees an
-        # already-observed session never burns dispatch headroom, however far past the cap the backlog is.
-        already_observed = set(
-            ReplayObservation.objects.filter(
-                team_id=scanner.team_id,
-                scanner_id=scanner.id,
-                session_id__in=[c.session_id for c in deep_candidates],
-            ).values_list("session_id", flat=True)
-        )
-        deep_candidates = [c for c in deep_candidates if c.session_id not in already_observed]
-    return deep_candidates, progress
+    # The in-query exclusion is a bounded cost optimization; this filter is what guarantees an
+    # already-observed session never burns dispatch headroom, however far past the cap the backlog is.
+    return _drop_observed(scanner, deep_candidates), progress
+
+
+def _drop_observed(scanner: ReplayScanner, candidates: list[CandidateSession]) -> list[CandidateSession]:
+    """Drop sessions this scanner already has an observation row for.
+
+    A recording that is still growing matches the fast walk again after it was observed, and admission
+    refuses it. Filtering here saves starting an apply workflow that exits at its first activity.
+    """
+    if not candidates:
+        return candidates
+    observed = set(
+        ReplayObservation.objects.filter(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            session_id__in=[c.session_id for c in candidates],
+        ).values_list("session_id", flat=True)
+    )
+    return [c for c in candidates if c.session_id not in observed]

@@ -1,8 +1,13 @@
+import datetime as dt
+from dataclasses import replace
+
 from django.db import transaction
 from django.utils import timezone
 
 from temporalio import activity
 
+from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerDisabledReason,
@@ -15,14 +20,20 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     BackfillStatus,
     ReplayScannerBackfill,
 )
-from products.replay_vision.backend.quota import compute_scanner_budget, current_period_bounds
+from products.replay_vision.backend.quota import (
+    compute_scanner_budget,
+    current_period_bounds,
+    org_credit_cap_for,
+    quota_state_for_cap,
+)
 from products.replay_vision.backend.scanner_access import unrunnable_reason
+from products.replay_vision.backend.temporal.activities.create_observation import capture_scan_blocked
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import stop_variant_analysis
 from products.replay_vision.backend.temporal.constants import CHECK_SCANNER_BUDGET_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
-from products.replay_vision.backend.temporal.sweep_cadence import SWEEP_PAUSE_RECHECK
+from products.replay_vision.backend.temporal.sweep_cadence import SWEEP_PAUSE_RECHECK, SWEEP_PAUSE_RECHECK_SOON
 from products.replay_vision.backend.temporal.sweep_pause import pause_sweep
 from products.replay_vision.backend.temporal.sweep_types import CheckScannerBudgetInputs, CheckScannerBudgetOutput
 
@@ -165,6 +176,8 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     if scanner is None:
         # The reconciler removes schedules for deleted scanners. A racing tick just stops here.
         return CheckScannerBudgetOutput(capped=False)
+    if _org_capped(scanner):
+        return CheckScannerBudgetOutput(capped=True)
     if not scanner.has_spend_ceiling:
         return CheckScannerBudgetOutput(capped=False)
     # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
@@ -198,12 +211,7 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     # The deep pass walks from its own watermark up to the fast one, so leaving it behind would hand
     # the first uncapped deep sweep exactly the window this reset skips. The cursor is cleared with
     # it: it points partway into ground nobody swept.
-    reset = {
-        "last_swept_at": watermark,
-        "last_seen_session_id": "",
-        "deep_swept_through": watermark,
-        "deep_seen_session_id": "",
-    }
+    reset = _skip_window_reset(watermark)
     stamped = (
         ReplayScanner.objects.filter(pk=scanner.pk)
         .exclude(limit_notified_period_start=period.start)
@@ -231,3 +239,39 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
             limit_notified_period_start=None
         )
     return CheckScannerBudgetOutput(capped=True)
+
+
+def _skip_window_reset(watermark: dt.datetime) -> dict[str, object]:
+    return {
+        "last_swept_at": watermark,
+        "last_seen_session_id": "",
+        "deep_swept_through": watermark,
+        "deep_seen_session_id": "",
+    }
+
+
+def _org_capped(scanner: ReplayScanner) -> bool:
+    """Whether the organization's credit limit refuses this scanner's next observation.
+
+    Admission in `create_observation` refuses each session on its own, so without this gate a capped
+    organization still starts one apply workflow per candidate, and every one of them exits at once.
+    """
+    organization_id = scanner.team.organization_id
+    cap = org_credit_cap_for(scanner.team.organization, organization_id)
+    if cap.credit_limit is None:
+        return False
+    cost = observation_credits_for_model(scanner.model)
+    with bounded_queries(CHECK_SCANNER_BUDGET_TIMEOUT):
+        quota = quota_state_for_cap(organization_id, cap)
+    if not quota.would_exceed(cost):
+        return False
+    if not replace(quota, credits_used=quota.credits_settled).would_exceed(cost):
+        # Reservations can release without settling, so an in-flight-only overage skips this tick only.
+        record_sweep_outcome("org_capped_in_flight")
+        return True
+    record_sweep_outcome("org_capped_settled")
+    capture_scan_blocked(scanner=scanner, reason="quota", triggered_by=ObservationTrigger.SCHEDULE, quota=quota)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(**_skip_window_reset(initial_watermark()))
+    # An organization raising its limit saves no scanner, so the pause rechecks sooner than a scanner cap does.
+    pause_sweep(scanner, SweepPauseReason.CREDIT_LIMIT, min(cap.period.end, timezone.now() + SWEEP_PAUSE_RECHECK_SOON))
+    return True

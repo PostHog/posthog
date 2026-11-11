@@ -854,10 +854,10 @@ class TestFindScannerCandidatesActivity:
         # The ingested event is no longer consulted, so it cannot suppress a candidate either.
         assert "exclude_observed_by_scanner" not in MockDeep.call_args.kwargs
 
-    def test_truncated_exclusions_do_not_redispatch_observed_sessions(self) -> None:
-        # Past the exclusion cap the in-query blocklist is incomplete, so observed sessions come back
-        # from the walk; dispatching them again would burn shared headroom on rows the unique
-        # constraint then rejects.
+    def test_observed_sessions_are_not_redispatched(self) -> None:
+        # A growing recording matches the fast walk again after it was observed, and past the exclusion
+        # cap the deep walk returns observed sessions too. Dispatching them would start apply workflows
+        # that the unique constraint then refuses.
         scanner = _make_scanner(deep_swept_through=dt.datetime.now(dt.UTC) - _PAST_DEEP_INTERVAL)
         _settle_edit_clock(scanner)
         for session_id in ("seen-1", "seen-2"):
@@ -874,13 +874,21 @@ class TestFindScannerCandidatesActivity:
             CandidateSession(session_id="seen-2", session_end=dt.datetime(2026, 5, 1, 6, 0, tzinfo=dt.UTC)),
             CandidateSession(session_id="fresh", session_end=dt.datetime(2026, 5, 1, 7, 0, tzinfo=dt.UTC)),
         ]
+        fast_end = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+        fast_batch = [
+            CandidateSession(session_id="fresh-fast", session_end=fast_end - dt.timedelta(minutes=1)),
+            CandidateSession(session_id="seen-1", session_end=fast_end),
+        ]
 
         with _patched_queries() as (MockQuery, MockDeep):
+            MockQuery.return_value.run.return_value = fast_batch
             MockDeep.return_value.run.return_value = batch
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
+        assert [c.session_id for c in result.candidates] == ["fresh-fast"]
+        assert result.keyset_session_id == "seen-1"
         assert [c.session_id for c in result.deep_candidates] == ["fresh"]
         # The filtered rows still count as covered ground, so the walk moves past them.
         assert result.deep_swept_through is not None
@@ -1270,24 +1278,26 @@ class TestAdvanceScannerWatermarkActivity:
 
 
 @pytest.mark.parametrize(
-    "limit, spent_observations, free_only, expect_capped",
+    "limit, spent_observations, free_only, expect_capped, org_limit",
     [
-        (None, 0, False, False),
+        (None, 0, False, False, 1_000_000),
         # No limit set, and heavy spend: never capped, watermark never touched.
-        (None, 100, False, False),
-        (20 * _OBSERVATION_CREDITS, 0, False, False),
-        (20 * _OBSERVATION_CREDITS, 10, False, False),
+        (None, 100, False, False, 1_000_000),
+        (20 * _OBSERVATION_CREDITS, 0, False, False, 1_000_000),
+        (20 * _OBSERVATION_CREDITS, 10, False, False, 1_000_000),
         # Exactly one observation's worth of room left.
-        (20 * _OBSERVATION_CREDITS, 19, False, False),
+        (20 * _OBSERVATION_CREDITS, 19, False, False, 1_000_000),
         # Credits left, but not enough for one more observation.
-        (20 * _OBSERVATION_CREDITS - 1, 19, False, True),
-        (20 * _OBSERVATION_CREDITS, 20, False, True),
-        (None, 100, True, False),
+        (20 * _OBSERVATION_CREDITS - 1, 19, False, True, 1_000_000),
+        (20 * _OBSERVATION_CREDITS, 20, False, True, 1_000_000),
+        (None, 100, True, False, 1_000_000),
+        # No scanner limit, but the organization's own limit is used up.
+        (None, 20, False, True, 20 * _OBSERVATION_CREDITS),
     ],
 )
 @pytest.mark.django_db(transaction=True)
 def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
-    limit: int | None, spent_observations: int, free_only: bool, expect_capped: bool
+    limit: int | None, spent_observations: int, free_only: bool, expect_capped: bool, org_limit: int
 ) -> None:
     scanner = _make_scanner(credit_limit=limit, free_only=free_only)
     stale = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
@@ -1298,7 +1308,7 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
     )
     seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=spent_observations)
 
-    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", org_limit):
         output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     scanner.refresh_from_db()
