@@ -1,4 +1,3 @@
-import { createHogTransformerService } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
 import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
@@ -12,8 +11,6 @@ import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '@posthog/node-common/config/redis-pools'
-import { HogTransformerComponent } from '@posthog/node-common/hog-transformations/hog-transformer-component'
-import { IngestionOutputsComponent } from '@posthog/node-common/outputs/ingestion-outputs'
 import { CleanupResources, NodeServer, ServerLifecycle } from '@posthog/node-common/servers/base-server'
 import { ServerCommands } from '@posthog/node-common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '@posthog/node-common/utils/db/postgres'
@@ -29,10 +26,9 @@ import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookie
 import { ingestionConsumerService } from '~/ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import { getDefaultIngestionConsumerConfig, getDefaultIngestionOutputsConfig } from '~/ingestion/config'
-import { createAiConsumer } from '~/ingestion/pipelines/ai'
-import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 
 import { RedisPool } from '../types'
+import { createAiConsumerWithHogTransformer } from './ai-consumer'
 import { IngestionGeneralServerConfig } from './ingestion-general-server'
 
 /**
@@ -119,28 +115,14 @@ export class AiEventsServer implements NodeServer {
             new PostgresIntegrationSource(this.postgres, encryptedFields)
         )
 
-        // The consumer cannot construct the CDP-owned hog transformer itself, so the server injects it
-        // and the lane's outputs, which also back the transformer's monitoring, through this scope.
-        const aiOutputs = createAiOutputsRegistry().build(sharedServices.container.producerRegistry, this.config)
-        const aiSharedScope = extend(sharedServicesScope, 'ai-shared', (_container, builder) =>
-            builder
-                .add(
-                    'hogTransformer',
-                    new HogTransformerComponent(() =>
-                        createHogTransformerService(this.config, {
-                            geoipService,
-                            postgres: this.postgres!,
-                            pubSub: this.pubsub!,
-                            encryptedFields,
-                            integrationManager,
-                            monitoringOutputs: aiOutputs,
-                            teamManager: sharedServices.container.teamManager,
-                        })
-                    )
-                )
-                .add('outputs', new IngestionOutputsComponent(() => aiOutputs))
-        )
-        const { consumer, stop } = await createAiConsumer(this.config, aiSharedScope).start()
+        const { consumer, stop } = await createAiConsumerWithHogTransformer(this.config, sharedServicesScope, {
+            geoipService,
+            postgres: this.postgres,
+            pubSub: this.pubsub,
+            encryptedFields,
+            integrationManager,
+            teamManager: sharedServices.container.teamManager,
+        }).start()
 
         const serverCommands = new ServerCommands(this.pubsub)
         this.lifecycle.expressApp.use('/', serverCommands.router())

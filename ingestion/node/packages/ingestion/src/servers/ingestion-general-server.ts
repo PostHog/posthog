@@ -33,6 +33,7 @@ import {
 } from '@posthog/node-common/config/connections'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_AI,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '@posthog/node-common/config/kafka-topics'
@@ -73,6 +74,7 @@ import {
 } from '../ingestion/config'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
+import { createAiConsumerWithHogTransformer } from './ai-consumer'
 
 /**
  * Complete config type for an ingestion-v2 deployment.
@@ -357,6 +359,22 @@ export class IngestionGeneralServer implements NodeServer {
             startHeatmaps({
                 topic: 'heatmaps_ingestion',
                 groupId: 'heatmaps_ingestion',
+            })
+
+            // Capture routes $ai_* events to the dedicated AI topic on every
+            // deployment shape, so combined mode needs the AI consumer too.
+            serviceLoaders.push(async () => {
+                const { monitoringOutputs: _monitoringOutputs, ...aiHogTransformerDeps } = hogTransformerDeps
+                const { consumer, stop } = await createAiConsumerWithHogTransformer(
+                    {
+                        ...this.config,
+                        INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_AI,
+                        INGESTION_CONSUMER_GROUP_ID: 'clickhouse-ingestion-ai',
+                    },
+                    sharedServicesScope,
+                    aiHogTransformerDeps
+                ).start()
+                return ingestionConsumerService(consumer, stop)
             })
         } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
             startClientWarnings()
