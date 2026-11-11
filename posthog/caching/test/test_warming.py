@@ -18,6 +18,7 @@ from posthog.caching.warming import (
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.query_cache.freshness_index import update_target_age
 from posthog.scheduling.jitter import deterministic_offset
 
@@ -83,6 +84,26 @@ class TestWarming(APIBaseTest):
             )
         with time_machine.travel(current, tick=False):
             assert list(insights_to_keep_fresh(self.team)) == ([(self.insight1.pk, None)] if eligible else [])
+
+    @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.caching.warming.get_stale_insights", return_value=["1234:", "2345:", "3456:"])
+    def test_shared_only_requires_sharing_and_standalone_demand_in_the_shared_window(self, _stale, _flag):
+        from products.product_analytics.backend.facade.api import record_insight_view_context
+
+        current = datetime.now(UTC)
+        for insight in (self.insight1, self.insight3):
+            SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+        for insight, age in (
+            (self.insight1, timedelta(days=2)),
+            (self.insight2, timedelta(days=2)),
+            (self.insight3, timedelta(days=4)),
+        ):
+            with time_machine.travel(current - age, tick=False):
+                record_insight_view_context(
+                    team_id=self.team.pk, insight_ids=[insight.pk], user_id=None, source="shared"
+                )
+        with time_machine.travel(current, tick=False):
+            assert list(insights_to_keep_fresh(self.team, shared_only=True)) == [(self.insight1.pk, None)]
 
     @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.caching.warming.get_stale_insights", return_value=["3456:", "3456:7890"])
