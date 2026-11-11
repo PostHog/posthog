@@ -3,10 +3,10 @@ import { combineUrl } from 'kea-router'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { sanitizeTraceUrlSearchParams } from '../../../utils'
-import { traceDrawerBackLabel } from '../traceDrawerLists'
-import { withoutTraceDrawerParams } from '../traceDrawerRows'
-import { LabeledLink } from '../types'
+import { sanitizeTraceUrlSearchParams } from '../../utils'
+import { traceDrawerBackLabel } from './traceDrawerLists'
+import { withoutTraceDrawerParams } from './traceDrawerRows'
+import { LabeledLink } from './types'
 
 type SearchParams = Record<string, unknown>
 
