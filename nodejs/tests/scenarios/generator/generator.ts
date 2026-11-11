@@ -91,6 +91,9 @@ export async function drive(
         const unitId = `${context.runId}-${n + 1}`
         const offeredAt = Date.now()
         const offer = kind.offer({ unitId, teamId }, context).then((answer) => {
+            if (stop.aborted) {
+                return
+            }
             journal.record({
                 unitId,
                 kind: kind.intake,

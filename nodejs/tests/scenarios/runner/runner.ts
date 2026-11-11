@@ -8,7 +8,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
-import { CdpRole, LOAD_PRODUCER_SETTING, LoadedCard } from '../cards'
+import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
 import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
@@ -54,8 +54,8 @@ type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergenc
 
 function producerConfigOf(env: NodeJS.ProcessEnv): ProducerGlobalConfig {
     const settings = Object.entries(env).flatMap(([key, value]) =>
-        key.startsWith(LOAD_PRODUCER_SETTING) && value
-            ? [[key.slice(LOAD_PRODUCER_SETTING.length).replace(/_/g, '.').toLowerCase(), value]]
+        key.startsWith(LOAD_PRODUCER_SETTING_PREFIX) && value
+            ? [[key.slice(LOAD_PRODUCER_SETTING_PREFIX.length).replace(/_/g, '.').toLowerCase(), value]]
             : []
     )
     return { 'message.timeout.ms': DELIVERY_TIMEOUT_MS, ...Object.fromEntries(settings) }
@@ -124,6 +124,7 @@ function withEvidenceError(result: RunResult, error: string | undefined): RunRes
 export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
     const stateDir = defaultStateDir(env)
     let stuckProducer: string | undefined
+    let failedReset: { runId: string; message: string } | undefined
 
     return {
         async up() {
@@ -134,6 +135,11 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             if (stuckProducer !== undefined) {
                 throw new Error(
                     `The load producer of run ${stuckProducer} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
+                )
+            }
+            if (failedReset !== undefined) {
+                throw new Error(
+                    `The reset before run ${failedReset.runId} failed and stopped the environment: ${failedReset.message}. Restart the runner, then run the card again.`
                 )
             }
             const { card, profile } = loaded
@@ -161,7 +167,10 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
-                await environment.reset(profile.settings)
+                await environment.reset(profile.settings).catch((error: unknown) => {
+                    failedReset = { runId, message: (error as Error).message }
+                    throw error
+                })
                 const seeded = await seed(loaded, postgres)
                 await judge.open(seeded)
                 stopHealth = watchHealth(environment)
