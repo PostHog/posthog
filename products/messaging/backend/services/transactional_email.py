@@ -292,7 +292,7 @@ def _template_sender(email: dict[str, Any]) -> dict[str, Any]:
     return sender if isinstance(sender, dict) else {}
 
 
-def _content(template: MessageTemplate) -> TransactionalEmailContent:
+def _content(template: MessageTemplate, *, marketing_enabled: bool) -> TransactionalEmailContent:
     email = template.content["email"]
     sender = _template_sender(email)
     return TransactionalEmailContent(
@@ -305,7 +305,11 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
         # Templates made transactional before they stored a sender keep their workflow's sender.
         from_integration_id=sender.get("integrationId"),
         message_category_id=template.message_category_id,
-        message_category_type=_template_category_type(template.team_id, template.message_category_id),
+        message_category_type=(
+            _template_category_type(template.team_id, template.message_category_id)
+            if marketing_enabled
+            else "transactional"
+        ),
         sensitive=template.sensitive,
         from_email=sender.get("email") or "",
         from_name=sender.get("name") or "",
@@ -347,7 +351,7 @@ def make_transactional(
                 raise TemplateNotSendable(address_error)
             template.content = {**template.content, "email": {**email, "from": sender}}
             hog_flow_id = create_transactional_email_workflow(
-                team_id=team_id, user_id=user_id, content=_content(template)
+                team_id=team_id, user_id=user_id, content=_content(template, marketing_enabled=marketing_enabled)
             )
         except TransactionalEmailSenderUnavailable as e:
             raise SenderUnavailable(
@@ -397,7 +401,9 @@ def check_transactional_update(
     )
 
 
-def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int | None) -> None:
+def sync_transactional_workflow(
+    team_id: int, template_id: UUID, *, user_id: int | None, marketing_enabled: bool = False
+) -> None:
     """Write the template's current content as a new version of its workflow, if it has one."""
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
     if not template.transactional_hog_flow_id or template.deleted:
@@ -412,7 +418,7 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
             team_id=team_id,
             user_id=user_id,
             hog_flow_id=hog_flow_id,
-            content=_content(template),
+            content=_content(template, marketing_enabled=marketing_enabled),
         )
     except WorkflowNotFound:
         # Deleted between the check above and the update.

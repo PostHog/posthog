@@ -1285,7 +1285,9 @@ class MessageTemplatesViewSet(
     def _sync_transactional_workflow(self, template_id: Any) -> None:
         # Raising rolls back the template save, so the template and its workflow never disagree.
         try:
-            sync_transactional_workflow(self.team_id, template_id, user_id=self._actor_id())
+            sync_transactional_workflow(
+                self.team_id, template_id, user_id=self._actor_id(), marketing_enabled=self._marketing_enabled()
+            )
         except TransactionalEmailError as e:
             raise TransactionalEmailRejected(e) from None
 

@@ -2061,43 +2061,11 @@ class TestTransactionalEmail(APIBaseTest):
     def test_a_design_edit_of_a_marketing_template_keeps_its_unsubscribe_link(
         self, _cdp_post, flag, _capture, _name, flag_on, new_text, expected_code
     ):
-        design = {
-            "counters": {"u_row": 1, "u_column": 1, "u_content_text": 1},
-            "schemaVersion": 16,
-            "body": {
-                "id": "body1",
-                "rows": [
-                    {
-                        "id": "row1",
-                        "cells": [1],
-                        "columns": [
-                            {
-                                "id": "col1",
-                                "contents": [{"id": "txt1", "type": "text", "values": {"text": self.UNSUBSCRIBE_HTML}}],
-                                "values": {},
-                            }
-                        ],
-                        "values": {},
-                    }
-                ],
-                "values": {},
-            },
-        }
-        content = {"email": {"subject": "Weekly news", "design": design, "html": self.UNSUBSCRIBE_HTML}}
+        content = {"email": {"subject": "Weekly news", "design": self._design(), "html": self.UNSUBSCRIBE_HTML}}
         self._save_template({"message_category": str(self._category().id), "content": content})
         flag.side_effect = lambda key, *_args, **_kwargs: flag_on or key != CODE_SEND_CATEGORIES_FLAG
 
-        with patch(
-            "products.messaging.backend.presentation.views.message_templates.render_design_html",
-            side_effect=lambda design: "".join(
-                content["values"]["text"] for content in design["body"]["rows"][0]["columns"][0]["contents"]
-            ),
-        ):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/design/",
-                {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": new_text}}}]},
-                format="json",
-            )
+        response = self._edit_design(new_text)
 
         self.template.refresh_from_db()
         workflow_html = self._email_step(self.hog_flow_id)["inputs"]["email"]["value"]["html"]
@@ -2108,6 +2076,47 @@ class TestTransactionalEmail(APIBaseTest):
         else:
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert (self.template.content["email"]["html"], workflow_html) == (new_text,) * 2
+
+    def test_a_design_edit_with_categories_off_writes_the_step_the_base_writes(self, _cdp_post, flag, _capture):
+        flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
+        account = self._category(key="account", name="Account", category_type=MessageCategoryType.TRANSACTIONAL)
+        content = {"email": {"subject": "Your account", "design": self._design(), "html": self.UNSUBSCRIBE_HTML}}
+        self._save_template({"message_category": str(account.id), "content": content})
+        MessageCategory.objects.filter(id=account.id).update(category_type=MessageCategoryType.MARKETING)
+
+        response = self._edit_design("<p>Your account changed</p>")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        step = self._email_step(self.hog_flow_id)
+        assert step["inputs"]["email"]["value"]["html"] == "<p>Your account changed</p>"
+        assert (step["message_category_type"], step.get("skip_frequency_cap")) == ("transactional", None)
+
+    def _design(self) -> dict:
+        contents = [{"id": "txt1", "type": "text", "values": {"text": self.UNSUBSCRIBE_HTML}}]
+        row = {
+            "id": "row1",
+            "cells": [1],
+            "columns": [{"id": "col1", "contents": contents, "values": {}}],
+            "values": {},
+        }
+        return {
+            "counters": {"u_row": 1, "u_column": 1, "u_content_text": 1},
+            "schemaVersion": 16,
+            "body": {"id": "body1", "rows": [row], "values": {}},
+        }
+
+    def _edit_design(self, text: str) -> Any:
+        with patch(
+            "products.messaging.backend.presentation.views.message_templates.render_design_html",
+            side_effect=lambda design: "".join(
+                content["values"]["text"] for content in design["body"]["rows"][0]["columns"][0]["contents"]
+            ),
+        ):
+            return self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/design/",
+                {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": text}}}]},
+                format="json",
+            )
 
     @parameterized.expand([("flag_on", True, None), ("flag_off", False, "marketing_template")])
     def test_a_code_send_under_a_marketing_templates_key_goes_out_as_marketing(
