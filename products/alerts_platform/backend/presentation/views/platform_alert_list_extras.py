@@ -73,9 +73,8 @@ def list_extras(
     histories: dict[UUID, PlatformAlertHistory] = {}
     controls: dict[UUID, PlatformControlHistory] = {}
     try:
-        last_checks, histories, controls = platform_api.alert_list_history(
-            team_id=team_id, configuration_ids=ids, since=window[0], until=window[1]
-        )
+        read = platform_api.alert_list_history(team_id=team_id, configuration_ids=ids, since=window[0], until=window[1])
+        last_checks, histories, controls = read.last_checks, read.histories, read.controls
     except Exception as error:
         logger.warning("platform_alert_list_history_unavailable", team_id=team_id)
         capture_exception(error)

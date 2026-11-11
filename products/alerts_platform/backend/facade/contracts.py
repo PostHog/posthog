@@ -572,6 +572,24 @@ class StateInterval:
     enabled: bool
 
 
+@frozen
+class PlatformAlertListHistory:
+    """What an alert list shows of each configuration's checks, keyed by configuration id."""
+
+    last_checks: dict[UUID, PlatformLastCheck]
+    # State changes across every group.
+    histories: dict[UUID, PlatformAlertHistory]
+    controls: dict[UUID, PlatformControlHistory]
+
+
+@frozen
+class PlatformAlertEvents:
+    """A configuration's notable checks across every group and its control-plane changes, newest first."""
+
+    checks: PlatformCheckEventPage
+    changes: PlatformControlChangePage
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 

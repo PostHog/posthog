@@ -1021,7 +1021,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
         self._readable_configuration(team_id, configuration_id)
-        checks, changes = platform_api.alert_events(
+        read = platform_api.alert_events(
             team_id=team_id, configuration_id=configuration_id, since=timezone.now() - EVENTS_LOOKBACK, limit=limit
         )
         events: list[dict[str, Any]] = [
@@ -1036,7 +1036,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                     "grouping_key": check.grouping_key,
                     "condition": check.condition,
                 }
-                for check in checks.events
+                for check in read.checks.events
             ),
             *(
                 {
@@ -1049,7 +1049,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                     "grouping_key": "",
                     "condition": {},
                 }
-                for change in changes.changes
+                for change in read.changes.changes
             ),
         ]
         events.sort(key=lambda event: event["occurred_at"], reverse=True)
