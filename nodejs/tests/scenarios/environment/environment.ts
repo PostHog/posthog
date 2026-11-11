@@ -138,7 +138,7 @@ export function createEnvironment({
     async function resetRoles(edge: ProviderEdge, settings: Profile['settings']): Promise<void> {
         const exitsBefore = supervisor.exits().length
         await supervisor.stop()
-        const specs = roleSpecs(env, edge.url, secrets, settings, sesRateLimiterValkey)
+        const specs = roleSpecs(env, edge.url, secrets, stateDir, settings, sesRateLimiterValkey)
         const groups = consumerGroupsOf(specs)
         await waitForExpect(
             async () => {
@@ -205,13 +205,13 @@ export function createEnvironment({
 
     async function bringUp(): Promise<void> {
         const exitsBefore = supervisor.exits().length
-        const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
+        const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
         if (plan.strangers.length > 0) {
             throw strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
         await startStack(hogli, stateDir, env)
-        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets, {}, sesRateLimiterValkey)
+        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets, stateDir, {}, sesRateLimiterValkey)
         await refuseHeldPorts(specs.map((spec) => spec.role))
         const groups = consumerGroupsOf(specs)
         await waitForExpect(
