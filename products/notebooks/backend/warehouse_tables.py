@@ -12,6 +12,7 @@ from django.db import transaction
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.ph_client import ph_scoped_capture
 
 from products.data_modeling.backend.facade.api import sync_notebook_table_to_dag
 from products.data_warehouse.backend.facade.api import NotebookTableError, save_notebook_table
@@ -39,9 +40,36 @@ def upload_outcome(table_name: str, upload: Any) -> WarehouseTableOutcome:
     return {"name": table_name, "error": None, "pending": True}
 
 
+def save_failed_outcome(table_name: str) -> WarehouseTableOutcome:
+    return {"name": table_name, "error": "The warehouse table couldn't be saved. Run the cell again to retry."}
+
+
+def store_warehouse_table_outcome(team_id: int, run_id: str, outcome: WarehouseTableOutcome) -> None:
+    with transaction.atomic():
+        locked = NotebookNodeRun.objects.for_team(team_id).select_for_update().get(id=run_id)
+        envelope = dict(locked.envelope) if isinstance(locked.envelope, dict) else {}
+        envelope["warehouse_table"] = outcome
+        locked.envelope = envelope
+        locked.save(update_fields=["envelope", "updated_at"])
+
+
+def _report_save(run: NotebookNodeRun, result: str) -> None:
+    if run.user is None:
+        return
+    try:
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=run.user.distinct_id,
+                event="notebook warehouse table save finished",
+                properties={"result": result, "team_id": run.team_id, "notebook_short_id": run.notebook.short_id},
+            )
+    except Exception as e:
+        capture_exception(e)
+
+
 def finish_warehouse_table_save(team_id: int, run_id: str) -> None:
     """Publish the run's staged upload as its warehouse table, and store how that went on the run."""
-    run = NotebookNodeRun.objects.for_team(team_id).select_related("notebook").filter(id=run_id).first()
+    run = NotebookNodeRun.objects.for_team(team_id).select_related("notebook", "user").filter(id=run_id).first()
     if run is None or not run.warehouse_table_name:
         return
     name = run.warehouse_table_name
@@ -50,18 +78,17 @@ def finish_warehouse_table_save(team_id: int, run_id: str) -> None:
     try:
         table_id = save_notebook_table(team_id, name, run.user_id, str(run.id))
         outcome = {"name": name, "error": None}
+        result = "saved"
     except NotebookTableError as e:
         outcome = {"name": name, "error": str(e)}
+        result = "refused"
     except Exception as e:
         capture_exception(e)
-        outcome = {"name": name, "error": "The warehouse table couldn't be saved."}
+        outcome = save_failed_outcome(name)
+        result = "failed"
 
-    with transaction.atomic():
-        locked = NotebookNodeRun.objects.for_team(team_id).select_for_update().get(id=run.id)
-        envelope = dict(locked.envelope) if isinstance(locked.envelope, dict) else {}
-        envelope["warehouse_table"] = outcome
-        locked.envelope = envelope
-        locked.save(update_fields=["envelope", "updated_at"])
+    store_warehouse_table_outcome(team_id, str(run.id), outcome)
+    _report_save(run, result)
 
     if table_id is None:
         return

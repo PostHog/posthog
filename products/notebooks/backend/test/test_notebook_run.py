@@ -146,6 +146,8 @@ class TestNotebookRunEndpoints(APIBaseTest):
 
         assert response.status_code == expected_status
         assert mock_start.called == (expected_status == 200)
+        runs = NotebookRun.objects.for_team(self.team.id).filter(notebook=self.notebook)
+        assert runs.exists() == (expected_status == 200)
 
     def test_a_notebook_with_nothing_to_run_is_refused(self, mock_start, _flag) -> None:
         notebook = Notebook.objects.create(

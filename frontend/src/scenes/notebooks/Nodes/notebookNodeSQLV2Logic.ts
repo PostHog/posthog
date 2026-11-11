@@ -997,8 +997,22 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     let attempts = 0
                     const intervalId = window.setInterval(async () => {
                         attempts += 1
-                        if (runId !== cache.activeRunId || attempts > WAREHOUSE_SAVE_MAX_POLLS) {
+                        if (runId !== cache.activeRunId) {
                             cache.disposables.dispose('pollWarehouseSave')
+                            return
+                        }
+                        if (attempts > WAREHOUSE_SAVE_MAX_POLLS) {
+                            cache.disposables.dispose('pollWarehouseSave')
+                            const pendingSave = values.result?.warehouse_table
+                            if (values.result && pendingSave?.pending) {
+                                actions.setResult({
+                                    ...values.result,
+                                    warehouse_table: {
+                                        name: pendingSave.name,
+                                        error: 'Saving the table is taking longer than expected. Reload the notebook to check on it.',
+                                    },
+                                })
+                            }
                             return
                         }
                         try {

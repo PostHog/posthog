@@ -84,7 +84,6 @@ from products.notebooks.backend.facade.notebook_run import (
     NotebookRunInput,
     NotebookRunNothingToRun,
     fail_notebook_run,
-    notebook_saves_warehouse_tables,
     read_notebook_run,
     start_notebook_run,
     start_notebook_run_workflow,
@@ -2113,8 +2112,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         include_prepared_insights = serializer.validated_data["include_prepared_insights"]
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
-        if notebook_saves_warehouse_tables(team_id=self.team_id, notebook_short_id=notebook.short_id):
-            self._require_warehouse_write_scope()
 
         try:
             # One transaction, because a refused run must not leave the variables changed.
@@ -2139,6 +2136,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     trigger=classify_request_source(request)[0],
                     include_prepared_insights=include_prepared_insights,
                 )
+                # Checked on the plan the run froze, not on a separate read of the notebook, so
+                # an edit that lands between the two can't add a save the token may not make.
+                if start.saves_warehouse_tables:
+                    self._require_warehouse_write_scope()
         except (NotebookRunNothingToRun, NotebookCellLimitExceeded) as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:

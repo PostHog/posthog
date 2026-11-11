@@ -326,6 +326,26 @@ class TestSQLV2Callback(APIBaseTest):
         else:
             task.delay.assert_not_called()
 
+    def test_a_save_that_can_not_be_queued_is_not_left_pending(self):
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=self.node_run.id).update(warehouse_table_name="scores")
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        with patch("products.notebooks.backend.sql_v2_callback.save_notebook_warehouse_table") as task:
+            task.delay.side_effect = ConnectionError("broker down")
+            self._post(token, envelope={**self.envelope, "warehouse_upload": {"ok": True}})
+        outcome = self._reload_run().envelope["warehouse_table"]
+        self.assertNotIn("pending", outcome)
+        self.assertIn("couldn't be saved", outcome["error"])
+
+    def test_a_result_that_lands_after_an_interrupt_leaves_no_pending_save(self):
+        NotebookNodeRun.objects.for_team(self.team.id).filter(id=self.node_run.id).update(
+            warehouse_table_name="scores", status=NotebookNodeRun.Status.INTERRUPTED
+        )
+        token = mint_callback_token(str(self.node_run.id), self.team.id)
+        with patch("products.notebooks.backend.sql_v2_callback.save_notebook_warehouse_table") as task:
+            self._post(token, envelope={**self.envelope, "warehouse_upload": {"ok": True}})
+        task.delay.assert_not_called()
+        self.assertNotIn("warehouse_table", self._reload_run().envelope)
+
     def test_skips_the_warehouse_table_when_the_run_asked_for_none(self):
         token = mint_callback_token(str(self.node_run.id), self.team.id)
         with patch("products.notebooks.backend.sql_v2_callback.save_notebook_warehouse_table") as task:
