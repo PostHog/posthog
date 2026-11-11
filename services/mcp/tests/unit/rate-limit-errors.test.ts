@@ -200,6 +200,50 @@ describe('outbound 429 handling', () => {
                 PostHogRateLimitError
             )
         })
+
+        // The text-response branch bypasses fetchJson's retry loop and used to
+        // build a bare PostHogApiError that parsed Retry-After only for 503, so
+        // a throttled call dropped the one number that says when to come back.
+        it('parses Retry-After on a 429 text response and puts it in the message', async () => {
+            stubFetch(build429({ 'Retry-After': '7' }))
+
+            const outcome = buildClient()
+                .request({ method: 'GET', path: '/api/environments/2/exports/1/content/', responseType: 'text' })
+                .catch((error: unknown) => error)
+            const error = (await outcome) as PostHogRateLimitError
+
+            expect(error).toBeInstanceOf(PostHogRateLimitError)
+            expect(error.retryAfterSeconds).toBe(7)
+            expect(error.message).toContain('Retry after 7 seconds')
+        })
+    })
+
+    describe('PostHogApiError default message', () => {
+        it('carries the retry hint when Retry-After was parsed', () => {
+            const error = new PostHogApiError({
+                status: 503,
+                statusText: 'Service Unavailable',
+                body: '{}',
+                url: 'https://us.posthog.com/api/environments/2/query/',
+                method: 'POST',
+                retryAfterSeconds: 9,
+            })
+
+            expect(error.message).toContain('Retry after 9 seconds')
+        })
+
+        it('stays unchanged without one', () => {
+            const error = new PostHogApiError({
+                status: 503,
+                statusText: 'Service Unavailable',
+                body: '{}',
+                url: 'https://us.posthog.com/api/environments/2/query/',
+                method: 'POST',
+                retryAfterSeconds: null,
+            })
+
+            expect(error.message).not.toContain('Retry after')
+        })
     })
 
     describe('handleToolError on PostHogRateLimitError', () => {
