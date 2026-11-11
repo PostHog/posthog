@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
 
-import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, Profile } from '../cards'
+import { CdpRole, Profile } from '../cards'
 import { MARKER_KEY } from './processes'
 
 export type Role = z.infer<typeof CdpRole>
@@ -42,9 +42,6 @@ export function roleSpecs(
     sesValkey: { host: string; port: number } = SES_RATE_LIMITER_VALKEY
 ): RoleSpec[] {
     const { AWS_PROFILE: _profile, ...inherited } = base
-    const roleSettings = Object.fromEntries(
-        Object.entries(settings).filter(([name]) => !name.startsWith(LOAD_PRODUCER_SETTING_PREFIX))
-    )
     const { KAFKA_CONSUMER_GROUP_ID: _group, ...configured }: NodeJS.ProcessEnv = {
         ...inherited,
         NODE_ENV: 'dev',
@@ -52,7 +49,7 @@ export function roleSpecs(
         AWS_ACCESS_KEY_ID: 'scenario',
         AWS_SECRET_ACCESS_KEY: 'scenario',
         PERSONHOG_ENABLED: 'true',
-        ...roleSettings,
+        ...settings,
     }
     return CdpRole.options.map((role) => ({
         role,

@@ -138,10 +138,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             let stopHealth: (() => Promise<string[]>) | undefined
             let producer: KafkaProducerWrapper | undefined
             try {
-                producer = await KafkaProducerWrapper.createWithConfig(
-                    undefined,
-                    producerConfigOf({ ...env, ...profile.settings })
-                )
+                producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
                 await environment.reset(profile.settings).catch((error: unknown) => {
                     restartRequired = new Error(
                         `The reset before run ${runId} failed and stopped the environment: ${(error as Error).message}. Restart the runner, then run the card again.`
