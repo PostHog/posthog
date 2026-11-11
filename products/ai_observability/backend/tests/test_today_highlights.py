@@ -52,7 +52,7 @@ class TestEvaluationNumber(BaseTest):
 
     def test_the_number_is_the_latest_pass_rate_with_its_previous_report(self) -> None:
         evaluation = self._evaluation("Answer accuracy")
-        self._runs(evaluation, (3, 80.0, 70.0), (2, None, None), (1, 90.0, 80.0))
+        self._runs(evaluation, (3, 80.0, 70.0), (2, None, None), (1, 90.0, 60.0))
 
         [number] = self._find().pulse
 

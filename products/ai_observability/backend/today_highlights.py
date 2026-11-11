@@ -25,7 +25,7 @@ FRESH_DAYS = 30
 PERCENT = HighlightValueFormat(format="percentage", prefix=None, postfix=None, decimal_places=None)
 
 
-def _pass_rates(evaluation_id: UUID) -> list[tuple[datetime, float, float | None]]:
+def _pass_rates(evaluation_id: UUID) -> list[tuple[datetime, float]]:
     runs = (
         EvaluationReportRun.objects.filter(report__evaluation_id=evaluation_id, report__deleted=False)
         .order_by("-period_end")
@@ -35,8 +35,7 @@ def _pass_rates(evaluation_id: UUID) -> list[tuple[datetime, float, float | None
     for period_end, metadata in runs:
         rate = (metadata or {}).get("pass_rate")
         if isinstance(rate, int | float):
-            previous = (metadata or {}).get("previous_pass_rate")
-            rates.append((period_end, float(rate), float(previous) if isinstance(previous, int | float) else None))
+            rates.append((period_end, float(rate)))
     return rates[::-1]
 
 
@@ -44,17 +43,18 @@ def _number(context: HighlightContext, evaluation_id: UUID, name: str) -> Highli
     rates = _pass_rates(evaluation_id)
     if not rates or rates[-1][0] < timezone.now() - timedelta(days=FRESH_DAYS):
         return None
-    _period_end, value, previous = rates[-1]
+    value = rates[-1][1]
+    previous = rates[-2][1] if len(rates) > 1 else None
     return HighlightMetric(
         key=f"{NUMBER_PREFIX}{evaluation_id}",
         name=short(name, 60),
         value=value,
         unit=HighlightUnit.NUMBER,
         change_pct=(value - previous) / previous * 100 if previous else None,
-        series=[rate for _end, rate, _previous in rates],
+        series=[rate for _end, rate in rates],
         url=f"/ai-evals/evaluations/{evaluation_id}",
         value_format=PERCENT,
-        period_starts=[timezone.localtime(end, context.team.timezone_info).date() for end, _rate, _p in rates],
+        period_starts=[timezone.localtime(end, context.team.timezone_info).date() for end, _rate in rates],
         reason=HighlightMetricReason.EVALUATION,
         previous_value=previous,
     )
