@@ -247,10 +247,6 @@ export type CyclotronV2JanitorConfig = {
     // just recovered. `stallBackoffBaseMs = 0` disables it (immediate retry).
     stallBackoffBaseMs?: number
     stallBackoffMaxMs?: number
-    // Most stalled jobs one run resets. 0 or unset resets every stalled job.
-    stallResetBatchSize?: number
-    // How long a run may go on before the next tick treats it as stuck and starts a new run beside it.
-    stuckRunAfterMs?: number
 }
 
 export type CyclotronV2CleanupResult = {

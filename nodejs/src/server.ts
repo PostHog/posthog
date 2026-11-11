@@ -298,7 +298,6 @@ export class PluginServer implements NodeServer {
                         poisonRecoveryEnabled: this.config.CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED,
                         stallBackoffBaseMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS,
                         stallBackoffMaxMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS,
-                        stallResetBatchSize: this.config.CYCLOTRON_NODE_JANITOR_STALL_RESET_BATCH_SIZE,
                     },
                     invocationResults
                 )

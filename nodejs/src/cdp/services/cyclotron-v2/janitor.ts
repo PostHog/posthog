@@ -61,27 +61,6 @@ const janitorWrapperDroppedCounter = new Counter({
     help: 'Poisoned wrapper/meta jobs dropped without a replay record (a wrapper is not a replayable invocation)',
 })
 
-const janitorStalledLastRunGauge = new Gauge({
-    name: 'cdp_cyclotron_v2_janitor_stalled_last_run',
-    help: 'Stalled jobs the last janitor run reset. A run that hits CYCLOTRON_NODE_JANITOR_STALL_RESET_BATCH_SIZE leaves the rest for the next run.',
-})
-
-const janitorStageFailuresCounter = new Counter({
-    name: 'cdp_cyclotron_v2_janitor_stage_failures_total',
-    help: 'Janitor stages that threw. The run goes on with the next stage.',
-    labelNames: ['stage'],
-})
-
-const janitorRunsSkippedCounter = new Counter({
-    name: 'cdp_cyclotron_v2_janitor_runs_skipped_total',
-    help: 'Janitor runs skipped because the previous run was still going.',
-})
-
-const janitorRunsStuckCounter = new Counter({
-    name: 'cdp_cyclotron_v2_janitor_runs_stuck_total',
-    help: 'Janitor runs started beside a previous run that went on past its stuck limit, usually a query on a dead connection.',
-})
-
 const janitorRunCounter = new Counter({
     name: 'cdp_cyclotron_v2_janitor_runs',
     help: 'Number of janitor cleanup runs completed',
@@ -127,9 +106,6 @@ interface PoisonRow {
 export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
-    private runInFlight: Promise<unknown> | null = null
-    private runStartedAt = 0
-    private readonly stuckRunAfterMs: number
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
 
@@ -141,7 +117,6 @@ export class CyclotronV2Janitor {
     private readonly poisonRecoveryEnabled: boolean
     private readonly stallBackoffBaseMs: number
     private readonly stallBackoffMaxMs: number
-    private readonly stallResetBatchSize: number
 
     constructor(
         config: CyclotronV2JanitorConfig,
@@ -169,8 +144,6 @@ export class CyclotronV2Janitor {
         const backoffMaxMs = config.stallBackoffMaxMs ?? 600000
         this.stallBackoffBaseMs = backoffBaseMs > 0 ? backoffBaseMs : 0
         this.stallBackoffMaxMs = backoffMaxMs > 0 ? backoffMaxMs : 600000
-        this.stallResetBatchSize = Math.max(0, config.stallResetBatchSize ?? 0)
-        this.stuckRunAfterMs = config.stuckRunAfterMs ?? 300_000
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
@@ -183,50 +156,25 @@ export class CyclotronV2Janitor {
         const client = await this.pool.connect()
         client.release()
 
-        this.intervalHandle = setInterval(() => void this.runUnlessRunning(), this.cleanupIntervalMs)
+        this.intervalHandle = setInterval(() => {
+            this.runOnce().catch((err) => {
+                logger.error('CyclotronV2Janitor run error', { error: String(err) })
+            })
+        }, this.cleanupIntervalMs)
 
-        await this.runUnlessRunning()
-    }
-
-    private async runUnlessRunning(): Promise<void> {
-        if (this.runInFlight) {
-            const runningMs = Date.now() - this.runStartedAt
-            if (runningMs < this.stuckRunAfterMs) {
-                janitorRunsSkippedCounter.inc()
-                return
-            }
-            janitorRunsStuckCounter.inc()
-            logger.warn('CyclotronV2Janitor run is stuck, starting a new run beside it', { runningMs })
-        }
-        const run = this.runOnce().catch((err) => {
-            logger.error('CyclotronV2Janitor run error', { error: String(err) })
-        })
-        this.runInFlight = run
-        this.runStartedAt = Date.now()
-        try {
-            await run
-        } finally {
-            if (this.runInFlight === run) {
-                this.runInFlight = null
-            }
-        }
-    }
-
-    private async stage<T>(name: string, failed: T, run: () => Promise<T>): Promise<T> {
-        try {
-            return await run()
-        } catch (err) {
-            janitorStageFailuresCounter.inc({ stage: name })
-            logger.error('CyclotronV2Janitor stage failed', { stage: name, error: String(err) })
-            captureException(err)
-            return failed
-        }
+        // Run immediately on start
+        await this.runOnce()
     }
 
     async runOnce(): Promise<CyclotronV2CleanupResult> {
+        // Sweep first, before the cyclotron-cleanup stages below. Each of those issues an unguarded
+        // pool.query, so a failure specific to cyclotron_jobs (a statement timeout or lock pressure on
+        // that hot table) rejects out of runOnce and would skip the sweep for as long as it lasts. The
+        // sweep touches a different table and swallows its own errors, so running it up front keeps
+        // expired watchers draining even while cyclotron cleanup is failing.
         await this.sweepExpiredConversionWatchers()
 
-        const deletedCounts = await this.stage('terminal_cleanup', {}, () => this.cleanupTerminalJobs())
+        const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
         // Give up on genuine poison pills. The kill-switch picks between two
@@ -234,12 +182,12 @@ export class CyclotronV2Janitor {
         // the new record-then-delete path, or master's legacy mark-failed path.
         // The legacy path (and the flag) can be deleted wholesale once we trust
         // recording in production.
-        const poisonedIds = await this.stage('poison_pills', [], () =>
-            this.poisonRecoveryEnabled ? this.recordAndDeletePoisonPills() : this.failPoisonPills()
-        )
+        const poisonedIds = this.poisonRecoveryEnabled
+            ? await this.recordAndDeletePoisonPills()
+            : await this.failPoisonPills()
 
-        const stalled = await this.stage('stall_reset', 0, () => this.resetStalledJobs())
-        const depths = await this.stage('queue_depths', new Map<string, number>(), () => this.measureQueueDepths())
+        const stalled = await this.resetStalledJobs()
+        const depths = await this.measureQueueDepths()
 
         janitorRunCounter.inc()
 
@@ -508,10 +456,6 @@ export class CyclotronV2Janitor {
         const params: (Date | number)[] = backoffEnabled
             ? [heartbeatCutoff, this.stallBackoffBaseMs, this.stallBackoffMaxMs, STALL_BACKOFF_FIRST_RETRY_SPREAD_MS]
             : [heartbeatCutoff]
-        const limitClause =
-            this.stallResetBatchSize > 0
-                ? `ORDER BY last_heartbeat ASC LIMIT $${params.push(this.stallResetBatchSize)}`
-                : ''
 
         const result = await this.pool.query(
             `WITH stalled AS (
@@ -519,7 +463,6 @@ export class CyclotronV2Janitor {
                 FROM cyclotron_jobs
                 WHERE status = 'running'
                   AND COALESCE(last_heartbeat, $1) <= $1
-                ${limitClause}
                 FOR UPDATE SKIP LOCKED
             )
             UPDATE cyclotron_jobs
@@ -531,7 +474,6 @@ export class CyclotronV2Janitor {
         )
 
         const count = result.rowCount ?? 0
-        janitorStalledLastRunGauge.set(count)
         if (count > 0) {
             janitorStalledCounter.inc(count)
             logger.info('CyclotronV2Janitor reset stalled jobs', { count })
@@ -612,7 +554,6 @@ export class CyclotronV2Janitor {
             clearInterval(this.intervalHandle)
             this.intervalHandle = null
         }
-        await this.runInFlight
         await this.pool.end()
     }
 }
