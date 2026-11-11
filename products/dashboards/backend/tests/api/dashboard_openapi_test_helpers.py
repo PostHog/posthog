@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from products.dashboards.backend.api.dashboard import DashboardSerializer
+from products.dashboards.backend.presentation.views.dashboard import DashboardSerializer
 
 # Agent-facing dashboard PATCH fields for OpenAPI/MCP contract tests.
 # Do not slim PatchedDashboardOpenApiSerializer below this set — extend_schema(request=...)

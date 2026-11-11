@@ -36,7 +36,7 @@ class TestDashboardAddInsight(APIBaseTest):
             DashboardTile.objects_including_soft_deleted.filter(dashboard_id=self.dashboard_id, insight_id=insight_id)
         )
 
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_places_the_insight_on_the_dashboard(self, mock_report_user_action: MagicMock) -> None:
         tile_json = self._add_insight(self.insight_id)
 
