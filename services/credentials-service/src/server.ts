@@ -11,8 +11,10 @@ import type { AddressInfo } from 'node:net'
 import type { Pool } from 'pg'
 
 import { AuditExporter, captureSender } from './audit/exporter'
+import { IntegrationKeyLoader } from './auth/integration-keys'
 import { IntegrationVerifier } from './auth/integrations'
 import { JwtVerifier } from './auth/jwt'
+import { PostgresReplayStore } from './auth/replay-postgres'
 import { SigningKeyLoader } from './auth/registry'
 import { Envelope } from './crypto/envelope'
 import { createKms } from './crypto/kms'
@@ -187,11 +189,14 @@ export class CredentialsServer {
             lifecycle: this.lifecycle,
             secrets: () => mount.current(),
         }
-        if (this.pool && config.kms) {
+        if (this.pool && config.kms && config.integrationCallerPublicKeysDir) {
+            const integrationKeys = new IntegrationKeyLoader(config.integrationCallerPublicKeysDir)
+            await integrationKeys.load()
+            this.cancelTimers.push(every(config.reloadSeconds * 1000, () => integrationKeys.reload()))
             this.audit = new AuditQueue(this.pool)
             this.audit.start()
             appOptions.integrations = {
-                verifier: new IntegrationVerifier(signingKeys),
+                verifier: new IntegrationVerifier(integrationKeys, { replay: new PostgresReplayStore(this.pool) }),
                 service: new IntegrationsService({
                     pool: this.pool,
                     envelope: new Envelope(createKms(config.kms)),
@@ -199,8 +204,11 @@ export class CredentialsServer {
                 }),
             }
         } else if (this.pool || config.kms) {
-            // Integration routes need both. With one of them, the service serves platform secrets only.
-            logger.warn('integrations:disabled', { database: Boolean(this.pool), kms: Boolean(config.kms) })
+            logger.warn('integrations:disabled', {
+                database: Boolean(this.pool),
+                kms: Boolean(config.kms),
+                keys: Boolean(config.integrationCallerPublicKeysDir),
+            })
         }
         if (this.pool) {
             this.startAuditMaintenance(this.pool)

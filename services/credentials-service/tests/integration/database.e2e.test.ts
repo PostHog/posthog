@@ -4,7 +4,7 @@
 import { serve } from '@hono/node-server'
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import { SignJWT } from 'jose'
-import { randomBytes } from 'node:crypto'
+import { generateKeyPairSync, randomBytes } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -334,7 +334,11 @@ describe('server readiness with a database', () => {
         await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
     })
 
-    async function boot(database: DatabaseConfig | undefined, kms?: KmsConfig): Promise<number> {
+    async function boot(
+        database: DatabaseConfig | undefined,
+        kms?: KmsConfig,
+        withIntegrationKeys = false
+    ): Promise<number> {
         const mountDir = await mkdtemp(join(tmpdir(), 'credentials-db-e2e-'))
         dirs.push(mountDir)
         await writeFile(join(mountDir, KEY), 'not-a-real-secret')
@@ -354,6 +358,16 @@ describe('server readiness with a database', () => {
         }
         if (kms) {
             config.kms = kms
+        }
+        if (withIntegrationKeys) {
+            const integrationKeysDir = await mkdtemp(join(tmpdir(), 'credentials-integration-keys-e2e-'))
+            dirs.push(integrationKeysDir)
+            const { publicKey } = generateKeyPairSync('ed25519')
+            await writeFile(
+                join(integrationKeysDir, 'posthog-web-django.pub'),
+                publicKey.export({ type: 'spki', format: 'pem' })
+            )
+            config.integrationCallerPublicKeysDir = integrationKeysDir
         }
 
         let announce!: (port: number) => void
@@ -404,14 +418,14 @@ describe('server readiness with a database', () => {
         expect(await resolveStatus(port)).toBe(200)
     })
 
-    // The integration routes need both a database and a KMS. With only one, the service serves
-    // platform secrets only, as before.
+    // Integration routes need a database, a KMS, and public keys.
     it.each([
-        ['a database and a KMS', true, 401],
-        ['a database and no KMS', false, 404],
-    ])('with %s, the integration routes answer %i', async (_label, withKms, status) => {
+        ['a database, a KMS, and public keys', true, true, 401],
+        ['a database and a KMS without public keys', true, false, 404],
+        ['a database and no KMS', false, true, 404],
+    ])('with %s, the integration routes answer %i', async (_label, withKms, withKeys, status) => {
         const kms: KmsConfig | undefined = withKms ? { provider: 'local', keys: [randomBytes(32)] } : undefined
-        const port = await boot({ url: container.getConnectionUri(), poolSize: 2 }, kms)
+        const port = await boot({ url: container.getConnectionUri(), poolSize: 2 }, kms, withKeys)
 
         expect((await fetch(`http://127.0.0.1:${port}/v1/integrations`)).status).toBe(status)
         expect(await resolveStatus(port)).toBe(200)

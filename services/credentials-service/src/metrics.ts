@@ -112,6 +112,19 @@ export const signingKeyReloadFailuresTotal = new Counter({
     registers: [register],
 })
 
+// The same fail-open reload as the signing keys, for the integrations public keys.
+export const integrationKeysLastLoadedTimestamp = new Gauge({
+    name: 'credentials_service_integration_keys_last_loaded_timestamp',
+    help: 'Unix timestamp of the last successful load of the integrations caller public keys',
+    registers: [register],
+})
+
+export const integrationKeyReloadFailuresTotal = new Counter({
+    name: 'credentials_service_integration_key_reload_failures_total',
+    help: 'Background reloads of the integrations public keys that failed, leaving the previous set in place',
+    registers: [register],
+})
+
 export const shuttingDown = new Gauge({
     name: 'credentials_service_shutting_down',
     help: '1 if the service is in the process of shutting down, 0 otherwise',

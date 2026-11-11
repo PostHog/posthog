@@ -23,8 +23,8 @@ pod_. The wins are:
    deployment.
 4. Rotation stops needing a charts PR and a rolling restart.
 
-Nothing here stops a compromised pod reading credentials it is entitled to read, and no list is
-maintained pretending otherwise.
+Nothing here stops a compromised pod reading credentials it is entitled to read. A deployment's
+optional allowlist (see "Auth") shrinks what it is entitled to read.
 
 ## API
 
@@ -32,7 +32,7 @@ maintained pretending otherwise.
 GET  /_liveness          200 always
 GET  /_readiness         200 once the pod holds credentials (and, with a database, once it has reached it)
 POST /v1/secrets/resolve
-     /v1/integrations/*  customer integrations, with a database and a KMS only (see "Integrations API")
+     /v1/integrations/*  customer integrations, with a database, a KMS, and integration public keys (see "Integrations API")
 
 GET  /metrics            prometheus text, on its own port (CREDENTIALS_SERVICE_METRICS_PORT)
 ```
@@ -88,23 +88,47 @@ Authorization hangs off the deployment. The caller claim reaches the audit log s
 ask "which product read this", and reaches nothing else — in particular it is never a metric
 label, because prom-client keeps every series in process memory for the pod's lifetime.
 
-**There is no per-deployment allowlist for platform secrets.** Every authenticated deployment may read any credential
-on the mount: a list bounds nothing the signing key does not already bound, and a compromised
-deployment is contained by revoking its key. What a deployment actually read is in the audit
-log.
-
-So one thing bounds a request: the `keys` claim, which _is_ the request, for as long as the token
-has left to run — the verifier requires an `exp`.
+Two things bound a request: the `keys` claim, which _is_ the request, for as long as the token
+has left to run (the verifier requires an `exp`), and the deployment's allowlist when it has one.
 
 Signing keys live in the same secret as the credentials, one flat entry per deployment
 (`__CALLER_KEY_<DEPLOYMENT>`). Deployment names are derived from the entries present, not declared
 in code, so onboarding a caller or revoking a compromised one is a secrets edit with no deploy.
 The same value goes into that deployment's own secret as `CREDENTIALS_SERVICE_JWT_SECRET`.
+These HS256 keys verify `/v1/secrets/resolve` tokens only. They never verify an integrations token.
+
+**Per-deployment allowlist (opt-in).** An entry `__ALLOWED_SECRETS_<DEPLOYMENT>` in the same
+secret, comma-separated, limits the names that deployment may resolve. A name outside it comes
+back in `missing`. An empty entry allows nothing. A deployment with no entry may resolve every
+name that is not reserved, which is what every caller does today, so adding the entries in
+`PostHog/charts` does not break anyone. The load fails when an entry names a reserved name or a
+deployment with no `__CALLER_KEY_` entry, because a typo would leave the real deployment with no
+limit. Once every caller has an entry, the next step is to make a missing entry deny.
+
+**Reserved names are never served.** Any name that starts with `__` is refused, to every caller.
+That includes `__PROVIDER_*`, the OAuth client secrets and minter keys (for example a GitHub App
+private key) that only the provider code inside the service reads.
 
 ### Integration tokens
 
-The future `/v1/integrations/*` routes use the same signing keys with a different audience, `posthog:credentials_service:integrations`.
-Each route accepts only its own audience, and `aud` must be a plain string, so one token never works on both.
+The `/v1/integrations/*` routes use the audience `posthog:credentials_service:integrations` and a separate key registry.
+Each caller deployment signs with its own **Ed25519** private key, mounted as a file on that deployment.
+The service holds only the public keys, so a leak of the service's secret does not let anyone sign as a caller.
+
+- The header `alg` must be `EdDSA` (or its RFC 9864 name `Ed25519`). `HS256`, `none` and every other algorithm fail before a key is tried.
+- The platform `__CALLER_KEY_*` HS256 keys never verify an integrations token, and an integrations key never verifies a secrets token.
+- Each route accepts only its own audience, and `aud` must be a plain string, so one token never works on both.
+
+**Key format.** Set `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` to a mounted directory with one file per caller, named `<deployment>.pub`.
+Each file holds one or more PEM `PUBLIC KEY` blocks (SPKI), newest first.
+To rotate, add the new block, move the caller to the new private key, then remove the old block.
+The load fails on a file with any other name, a private key, a key that is not Ed25519, or one key listed for two deployments.
+A failed reload keeps the previous keys (see the metrics).
+
+```bash
+openssl genpkey -algorithm ed25519 -out posthog-web-django.key   # stays with the caller
+openssl pkey -in posthog-web-django.key -pubout -out posthog-web-django.pub   # goes to the service
+```
 
 ```jsonc
 {
@@ -122,21 +146,42 @@ Each route accepts only its own audience, and `aud` must be a plain string, so o
 ```
 
 - Any other claim fails the token.
-- Clocks may differ by 30s. A pod remembers each `jti` for 2 minutes.
-- A request needs its op in the token **and** in the policy for its deployment (`src/auth/policy.ts`). A deployment that the policy does not name gets no op.
+- A token has exactly one `owner`. A token with cross-team ops (`list_across_teams`, `*_by_external_id`) has no owner and no team ops.
+- `refs` is required for `delete`, `refresh`, `revoke` and `mint`. A route that acts on named refs (a get, a patch, a resolve) needs a token whose `refs` covers them.
+- Clocks may differ by 30s. Each `jti` is used once (see "Replay store" below).
+- A request needs its op in the token **and** in the policy for its deployment (`src/auth/policy.ts`). The kinds it may touch are the token's `kinds` narrowed by the policy's kinds. A deployment that the policy does not name gets nothing.
 - The owner comes only from the token. A route never reads it from the path, query or body.
 - A rejected token gets a bare 401. A valid token that does not allow the request gets a 403 with `forbidden_op`, `forbidden_kind` or `forbidden_ref`.
 
-Deployments match by exact name. There is no prefix or family match.
-The names come from the `__CALLER_KEY_<DEPLOYMENT>` entries in `PostHog/charts` (`apps/<name>`).
-`src/auth/policy.ts` lists every name.
+**Replay store.** `src/auth/replay.ts` defines `ReplayStore`.
+The in-memory store is per pod. Standalone verifiers, including unit tests, use it by default.
+The integration routes use the Postgres store. Its `auth_jti (deployment, jti, expires_at)` table rejects a repeated token id across pods.
+A store error refuses the token.
 
-| Deployment                                                                                                                                  | Ops                                                                              |
-| ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key)                                                         | all, including `revoke`, `delete`, `*_by_external_id`, `delete_owner`, `changes` |
-| `temporal-worker-{batch-exports,data-warehouse,general-purpose,health-check,max-ai,stamphog,tasks-agent,video-export,wizard}`               | `read`, `resolve`, `write`, `refresh`, `list_across_teams`, `mint`               |
-| `posthog-worker-django` (Celery), `posthog-query-django`, `posthog-admin-django`, `warehouse-sources-load`                                  | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                       |
-| `cdp-*` (the listed CDP API, cyclotron worker and events consumer deployments) and the listed `ingestion-*` lanes, including `cdp-api-push` | `resolve`                                                                        |
+Deployments match by exact name. There is no prefix, family match or default.
+The names are the `apps/<name>` charts in `PostHog/charts`, the same names as the `<deployment>.pub` files.
+Each entry has an op list and a kinds allowlist. `*` (any kind) is kept for the deployments whose code touches kinds that no list could keep up with.
+A test pins the whole table, so a change to it is visible in review.
+
+| Deployment | Ops | Kinds |
+| --- | --- | --- |
+| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key) | all except `reverse_sync` | any |
+| `posthog-integrations-reverse-sync` (dedicated Celery queue, Phase 7 removes it) | `reverse_sync` only | any |
+| `posthog-worker-django` (Celery), `posthog-admin-django`, `temporal-worker-general-purpose` | `read`, `resolve`, `write`, `refresh`, `list_across_teams` | any |
+| `posthog-query-django` | `read` | any (HogQL `system.integrations`) |
+| `temporal-worker-data-warehouse`, `warehouse-sources-load` | `read`, `resolve`, `write`, `refresh`, `list_across_teams` | the warehouse OAuth and destination kinds, plus warehouse source rows |
+| `temporal-worker-batch-exports` | `read`, `resolve`, `refresh` | `aws-redshift`, `aws-s3`, `azure-blob`, `databricks`, `google-cloud-service-account`, `postgresql`, `s3-compatible`, `snowflake` |
+| `temporal-worker-tasks-agent` | `read`, `resolve`, `refresh`, `mint` | `github`, `slack`, `slack-posthog-code` |
+| `temporal-worker-max-ai`, `temporal-worker-wizard` | `read`, `resolve`, `refresh`, `mint` | `github` |
+| `temporal-worker-video-export` (also runs signals, conversations and review workflows) | `read`, `resolve`, `refresh`, `mint` | `github`, `gitlab`, `google-calendar`, `jira`, `linear`, `slack` |
+| the listed `cdp-*` deployments and `ingestion-*` lanes (hog functions and hog transformations) | `resolve` | any |
+
+`temporal-worker-health-check`, `temporal-worker-stamphog` and every other name get nothing.
+Only `posthog-web-django` holds `delete`, `revoke`, `oauth_exchange`, `*_by_external_id` and `delete_owner`.
+
+A warehouse source row holds the typed-in credentials of a warehouse source and is marked by `config.warehouse_source_type`.
+There are about a thousand such kinds, so the policy gives the warehouse deployments a `sourceRows` flag instead of a list.
+A route passes `sourceRow: true` to `authorize()` or `assertKindAllowed()` for such a row, and a list leaves source rows out unless `auth.sourceRows` is set.
 
 ## Storage and rotation
 
@@ -222,7 +267,7 @@ problem.
 code, so adding a credential is a secrets edit and needs no deploy.
 
 The corollary is a rule on the secret: **only outbound credentials belong on it.** Every entry is
-readable by every deployment holding a signing key. For an OAuth app secret we present to a third
+readable by every deployment holding a signing key, unless that deployment's allowlist leaves it out. For an OAuth app secret we present to a third
 party that is no expansion — the pod already had its own copy in its environment. For an
 inbound-request authenticator such as a webhook signing secret it would be one, so those stay as
 plain env vars on the deployment that checks them. `STRIPE_SIGNING_SECRET`, which authenticates
@@ -247,6 +292,8 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_watch_restarts_total{reason}`                       | Kubernetes watch restarts, by why the previous watch ended    |
 | `credentials_service_signing_keys_last_loaded_timestamp`                 | staleness means a revocation has not landed on this pod       |
 | `credentials_service_signing_key_reload_failures_total`                  | reloads that kept the previous key set                        |
+| `credentials_service_integration_keys_last_loaded_timestamp`             | as above, for the integrations public keys                    |
+| `credentials_service_integration_key_reload_failures_total`              | reloads that kept the previous integrations public keys       |
 | `credentials_service_auth_failures_total{reason}`                        | rejected tokens, by why                                       |
 | `credentials_service_integration_auth_total{deployment,outcome}`         | integration token decisions, by deployment and outcome        |
 | `credentials_service_integration_replay_evictions_total`                 | live token ids dropped because the replay cache was full      |
@@ -360,8 +407,9 @@ Alert on `credentials_service_audit_dropped_total` above 0, and on export lag (`
 
 ## Integrations API
 
-The routes exist only when both `CREDENTIALS_SERVICE_DATABASE_URL` and `CREDENTIALS_SERVICE_KMS_PROVIDER` are set.
-With one of them, the service logs `integrations:disabled` and serves platform secrets only.
+The routes exist only when `CREDENTIALS_SERVICE_DATABASE_URL`, `CREDENTIALS_SERVICE_KMS_PROVIDER`, and `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` are set.
+If any value is missing, the service serves platform secrets only. With a database or KMS, it also logs `integrations:disabled`.
+The service loads integration public keys before it mounts these routes. An invalid key directory prevents startup.
 Every route needs an integrations token (see "Integration tokens") that holds the route's op.
 Every query binds the owner from the token.
 
@@ -412,7 +460,7 @@ Idempotency keys are scoped by deployment, owner and operation.
 
 `PATCH /:ref` and the upsert of an existing row refuse changes to identity fields: `integration_id`, and the config keys `installation_id`, `instance_url` and `region`. They answer `validation`. Set these keys when you create the row. `identityConfigKeys(kind)` in `src/integrations/identity.ts` returns the list.
 
-`src/auth/replay-postgres.ts` holds a Postgres store for token ids, on the `auth_jti` table. The token verifier does not use it yet: it needs the replay store interface from the auth PR.
+`src/auth/replay-postgres.ts` holds the Postgres replay store for token ids on the `auth_jti` table.
 
 ## Isolation
 
@@ -485,6 +533,7 @@ Its wrapped keys go into the same columns. The service refuses it when `CREDENTI
 | `CREDENTIALS_SERVICE_SECRET_NAMESPACE`     | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
 | `CREDENTIALS_SERVICE_RELOAD_SECONDS`       | `30`                          | Re-read interval; a safety re-list next to the watch    |
 | `CREDENTIALS_SERVICE_METRICS_PORT`         | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
+| `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` | unset | Ed25519 `<deployment>.pub` files; unset disables the integrations routes |
 | `CREDENTIALS_SERVICE_LOG_LEVEL`            | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
 | `PORT`                                     | `8004`                        |                                                         |
 | `HOST`                                     | `0.0.0.0`                     |                                                         |

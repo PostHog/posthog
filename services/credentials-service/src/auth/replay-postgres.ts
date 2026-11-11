@@ -1,15 +1,15 @@
-// Remembers token ids in Postgres, so a token cannot be replayed on another pod or after a restart.
-// The auth PR defines the interface the verifier takes. Until it lands, this class stands alone.
+// Postgres shares token ids across pods and restarts, so each token verifies only once.
 
 import type { Queryable } from '../db/integrations'
 import { query } from '../db/integrations'
 import { logger } from '../lib/logging'
+import type { ReplayStore } from './replay'
 
 // Every Nth claim also deletes expired rows, so no separate cleanup job is needed.
 const CLEANUP_EVERY = 100
 const CLEANUP_BATCH = 1000
 
-export class PostgresReplayStore {
+export class PostgresReplayStore implements ReplayStore {
     private claims = 0
 
     constructor(private readonly db: Queryable) {}
