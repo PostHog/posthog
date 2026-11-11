@@ -9,6 +9,7 @@ import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -236,6 +237,18 @@ describe('sandbox email test sends', () => {
             { status: 'failed', reason: 'send_rate_limited' },
         ])
         expect(world.ses.attempts).toBe(2)
+    })
+
+    it('charges no daily allowance for a test the SES send rate refuses', async () => {
+        const bucket = world.sesBucket(1)
+        serveWorker({ bucket, caps: { team: 5, recipient: 1 } })
+        await world.takeSlotsLeft(bucket)
+
+        await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'send_rate_limited' })
+        await deleteKeysWithPrefix(world.valkey, bucket.key)
+
+        await expect(tester().send(testRun())).resolves.toMatchObject({ status: 'accepted' })
+        expect(world.ses.attempts).toBe(1)
     })
 
     it.each<[string, () => Promise<string>]>([

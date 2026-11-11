@@ -3337,6 +3337,7 @@ describe('Hogflow Executor', () => {
                                         ok: true,
                                         markSending: () => Promise.resolve(true),
                                         releaseUnsent: () => Promise.resolve(true),
+                                        refundUnsent: () => Promise.resolve(true),
                                     }),
                                 ses: sandboxSes,
                                 now: () => new Date(Date.now()),

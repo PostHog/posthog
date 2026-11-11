@@ -329,7 +329,7 @@ describe('SandboxEmailSendStep', () => {
         }
     )
 
-    it('retries a step while the shared SES send rate is spent, and sends it on the daily allowance it already holds', async () => {
+    it('retries a step while the shared SES send rate is spent, and charges the daily allowance only for the send that goes out', async () => {
         await world.takeSlotsLeft(sesBucket)
 
         const { segments, finished } = await runToNextAction(member(), {

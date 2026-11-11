@@ -144,7 +144,7 @@ export class SandboxEmailService {
             return refusal('cap_storage_unavailable')
         }
         if (!(await request.claimSesSlot())) {
-            await caps.releaseUnsent()
+            await caps.refundUnsent()
             return { status: 'retry', reason: SEND_RATE_LIMITED }
         }
         const message = buildSandboxMessage({
