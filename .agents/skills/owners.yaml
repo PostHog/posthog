@@ -7,5 +7,7 @@ rules:
           - '/migrating-llm-gateway-callers/'
       owners: team-agent-infrastructure
       sensitive: true
-    - match: '/ingestion-*/'
+    - match:
+          - '/ingestion-*/'
+          - '/building-on-capture-v1/'
       owners: team-ingestion
