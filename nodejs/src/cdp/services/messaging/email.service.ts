@@ -1070,7 +1070,7 @@ export class EmailService {
                     ...(isTransactionalEmailSend(invocation)
                         ? {
                               $email_transactional: true,
-                              ...transactionalEmailIdentity(invocation.hogFunction?.metadata),
+                              ...transactionalEmailIdentity(params.template ?? invocation.hogFunction?.metadata),
                           }
                         : {}),
                     $email_to: params.to.email,
@@ -1484,7 +1484,7 @@ export class EmailService {
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
                     ? [
                           { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },
-                          ...transactionalEmailIdentityTags(result.invocation.hogFunction?.metadata),
+                          ...transactionalEmailIdentityTags(params.template ?? result.invocation.hogFunction?.metadata),
                       ]
                     : []),
             ],
