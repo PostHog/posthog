@@ -14,6 +14,7 @@ export type IdempotencyClaim =
  */
 export async function claimIdempotencyKey(
     db: Queryable,
+    deployment: string,
     owner: IntegrationOwner,
     operation: string,
     key: string,
@@ -21,16 +22,16 @@ export async function claimIdempotencyKey(
 ): Promise<IdempotencyClaim> {
     const claimed = await query(
         db,
-        `INSERT INTO idempotency_keys (owner_type, owner_id, operation, key, request_hash)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (owner_type, owner_id, operation, key) DO UPDATE SET
+        `INSERT INTO idempotency_keys (deployment, owner_type, owner_id, operation, key, request_hash)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (deployment, owner_type, owner_id, operation, key) DO UPDATE SET
             request_hash = EXCLUDED.request_hash,
             integration_id = NULL,
             created_at = now(),
             expires_at = now() + interval '24 hours'
          WHERE idempotency_keys.expires_at <= now()
          RETURNING key`,
-        [owner.type, owner.id, operation, key, requestHash]
+        [deployment, owner.type, owner.id, operation, key, requestHash]
     )
     if (claimed.rows.length > 0) {
         return { status: 'claimed' }
@@ -38,8 +39,8 @@ export async function claimIdempotencyKey(
     const existing = await query<{ request_hash: Buffer; integration_id: string | null }>(
         db,
         `SELECT request_hash, integration_id FROM idempotency_keys
-         WHERE owner_type = $1 AND owner_id = $2 AND operation = $3 AND key = $4`,
-        [owner.type, owner.id, operation, key]
+         WHERE deployment = $1 AND owner_type = $2 AND owner_id = $3 AND operation = $4 AND key = $5`,
+        [deployment, owner.type, owner.id, operation, key]
     )
     const row = existing.rows[0]
     if (!row || !row.request_hash.equals(requestHash)) {
@@ -50,6 +51,7 @@ export async function claimIdempotencyKey(
 
 export async function recordIdempotencyResult(
     db: Queryable,
+    deployment: string,
     owner: IntegrationOwner,
     operation: string,
     key: string,
@@ -57,8 +59,8 @@ export async function recordIdempotencyResult(
 ): Promise<void> {
     await query(
         db,
-        `UPDATE idempotency_keys SET integration_id = $5
-         WHERE owner_type = $1 AND owner_id = $2 AND operation = $3 AND key = $4`,
-        [owner.type, owner.id, operation, key, integrationId]
+        `UPDATE idempotency_keys SET integration_id = $6
+         WHERE deployment = $1 AND owner_type = $2 AND owner_id = $3 AND operation = $4 AND key = $5`,
+        [deployment, owner.type, owner.id, operation, key, integrationId]
     )
 }

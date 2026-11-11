@@ -374,6 +374,13 @@ Audit: one `audit_log` row for each record that a request returns or changes.
 A write stores its rows in its own transaction.
 A read hands them to an in-process queue (10k rows) that writes batches every second.
 When the queue is full, the service drops the rows and counts them on `credentials_service_audit_dropped_total`, so a read never waits.
+Every audit row is also written to stdout as one JSON line (`integrations:audited`), before the response. It holds field names only, never values. The queue never drops this line.
+
+Idempotency keys are scoped by deployment, owner and operation.
+
+`PATCH /:ref` and the upsert of an existing row refuse changes to identity fields: `integration_id`, and the config keys `installation_id`, `instance_url` and `region`. They answer `validation`. Set these keys when you create the row. `identityConfigKeys(kind)` in `src/integrations/identity.ts` returns the list.
+
+`src/auth/replay-postgres.ts` holds a Postgres store for token ids, on the `auth_jti` table. The token verifier does not use it yet: it needs the replay store interface from the auth PR.
 
 ## Isolation
 

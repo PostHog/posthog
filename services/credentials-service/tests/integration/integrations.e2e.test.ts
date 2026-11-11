@@ -15,6 +15,7 @@ import { INTEGRATIONS_AUDIENCE, type SigningKeys } from '@/auth/types'
 import { Envelope } from '@/crypto/envelope'
 import { LocalKms } from '@/crypto/local-kms'
 import { type EncryptionContext, type Kms, KmsError } from '@/crypto/types'
+import { listIntegrations } from '@/db/integration-queries'
 import { insertIntegration } from '@/db/integrations'
 import { runMigrations } from '@/db/migrate'
 import { createApp } from '@/http/app'
@@ -235,7 +236,7 @@ describe('CRUD', () => {
         const patched = await call('PATCH', `/${created.id}`, {
             headers: { 'If-Match': '"1"' },
             body: {
-                config_patch: { region: 'eu' },
+                config_patch: { refreshed_at: 1_800_000_100 },
                 config_remove: ['display_name'],
                 sensitive_config_patch: { access_token: 'fake-rotated-token' },
                 errors: 'TOKEN_REFRESH_FAILED',
@@ -243,7 +244,7 @@ describe('CRUD', () => {
         })
         expect(patched.status).toBe(200)
         expect(patched.json).toMatchObject({ version: 2, errors: 'TOKEN_REFRESH_FAILED', display_name: 'portal-1' })
-        expect(patched.json.config).toEqual({ region: 'eu', refreshed_at: 1_800_000_000, expires_in: 3600 })
+        expect(patched.json.config).toEqual({ region: 'us', refreshed_at: 1_800_000_100, expires_in: 3600 })
 
         const resolved = await call('POST', '/resolve', { body: { refs: [created.id] } })
         expect(resolved.json.records[created.id].credentials).toEqual({ access_token: 'fake-rotated-token' })
@@ -385,14 +386,25 @@ describe('upsert', () => {
         expect(first.json.created).toBe(true)
 
         const second = await call('PUT', '/upsert', {
-            body: newIntegration({ config: { region: 'eu' }, sensitive_config: { access_token: 'fake-new-token' } }),
+            body: newIntegration({ config: { region: 'us' }, sensitive_config: { access_token: 'fake-new-token' } }),
         })
         expect(second.status).toBe(200)
         expect(second.json).toMatchObject({ created: false, record: { id: first.json.record.id, version: 2 } })
-        expect(second.json.record.config).toEqual({ region: 'eu' })
+        expect(second.json.record.config).toEqual({ region: 'us' })
 
         const resolved = await call('POST', '/resolve', { body: { refs: [first.json.record.id] } })
         expect(resolved.json.records[first.json.record.id].credentials).toEqual({ access_token: 'fake-new-token' })
+    })
+
+    it.each([
+        ['changes the region', { region: 'eu' }, 'region'],
+        ['drops the region', { display_name: 'x' }, 'region'],
+        ['adds an instance url', { region: 'us', instance_url: 'https://example.com' }, 'instance_url'],
+    ])('refuses an upsert of an existing row that %s', async (_label, config, key) => {
+        await call('PUT', '/upsert', { body: newIntegration() })
+        const res = await call('PUT', '/upsert', { body: newIntegration({ config }) })
+        expect(res.status).toBe(400)
+        expect(res.json.error).toMatchObject({ code: 'validation', details: { keys: [key] } })
     })
 
     it('answers a row with another auth type with a conflict', async () => {
@@ -406,6 +418,35 @@ describe('upsert', () => {
         const results = await Promise.all([1, 2, 3, 4].map(() => call('PUT', '/upsert', { body })))
         expect(results.filter((res) => res.json.created)).toHaveLength(1)
         expect((await pool.query('SELECT count(*)::int AS n FROM integrations')).rows[0].n).toBe(1)
+    })
+})
+
+describe('identity fields', () => {
+    it.each([
+        ['changes the region', { config_patch: { region: 'eu' } }, 'region'],
+        ['removes the region', { config_remove: ['region'] }, 'region'],
+        ['sets an installation id', { config_patch: { installation_id: 7 } }, 'installation_id'],
+        ['sets an instance url', { config_patch: { instance_url: 'https://example.com' } }, 'instance_url'],
+    ])('refuses a patch that %s', async (_label, body, key) => {
+        const created = await create()
+        const res = await call('PATCH', `/${created.id}`, { body })
+        expect(res.status).toBe(400)
+        expect(res.json.error).toMatchObject({ code: 'validation', details: { keys: [key] } })
+        expect(res.json.error.message).toContain(key)
+        expect((await call('GET', `/${created.id}`)).json.config.region).toBe('us')
+    })
+
+    it('refuses to change the external id through a patch', async () => {
+        const created = await create()
+        const res = await call('PATCH', `/${created.id}`, { body: { integration_id: 'portal-2' } })
+        expect(res.status).toBe(400)
+        expect(res.json.error.code).toBe('validation')
+    })
+
+    it('allows a patch that sets an identity key to its current value', async () => {
+        const created = await create()
+        const res = await call('PATCH', `/${created.id}`, { body: { config_patch: { region: 'us' } } })
+        expect(res.status).toBe(200)
     })
 })
 
@@ -553,6 +594,19 @@ describe('idempotent create', () => {
         const res = await call('POST', '/', { headers, body: newIntegration({ integration_id: 'portal-2' }) })
         expect(res.status).toBe(409)
         expect((await pool.query('SELECT count(*)::int AS n FROM integrations')).rows[0].n).toBe(1)
+    })
+
+    it('keeps keys of different deployments apart', async () => {
+        const headers = { 'Idempotency-Key': 'create-once-shared' }
+        const a = await call('POST', '/', { headers, body: newIntegration() })
+        const b = await call('POST', '/', {
+            headers,
+            deployment: WORKER,
+            body: newIntegration({ integration_id: 'portal-2' }),
+        })
+        expect(b.status).toBe(201)
+        expect(b.json.id).not.toBe(a.json.id)
+        expect(b.headers.get('Idempotent-Replayed')).toBeNull()
     })
 
     it('keeps keys of different teams apart', async () => {
@@ -768,6 +822,41 @@ describe('audit', () => {
         expect(rows.map((row) => row.owner_id).sort()).toEqual([String(TEAM_A), String(TEAM_B)])
     })
 
+    it('writes one stdout line per audit row, with field names and no values', async () => {
+        const created = await create()
+        await call('PATCH', `/${created.id}`, { body: { sensitive_config_patch: { access_token: 'fake-rotated' } } })
+        await call('GET', `/${created.id}`)
+
+        const lines = logLines.map((line) => JSON.parse(line)).filter((line) => line.event === 'integrations:audited')
+        expect(lines.map((line) => line.fields.operation).sort()).toEqual(['create', 'read', 'update'])
+        expect(lines.find((line) => line.fields.operation === 'create').fields).toMatchObject({
+            deployment: WEB,
+            owner_id: TEAM_A,
+            integration_id: created.id,
+            kind: 'hubspot',
+            outcome: 'ok',
+            fields: ['access_token', 'client_secret', 'refresh_token'],
+        })
+        expect(JSON.stringify(lines)).not.toContain('fake-rotated')
+    })
+
+    it('writes the stdout line for a read row that the full queue drops', async () => {
+        const small = new AuditQueue(pool, { maxPending: 0, batchSize: 100, flushIntervalMs: 60_000 })
+        small.enqueue([
+            {
+                actor: { deployment: WEB, caller: 'test', userId: null, jti: 'jti', requestId: 'req' },
+                operation: 'read',
+                outcome: 'ok',
+                ownerType: 'team',
+                ownerId: TEAM_A,
+                integrationId: null,
+                kind: 'hubspot',
+            },
+        ])
+        expect(small.size).toBe(0)
+        expect(logLines.filter((line) => line.includes('integrations:audited'))).toHaveLength(1)
+    })
+
     it('drops and counts read rows when the queue is full', async () => {
         const small = new AuditQueue(pool, { maxPending: 2, batchSize: 100, flushIntervalMs: 60_000 })
         const before = await droppedTotal()
@@ -794,6 +883,53 @@ async function droppedTotal(): Promise<number> {
         .filter((value) => value.labels['reason'] === 'queue_full')
         .reduce((sum, value) => sum + value.value, 0)
 }
+
+describe('where filters', () => {
+    it('binds an injection-shaped value as data', async () => {
+        await create()
+        const value = encodeURIComponent(JSON.stringify(`us' OR '1'='1`))
+        const res = await call('GET', `/?kind=hubspot&where.region=${value}`)
+        expect(res.status).toBe(200)
+        expect(res.json.results).toEqual([])
+        expect((await pool.query('SELECT count(*)::int AS n FROM integrations')).rows[0].n).toBe(1)
+    })
+
+    it.each(["region'; DROP TABLE integrations;--", 'region" OR 1=1', "a'b"])(
+        'refuses the injection-shaped key %j',
+        async (key) => {
+            const res = await call('GET', `/?where.${encodeURIComponent(key)}=1`)
+            expect(res.status).toBe(400)
+            const body = await call('POST', '/list-across-teams', {
+                team: null,
+                ops: ['list_across_teams'],
+                body: { kinds: ['hubspot'], where: { [key]: 1 } },
+            })
+            expect(body.status).toBe(400)
+        }
+    )
+
+    // The routes validate keys, so this reaches the query layer directly to prove the SQL binds them too.
+    it('binds an injection-shaped key in the query layer', async () => {
+        await create()
+        const page = await listIntegrations(
+            pool,
+            { type: 'team', id: TEAM_A },
+            {
+                kinds: null,
+                authTypes: null,
+                externalId: null,
+                sourceRows: 'include',
+                where: { "region' OR '1'='1": 'us' },
+                whereIn: { "x'); DROP TABLE integrations;--": ['a'] },
+                whereIexact: { "a'b.c'd": 'x' },
+                hasConfigKey: "x' OR '1'='1",
+            },
+            { limit: 10, newestFirst: false, after: null }
+        )
+        expect(page.rows).toEqual([])
+        expect((await pool.query('SELECT count(*)::int AS n FROM integrations')).rows[0].n).toBe(1)
+    })
+})
 
 describe('KMS outage', () => {
     class DownKms implements Kms {

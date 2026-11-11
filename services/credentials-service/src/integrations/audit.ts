@@ -29,6 +29,31 @@ export interface AuditEntry {
     details?: Record<string, unknown>
 }
 
+/**
+ * Writes one JSON log line per audit entry, with field names and never values. The runtime
+ * database role cannot erase these lines, and the queue never drops them, so they are the
+ * record that alerts and investigations trust.
+ */
+export function logAuditEntries(entries: readonly AuditEntry[]): void {
+    for (const entry of entries) {
+        logger.info('integrations:audited', {
+            deployment: entry.actor.deployment,
+            caller: entry.actor.caller,
+            user_id: entry.actor.userId,
+            owner_type: entry.ownerType,
+            owner_id: entry.ownerId,
+            integration_id: entry.integrationId,
+            kind: entry.kind,
+            operation: entry.operation,
+            outcome: entry.outcome,
+            fields: entry.fields ?? [],
+            request_id: entry.actor.requestId,
+            jti: entry.actor.jti,
+            details: entry.details ?? {},
+        })
+    }
+}
+
 export async function insertAuditRows(db: Queryable, entries: readonly AuditEntry[]): Promise<void> {
     if (entries.length === 0) {
         return
@@ -93,8 +118,12 @@ export class AuditQueue {
         return this.pending.length
     }
 
-    /** Never blocks and never throws. Rows past the limit are dropped and counted. */
+    /**
+     * Never blocks and never throws. Rows past the limit are dropped and counted. The stdout
+     * line is written first and is never dropped.
+     */
     enqueue(entries: readonly AuditEntry[]): void {
+        logAuditEntries(entries)
         const room = Math.max(0, this.maxPending - this.pending.length)
         if (entries.length > room) {
             auditDroppedTotal.labels({ reason: 'queue_full' }).inc(entries.length - room)
