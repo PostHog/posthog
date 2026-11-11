@@ -1,19 +1,23 @@
 import { ChildProcess, spawn } from 'child_process'
 import { once } from 'events'
 import { mkdirSync, mkdtempSync, readFileSync, rmdirSync } from 'fs'
-import Redis from 'ioredis'
 import net from 'net'
 import os from 'os'
 import path from 'path'
 import { setTimeout as nextTimers } from 'timers/promises'
 
+import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { CdpRole } from '../cards'
 import { createEnvironment } from './environment'
+import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
-import { SES_BUCKET_KEY, forgetSesBucket, membersOf, pingRedis, seekFailures } from './stack'
+import * as stack from './stack'
+import { forgetSesBucket, membersOf, pingRedis, seekFailures } from './stack'
 import { createSupervisor } from './supervisor'
 
 const SELF = 100
@@ -191,6 +195,8 @@ describe('scenario environment', () => {
                 AWS_SECRET_ACCESS_KEY: 'scenario',
                 PERSONHOG_ENABLED: 'true',
                 PERSONHOG_ADDR: '127.0.0.1:50052',
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: '6390',
                 ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'local-dev-workflows-transactional-email-jwt',
                 SCENARIO_RUNNER: '1',
@@ -203,6 +209,8 @@ describe('scenario environment', () => {
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
                 SES_ENDPOINT: 'http://elsewhere',
                 PERSONHOG_ADDR: '127.0.0.1:1',
+                SES_RATE_LIMITER_VALKEY_HOST: 'elsewhere',
+                SES_RATE_LIMITER_VALKEY_PORT: '6379',
                 ENCRYPTION_SALT_KEYS: 'profile-key',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'profile-jwt',
                 PLUGIN_SERVER_MODE: 'ingestion-v2',
@@ -217,6 +225,8 @@ describe('scenario environment', () => {
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
                 SES_ENDPOINT: 'http://127.0.0.1:4566',
                 PERSONHOG_ADDR: '127.0.0.1:50052',
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: '6390',
                 ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
                 WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'local-dev-workflows-transactional-email-jwt',
                 PLUGIN_SERVER_MODE: spec.role,
@@ -324,16 +334,23 @@ describe('scenario environment', () => {
         expect(seekFailures(output)).toEqual(failures)
     })
 
-    it('forgets the SES token bucket so a reset starts with a full one', async () => {
-        const redis = new Redis(6379, '127.0.0.1')
+    it('refills the SES token bucket the email worker claims from, so a reset starts with a full one', async () => {
+        const valkey = createRedisV2PoolFromConfig({
+            connection: { url: '127.0.0.1', options: { port: 6379 } },
+            poolMinSize: 1,
+            poolMaxSize: 1,
+        })
+        const limiter = new RateLimiterService(valkey, { name: 'scenario-reset' })
+        const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
         try {
-            await redis.hset(SES_BUCKET_KEY, 'ts', '1', 'pool', '0')
+            await limiter.claimUpTo(claim)
+            expect(await limiter.claimUpTo(claim)).toBe(0)
 
             await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
 
-            expect(await redis.exists(SES_BUCKET_KEY)).toBe(0)
+            expect(await limiter.claimUpTo(claim)).toBe(5)
         } finally {
-            redis.disconnect()
+            await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
         }
     })
 
@@ -410,12 +427,18 @@ describe('scenario environment', () => {
             await expect(holdRunLock(stateDir)).rejects.toThrow(`Scenario runner ${other.child.pid} is already running`)
         }, 20_000)
 
-        it('refuses a state dir a frozen runner holds without naming a pid it cannot read', async () => {
+        it('names a suspended runner that holds the state dir, and how to stop it', async () => {
             const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
             const other = await lockFromAnotherRunner(stateDir)
             other.child.kill('SIGSTOP')
 
-            await expect(holdRunLock(stateDir)).rejects.toThrow(`Another scenario runner holds ${stateDir}`)
+            await expect(holdRunLock(stateDir)).rejects.toMatchObject({
+                exitCode: 2,
+                message: expect.stringContaining(
+                    `Scenario runner ${other.child.pid} holds ${stateDir} but does not answer`
+                ),
+                stopCommand: `kill -CONT ${other.child.pid}; kill ${other.child.pid}`,
+            })
         }, 20_000)
 
         it('frees the state dir for the next runner when released', async () => {
@@ -561,14 +584,34 @@ describe('scenario environment', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         let stranger: ChildProcess | undefined
 
+        beforeEach(() => {
+            const realTerminate = processes.terminate
+            jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) =>
+                plan.groups.length + plan.pids.length > 0
+                    ? Promise.reject(new Error(`The up test would kill ${[...plan.groups, ...plan.pids].join(', ')}.`))
+                    : realTerminate(plan, graceMs)
+            )
+            jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The up test reached the dev stack.'))
+        })
+
         afterEach(() => {
+            jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
-            process.env.XDG_CACHE_HOME = cacheHome
+            if (cacheHome === undefined) {
+                delete process.env.XDG_CACHE_HOME
+            } else {
+                process.env.XDG_CACHE_HOME = cacheHome
+            }
         })
 
         it('refuses a stranger again when retried after a refused up, instead of reporting itself as the holder', async () => {
             process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
-            const { SCENARIO_RUNNER: _marker, PLUGIN_SERVER_MODE: _mode, ...plainEnv } = process.env
+            const {
+                SCENARIO_RUNNER: _marker,
+                PLUGIN_SERVER_MODE: _mode,
+                NODEJS_CAPABILITY_GROUPS: _groups,
+                ...plainEnv
+            } = process.env
             stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'src/index.ts'], {
                 cwd: NODEJS_DIR,
                 env: plainEnv,
@@ -576,9 +619,10 @@ describe('scenario environment', () => {
             })
             await once(stranger, 'spawn')
             const environment = createEnvironment()
+            const refusal = { stopCommand: expect.stringMatching(new RegExp(`^kill (\\d+ )*${stranger.pid}( \\d+)*$`)) }
 
-            await expect(environment.up()).rejects.toThrow(`kill ${stranger.pid}`)
-            await expect(environment.up()).rejects.toThrow(`kill ${stranger.pid}`)
+            await expect(environment.up()).rejects.toMatchObject(refusal)
+            await expect(environment.up()).rejects.toMatchObject(refusal)
         }, 20_000)
     })
 })
