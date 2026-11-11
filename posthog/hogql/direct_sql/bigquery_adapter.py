@@ -9,7 +9,13 @@ from sqlparse import tokens as sqlparse_tokens
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
+from posthog.hogql.direct_sql.adapter import (
+    DirectQueryRequest,
+    DirectQueryResult,
+    DirectQueryTimeoutError,
+    DirectQueryUnavailableError,
+    parse_direct_source_config,
+)
 from posthog.hogql.direct_sql.capability import bigquery_direct_query_enabled, is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
@@ -230,7 +236,12 @@ class BigQueryAdapter:
             )
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=message)
-            raise ExposedHogQLError(message) from error
+            error_class: type[ExposedHogQLError] = ExposedHogQLError
+            if isinstance(error, futures.TimeoutError | google_api_exceptions.DeadlineExceeded):
+                error_class = DirectQueryTimeoutError
+            elif isinstance(error, google_api_exceptions.ServerError | google_api_exceptions.TooManyRequests):
+                error_class = DirectQueryUnavailableError
+            raise error_class(message) from error
 
         span.set_attribute("row_count", len(results))
         types: list[tuple[str, str]] = [
