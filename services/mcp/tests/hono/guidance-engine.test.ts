@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
 import { GUIDANCE_RULES, type GuidanceRule } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
 
 import { makeToolExecutorState } from '../shared/test-utils'
 import { makeGuidanceRedis } from './helpers/guidance-redis-stubs'
@@ -229,6 +230,7 @@ describe('GuidanceEngine', () => {
         ['analytics suppressed', { suppressAnalytics: true }],
         ['sandbox token', { apiKeyScopes: ['internal_run:read'] }],
         ['scout token', { apiKeyScopes: ['signal_scout_internal:write'] }],
+        ['Claude artifact page', { clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeArtifacts' }) }],
         ['suggested tool not in roster', { allTools: [{ name: 'execute-sql' }] as ResolvedState['allTools'] }],
         [
             'one named tool missing from roster',
