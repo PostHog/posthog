@@ -150,51 +150,56 @@ export function keepsStoredKey(form: ReceiverForm, editing: AlertReceiverApi | n
     return false
 }
 
-/** Null when an edit leaves the stored destination as it is. */
-export function receiverDestinationBody(
+type DestinationBody = Omit<AlertReceiverWriteApi, 'name' | 'enabled'>
+type ReceiverFormErrors = Partial<Record<keyof ReceiverForm, string>>
+
+function slackBody(
     form: ReceiverForm,
     slackWorkspaceId: number | undefined,
     editing: AlertReceiverApi | null
-): Omit<AlertReceiverWriteApi, 'name' | 'enabled'> | null {
-    if (form.type === 'slack') {
-        const channelId = slackChannelId(form.slackChannel ?? '')
-        if (
-            editing?.type === 'slack' &&
-            editing.slack_channel_id === channelId &&
-            editing.slack_workspace_id === slackWorkspaceId
-        ) {
-            return null
-        }
-        return {
-            type: 'slack',
-            slack_workspace_id: slackWorkspaceId,
-            slack_channel_id: channelId,
-            slack_channel_name: slackChannelName(form.slackChannel ?? '') ?? channelId,
-        }
+): DestinationBody | null {
+    const channelId = slackChannelId(form.slackChannel ?? '')
+    if (
+        editing?.type === 'slack' &&
+        editing.slack_channel_id === channelId &&
+        editing.slack_workspace_id === slackWorkspaceId
+    ) {
+        return null
     }
-    if (form.type === 'pagerduty') {
-        const routingKey = form.pagerdutyRoutingKey.trim()
-        if (keepsStoredKey(form, editing) && !routingKey) {
-            return null
-        }
-        return {
-            type: 'pagerduty',
-            pagerduty_routing_key: routingKey,
-            pagerduty_severity: form.pagerdutySeverity,
-            pagerduty_region: form.pagerdutyRegion,
-        }
+    return {
+        type: 'slack',
+        slack_workspace_id: slackWorkspaceId,
+        slack_channel_id: channelId,
+        slack_channel_name: slackChannelName(form.slackChannel ?? '') ?? channelId,
     }
-    if (form.type === 'incident_io') {
-        const secret = form.incidentIoSecret.trim()
-        if (keepsStoredKey(form, editing) && !secret) {
-            return null
-        }
-        return {
-            type: 'incident_io',
-            incident_io_alert_source_config_id: form.incidentIoAlertSourceConfigId.trim(),
-            incident_io_secret: secret,
-        }
+}
+
+function pagerdutyBody(form: ReceiverForm, editing: AlertReceiverApi | null): DestinationBody | null {
+    const routingKey = form.pagerdutyRoutingKey.trim()
+    if (keepsStoredKey(form, editing) && !routingKey) {
+        return null
     }
+    return {
+        type: 'pagerduty',
+        pagerduty_routing_key: routingKey,
+        pagerduty_severity: form.pagerdutySeverity,
+        pagerduty_region: form.pagerdutyRegion,
+    }
+}
+
+function incidentIoBody(form: ReceiverForm, editing: AlertReceiverApi | null): DestinationBody | null {
+    const secret = form.incidentIoSecret.trim()
+    if (keepsStoredKey(form, editing) && !secret) {
+        return null
+    }
+    return {
+        type: 'incident_io',
+        incident_io_alert_source_config_id: form.incidentIoAlertSourceConfigId.trim(),
+        incident_io_secret: secret,
+    }
+}
+
+function webhookBody(form: ReceiverForm, editing: AlertReceiverApi | null): DestinationBody | null {
     const webhookUrl = form.webhookUrl.trim()
     if (keepsStoredUrl(form, editing) && !webhookUrl) {
         return null
@@ -202,10 +207,61 @@ export function receiverDestinationBody(
     return { type: form.type, webhook_url: webhookUrl }
 }
 
-export function receiverFormErrors(
+/** Null when an edit leaves the stored destination as it is. */
+export function receiverDestinationBody(
     form: ReceiverForm,
+    slackWorkspaceId: number | undefined,
     editing: AlertReceiverApi | null
-): Partial<Record<keyof ReceiverForm, string>> {
+): DestinationBody | null {
+    switch (form.type) {
+        case 'slack':
+            return slackBody(form, slackWorkspaceId, editing)
+        case 'pagerduty':
+            return pagerdutyBody(form, editing)
+        case 'incident_io':
+            return incidentIoBody(form, editing)
+        default:
+            return webhookBody(form, editing)
+    }
+}
+
+/** A blank credential is fine while the edit keeps the stored one; otherwise it asks for it, again on an edit. */
+function credentialError(
+    form: ReceiverForm,
+    editing: AlertReceiverApi | null,
+    value: string,
+    messages: { missing: string; retype: string }
+): string | undefined {
+    if (value.trim() || keepsStoredKey(form, editing)) {
+        return undefined
+    }
+    return editing?.type === form.type ? messages.retype : messages.missing
+}
+
+function incidentReceiverErrors(form: ReceiverForm, editing: AlertReceiverApi | null): ReceiverFormErrors {
+    if (form.type === 'pagerduty') {
+        return {
+            pagerdutyRoutingKey: credentialError(form, editing, form.pagerdutyRoutingKey, {
+                missing: 'Enter an integration key',
+                retype: 'Enter the integration key again to change the severity or region',
+            }),
+        }
+    }
+    if (form.type === 'incident_io') {
+        return {
+            incidentIoAlertSourceConfigId: form.incidentIoAlertSourceConfigId.trim()
+                ? undefined
+                : 'Enter the alert source ID',
+            incidentIoSecret: credentialError(form, editing, form.incidentIoSecret, {
+                missing: 'Enter the alert source secret',
+                retype: 'Enter the secret again to change the alert source',
+            }),
+        }
+    }
+    return {}
+}
+
+export function receiverFormErrors(form: ReceiverForm, editing: AlertReceiverApi | null): ReceiverFormErrors {
     return {
         name: form.name.trim() ? undefined : 'Enter a name',
         slackChannel: form.type === 'slack' && !form.slackChannel ? 'Choose a channel' : undefined,
@@ -213,22 +269,7 @@ export function receiverFormErrors(
             usesWebhookUrl(form.type) && !keepsStoredUrl(form, editing) && !form.webhookUrl.trim()
                 ? 'Enter a webhook URL'
                 : undefined,
-        pagerdutyRoutingKey:
-            form.type === 'pagerduty' && !keepsStoredKey(form, editing) && !form.pagerdutyRoutingKey.trim()
-                ? editing?.type === 'pagerduty'
-                    ? 'Enter the integration key again to change the severity or region'
-                    : 'Enter an integration key'
-                : undefined,
-        incidentIoAlertSourceConfigId:
-            form.type === 'incident_io' && !form.incidentIoAlertSourceConfigId.trim()
-                ? 'Enter the alert source ID'
-                : undefined,
-        incidentIoSecret:
-            form.type === 'incident_io' && !keepsStoredKey(form, editing) && !form.incidentIoSecret.trim()
-                ? editing?.type === 'incident_io'
-                    ? 'Enter the secret again to change the alert source'
-                    : 'Enter the alert source secret'
-                : undefined,
+        ...incidentReceiverErrors(form, editing),
     }
 }
 
