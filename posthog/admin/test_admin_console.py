@@ -339,7 +339,15 @@ class TestAdminConsoleViews(BaseTest):
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
         assert organization_page.status_code == 200
         organization_content = organization_page.content.decode()
-        for title in ("Overview", "Teams", "Billing", "Deletion", "Managed warehouse", "Legal documents", "PostHog Desktop"):
+        for title in (
+            "Overview",
+            "Teams",
+            "Billing",
+            "Deletion",
+            "Managed warehouse",
+            "Legal documents",
+            "PostHog Desktop",
+        ):
             assert title in organization_content
         assert f"/admin/console/teams/{self.team.pk}/" in organization_content
 
