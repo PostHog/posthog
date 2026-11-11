@@ -159,10 +159,9 @@ export function createEnvironment(): Environment {
         ).flat()
         if (held.length > 0) {
             const inspect = `ss -ltnp '${held.map((role) => `sport = :${ROLE_PORTS[role]}`).join(' or ')}'`
+            const ports = held.map((role) => `${ROLE_PORTS[role]} (${role})`).join(', ')
             throw new StackConflictError(
-                `Role ports are already held by processes the runner did not start: ${held
-                    .map((role) => `${ROLE_PORTS[role]} (${role})`)
-                    .join(', ')}. Find what holds them with \`${inspect}\`, stop it, then run the scenario again.`
+                `Role ports are already held by processes the runner did not start: ${ports}. Find the processes that hold them with \`${inspect}\`, stop them, then run the scenario again.`
             )
         }
     }
@@ -182,7 +181,7 @@ export function createEnvironment(): Environment {
             async () => {
                 if ((await groupMembers(group)) > 0) {
                     throw new StackConflictError(
-                        `The CDP events consumer group ${group} has a member the runner did not start. Stop it with \`hogli down\`, then run the scenario again.`
+                        `The CDP events consumer group ${group} has a member the runner did not start. Run \`hogli down\`, then run the scenario again.`
                     )
                 }
             },

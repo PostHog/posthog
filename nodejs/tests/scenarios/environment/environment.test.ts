@@ -157,7 +157,7 @@ describe('scenario environment', () => {
         ])
 
         expect(error).toMatchObject({ exitCode: 2 })
-        expect(error.message).toContain('Stop it with `kill 41 42`, then run the scenario again.')
+        expect(error.message).toContain('Run `kill 41 42`, then run the scenario again.')
     })
 
     describe('roleSpecs', () => {
@@ -268,7 +268,9 @@ describe('scenario environment', () => {
             const other = await lockFromAnotherRunner(stateDir)
             expect(other.said).toBe('held')
 
-            await expect(holdRunLock(stateDir)).rejects.toThrow(`Scenario runner ${other.child.pid} is already running`)
+            await expect(holdRunLock(stateDir)).rejects.toThrow(
+                `Scenario runner ${other.child.pid} is already running from ${stateDir}. Run \`kill ${other.child.pid}\`, then run the scenario again.`
+            )
 
             other.child.kill('SIGKILL')
             await once(other.child, 'exit')
@@ -308,7 +310,7 @@ describe('scenario environment', () => {
             await expect(holdRunLock(stateDir)).rejects.toMatchObject({
                 exitCode: 2,
                 message: expect.stringContaining(
-                    `Scenario runner ${other.child.pid} holds ${stateDir} but does not answer; it may be suspended (resume it with fg). Stop it with \`kill -CONT ${other.child.pid}; kill ${other.child.pid}\`, then run the scenario again.`
+                    `Scenario runner ${other.child.pid} holds ${stateDir} but does not answer; it may be suspended (resume it with fg). Run \`kill -CONT ${other.child.pid}; kill ${other.child.pid}\`, then run the scenario again.`
                 ),
             })
         }, 20_000)
@@ -392,14 +394,28 @@ describe('scenario environment', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         const realSpawn = childProcess.spawn
         const stubRolePids = new Set<number>()
-        const roleChildren = new Map<Role, ChildProcess>()
         const stubRole =
             "require('http').createServer((_request, response) => response.end()).listen(Number(process.env.HTTP_SERVER_PORT))"
+        const stubRoleExitingAfterHealth =
+            "require('http').createServer((_request, response) => response.end(() => process.exit(1))).listen(Number(process.env.HTTP_SERVER_PORT))"
+        const stubRoleBindingAfterHolder = `
+            const port = Number(process.env.HTTP_SERVER_PORT)
+            const bind = () =>
+                require('net')
+                    .connect(port, '127.0.0.1')
+                    .once('connect', function () {
+                        this.destroy()
+                        require('http').createServer().listen(port)
+                    })
+                    .once('error', () => setTimeout(bind, 20))
+            bind()
+        `
         let stranger: ChildProcess | undefined
         let environment: Environment | undefined
         let portHolder: http.Server | undefined
         let unspawnable: Role | undefined
         let losesItsPort: Role | undefined
+        let exitsAfterHealth: Role | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
         const healthOf = async (role: Role): Promise<number> =>
@@ -435,13 +451,22 @@ describe('scenario environment', () => {
                 if (options.env?.PLUGIN_SERVER_MODE === unspawnable) {
                     return realSpawn(path.join(NODEJS_DIR, 'no-such-tsx'), args, options)
                 }
-                const role = realSpawn(process.execPath, ['-e', stubRole], options)
-                if (options.env?.PLUGIN_SERVER_MODE === losesItsPort) {
+                const mode = options.env?.PLUGIN_SERVER_MODE
+                const script =
+                    mode === losesItsPort
+                        ? stubRoleBindingAfterHolder
+                        : mode === exitsAfterHealth
+                          ? stubRoleExitingAfterHealth
+                          : stubRole
+                const role = realSpawn(process.execPath, ['-e', script], options)
+                if (mode === losesItsPort) {
                     void holdPort(losesItsPort!, once(role, 'exit'))
                     losesItsPort = undefined
                 }
+                if (mode === exitsAfterHealth) {
+                    exitsAfterHealth = undefined
+                }
                 stubRolePids.add(role.pid!)
-                roleChildren.set(options.env?.PLUGIN_SERVER_MODE as Role, role)
                 return role
             }) as unknown as typeof childProcess.spawn)
             process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
@@ -454,7 +479,7 @@ describe('scenario environment', () => {
             portHolder = undefined
             unspawnable = undefined
             losesItsPort = undefined
-            roleChildren.clear()
+            exitsAfterHealth = undefined
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             if (cacheHome === undefined) {
@@ -481,7 +506,7 @@ describe('scenario environment', () => {
             expect(Object.fromEntries(health)).toEqual(Object.fromEntries(CdpRole.options.map((role) => [role, 200])))
         }, 30_000)
 
-        it.each<[string, Role, () => Promise<void> | void]>([
+        it.each<[string, Role, () => void]>([
             [
                 'loses its port to another server that answers /_health',
                 'cdp-processed-events',
@@ -493,13 +518,7 @@ describe('scenario environment', () => {
                 'exits after it answered /_health',
                 'cdp-api',
                 () => {
-                    jest.spyOn(stack, 'missingTemplates').mockImplementationOnce(async () => {
-                        const cdpApi = roleChildren.get('cdp-api')!
-                        const exited = once(cdpApi, 'exit')
-                        cdpApi.kill('SIGKILL')
-                        await exited
-                        return []
-                    })
+                    exitsAfterHealth = 'cdp-api'
                 },
             ],
             [
@@ -513,7 +532,7 @@ describe('scenario environment', () => {
             'fails naming a role that %s and its log',
             async (_name, role, arrange) => {
                 stubTheStack([])
-                await arrange()
+                arrange()
                 environment = createEnvironment()
 
                 const failure = await environment.up().then(
@@ -535,7 +554,7 @@ describe('scenario environment', () => {
             await expect(environment.up()).rejects.toMatchObject({
                 exitCode: 2,
                 message: expect.stringMatching(
-                    /6760 \(cdp-processed-events\)\. Find what holds them with `ss -ltnp 'sport = :6760'`, stop it, then run the scenario again\.$/
+                    /6760 \(cdp-processed-events\)\. Find the processes that hold them with `ss -ltnp 'sport = :6760'`, stop them, then run the scenario again\.$/
                 ),
             })
         }, 30_000)
@@ -557,7 +576,7 @@ describe('scenario environment', () => {
             const refusal = {
                 exitCode: 2,
                 message: expect.stringMatching(
-                    new RegExp(`Stop it with \`kill (\\d+ )*${stranger.pid}( \\d+)*\`, then run the scenario again\\.$`)
+                    new RegExp(`Run \`kill (\\d+ )*${stranger.pid}( \\d+)*\`, then run the scenario again\\.$`)
                 ),
             }
 
