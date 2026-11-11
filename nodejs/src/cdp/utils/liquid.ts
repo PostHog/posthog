@@ -27,7 +27,7 @@ const LIQUID_UNBOUNDED_FILTERS = ['where_exp', 'find_exp', 'find_index_exp', 're
 
 export const EMAIL_BODY_TAG_LIMIT = 10_000
 
-const LIQUID_BLOCK_OPENER = /-?\s*liquid/y
+const LIQUID_BLOCK_OPENER = /-?[\s\u180E]*liquid/y
 
 const countStatementLines = (body: string): number => {
     let count = 0
