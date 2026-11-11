@@ -26,7 +26,11 @@ class ConfirmationToken:
         }
 
     def sign(self, form: forms.Form) -> str:
-        data = {name: self.request.POST.getlist(name) for name in form.fields if name in self.request.POST}
+        # Signs the form's data, not the request, so a preview can add what it showed, for example the rows it
+        # selected, and the confirm step acts on exactly those.
+        submitted = form.data
+        assert isinstance(submitted, QueryDict)
+        data = {name: submitted.getlist(name) for name in form.fields if name in submitted}
         return signing.dumps({**self.scope, "data": data}, salt=SALT)
 
     def load(self, token: str) -> QueryDict | None:

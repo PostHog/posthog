@@ -23,7 +23,7 @@ const node = (
     nodeStats: TraceNodeApi['stats'],
     children: TraceNodeApi[] = [],
     model: string | null = null
-): TraceNodeApi => ({ id, kind, name, model, stats: nodeStats, hasError: false, children })
+): TraceNodeApi => ({ id, kind, name, label: name, model, stats: nodeStats, hasError: false, children })
 
 const SAMPLE_SESSION: TraceNodeApi[] = [
     node('trace-1', 'trace', 'support_chat', stats(0.0041, 2300), [

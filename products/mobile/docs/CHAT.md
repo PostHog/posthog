@@ -112,15 +112,14 @@ Picked files are not part of a draft. They stay in memory and go when the sheet 
 
 ## Rich replies
 
-Sent messages and completed AI replies have an icon-only copy button below the message in both chat versions and report discussions.
+Sent messages have an icon-only copy button in both chat versions and report discussions. For AI replies, Copy appears below the last message of each turn.
 It copies the full message text, preserving Markdown and code blocks, and shows a checkmark after the clipboard confirms success.
 The button waits until an AI reply finishes streaming and stays hidden for empty messages.
 A failed copy shows an error beside the button and allows another attempt.
 `mobile_chat_message_copy_pressed`, `mobile_chat_message_copied` and `mobile_chat_message_copy_failed` record the action with `message_role`, `text_length` and the standard action context.
 
-Completed answers also offer **Good answer** and **Bad answer** as icon-only buttons beside Copy.
-For AI 2.0, the rating appears under the last message of each completed turn.
-Classic replies use their trace ID, and show ratings when that ID is available.
+The last message of a completed AI turn also offers **Good answer** and **Bad answer** as icon-only buttons beside Copy.
+Classic replies show ratings when the final message has a trace ID.
 A thumbs-down saves the rating and opens an optional comment sheet that moves above the keyboard.
 Skip closes the sheet, and tapping the selected thumbs-down reopens it until a comment is sent.
 Ratings persist on the device, scoped to the account and project, and clear on sign-out.

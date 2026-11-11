@@ -3,14 +3,15 @@
 import time
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from . import model
-
-
 import structlog
 from prometheus_client import Counter
 
+from posthog.integrations.contracts import IntegrationPatch
+
 from . import common
+
+if TYPE_CHECKING:
+    from posthog.integrations.contracts import IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -106,8 +107,10 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
     return REFRESH_FAILURE_REASON_OTHER
 
 
-def record_refresh_failure(integration: "model.Integration", *, reason: str = REFRESH_FAILURE_REASON_OTHER) -> str:
-    """Track a consecutive refresh failure on the integration's config; caller saves.
+def refresh_failure_patch(
+    integration: "IntegrationRecord", *, reason: str = REFRESH_FAILURE_REASON_OTHER
+) -> tuple[IntegrationPatch, str]:
+    """The config change that tracks one more consecutive refresh failure. The caller stores it.
 
     Schedules the next attempt with capped exponential backoff. `invalid_grant` means the grant
     itself is dead and only a customer re-auth can fix it, so after an unbroken streak of them the
@@ -118,40 +121,49 @@ def record_refresh_failure(integration: "model.Integration", *, reason: str = RE
     and retrying can't make an undecryptable token readable or an edited key file valid. Other reasons (invalid_client, 5xx, network, rate_limited)
     never go terminal - a platform-side credential fix must let the fleet self-recover.
 
-    Returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
+    Also returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
     connections are newly breaking, regardless of retry noise.
     """
-    count = int(integration.config.get("refresh_failure_count") or 0)
+    config = integration.config
+    count = int(config.get("refresh_failure_count") or 0)
     attempt = "first" if count == 0 else "retry"
     count += 1
-    integration.config["refresh_failure_count"] = count
-    integration.config["refresh_next_attempt_at"] = int(time.time()) + min(
-        REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS
-    )
+    changes: dict[str, object] = {
+        "refresh_failure_count": count,
+        "refresh_next_attempt_at": int(time.time())
+        + min(REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS),
+    }
+    removed: tuple[str, ...] = ()
     if reason in (REFRESH_FAILURE_REASON_UNREADABLE_SECRET, REFRESH_FAILURE_REASON_INVALID_TOKEN_URI):
-        integration.config.pop("refresh_invalid_grant_count", None)
-        if not integration.config.get("refresh_terminal"):
-            integration.config["refresh_terminal"] = True
+        removed = ("refresh_invalid_grant_count",)
+        if not config.get("refresh_terminal"):
+            changes["refresh_terminal"] = True
             oauth_refresh_terminal_counter.labels(kind=integration.kind).inc()
     elif reason == REFRESH_FAILURE_REASON_INVALID_GRANT:
-        grant_streak = int(integration.config.get("refresh_invalid_grant_count") or 0) + 1
-        integration.config["refresh_invalid_grant_count"] = grant_streak
+        grant_streak = int(config.get("refresh_invalid_grant_count") or 0) + 1
+        changes["refresh_invalid_grant_count"] = grant_streak
         # Guarded so on-demand refreshes (which bypass the backoff) can't re-count a dead row
-        if grant_streak >= REFRESH_TERMINAL_FAILURE_COUNT and not integration.config.get("refresh_terminal"):
-            integration.config["refresh_terminal"] = True
+        if grant_streak >= REFRESH_TERMINAL_FAILURE_COUNT and not config.get("refresh_terminal"):
+            changes["refresh_terminal"] = True
             oauth_refresh_terminal_counter.labels(kind=integration.kind).inc()
     else:
-        integration.config.pop("refresh_invalid_grant_count", None)
-    return attempt
+        removed = ("refresh_invalid_grant_count",)
+    return IntegrationPatch(config_patch=changes, config_remove=removed), attempt
 
 
-def record_refresh_success(integration: "model.Integration") -> None:
-    for key in ("refresh_failure_count", "refresh_invalid_grant_count", "refresh_next_attempt_at", "refresh_terminal"):
-        integration.config.pop(key, None)
+# A successful refresh clears the failure tracking of `refresh_failure_patch`.
+REFRESH_SUCCESS_PATCH = IntegrationPatch(
+    config_remove=(
+        "refresh_failure_count",
+        "refresh_invalid_grant_count",
+        "refresh_next_attempt_at",
+        "refresh_terminal",
+    )
+)
 
 
-def record_oauth_client_used(integration: "model.Integration", *, used_fallback: bool) -> None:
-    """Track whether the grant still depends on the legacy (fallback) OAuth credentials.
+def oauth_client_patch(*, used_fallback: bool) -> IntegrationPatch:
+    """The config change that tracks whether the grant still depends on the legacy (fallback) OAuth credentials.
 
     A refresh token minted by a since-migrated app can only be refreshed by that app's
     credentials, so a successful fallback refresh identifies exactly the connections that break
@@ -160,12 +172,11 @@ def record_oauth_client_used(integration: "model.Integration", *, used_fallback:
     credentials and replaces `config` wholesale, which clears the flag.
     """
     if used_fallback:
-        integration.config[CONFIG_LEGACY_OAUTH_CLIENT] = True
-    else:
-        integration.config.pop(CONFIG_LEGACY_OAUTH_CLIENT, None)
+        return IntegrationPatch(config_patch={CONFIG_LEGACY_OAUTH_CLIENT: True})
+    return IntegrationPatch(config_remove=(CONFIG_LEGACY_OAUTH_CLIENT,))
 
 
-def issuing_oauth_client_ids(integration: "model.Integration") -> list[str]:
+def issuing_oauth_client_ids(integration: "IntegrationRecord") -> list[str]:
     """The OAuth client ids the connection was established with. Empty when that can't be read.
 
     OIDC puts the client id in the id_token's `aud` claim, and we keep the id_token from the
@@ -193,10 +204,12 @@ def issuing_oauth_client_ids(integration: "model.Integration") -> list[str]:
     return []
 
 
-def refresh_backoff_active(integration: "model.Integration") -> bool:
+def refresh_backoff_active(integration: "IntegrationRecord") -> bool:
     """Whether the refresh sweep should skip this integration. Reconnecting resets the state
     (the OAuth callback replaces `config` wholesale), and on-demand API refreshes bypass this."""
     if integration.config.get("refresh_terminal"):
         return True
     next_attempt_at = integration.config.get("refresh_next_attempt_at")
-    return bool(next_attempt_at) and time.time() < next_attempt_at
+    if not next_attempt_at:
+        return False
+    return time.time() < next_attempt_at

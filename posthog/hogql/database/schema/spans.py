@@ -8,6 +8,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.database.schema.logs import LogsKafkaMetricsTable
 
 from posthog.clickhouse.workload import Workload
 
@@ -142,3 +143,18 @@ class TraceAttributesTable(Table):
 
     def to_printed_hogql(self):
         return "trace_attributes"
+
+
+class TraceSpansKafkaMetricsTable(LogsKafkaMetricsTable):
+    """Kafka consumption per partition for the trace spans topic, with the logs table's columns.
+
+    Not scoped to teams. Traces alerts read it to hold a check back to what ingestion has written.
+    """
+
+    description: str = "Per-partition Kafka consumption metadata for the trace spans ingestion topic; not scoped to teams, used to track ingestion lag."
+
+    def to_printed_clickhouse(self, context):
+        return "trace_spans_kafka_metrics"
+
+    def to_printed_hogql(self):
+        return "trace_spans_kafka_metrics"

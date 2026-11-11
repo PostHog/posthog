@@ -65,9 +65,6 @@ pub struct NotificationsConfig {
     #[envconfig(from = "ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL")]
     pub notifications_rate_limit_redis_url: String,
 
-    #[envconfig(from = "ERROR_TRACKING_NOTIFICATIONS_SHADOW_REDIS_URL")]
-    pub shadow_redis_url: Option<String>,
-
     /// Bucket size, and the tokens a team earns back per hour. Zero or less
     /// disables the limit.
     #[envconfig(
