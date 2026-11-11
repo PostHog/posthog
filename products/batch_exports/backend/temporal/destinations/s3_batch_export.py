@@ -646,17 +646,22 @@ class PinnedS3HTTPSession(AIOHTTPSession):
 
         try:
             return await super().send(request)
-        except botocore.exceptions.HTTPClientError as err:
-            if isinstance(err.kwargs.get("error"), SSRFBlockedError):
-                raise InvalidS3EndpointError(str(err.kwargs["error"])) from err
-            raise
-        except (botocore.exceptions.EndpointConnectionError, botocore.exceptions.ConnectTimeoutError):
+        except (
+            botocore.exceptions.EndpointConnectionError,
+            botocore.exceptions.ConnectTimeoutError,
+            botocore.exceptions.ReadTimeoutError,
+            botocore.exceptions.ConnectionClosedError,
+        ):
             if self._proxy_config.proxy_url_for(request.url):  # type: ignore[attr-defined]
                 raise
             # A delayed failure must not invalidate pins refreshed by another request.
             if self._host_to_resolved_ips[host] is pinned_ips:
                 # IMPORTANT: Do not clear validated ips as an empty dict permits normal DNS
                 self._hosts_to_refresh.add(host)
+            raise
+        except botocore.exceptions.HTTPClientError as err:
+            if isinstance(err.kwargs.get("error"), SSRFBlockedError):
+                raise InvalidS3EndpointError(str(err.kwargs["error"])) from err
             raise
 
 

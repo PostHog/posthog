@@ -5,13 +5,15 @@ import asyncio
 from typing import TYPE_CHECKING
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
 from django.test import override_settings
 
+import aiohttp
 import dns.exception
 from botocore.exceptions import EndpointConnectionError, HTTPClientError
+from yarl import URL
 
 from products.batch_exports.backend.destination_tests import get_destination_test
 from products.batch_exports.backend.destination_tests.s3 import (
@@ -258,6 +260,55 @@ async def test_custom_s3_retries_dns_failures(
         assert attempted_addresses[0] == "8.8.8.8"
     if address == "93.184.216.34":
         assert attempted_addresses[-1] == address
+
+
+@override_settings(FORCE_URL_VALIDATION=True)
+@pytest.mark.parametrize("error", [aiohttp.ServerTimeoutError("Read timed out"), aiohttp.ServerDisconnectedError()])
+async def test_custom_s3_refreshes_pins_after_response_failure(error: Exception) -> None:
+    attempted_addresses: list[str] = []
+
+    async def connect_socket(*args: object, addr_infos: list["AddrInfoType"], **kwargs: object) -> tuple[Mock, Mock]:
+        attempted_addresses.append(addr_infos[0][4][0])
+        return Mock(), Mock(closed=None)
+
+    response = Mock(
+        spec=aiohttp.ClientResponse,
+        status=200,
+        url=URL("https://storage.example.com/exports"),
+        raw_headers=(),
+        _raw_cookie_headers=(),
+        start=AsyncMock(side_effect=[error, None]),
+        read=AsyncMock(
+            return_value=b"<InitiateMultipartUploadResult><UploadId>fake-upload</UploadId></InitiateMultipartUploadResult>"
+        ),
+    )
+    with (
+        patch.dict(
+            os.environ,
+            {
+                **{key: "" for key in os.environ if key.lower().endswith("_proxy")},
+                "AWS_MAX_ATTEMPTS": "2",
+                "AWS_RETRY_MODE": "standard",
+            },
+        ),
+        patch(
+            "dns.resolver.Resolver.resolve_name",
+            side_effect=[Mock(addresses=Mock(return_value=[ip])) for ip in ["8.8.8.8", "1.1.1.1"]],
+        ),
+        patch("aiohttp.connector.DefaultResolver.resolve", side_effect=AssertionError("Unexpected unpinned DNS")),
+        patch("aiohttp.TCPConnector._wrap_create_connection", side_effect=connect_socket),
+        patch("aiohttp.ClientRequest.send", return_value=response),
+        patch("botocore.retries.standard.ExponentialBackoff.delay_amount", return_value=0),
+    ):
+        async with s3_client(
+            AWSCredentials(aws_access_key_id="fake-key", aws_secret_access_key="fake-secret"),
+            region="us-east-1",
+            endpoint_url="https://storage.example.com",
+        ) as client:
+            result = await client.create_multipart_upload(Bucket="exports", Key="events.jsonl")
+
+    assert result["UploadId"] == "fake-upload"
+    assert attempted_addresses == ["8.8.8.8", "1.1.1.1"]
 
 
 @override_settings(FORCE_URL_VALIDATION=True)
