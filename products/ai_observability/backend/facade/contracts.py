@@ -1,7 +1,8 @@
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.alias_generators import to_camel
 
 from posthog.dataclasses import frozen
@@ -211,6 +212,33 @@ class TraceNodeRaw(Contract):
     kind: TraceNodeKind
     event: TraceNodeEvent | None = Field(
         description="The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event."
+    )
+
+
+_JSON_VALUE_VARIANTS: list[dict[str, Any]] = [
+    {"type": "object", "additionalProperties": True},
+    {"type": "array", "items": {}},
+    {"type": "string"},
+    {"type": "number"},
+    {"type": "boolean"},
+]
+JSONValue = Annotated[Any, WithJsonSchema({"oneOf": _JSON_VALUE_VARIANTS})]
+NullableJSONValue = Annotated[Any, WithJsonSchema({"oneOf": [*_JSON_VALUE_VARIANTS, {"type": "null"}]})]
+
+
+class TraceNodeDatasetItem(Contract):
+    client_item_id: str = Field(
+        description="An id that identifies the step among dataset items: the event's uuid, or the trace id for the root."
+    )
+    source_trace_id: str = Field(description="The id of the trace the step belongs to.")
+    source_event_id: str = Field(description="The step's event uuid, or the trace id for the root.")
+    source_timestamp: datetime = Field(description="When the trace happened, as given by the timestamp hint.")
+    input: JSONValue = Field(description="The step's input value as ingested, or an empty object when it has none.")
+    source_output: NullableJSONValue = Field(
+        description="The step's output value as ingested, or null when it has none."
+    )
+    metadata: dict[str, Any] = Field(
+        description="The step's custom event properties, without `$` names. Empty for the root."
     )
 
 
@@ -744,3 +772,80 @@ class ScoreHistogram(Contract):
     buckets: list[ScoreBucket] = Field(
         description="One bucket per integer on a small integer scale, else ten equal buckets across the scale."
     )
+
+
+EvaluationUnitKind = Literal["generation", "trace", "session"]
+PreviewOutcome = Literal["pass", "fail", "na", "error"]
+
+
+@frozen
+class EvaluationPreviewSettle:
+    """How an unsaved trace or session evaluation waits for a unit to settle, as far as a preview reads it."""
+
+    strategy: Literal["fixed_window", "inactivity"] | None = None
+    window_seconds: int | None = None
+    quiet_period_seconds: int | None = None
+
+
+@frozen
+class EvaluationPreviewScope:
+    """Which traffic an unsaved evaluation would run on."""
+
+    target: EvaluationUnitKind
+    conditions: Sequence[Mapping[str, Any]]
+    settle: EvaluationPreviewSettle
+
+
+@frozen
+class EvaluationTrafficSample:
+    """One unit an unsaved evaluation would run on, previewed from its latest generation."""
+
+    sample_id: str
+    sample_type: EvaluationUnitKind
+    trace_id: str | None
+    timestamp: datetime
+    input_preview: str
+    output_preview: str
+
+
+@frozen
+class JudgeModel:
+    provider: str
+    model: str
+    provider_key_id: str | None
+
+
+@frozen
+class UnsavedJudge:
+    """An LLM judge that is not saved yet, already validated the way saving validates it."""
+
+    evaluation_config: Mapping[str, Any]
+    output_type: Literal["boolean", "numeric", "categorical"]
+    output_config: Mapping[str, Any]
+    model: JudgeModel | None
+
+
+@frozen
+class EvaluationTestResult:
+    """What an unsaved evaluation returned for one unit."""
+
+    sample_id: str
+    sample_type: EvaluationUnitKind
+    event_uuid: str | None
+    trace_id: str | None
+    input_preview: str
+    output_preview: str
+    result: bool | None
+    score: float | None
+    categories: list[str] | None
+    reasoning: str | None
+    error: str | None
+    outcome: PreviewOutcome | None
+
+
+class JudgeModelError(Exception):
+    """The judge's model settings name a provider key it cannot use."""
+
+
+class JudgeTestAlreadyRunningError(Exception):
+    """This user's previous judge test has not finished."""
