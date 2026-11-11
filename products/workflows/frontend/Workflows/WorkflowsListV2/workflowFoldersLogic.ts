@@ -971,12 +971,16 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         folders: (folders: Record<string, FileSystemEntry[]>) => {
             const index = fileIndex(cache)
             const present = new Map(Object.values(folders).flatMap((files) => files.map((entry) => [entry.id, entry])))
+            const goneFolders: FileSystemEntry[] = []
             for (const [id, entry] of index) {
                 const folder = parentPath(entry.path)
                 // Only a complete folder load is the truth: a folder cut short, loading its next page or failed may still hold the file.
                 if (!present.has(id) && folder in folders && values.folderStates[folder] === 'loaded') {
                     index.delete(id)
                     cache.changes = changeCount(cache) + 1
+                    if (entry.type === 'folder') {
+                        goneFolders.push(entry)
+                    }
                 }
             }
             for (const entry of present.values()) {
@@ -987,6 +991,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     }
                     index.set(entry.id, entry)
                 }
+            }
+            // The shared tree still caches what was inside a folder that is gone, which would bring the branch back.
+            if (goneFolders.length > 0) {
+                projectTreeDataLogic.actions.dropStaleItems(goneFolders)
             }
             publishPlacements(cache, actions.setPlacements)
         },

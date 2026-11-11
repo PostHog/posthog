@@ -505,6 +505,30 @@ describe('workflowFoldersLogic', () => {
                 logic.actions.loadBrowser()
             },
         ],
+        [
+            'gone from a reload of its parent',
+            (): void => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/file_system/': ({ request }) =>
+                            new URL(request.url).searchParams.get('parent') === 'Billing'
+                                ? [
+                                      200,
+                                      paginated([
+                                          {
+                                              id: 'direct',
+                                              path: 'Billing/Welcome',
+                                              type: 'hog_flow',
+                                              ref: FIXTURE_WORKFLOWS[0].id,
+                                          },
+                                      ]),
+                                  ]
+                                : [200, paginated([])],
+                    },
+                })
+                projectTreeDataLogic.actions.loadFolder('Billing', true)
+            },
+        ],
     ])('keeps a folder branch away after it is %s and the shared tree prunes', async (_, loseBranch) => {
         await expectLogic(logic).toFinishAllListeners()
         loseBranch()
