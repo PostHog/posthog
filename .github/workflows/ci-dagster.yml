@@ -223,6 +223,10 @@ jobs:
                         - 'products/access_control/backend/facade/**/*.py'
                         - 'products/analytics_platform/backend/**/*.py'
                         - 'products/cohorts/backend/**/*.py'
+                        # The GeoIP backfill DAG reads transformations through the CDP facade, and
+                        # its tests seed HogFunction rows. Narrow: no other DAG imports CDP.
+                        - 'products/cdp/backend/facade/**/*.py'
+                        - 'products/cdp/backend/models/hog_functions/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
                         # warehouse_sources is deliberately narrower than the other product

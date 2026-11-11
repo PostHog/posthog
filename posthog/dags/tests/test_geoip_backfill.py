@@ -17,6 +17,7 @@ from posthog.dags.geoip_backfill import (
     IngestionWindowConfig,
     geoip_backfill_staging_job,
 )
+from posthog.dags.tests.conftest import GeoipTeams
 from posthog.dataclasses import frozen
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
@@ -101,20 +102,33 @@ def run_staging(
         )
 
 
-def staged_rows(cluster: ClickhouseCluster, table: GeoipStagingTable) -> dict[UUID, tuple[dict, dict, str]]:
+@frozen
+class StagedRow:
+    properties: dict[str, Any]
+    person_properties: dict[str, Any]
+    original_properties: str
+
+
+def staged_rows(cluster: ClickhouseCluster, table: GeoipStagingTable) -> dict[UUID, StagedRow]:
     rows = cluster.any_host_by_role(
         Query(f"SELECT uuid, properties, person_properties, original_properties FROM {table.qualified_name} FINAL"),
         NodeRole.DATA,
     ).result()
-    return {row[0]: (json.loads(row[1]), json.loads(row[2]), row[3]) for row in rows}
+    return {
+        row[0]: StagedRow(
+            properties=json.loads(row[1]), person_properties=json.loads(row[2]), original_properties=row[3]
+        )
+        for row in rows
+    }
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("max_rows_per_read", [1000, 1], ids=["one_read_per_slice", "slices_split"])
 def test_staging_holds_enriched_copies_of_the_events_written_without_geoip(
-    cluster: ClickhouseCluster, geoip_teams: tuple[int, int], tmp_path: Path, max_rows_per_read: int
+    cluster: ClickhouseCluster, geoip_teams: GeoipTeams, tmp_path: Path, max_rows_per_read: int
 ) -> None:
-    with_geoip, without_geoip = geoip_teams
+    with_geoip = geoip_teams.with_geoip
+    without_geoip = geoip_teams.without_geoip
     # nosemgrep: test-datetime-now-without-freeze (every event time and the window are offsets from this one reading)
     now = datetime.now(UTC).replace(microsecond=0)
     damaged = SeededEvent(
@@ -170,15 +184,15 @@ def test_staging_holds_enriched_copies_of_the_events_written_without_geoip(
     try:
         staged = staged_rows(cluster, table)
         assert set(staged) == {damaged.uuid, second_damaged.uuid}
-        properties, person_properties, original_properties = staged[damaged.uuid]
-        assert properties["$geoip_country_code"] == "US"
-        assert properties["$set"]["email"] == "user@example.com"
-        assert properties["$set"]["$geoip_country_code"] == "US"
-        assert properties["$set"]["$geoip_city_name"] is None
-        assert properties["$set_once"]["$initial_geoip_country_code"] == "US"
-        assert person_properties["$geoip_country_code"] == "US"
-        assert person_properties["$initial_geoip_country_code"] == "FR"
-        assert json.loads(original_properties) == damaged.properties
-        assert staged[second_damaged.uuid][1] == {}
+        row = staged[damaged.uuid]
+        assert row.properties["$geoip_country_code"] == "US"
+        assert row.properties["$set"]["email"] == "user@example.com"
+        assert row.properties["$set"]["$geoip_country_code"] == "US"
+        assert row.properties["$set"]["$geoip_city_name"] is None
+        assert row.properties["$set_once"]["$initial_geoip_country_code"] == "US"
+        assert row.person_properties["$geoip_country_code"] == "US"
+        assert row.person_properties["$initial_geoip_country_code"] == "FR"
+        assert json.loads(row.original_properties) == damaged.properties
+        assert staged[second_damaged.uuid].person_properties == {}
     finally:
         cluster.map_hosts_by_role(table.drop, NodeRole.DATA).result()

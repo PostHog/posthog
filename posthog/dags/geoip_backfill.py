@@ -27,8 +27,9 @@ from posthog.schema import ProductKey
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.clickhouse.query_tagging import DagsterTags, Feature, tags_context
+from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+from posthog.dags import flag_evaluations_backfill
 from posthog.dags.common import JobOwners, dagster_tags
 from posthog.dags.flag_evaluations_backfill import inserted_rows, shard_workload
 from posthog.dags.geoip_enrichment import GeoipEnrichment, GeoipLookup, MmdbGeoipLookup, geoip_enrichment
@@ -118,10 +119,10 @@ class IngestionWindow:
     def can_split(self) -> bool:
         return self.end - self.start >= timedelta(seconds=2)
 
-    def halves(self) -> tuple["IngestionWindow", "IngestionWindow"]:
+    def halves(self) -> list["IngestionWindow"]:
         # `_timestamp` has whole seconds, so the halves stay on whole seconds too.
         middle = self.start + timedelta(seconds=(self.end - self.start).total_seconds() // 2)
-        return IngestionWindow(start=self.start, end=middle), IngestionWindow(start=middle, end=self.end)
+        return [IngestionWindow(start=self.start, end=middle), IngestionWindow(start=middle, end=self.end)]
 
 
 @frozen
@@ -226,6 +227,17 @@ def read_columns(client: Client, table: str, *, plain_only: bool) -> list[EventC
 
 
 @frozen
+class TeamCount:
+    team_id: int
+    count: int
+
+
+def team_counts(rows: Sequence[Sequence[int]]) -> list[TeamCount]:
+    """Rows of `SELECT team_id, count()`."""
+    return [TeamCount(team_id=team_id, count=count) for team_id, count in rows]
+
+
+@frozen
 class AffectedTeams:
     team_ids: tuple[int, ...]
 
@@ -306,14 +318,7 @@ def _chunks(items: Sequence[int], size: int) -> Iterator[tuple[int, ...]]:
 
 
 def tagged(query_tags: DagsterTags, fn: Callable[[Client], T]) -> Callable[[Client], T]:
-    # The cluster runs fn on a pool thread. The query tags do not cross into that thread.
-    def run(client: Client) -> T:
-        with tags_context(
-            kind="dagster", dagster=query_tags, product=ProductKey.PIPELINE_TRANSFORMATIONS, feature=Feature.BACKFILL
-        ):
-            return fn(client)
-
-    return run
+    return flag_evaluations_backfill.tagged(query_tags, fn, product=ProductKey.PIPELINE_TRANSFORMATIONS)
 
 
 def on_shard_host(
@@ -324,10 +329,9 @@ def on_shard_host(
     workload: Workload,
     node_role: NodeRole,
 ) -> T:
-    result = cluster.map_any_host_in_shards_by_role(
-        {shard_num: tagged(query_tags, fn)}, workload=workload, node_role=node_role
-    ).result()
-    return next(iter(result.values()))
+    return flag_evaluations_backfill.on_shard_host(
+        cluster, shard_num, fn, query_tags, workload, node_role, product=ProductKey.PIPELINE_TRANSFORMATIONS
+    )
 
 
 @dagster.op(tags=OWNER_TAG)
@@ -359,9 +363,16 @@ def find_affected_teams(
     for window in plan.windows:
         args = {**plan.query_args(window), "team_ids": tuple(plan.config.team_ids or ())}
 
-        def count_teams(client: Client, args: dict[str, Any] = args) -> list[tuple[int, int]]:
-            return sync_execute(
-                query, args, settings=_read_settings(plan.config), workload=workload, sync_client=client, flush=False
+        def count_teams(client: Client, args: dict[str, Any] = args) -> list[TeamCount]:
+            return team_counts(
+                sync_execute(
+                    query,
+                    args,
+                    settings=_read_settings(plan.config),
+                    workload=workload,
+                    sync_client=client,
+                    flush=False,
+                )
             )
 
         per_shard = cluster.map_any_host_in_shards_by_role(
@@ -369,9 +380,9 @@ def find_affected_teams(
             workload=workload,
             node_role=node_role,
         ).result()
-        for rows in per_shard.values():
-            for team_id, events in rows:
-                counts[team_id] += events
+        for shard_counts in per_shard.values():
+            for team_count in shard_counts:
+                counts[team_count.team_id] += team_count.count
 
     with_geoip = teams_with_enabled_transformation(template_id=GEOIP_TEMPLATE_ID, team_ids=counts.keys())
     affected = Counter({team_id: events for team_id, events in counts.items() if team_id in with_geoip})
@@ -456,8 +467,10 @@ class ShardStaging:
     ) -> ShardStagingTotals:
         rows = self._read(columns, team_ids, time_slice)
         if rows is None:
-            first, second = time_slice.halves()
-            return self._add(self._stage_slice(columns, team_ids, first), self._stage_slice(columns, team_ids, second))
+            totals = ShardStagingTotals(read=0, staged=0, no_match=0)
+            for half in time_slice.halves():
+                totals = self._add(totals, self._stage_slice(columns, team_ids, half))
+            return totals
         staged = []
         for row in rows:
             enriched = enrich_row(row, self.lookup, self.staged_at)
@@ -575,13 +588,15 @@ def report_staging(
     """Report the staged rows per team, once every replica holds every insert."""
     cluster.map_hosts_by_role(table.sync, NodeRole.DATA).result()
 
-    def per_team(client: Client) -> list[tuple[int, int]]:
-        return client.execute(f"SELECT team_id, count() FROM {table.qualified_name} FINAL GROUP BY team_id")
+    def per_team(client: Client) -> list[TeamCount]:
+        return team_counts(
+            client.execute(f"SELECT team_id, count() FROM {table.qualified_name} FINAL GROUP BY team_id")
+        )
 
     counts: Counter[int] = Counter()
-    for result in cluster.map_one_host_per_shard(per_team).result().values():
-        for team_id, rows in result:
-            counts[team_id] += rows
+    for shard_counts in cluster.map_one_host_per_shard(per_team).result().values():
+        for team_count in shard_counts:
+            counts[team_count.team_id] += team_count.count
     context.add_output_metadata(
         {
             "table": dagster.MetadataValue.text(table.qualified_name),

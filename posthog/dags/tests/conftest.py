@@ -27,6 +27,7 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _dagster_postgres_instance,
     _use_postgres_dagster_instance,
 )
+from posthog.dataclasses import frozen
 from posthog.models import Organization, Team
 from posthog.persons_db import persons_db_connection, persons_db_url
 
@@ -143,8 +144,14 @@ def persons_database() -> Iterator[psycopg2.extensions.connection]:
         conn.close()
 
 
+@frozen
+class GeoipTeams:
+    with_geoip: int
+    without_geoip: int
+
+
 @pytest.fixture
-def geoip_teams(django_db_setup) -> Iterator[tuple[int, int]]:
+def geoip_teams(django_db_setup) -> Iterator[GeoipTeams]:
     organization = Organization.objects.create(name="geoip-backfill")
     with_geoip = Team.objects.create(organization=organization, name="with geoip")
     without_geoip = Team.objects.create(organization=organization, name="without geoip")
@@ -156,4 +163,4 @@ def geoip_teams(django_db_setup) -> Iterator[tuple[int, int]]:
         enabled=True,
         hog="return event",
     )
-    yield with_geoip.id, without_geoip.id
+    yield GeoipTeams(with_geoip=with_geoip.id, without_geoip=without_geoip.id)
