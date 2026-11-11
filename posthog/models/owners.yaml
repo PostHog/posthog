@@ -48,3 +48,7 @@ rules:
           - '/exchange_rate/test/test_*.py'
           - '/person_group_membership/test/test_*.py'
       owners: team-web-analytics
+    - match:
+          - '/integration/github_code_search.py'
+          - '/test/integration/test_github_code_search.py'
+      owners: team-workflows
