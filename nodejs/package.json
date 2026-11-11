@@ -138,7 +138,7 @@
         "node-schedule": "^2.1.2",
         "nodemailer": "^8.0.11",
         "p-limit": "3.1.0",
-        "parse5": "7.1.2",
+        "parse5": "7.3.0",
         "pg": "^8.23.0",
         "pino": "^8.21.0",
         "posthog-node": "5.66.0",
