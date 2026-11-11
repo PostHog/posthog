@@ -167,13 +167,13 @@ class TestScoutTrialAPI(APIBaseTest):
         assert self.production.emitted_count == 0
         assert not SignalReportCheck.objects.for_team(self.team.id).exists()
 
-    @parameterized.expand(["emissions/batch", "emissions/reports/batch", "token-costs"])
+    @parameterized.expand(["emissions/batch", "emissions/reports/batch"])
     def test_read_only_posts_do_not_invalidate_private_runs(self, action: str) -> None:
         self._as_trial()
         response = self.client.post(
             f"{self.trial_runs_url}{action}/", {"run_ids": [str(self.production.id)]}, format="json"
         )
-        assert response.status_code == (403 if action == "token-costs" else 200), response.data
+        assert response.status_code == 200, response.data
         assert ScoutTrialStore(self.trial_run).invalid_reason() is None
 
     @parameterized.expand([("report_level", False), ("per_run", True)])

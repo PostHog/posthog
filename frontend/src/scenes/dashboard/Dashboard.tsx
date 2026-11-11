@@ -14,8 +14,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
-import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -27,27 +25,31 @@ import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
+import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
+import { DashboardFilterBar } from 'products/dashboards/frontend/DashboardFilters'
+import { DashboardFlagCalledBanner } from 'products/dashboards/frontend/DashboardFlagCalledBanner'
+import { DashboardEmbeddedShareButton } from 'products/dashboards/frontend/DashboardHeaderActions'
+import { DashboardItems } from 'products/dashboards/frontend/DashboardItems'
+import { DashboardModalLoading } from 'products/dashboards/frontend/DashboardModalLoading'
+import { dashboardPerformanceLogic } from 'products/dashboards/frontend/dashboardPerformanceLogic'
+import { DashboardQueryScanBanner } from 'products/dashboards/frontend/DashboardQueryScanBanner'
+import { DashboardRetentionBanner } from 'products/dashboards/frontend/DashboardRetentionBanner'
+import { dashboardSubscribeNudgeLogic } from 'products/dashboards/frontend/dashboardSubscribeNudgeLogic'
+import { DashboardWarehouseSyncBanner } from 'products/dashboards/frontend/DashboardWarehouseSyncBanner'
+import { EmptyDashboardComponent } from 'products/dashboards/frontend/EmptyDashboardComponent'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
 import { teamLogic } from '../teamLogic'
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
-import { DashboardFlagCalledBanner } from './DashboardFlagCalledBanner'
 import { DashboardHeader } from './DashboardHeader'
-import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
-import { DashboardModalLoading } from './DashboardModalLoading'
-import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
-import { DashboardRetentionBanner } from './DashboardRetentionBanner'
-import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
-import { DashboardWarehouseSyncBanner } from './DashboardWarehouseSyncBanner'
-import { DashboardZoomControl } from './DashboardZoomControl'
-import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 // The modal renders the saved insights list, which no dashboard needs until someone adds an insight.
 const AddInsightToDashboardModal = lazyWithRetry(() =>
-    import('./addInsightToDashboardModal/AddInsightToDashboardModal').then((m) => ({
-        default: m.AddInsightToDashboardModal,
-    }))
+    import('products/dashboards/frontend/components/AddInsightToDashboardModal/AddInsightToDashboardModal').then(
+        (m) => ({
+            default: m.AddInsightToDashboardModal,
+        })
+    )
 )
 
 // Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
@@ -66,6 +68,12 @@ interface DashboardProps {
     showCreateAnomalyAlertButton?: boolean
     /** Shows the dashboard without tile menus or drag-to-edit controls. */
     readOnly?: boolean
+    /** Extra controls for the dashboard header, when a page shows the dashboard as its main content. */
+    headerActions?: JSX.Element
+    /** Uses less vertical space above the tiles, for a page where the dashboard is a product's home. */
+    compact?: boolean
+    /** The parent page reloads the dashboard when PostHog AI adds charts to it, so the header does not. */
+    parentReloadsOnAIChanges?: boolean
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -98,12 +106,21 @@ export function Dashboard({
     backTo,
     showCreateAnomalyAlertButton,
     readOnly,
+    headerActions,
+    compact,
+    parentReloadsOnAIChanges,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard, readOnly }}>
-            <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
+            <DashboardScene
+                backTo={backTo}
+                showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                headerActions={headerActions}
+                compact={compact}
+                parentReloadsOnAIChanges={parentReloadsOnAIChanges}
+            />
         </BindLogic>
     )
 }
@@ -111,9 +128,15 @@ export function Dashboard({
 function DashboardScene({
     backTo,
     showCreateAnomalyAlertButton,
+    headerActions,
+    compact,
+    parentReloadsOnAIChanges,
 }: {
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
+    headerActions?: JSX.Element
+    compact?: boolean
+    parentReloadsOnAIChanges?: boolean
 }): JSX.Element {
     const {
         placement,
@@ -123,17 +146,16 @@ function DashboardScene({
         itemsLoading,
         dashboardLoading,
         dashboardStreaming,
-        layoutEditMode,
         dashboardFailedToLoad,
         internetConnectionIssue,
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
     } = useValues(dashboardLogic)
-    const { layoutZoom } = useValues(dashboardLogic)
+    const { id: dashboardId } = useMountedLogic(dashboardLogic).props
+    useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad, setLayoutZoom } =
-        useActions(dashboardLogic)
+    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const closeAddInsightToDashboardModal = (): void => {
@@ -182,9 +204,13 @@ function DashboardScene({
     }
 
     return (
-        <SceneContent className={cn('dashboard')}>
+        <SceneContent className={cn('dashboard', compact && 'gap-y-2')}>
             {placement == DashboardPlacement.Dashboard && (
-                <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
+                <DashboardHeader
+                    loading={!dashboard && !dashboardFailedToLoad}
+                    extraActions={headerActions}
+                    reloadOnAIChanges={!parentReloadsOnAIChanges}
+                />
             )}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
@@ -254,17 +280,8 @@ function DashboardScene({
                     <DashboardQueryScanBanner />
                     <DashboardWarehouseSyncBanner />
 
-                    <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
+                    <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
                         <DashboardFilterBar backTo={backTo} />
-                        {layoutEditMode &&
-                            canEditDashboard &&
-                            [
-                                DashboardPlacement.Dashboard,
-                                DashboardPlacement.ProjectHomepage,
-                                DashboardPlacement.Builtin,
-                            ].includes(placement) && (
-                                <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
-                            )}
                     </SceneStickyBar>
 
                     <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />

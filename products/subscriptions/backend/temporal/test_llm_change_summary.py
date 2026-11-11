@@ -5,7 +5,11 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
+
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.subscriptions.backend.temporal.llm_change_summary import (
     _attach_images_to_user_message,
@@ -483,7 +487,10 @@ class TestGenerateChangeSummary:
         result = generate_change_summary([], [_make_state(1, "Traffic", "100 views")], slack_formatting=True)
 
         assert result == "• Traffic is stable."
-        assert [call.kwargs["max_tokens"] for call in client.chat.completions.create.call_args_list] == [1500, 4500]
+        assert [call.kwargs["max_completion_tokens"] for call in client.chat.completions.create.call_args_list] == [
+            4096,
+            8192,
+        ]
 
     @parameterized.expand([(False,), (True,)])
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
@@ -500,8 +507,9 @@ class TestGenerateChangeSummary:
         assert "Pageviews" in result
         mock_client.chat.completions.create.assert_called_once()
         call_kwargs = mock_client.chat.completions.create.call_args
-        assert call_kwargs.kwargs["temperature"] == 0.3
-        assert call_kwargs.kwargs["max_tokens"] == 1500
+        assert "temperature" not in call_kwargs.kwargs
+        assert "max_tokens" not in call_kwargs.kwargs
+        assert call_kwargs.kwargs["max_completion_tokens"] == 4096
         system_prompt = call_kwargs.kwargs["messages"][0]["content"]
         assert "Format this delivery for Slack" not in system_prompt
         assert "remove filler, stock phrases, inflated claims, and duplicate observations" in system_prompt
@@ -528,28 +536,6 @@ class TestGenerateChangeSummary:
             user_prompt = call_kwargs.kwargs["messages"][1]["content"]
             assert "Do not use markdown formatting" not in user_prompt
             assert "Start each bullet with •" not in user_prompt
-
-    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
-    @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
-    def test_generation_is_tagged_billable(self, mock_get_client):
-        mock_client = mock_get_client.return_value
-        mock_client.chat.completions.create.return_value = _mock_openai_response("- summary", 10, 5)
-
-        team = MagicMock()
-        team.id = 42
-
-        generate_change_summary(
-            [_make_state(1, "X", "data")],
-            [_make_state(1, "X", "data", timestamp="2025-04-15T10:00:00Z")],
-            team=team,
-        )
-
-        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        properties = call_kwargs["posthog_properties"]
-        assert properties["$ai_billable"] is True
-        assert properties["team_id"] == 42
-        assert properties["ai_product"] == "subscriptions"
-        assert call_kwargs["posthog_groups"] == {"project": "42", "instance": "https://us.posthog.com"}
 
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_uses_initial_prompt_when_no_previous_states(self, mock_get_client):
@@ -653,6 +639,28 @@ class TestGenerateChangeSummary:
         messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
         assert isinstance(messages[-1]["content"], str)
 
+    @parameterized.expand(
+        [
+            ("trends_only", ["TrendsQuery"], True),
+            ("stickiness_only", ["StickinessQuery"], False),
+            ("stickiness_with_trends", ["StickinessQuery", "TrendsQuery"], True),
+        ]
+    )
+    @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
+    def test_adds_trend_field_rules_only_for_calendar_time_series(self, _name, query_kinds, expected, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [
+            _make_state(index, f"Insight {index}", "...", query_kind=kind, timestamp="2025-04-15T10:00:00Z")
+            for index, kind in enumerate(query_kinds, start=1)
+        ]
+
+        generate_change_summary(None, current, team=None)
+
+        system_content = mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        assert ("Trend series fields:" in system_content) is expected
+
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_skips_images_for_insights_not_in_current_states(self, mock_get_client):
         mock_client = mock_get_client.return_value
@@ -698,9 +706,8 @@ class TestGenerateChangeSummary:
         user_tag = mock_client.chat.completions.create.call_args.kwargs["user"]
         assert user_tag.endswith("-delivery-abc-123")
 
-    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
-    def test_marks_generation_billable_to_team_when_team_provided(self, mock_get_client):
+    def test_builds_the_client_for_the_delivery_team(self, mock_get_client):
         mock_client = mock_get_client.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
 
@@ -709,75 +716,47 @@ class TestGenerateChangeSummary:
 
         generate_change_summary(None, current, team=team, delivery_id="abc-123")  # type: ignore[arg-type]
 
-        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["posthog_properties"]["$ai_billable"] is True
-        assert call_kwargs["posthog_properties"]["team_id"] == 42
-        assert call_kwargs["posthog_properties"]["ai_product"] == "subscriptions"
-        assert call_kwargs["posthog_properties"]["delivery_id"] == "abc-123"
-        assert call_kwargs["posthog_groups"] == {"project": "42", "instance": "https://us.posthog.com"}
-        assert call_kwargs["posthog_distinct_id"] == call_kwargs["user"]
+        user_tag = mock_client.chat.completions.create.call_args.kwargs["user"]
+        assert mock_get_client.call_args.kwargs == {"team": team, "delivery_id": "abc-123", "user_tag": user_tag}
 
-    @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
-    def test_does_not_mark_billable_when_team_missing(self, mock_get_client):
-        mock_client = mock_get_client.return_value
-        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
-
-        current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
-
-        generate_change_summary(None, current, team=None)
-
-        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        assert "$ai_billable" not in call_kwargs["posthog_properties"]
-        assert "team_id" not in call_kwargs["posthog_properties"]
-        assert "posthog_groups" not in call_kwargs
-
-    def test_get_openai_client_raises_when_api_key_missing(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        with pytest.raises(ValueError, match="OPENAI_API_KEY"):
-            _get_openai_client()
-
-    def test_emits_ai_generation_event_with_billing_properties(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "test-fake-key")
-        monkeypatch.setattr("posthog.event_usage.SITE_URL", "https://us.posthog.com")
-
-        fake_client = MagicMock()
-        monkeypatch.setattr("posthoganalytics.default_client", fake_client)
-
-        usage_details = MagicMock()
-        usage_details.cached_tokens = 0
-        usage_details.reasoning_tokens = 0
-        usage = MagicMock()
-        usage.prompt_tokens = 10
-        usage.completion_tokens = 5
-        usage.prompt_tokens_details = usage_details
-        usage.completion_tokens_details = usage_details
-        choice = MagicMock()
-        choice.message.content = json.dumps({"findings": [{"items": [{"kind": "text", "text": "ok"}]}]})
-        choice.message.tool_calls = None
-        choice.finish_reason = "stop"
-        fake_response = MagicMock()
-        fake_response.choices = [choice]
-        fake_response.usage = usage
-        fake_response.model = "gpt-4.1-mini"
-
-        team = SimpleNamespace(id=42)
-        current = [_make_state(1, "Pageviews", "...", timestamp="2025-04-15T10:00:00Z")]
-
-        with patch("openai.resources.chat.completions.Completions.create", return_value=fake_response):
-            generate_change_summary(None, current, team=team, delivery_id="abc-123")  # type: ignore[arg-type]
-
-        captured_calls = [
-            c.kwargs for method in (fake_client.capture, fake_client.capture_ai) for c in method.call_args_list
+    @parameterized.expand(
+        [
+            ("team", SimpleNamespace(id=42), {"team_id": "42", "delivery_id": "abc-123"}, None),
+            ("no_team", None, {"delivery_id": "abc-123"}, "false"),
         ]
-        ai_generation_calls = [c for c in captured_calls if c.get("event") == "$ai_generation"]
-        assert len(ai_generation_calls) == 1, (
-            f"expected exactly one $ai_generation capture, got events: {[c.get('event') for c in captured_calls]}"
-        )
-        captured = ai_generation_calls[0]
-        assert captured["properties"]["$ai_billable"] is True
-        assert captured["properties"]["team_id"] == 42
-        assert captured["properties"]["ai_product"] == "subscriptions"
-        assert captured["groups"] == {"project": "42", "instance": "https://us.posthog.com"}
+    )
+    @override_settings(AI_GATEWAY_URL="https://ai-gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
+    def test_gateway_client_bills_the_team_or_opts_out(self, _name, team, expected_properties, expected_billable):
+        client = _get_openai_client(team=team, delivery_id="abc-123", user_tag="US/subscription-summary-team-42")
+
+        headers = client.default_headers
+        assert str(client.base_url) == "https://ai-gateway.example.com/v1/"
+        assert client.max_retries == 1
+        assert headers["X-PostHog-Product"] == "subscriptions"
+        assert json.loads(str(headers["X-PostHog-Properties"])) == {
+            **expected_properties,
+            "ai_product": "subscriptions",
+        }
+        assert headers["X-PostHog-Distinct-Id"] == "US/subscription-summary-team-42"
+        assert headers.get("X-PostHog-Billable") == expected_billable
+        assert "X-PostHog-Privacy-Mode" not in headers
+
+    @parameterized.expand(
+        [
+            ("unset", "", ""),
+            ("missing_key", "https://ai-gateway.example.com/v1", ""),
+            ("missing_v1_path", "https://ai-gateway.example.com", "phs_test"),
+        ]
+    )
+    def test_refuses_the_python_gateway_when_go_is_unconfigured(self, _name, url, api_key):
+        with override_settings(
+            AI_GATEWAY_URL=url,
+            AI_GATEWAY_API_KEY=api_key,
+            LLM_GATEWAY_URL="https://llm-gateway.example.com",
+            LLM_GATEWAY_API_KEY="phx_test",
+        ):
+            with pytest.raises(GatewayNotConfiguredError):
+                _get_openai_client(team=None, delivery_id=None, user_tag="US/subscription-summary-team-42")
 
     @parameterized.expand(
         [

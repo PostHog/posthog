@@ -1,0 +1,7 @@
+{
+  "exitCode": 0,
+  "requests": [],
+  "files": {
+    "ios/hbc/main.jsbundle.hbc.composed.map": "utf8:{\"chunk_id\":\"c96bfa94-ca84-4f98-8d5e-f15adba692ca\",\"mappings\":\"AAAA,SACA,cAAAC\",\"names\":[\"App\",\"<global>\"],\"sources\":[\"src/App.js\",\"node_modules/react-native/Libraries/polyfill.js\"],\"sourcesContent\":[\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\",null],\"version\":3,\"x_facebook_sources\":[[{\"mappings\":\"AAA,CCC\",\"names\":[\"<global>\",\"App\"]}],null],\"x_google_ignoreList\":[1],\"x_hermes_function_offsets\":{\"0\":[0,28],\"1\":[0]},\"x_unicode\":\"😀 </script> \\\"q\\\" \\\\ \\t\"}"
+  }
+}

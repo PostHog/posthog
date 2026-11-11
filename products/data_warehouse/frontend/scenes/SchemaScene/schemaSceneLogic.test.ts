@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSchemaStatus, ExternalDataSchemaWithSource } from '~/types'
@@ -76,5 +77,28 @@ describe('schemaSceneLogic', () => {
         logic.actions.resyncSchema(makeSchema())
 
         expect(logic.values.schema?.status).toBe(ExternalDataSchemaStatus.Running)
+    })
+
+    it.each([true, false])('confirms a pending schema before enabling when pending is %s', async (pending) => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSchemaSuccess(makeSchema({ should_sync: false, pending_self_managed_table: pending }))
+
+        const updateSpy = jest.spyOn(api.externalDataSchemas, 'update').mockResolvedValue(makeSchema())
+        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation()
+        const schema = makeSchema({ should_sync: true, pending_self_managed_table: pending })
+
+        logic.actions.updateSchema(schema)
+
+        if (pending) {
+            expect(dialogSpy).toHaveBeenCalledTimes(1)
+            expect(updateSpy).not.toHaveBeenCalled()
+            const confirm = dialogSpy.mock.calls[0][0].primaryButton?.onClick as () => void
+            confirm()
+        } else {
+            expect(dialogSpy).not.toHaveBeenCalled()
+        }
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(updateSpy).toHaveBeenCalledWith('schema-1', expect.objectContaining({ should_sync: true }))
     })
 })

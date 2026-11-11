@@ -5,6 +5,8 @@ from unittest.mock import Mock
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from parameterized import parameterized
+
 from posthog.api.search import ENTITY_MAP, SEARCHABLE_ENTITIES, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
@@ -14,7 +16,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint
-from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -223,14 +225,49 @@ class TestSearch(APIBaseTest):
         response = self.client.get("/api/projects/@current/search?q=%21%3A%28%29%5B%5D%26%7C%3C%3E%20str1%20str2")
         self.assertEqual(response.status_code, 200)
 
-    def test_event_definitions(self):
-        EventDefinition.objects.create(name="first event", team=self.team)
-        EventDefinition.objects.create(name="second event", team=self.team)
-        EventDefinition.objects.create(name="third event", team=self.team)
+    @parameterized.expand(
+        [
+            ("prefix", "sec", {"second event"}),
+            ("every word", "first event", {"first event"}),
+            ("some words, as the rank allows", "first event missing", {"first event"}),
+            ("shared word", "event", {"first event", "second event", "third event"}),
+            ("word inside a snake_case name", "view", {"page_view_v2"}),
+            ("dotted capital I folded like the rank", "istanbul", {"İstanbul office"}),
+            ("mixed case", "SeCoNd", {"second event"}),
+            ("short prefix", "s", {"second event"}),
+            ("no match", "missing", set()),
+        ]
+    )
+    def test_definitions(self, _name: str, query: str, expected: set[str]) -> None:
+        for name in ("first event", "second event", "third event", "page_view_v2", "İstanbul office"):
+            EventDefinition.objects.create(name=name, team=self.team)
+            PropertyDefinition.objects.create(name=name, team=self.team)
 
-        response = self.client.get("/api/projects/@current/search?q=sec&entities=event_definition")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                "/api/projects/@current/search",
+                {"q": query, "entities": ["property_definition", "event_definition"]},
+            )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual({result["extra_fields"]["name"] for result in response.json()["results"]}, expected)
+        for entity_type in ("event_definition", "property_definition"):
+            self.assertEqual(response.json()["counts"][entity_type], len(expected))
+            self.assertEqual(
+                {
+                    result["extra_fields"]["name"]
+                    for result in response.json()["results"]
+                    if result["type"] == entity_type
+                },
+                expected,
+            )
+        definition_sql = next(q["sql"] for q in queries.captured_queries if "UNION" in q["sql"])
+        for table in ("posthog_eventdefinition", "posthog_propertydefinition"):
+            self.assertIn(f'"{table}"."name"::text ILIKE', definition_sql)
+        self.assertLess(
+            definition_sql.index('FROM "posthog_eventdefinition"'),
+            definition_sql.index('FROM "posthog_propertydefinition"'),
+        )
 
     def test_early_access_features(self):
         EarlyAccessFeature.objects.create(name="first feature", team=self.team, stage="beta")
@@ -352,8 +389,8 @@ class TestSearch(APIBaseTest):
             )
 
         assert len(ctx_with) - len(ctx_without) >= 13
-        # One query for the unioned entities, one for the workflows merged in through the facade.
-        assert len(ctx_without) == 2
+        # One query for the unioned entities, and one per facade search: actions, dashboards and workflows.
+        assert len(ctx_without) == 4
 
     def test_search_entities_returns_total_count(self):
         for i in range(5):

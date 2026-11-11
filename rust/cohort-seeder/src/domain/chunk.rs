@@ -205,6 +205,17 @@ impl ScanVolume {
     }
 }
 
+impl std::ops::Add for ScanVolume {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self::new(
+            self.received_bytes + other.received_bytes,
+            self.decoded_bytes + other.decoded_bytes,
+        )
+    }
+}
+
 /// Freshly claimed and locked; minted only by `store.claim_next` (or `test_support`).
 #[derive(Debug)]
 pub struct ClaimedChunk {

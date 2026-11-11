@@ -9,7 +9,11 @@ from products.workflows.backend.facade.contracts import SnippetRoom
 # Tag bodies are capped, so text full of unclosed `{{` scans in linear time.
 _TAG = re.compile(r"\{\{.{0,1000}?\}\}|\{%.{0,1000}?%\}", re.DOTALL)
 _UNSUBSCRIBE_TAG = re.compile(r"\{%-?\s*(?:unsubscribe_url|manage_subscription_preferences_url)\s*-?%\}")
-_SNIPPET_TAG = re.compile(r"\{%-?\s*snippet\s+[\"']([^\"']+)[\"']\s*-?%\}")
+# Customer.io prints a snippet with `{{ snippets.name }}`. The `{% snippet %}` tag is an older form.
+_SNIPPET_TAG = re.compile(
+    r"\{%-?\s*snippet\s+[\"']([^\"']+)[\"']\s*-?%\}"
+    r"|\{\{-?\s*snippets(?:\.([\w-]+)|\[\s*[\"']([^\"']+)[\"']\s*\])\s*-?\}\}"
+)
 _CAPTURE_TAG = re.compile(r"\{%-?\s*capture\s+(\w+)\s*-?%\}")
 _QUOTED = re.compile(r"(\"[^\"]*\"|'[^']*')")
 _OUTPUT_TAG = re.compile(r"\{\{(.{0,1000}?)\}\}", re.DOTALL)
@@ -51,7 +55,7 @@ def rewrite(text: str | None, snippets: dict[str, str], room: SnippetRoom | None
     room = room or SnippetRoom()
 
     def inline_snippet(match: re.Match[str]) -> str:
-        name = match.group(1)
+        name = next(group for group in match.groups() if group)
         content = snippets.get(name)
         if content is not None and len(content) <= room.remaining:
             room.remaining -= len(content)

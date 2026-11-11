@@ -184,7 +184,7 @@ acts on it.
 - Scene-level first-run ("product not set up") belongs to the
   [ProductEmptyState gate](../building-product-empty-states/SKILL.md), not bespoke branching.
 - Any submit that fires a network request disables the trigger and shows a loading state while
-  in flight (root `CLAUDE.md` rule) — reset in both success and error paths.
+  in flight (`.agents/code-style.md` rule) — reset in both success and error paths.
 
 ## Visual discipline
 

@@ -8,8 +8,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
-MAX_RECALCULATION_TIMES = 2
-MIN_RECALCULATION_GAP_HOURS = 6
+from products.experiments.backend.facade.enums import MAX_RECALCULATION_TIMES, MIN_RECALCULATION_GAP_HOURS
 
 RECALCULATION_TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):00:00$")
 

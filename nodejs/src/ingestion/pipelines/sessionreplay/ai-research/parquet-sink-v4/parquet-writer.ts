@@ -29,6 +29,14 @@ function schemaDef(columns: readonly V4Column[]): SchemaDef {
                 type: 'LIST',
                 fields: { list: { repeated: true, fields: { element: { fields: schemaDef(column.fields) } } } },
             }
+        } else if ('elements' in column) {
+            def[column.name] = {
+                type: 'LIST',
+                optional: true,
+                fields: {
+                    list: { repeated: true, fields: { element: { type: column.elements, compression: 'ZSTD' } } },
+                },
+            }
         } else if ('list' in column) {
             def[column.name] = { type: column.list, repeated: true, compression: 'ZSTD' }
         } else {
@@ -80,6 +88,11 @@ function toRecord(row: V4IndexRow, columns: readonly V4Column[]): Record<string,
             }
         } else if ('list' in column) {
             record[column.name] = (value as unknown[]).map((item) => toValue(column.list, item))
+        } else if ('elements' in column) {
+            record[column.name] =
+                value === null || value === undefined
+                    ? null
+                    : { list: (value as unknown[]).map((item) => ({ element: toValue(column.elements, item) })) }
         } else if (value === null || value === undefined) {
             record[column.name] = null
         } else {

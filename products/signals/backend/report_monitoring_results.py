@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from functools import partial
 from uuid import UUID
 
 from django.db import transaction
@@ -12,6 +13,7 @@ from products.signals.backend.models import SignalReport, SignalReportCheck, Sig
 from products.signals.backend.report_check_evidence import EvidenceStatus
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_monitoring_outcomes import aggregate_monitoring_attempt_safely
 
 MONITORING_RESULT_ELIGIBLE_STATUSES = (
     *SignalReportCheck.OPEN_STATUSES,
@@ -143,7 +145,7 @@ def save_monitoring_result(evaluation: MonitoringEvaluation) -> SignalReportMoni
             raise InvalidMonitoringResult("The soak must finish before evaluation and acceptance.")
         if results.filter(outcome__in=[SignalReportCheck.Outcome.PASSED, SignalReportCheck.Outcome.FAILED]).exists():
             raise MonitoringResultConflict("The check already has an accepted verdict for this attempt.")
-        return results.create(
+        result = results.create(
             team_id=evaluation.team_id,
             report_id=report.id,
             attempt_id=attempt.id,
@@ -160,3 +162,12 @@ def save_monitoring_result(evaluation: MonitoringEvaluation) -> SignalReportMoni
             explanation=evaluation.explanation,
             evidence_refs=list(evaluation.evidence_refs),
         )
+        transaction.on_commit(
+            partial(
+                aggregate_monitoring_attempt_safely,
+                team_id=evaluation.team_id,
+                report_id=evaluation.report_id,
+                attempt_id=evaluation.attempt_id,
+            )
+        )
+        return result

@@ -29,6 +29,7 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
     ALERT_DISPATCH_RETRY_POLICY,
     ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
 )
+from products.error_tracking.backend.temporal.lifecycle.summary_activity import execute_summary_activity
 
 WORKFLOW_NAME = "error-tracking-issue-created"
 
@@ -42,14 +43,6 @@ SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
 # Alerts wait for inference, so a model outage must not hold them past this bound, retries included.
 SEVERITY_INFERENCE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
 SUMMARY_ON_WRITE_PATCH = "error-tracking-summary-on-write-activity"
-SUMMARY_RETRY_POLICY = common.RetryPolicy(
-    initial_interval=timedelta(seconds=5),
-    maximum_interval=timedelta(seconds=30),
-    maximum_attempts=3,
-)
-# Sized past one model call (ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS) plus the category call and the input build.
-SUMMARY_START_TO_CLOSE_TIMEOUT = timedelta(seconds=60)
-SUMMARY_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
 EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=15),
@@ -153,7 +146,16 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
         # Patched for the same reason. The alert and the emit activities do not wait for the summary.
         # The workflow awaits it before it completes, because a task left unawaited is dropped when the workflow returns.
         summary = (
-            asyncio.create_task(self._generate_summary(inputs)) if workflow.patched(SUMMARY_ON_WRITE_PATCH) else None
+            asyncio.create_task(
+                execute_summary_activity(
+                    "generate_issue_created_summary_activity",
+                    inputs,
+                    fail_open_counter="error_tracking_issue_created_summary_fail_open",
+                    description="Issue-created workflows whose summary activity failed",
+                )
+            )
+            if workflow.patched(SUMMARY_ON_WRITE_PATCH)
+            else None
         )
         try:
             await workflow.execute_activity(
@@ -205,26 +207,6 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
         if not result.resolved or result.stored_severity == inputs.issue.severity:
             return inputs
         return dataclasses.replace(inputs, issue=dataclasses.replace(inputs.issue, severity=result.stored_severity))
-
-    async def _generate_summary(self, inputs: IssueCreatedWorkflowInputs) -> None:
-        try:
-            await workflow.execute_activity(
-                "generate_issue_created_summary_activity",
-                inputs,
-                schedule_to_close_timeout=SUMMARY_SCHEDULE_TO_CLOSE_TIMEOUT,
-                start_to_close_timeout=SUMMARY_START_TO_CLOSE_TIMEOUT,
-                retry_policy=SUMMARY_RETRY_POLICY,
-            )
-        except ActivityError:
-            workflow.logger.warning("Issue summary generation failed; a read generates it instead")
-            (
-                workflow.metric_meter()
-                .create_counter(
-                    "error_tracking_issue_created_summary_fail_open",
-                    "Issue-created workflows whose summary activity failed",
-                )
-                .add(1)
-            )
 
 
 def _reopened_inputs(

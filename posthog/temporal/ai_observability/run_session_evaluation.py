@@ -6,6 +6,8 @@ something back from here, the two would cycle. The settle phase and the emit act
 only the fetch-and-evaluate half is session-specific.
 """
 
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -42,14 +44,11 @@ from posthog.temporal.ai_observability.evaluation_payload import (
     should_skip_for_payload,
 )
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_evaluation_result
+from posthog.temporal.ai_observability.judge_attachments import build_attachment_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
 from posthog.temporal.common.utils import close_db_connections
 
-from products.access_control.backend.facade.api import (
-    get_restricted_properties_with_group_type_index_for_team,
-    split_restricted_property_names,
-)
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     MAX_SESSION_EVAL_EVENTS,
@@ -60,6 +59,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 
 # Sessions run ~3.5x a trace at p90 (222 events against a trace's typical handful) and the shared
 # formatter uniformly samples lines rather than truncating, so the trace's 150k budget would hand
@@ -74,10 +74,6 @@ if TYPE_CHECKING:
 
 
 _SESSION_SKIP_REASONING = {
-    "property_access_restricted": (
-        "Default project permissions hide event properties, so this session was not evaluated. "
-        "Review the project's property access rules before running this evaluation."
-    ),
     "session_not_found": "No session events were found within the evaluation window; evaluation skipped.",
     "session_has_no_traces": (
         "This session's events have no trace id, so there was nothing to evaluate. Set $ai_trace_id "
@@ -175,6 +171,7 @@ def _sum_session_payload_bytes(
             team=team,
             user=user,
             query_type="SessionEvaluationPayloadBytes",
+            bypass_property_access_control=user is None,
             posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
@@ -230,6 +227,7 @@ def _count_session_events(
             team=team,
             user=user,
             query_type="SessionEvaluationEventCount",
+            bypass_property_access_control=user is None,
             posthog_tables_only=True,
             fall_back_to_events=False,
             workload=Workload.OFFLINE,
@@ -260,14 +258,6 @@ def fetch_session_for_evaluation(
     window is chosen.
     """
     team = Team.objects.get(id=team_id)
-    # Hog evaluations can read any event property, so masking can change the verdict even outside input/output.
-    if (
-        user is None
-        and split_restricted_property_names(
-            get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
-        ).event
-    ):
-        return SessionFetchOutcome(traces=None, skip_reason="property_access_restricted", event_count=0)
     retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
     date_to = window_end or datetime.now(UTC)
 
@@ -306,6 +296,7 @@ def fetch_session_for_evaluation(
             limit=MAX_SELECT_TRACES_LIMIT_EXPORT,
         ),
         for_evaluation=True,
+        bypass_property_access_control=user is None,
     )
     response = runner.calculate()
     if not response.results:
@@ -371,7 +362,7 @@ user's conversation, in order — according to this criteria:
 {config.instructions}"""
 
 
-def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
+def format_session_for_judge(traces: list[LLMTrace], media_marker: MediaMarker | None = None) -> str | None:
     """Render a session as the canonical text representation, one section per trace.
 
     Preserve generation outputs across the full session before truncating them, including
@@ -399,6 +390,9 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
             "include_line_numbers": True,
             "max_length": None if preserve_generation_output else per_trace_budget,
         }
+        if media_marker is not None:
+            # One marker for the whole session, so an image repeated across traces is attached once.
+            options["media_marker"] = media_marker
         sections: list[str] = []
         rendered_length = 0
         for index, trace in enumerate(traces, start=1):
@@ -468,6 +462,18 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     Fetch and judge happen in one activity on purpose: returning the session through the
     workflow would hit Temporal's ~2 MiB payload limit.
     """
+    return run_session_llm_judge(inputs)
+
+
+def run_session_llm_judge(
+    inputs: ExecuteSessionEvaluationInputs,
+    *,
+    user: "User | None" = None,
+    reading: Callable[[], AbstractContextManager[None]] = nullcontext,
+) -> EvaluationActivityResult:
+    """The session judge outside any activity wrapper, so the editor's test endpoint grades a session
+    exactly the way a live run does. A test passes the requesting user, so their property restrictions
+    apply to what the judge reads, and `reading`, which wraps the ClickHouse read and not the model call."""
     evaluation = inputs.evaluation
 
     if evaluation["evaluation_type"] != "llm_judge":
@@ -490,16 +496,25 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     output_config = evaluation.get("output_config") or {}
     allows_na = output_config.get("allows_na", False)
 
-    outcome = fetch_session_for_evaluation(
-        inputs.team_id,
-        inputs.session_id,
-        datetime.fromisoformat(inputs.window_start),
-        inputs.window_end_datetime,
-    )
+    with reading():
+        outcome = fetch_session_for_evaluation(
+            inputs.team_id,
+            inputs.session_id,
+            datetime.fromisoformat(inputs.window_start),
+            inputs.window_end_datetime,
+            user=user,
+        )
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found", output_type=output_type)
 
-    transcript = format_session_for_judge(outcome.traces)
+    traces = outcome.traces
+    transcript = format_session_for_judge(traces)
+    attachment_prompt = build_attachment_prompt(
+        evaluation, transcript, lambda media_marker: format_session_for_judge(traces, media_marker)
+    )
+    if transcript is None and attachment_prompt is not None:
+        # Inline base64 can push the plain transcript over the limit when the marked one still fits.
+        transcript = attachment_prompt.unnumbered_text()
     if transcript is None:
         return build_session_skip_result(allows_na, "session_too_long_to_judge", output_type=output_type)
 
@@ -511,6 +526,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         user_prompt=transcript,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
+        attachment_prompt=attachment_prompt,
     )
 
 
@@ -636,6 +652,42 @@ def _sample_quiet_sessions(
     return [str(row[0]) for row in (response.results or [])]
 
 
+def sample_test_sessions(
+    team: Team,
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    *,
+    quiet_period_seconds: int,
+    lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+    user: "User | None" = None,
+    sample_ids: Sequence[str] | None = None,
+) -> list[str]:
+    """Sessions an editor preview runs on: settled matches from the lookback, or exactly `sample_ids`.
+
+    Pinned sessions skip the conditions and the quiet period, so a session the user picked is tested
+    even while it is still active.
+    """
+    now = datetime.now(UTC)
+    quiet_cutoff = now - timedelta(seconds=quiet_period_seconds)
+    if sample_ids:
+        condition_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["session_id"]),
+            right=ast.Constant(value=list(sample_ids)),
+        )
+        sample_count = len(sample_ids)
+        quiet_cutoff = now
+    return _sample_quiet_sessions(
+        team,
+        condition_filter,
+        sample_count,
+        now - timedelta(days=lookback_days),
+        now,
+        quiet_cutoff,
+        user=user,
+    )
+
+
 def _session_io_preview(traces: list[LLMTrace]) -> tuple[str, str]:
     """First input of the session's opening trace and last output of its closing one. The Hog body
     still sees the whole session; this is only for display."""
@@ -664,6 +716,7 @@ def run_hog_eval_over_recent_sessions(
     output_type: str = "boolean",
     output_config: dict[str, Any] | None = None,
     user: "User | None" = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> list[SessionHogTestResult]:
     """Sample sessions that have gone quiet and run session-level Hog bytecode against each.
 
@@ -673,9 +726,15 @@ def run_hog_eval_over_recent_sessions(
     the trace path's because a session fetch is a whole conversation rather than a single trace.
     """
     now = datetime.now(UTC)
-    quiet_cutoff = now - timedelta(seconds=quiet_period_seconds)
-    date_from = now - timedelta(days=lookback_days)
-    session_ids = _sample_quiet_sessions(team, condition_filter, sample_count, date_from, now, quiet_cutoff, user=user)
+    session_ids = sample_test_sessions(
+        team,
+        condition_filter,
+        sample_count,
+        quiet_period_seconds=quiet_period_seconds,
+        lookback_days=lookback_days,
+        user=user,
+        sample_ids=sample_ids,
+    )
 
     results: list[SessionHogTestResult] = []
     for session_id in session_ids:

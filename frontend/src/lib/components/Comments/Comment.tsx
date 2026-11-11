@@ -8,14 +8,14 @@ import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Toolti
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { LemonRichContentEditor } from 'lib/components/RichContentEditor/LemonRichContentEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
@@ -187,7 +187,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 }
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { disabledReasonFor } = useValues(commentsLogic)
+    const { disabledReasonFor, sendToSlackDisabledReasonFor } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(sendCommentToSlackLogic)
@@ -261,6 +261,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                                       icon: <IconSlack />,
                                       label: 'Send to Slack',
                                       onClick: () => openModal(comment),
+                                      disabledReason: sendToSlackDisabledReasonFor(comment),
                                   },
                               ]
                             : []),

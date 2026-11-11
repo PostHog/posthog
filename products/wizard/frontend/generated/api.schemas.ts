@@ -428,6 +428,22 @@ export const WizardRunPullRequestArtifactApiArtifactType = {
     PullRequest: 'pull_request',
 } as const
 
+/**
+ * * `open` - open
+ * * `draft` - draft
+ * * `merged` - merged
+ * * `closed` - closed
+ */
+export type WizardPullRequestStateEnumApi =
+    (typeof WizardPullRequestStateEnumApi)[keyof typeof WizardPullRequestStateEnumApi]
+
+export const WizardPullRequestStateEnumApi = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
+} as const
+
 export interface WizardRunPullRequestArtifactApi {
     /** Unique ID of the run artifact. */
     readonly id: string
@@ -451,6 +467,23 @@ export interface WizardRunPullRequestArtifactApi {
     readonly base_branch: string
     /** Time when the artifact was stored. */
     readonly created_at: string
+    /** Last known state of the pull request on GitHub. Null when no state has been recorded.
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed */
+    readonly state: WizardPullRequestStateEnumApi | null
+    /**
+     * Time when the pull request was merged, if it was.
+     * @nullable
+     */
+    readonly merged_at: string | null
+    /**
+     * Time when the pull request was closed or merged. Null while it is open.
+     * @nullable
+     */
+    readonly closed_at: string | null
 }
 
 export type WizardRunArtifactApi = WizardRunGitDiffArtifactApi | WizardRunPullRequestArtifactApi
@@ -593,6 +626,17 @@ export interface WizardScanResultApi {
     id: string
     /** False when this session had already reported its scan, so nothing changed. */
     created: boolean
+}
+
+export interface WizardDetectedWarehouseSourceApi {
+    /** The tool's kind in the wizard tool catalog, such as `Stripe`. */
+    kind: string
+    /** The data warehouse source type that imports this tool's data, such as `Stripe` or `Postgres`. */
+    warehouse_source_type: string
+    /** When a wizard scan first found the tool. */
+    first_seen_at: string
+    /** When a wizard scan last found the tool. */
+    last_seen_at: string
 }
 
 /**
@@ -777,6 +821,28 @@ export interface UpsertWizardSessionRequestApi {
 }
 
 /**
+ * * `Redshift` - Redshift
+ * * `Snowflake` - Snowflake
+ * * `BigQuery` - BigQuery
+ * * `Postgres` - Postgres
+ * * `Databricks` - Databricks
+ * * `AzureBlob` - Azure Blob
+ * * `S3` - S3
+ */
+export type UserCreatableDestinationTypeEnumApi =
+    (typeof UserCreatableDestinationTypeEnumApi)[keyof typeof UserCreatableDestinationTypeEnumApi]
+
+export const UserCreatableDestinationTypeEnumApi = {
+    Redshift: 'Redshift',
+    Snowflake: 'Snowflake',
+    BigQuery: 'BigQuery',
+    Postgres: 'Postgres',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    S3: 'S3',
+} as const
+
+/**
  * * `in-cli` - In the terminal
  * * `deep-link` - In the app
  */
@@ -811,6 +877,16 @@ export interface WizardCatalogToolApi {
      * @nullable
      */
     warehouse_source_type: string | null
+    /** Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.
+     *
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3 */
+    warehouse_destination_type: UserCreatableDestinationTypeEnumApi | null
     /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
      *
      * * `in-cli` - In the terminal
@@ -854,6 +930,7 @@ export const WizardRunPullRequestArtifactArtifactTypeEnumApi = {
 export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -868,7 +945,12 @@ export type WizardRunsListParams = {
      */
     created_after?: string
     /**
+     * Only return runs created by this user.
+     */
+    created_by_id?: number
+    /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -894,6 +976,7 @@ export const WizardRunsListStatusItem = {
 export type WizardRunsArtifactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -902,10 +985,17 @@ export type WizardRunsArtifactsListParams = {
     offset?: number
 }
 
+export type WizardScansDetectedSourcesRetrieveParams = {
+    /**
+     * Only return sources a scan found at or after this time, such as the start of a wizard run.
+     */
+    seen_since?: string
+}
+
 export type WizardSessionsListParams = {
     /**
      * Maximum number of sessions to return.
-     * @minimum 0
+     * @minimum 1
      * @maximum 200
      */
     limit?: number

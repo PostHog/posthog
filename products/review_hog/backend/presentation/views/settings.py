@@ -54,8 +54,8 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
     review_drafts = serializers.BooleanField(
         required=False,
         help_text="Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets "
-        "its first automatic review when it is marked ready for review. Applies to automatic reviews only: the "
-        "posthog-review label, an @posthog review comment, and the Review button still review drafts.",
+        "its first automatic review when it is marked ready for review. Applies to automatic reviews only: an "
+        "@posthog review comment and the Review button still review drafts.",
     )
     resolve_comments = serializers.BooleanField(
         required=False,

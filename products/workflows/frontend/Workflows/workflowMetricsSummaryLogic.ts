@@ -214,6 +214,21 @@ export const METRIC_COLORS: Record<string, string> = {
     Triggered: getColorVar('blue'),
 }
 
+// Keyed by display name like METRIC_COLORS. These tiles color a rise red and a fall green.
+export const METRICS_BAD_WHEN_RISING = new Set<string>([
+    'Failed',
+    'Bounced',
+    'Bounce prevented',
+    'No email address',
+    'Frequency capped',
+    'Marked as spam',
+    'Suspended',
+    'Paused',
+    'Skipped',
+    'Failure',
+    'Rate Limited',
+])
+
 export const WORKFLOW_SUMMARY_METRICS: Record<
     WorkflowSummaryMetric,
     {
@@ -318,7 +333,7 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     message_frequency_capped: {
         name: 'Frequency capped',
         description:
-            'Total number of emails that were not sent because the person already got the most marketing messages the project allows in the cap window. The workflow moves on to the next step. Change the cap under Project settings > Workflows > Frequency cap.',
+            'Total number of emails that were not sent because the person already got the most marketing messages the project allows in the cap window. When the project holds capped emails, an email counts here only if no slot opened before the hold ended. The workflow moves on to the next step. Change the cap under Project settings > Workflows > Frequency cap.',
         color: METRIC_COLORS['Frequency capped'],
         metricNames: ['message_frequency_capped'],
     },
@@ -511,8 +526,9 @@ export interface workflowMetricsSummaryLogicValues {
                     value: any
                 }
             >
-            message_category_id?: string | undefined
+            message_category_id?: string | null | undefined
             message_category_type?: 'marketing' | 'transactional' | undefined
+            skip_frequency_cap?: boolean | undefined
             template_id: 'template-email'
             template_uuid?: string | undefined
             tracking_enabled?: boolean | undefined
@@ -587,6 +603,7 @@ export interface workflowMetricsSummaryLogicValues {
             >
             message_category_id?: string | undefined
             message_category_type?: 'marketing' | 'transactional' | undefined
+            sensitive?: boolean | undefined
             template_id: 'template-native-push'
             template_uuid?: string | undefined
         }
@@ -749,8 +766,9 @@ export interface workflowMetricsSummaryLogicMeta {
                         value: any
                     }
                 >
-                message_category_id?: string | undefined
+                message_category_id?: string | null | undefined
                 message_category_type?: 'marketing' | 'transactional' | undefined
+                skip_frequency_cap?: boolean | undefined
                 template_id: 'template-email'
                 template_uuid?: string | undefined
                 tracking_enabled?: boolean | undefined
@@ -810,6 +828,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 >
                 message_category_id?: string | undefined
                 message_category_type?: 'marketing' | 'transactional' | undefined
+                sensitive?: boolean | undefined
                 template_id: 'template-native-push'
                 template_uuid?: string | undefined
             }
@@ -862,7 +881,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 dateFrom: Dayjs
                 dateTo: Dayjs
                 diffMs: number
-            }, // appMetricsLogic
+            },
             arg: string
         ) => string
         workflowSummaryTrends: (
@@ -872,7 +891,7 @@ export interface workflowMetricsSummaryLogicMeta {
             getCompletedSingleTrendSeries: (
                 name: string,
                 previousPeriod?: boolean
-            ) => AppMetricsTimeSeriesResponse | null, // appMetricsLogic
+            ) => AppMetricsTimeSeriesResponse | null,
             messagingChannels: {
                 hasEmail: boolean
                 hasPush: boolean
@@ -892,8 +911,9 @@ export interface workflowMetricsSummaryLogicMeta {
                             value: any
                         }
                     >
-                    message_category_id?: string | undefined
+                    message_category_id?: string | null | undefined
                     message_category_type?: 'marketing' | 'transactional' | undefined
+                    skip_frequency_cap?: boolean | undefined
                     template_id: 'template-email'
                     template_uuid?: string | undefined
                     tracking_enabled?: boolean | undefined
@@ -958,6 +978,7 @@ export interface workflowMetricsSummaryLogicMeta {
                     >
                     message_category_id?: string | undefined
                     message_category_type?: 'marketing' | 'transactional' | undefined
+                    sensitive?: boolean | undefined
                     template_id: 'template-native-push'
                     template_uuid?: string | undefined
                 }

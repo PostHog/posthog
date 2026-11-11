@@ -605,6 +605,7 @@ export const visionScannersCreateBodyTagsMax = 32
 
 export const visionScannersCreateBodyGoalMax = 2000
 
+export const visionScannersCreateBodyEntryPointRegExp = new RegExp('^[a-z0-9_]{1,64}$')
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -655,6 +656,19 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+            ),
+        entry_point: zod
+            .string()
+            .regex(visionScannersCreateBodyEntryPointRegExp)
+            .nullish()
+            .describe(
+                "The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update."
+            ),
+        take_over_as_creator: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`."
             ),
         scanner_config: zod
             .unknown()
@@ -760,6 +774,7 @@ export const visionScannersPartialUpdateBodyTagsMax = 32
 
 export const visionScannersPartialUpdateBodyGoalMax = 2000
 
+export const visionScannersPartialUpdateBodyEntryPointRegExp = new RegExp('^[a-z0-9_]{1,64}$')
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -812,6 +827,19 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+            ),
+        entry_point: zod
+            .string()
+            .regex(visionScannersPartialUpdateBodyEntryPointRegExp)
+            .nullish()
+            .describe(
+                "The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update."
+            ),
+        take_over_as_creator: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`."
             ),
         scanner_config: zod
             .unknown()
@@ -1095,7 +1123,7 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
-export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 14
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 15
 
 export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -1182,7 +1210,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `event_definition:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. `event_definition:write` lets the scout change the tags on event definitions and nothing else. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -1336,6 +1364,23 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only."
             ),
+        template_key: zod
+            .enum([
+                'variant-analysis',
+                'daily-digest',
+                'root-cause',
+                'weekly-themes',
+                'trend-watch',
+                'new-issues',
+                'scratch',
+            ])
+            .describe(
+                '\* `variant-analysis` - Variant analysis\n\* `daily-digest` - Daily digest\n\* `root-cause` - Root cause\n\* `weekly-themes` - Weekly themes\n\* `trend-watch` - Trend watch\n\* `new-issues` - New issue watch\n\* `scratch` - Start from scratch'
+            )
+            .optional()
+            .describe(
+                'The template the body came from. A body left exactly as the template rendered it keeps following later edits to that template; an edited body stays as written.\n\n\* `variant-analysis` - Variant analysis\n\* `daily-digest` - Daily digest\n\* `root-cause` - Root cause\n\* `weekly-themes` - Weekly themes\n\* `trend-watch` - Trend watch\n\* `new-issues` - New issue watch\n\* `scratch` - Start from scratch'
+            ),
     })
     .describe(
         "A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is\nwhat the caller's access is checked against, and what the scout is recorded as belonging to.\n\nInherits the Signals scout definition so a scout created here clears the same name and prompt-size\nbars as one created through the generic endpoint."
@@ -1378,6 +1423,12 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.'
+            ),
+        query: zod
+            .unknown()
+            .optional()
+            .describe(
+                "A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`\/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions."
             ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -14,7 +15,7 @@ from posthog.models.team import Team
 RETENTION_MONTHS_HELP = (
     "Events are deleted one calendar month at a time. A month is deleted only when every event in it is "
     "older than this many months. For example, with 13 months, the events of March 2025 are deleted on "
-    "the first monthly run after 1 May 2026."
+    "the first cleanup after 1 May 2026."
 )
 
 
@@ -25,7 +26,7 @@ def _months_field(help_text: str) -> models.PositiveSmallIntegerField:
 
 
 class OrganizationEventsRetentionConfig(models.Model):
-    """Staff-only events deletion settings for an organization. No customer-facing serializer may write this model."""
+    """Events deletion settings for an organization. Staff set the range, and organization admins set the default."""
 
     # db_constraint=False: a real FK constraint would take a SHARE ROW EXCLUSIVE
     # lock on posthog_organization (a hot table) while migrating.
@@ -33,8 +34,8 @@ class OrganizationEventsRetentionConfig(models.Model):
         "posthog.Organization", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
     )
     default_events_retention_months = _months_field(
-        "Applies to every team in the organization that has no value of its own. Leave empty to keep the events "
-        f"of those teams. {RETENTION_MONTHS_HELP}"
+        "Applies to every team in the organization that has no value of its own. Leave empty to use the plan's "
+        f"default period. {RETENTION_MONTHS_HELP}"
     )
     min_events_retention_months = _months_field("The shortest retention a team in this organization may set.")
     max_events_retention_months = _months_field("The longest retention a team in this organization may set.")
@@ -81,7 +82,7 @@ class OrganizationEventsRetentionConfig(models.Model):
         ]
 
     def clean(self) -> None:
-        _lock_organization_retention(self.organization_id)
+        lock_organization_retention(self.organization_id)
         low, default, high = (
             self.min_events_retention_months,
             self.default_events_retention_months,
@@ -109,13 +110,12 @@ class OrganizationEventsRetentionConfig(models.Model):
 
 
 class TeamEventsRetentionConfig(models.Model):
-    """Staff-only events deletion setting for a team. No customer-facing serializer may write this model."""
+    """Events deletion setting for a team. Organization admins set it within the organization's range."""
 
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
     events_retention_months = _months_field(
         "Overrides the organization's default and has to fall within the organization's range. Leave empty to use "
-        "the organization's default. Events are kept only when neither this nor the organization's default is set. "
-        f"{RETENTION_MONTHS_HELP}"
+        f"the organization's default. {RETENTION_MONTHS_HELP}"
     )
 
     class Meta:
@@ -129,7 +129,7 @@ class TeamEventsRetentionConfig(models.Model):
     def clean(self) -> None:
         if self.events_retention_months is None:
             return
-        _lock_organization_retention(self.team.organization_id)
+        lock_organization_retention(self.team.organization_id)
         org_config = OrganizationEventsRetentionConfig.objects.filter(organization_id=self.team.organization_id).first()
         if org_config is None:
             return
@@ -140,7 +140,7 @@ class TeamEventsRetentionConfig(models.Model):
             )
 
 
-def _lock_organization_retention(organization_id: object) -> None:
+def lock_organization_retention(organization_id: object) -> None:
     # Django admin validates and saves a change form in one transaction, so this lock holds until the
     # save commits. A team value check and its organization's range check then cannot both read
     # stale values and pass. The lock key is the organization, not its hot posthog_organization row.
@@ -172,11 +172,12 @@ class TeamEventsRetention:
     months: int
 
 
-def effective_events_retention() -> list[TeamEventsRetention]:
+def effective_events_retention(team_ids: Sequence[int] | None = None) -> list[TeamEventsRetention]:
     """Every team with an effective events retention: its own value, else its organization's default."""
     team_table = Team._meta.db_table
     team_config_table = TeamEventsRetentionConfig._meta.db_table
     org_config_table = OrganizationEventsRetentionConfig._meta.db_table
+    team_filter = "AND team.id = ANY(%s)" if team_ids is not None else ""
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
@@ -187,8 +188,10 @@ def effective_events_retention() -> list[TeamEventsRetention]:
             LEFT JOIN {team_config_table} AS team_config ON team_config.team_id = team.id
             LEFT JOIN {org_config_table} AS org_config ON org_config.organization_id = team.organization_id
             WHERE COALESCE(team_config.events_retention_months, org_config.default_events_retention_months) IS NOT NULL
+            {team_filter}
             ORDER BY team.organization_id, team.id
-            """
+            """,
+            [list(team_ids)] if team_ids is not None else [],
         )
         return [
             TeamEventsRetention(organization_id=organization_id, team_id=team_id, months=months)

@@ -6,8 +6,9 @@ This fake keeps rows and labels per table and applies the writer's load, copy, d
 drop-column statements to them, which lets a test assert the table's contents.
 
 It also refuses a `MERGE` whose source matches one target row twice, whose source holds a column
-the target does not have, or whose source holds a column as a different type than the target, the
-way BigQuery does, so those batches fail here too rather than passing quietly.
+the target does not have, or whose source holds a column as a different type than the target, and
+refuses an append load job that sends an existing column as a different type, the way BigQuery
+does, so those batches fail here too rather than passing quietly.
 """
 
 from __future__ import annotations
@@ -123,7 +124,14 @@ class FakeBigQueryClient:
         if job_config.write_disposition == bigquery.WriteDisposition.WRITE_TRUNCATE or name not in self.tables:
             self.tables[name] = FakeTable(types)
         else:
-            self.tables[name].add_columns(types)
+            existing = self.tables[name]
+            for column, field_type in types.items():
+                if column in existing.types and existing.types[column] != field_type:
+                    raise BadRequest(
+                        f"Provided Schema does not match Table {name}. Field {column} has changed type "
+                        f"from {existing.types[column]} to {field_type}"
+                    )
+            existing.add_columns(types)
 
         table = self.tables[name]
         for row in rows:

@@ -2,18 +2,20 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
 
+import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DISPLAY_TYPES_TO_CATEGORIES, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { alphabet } from 'lib/utils/strings'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { groupsModel } from '~/models/groupsModel'
+import { isInsightQueryNode } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType, InsightType } from '~/types'
 
 import { getInsightPropertyFilterGroupTypes } from 'products/product_analytics/frontend/insights/editor/propertyTaxonomicGroupTypes'
@@ -42,6 +44,7 @@ export function TrendsSeries(): JSX.Element | null {
     const { updateSeries, setFormulaMode } = useActions(insightVizDataLogic(insightProps))
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const quillSurface = useQuillSurface()
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
@@ -65,7 +68,21 @@ export function TrendsSeries(): JSX.Element | null {
     const canDisableFormula: boolean =
         !isTrends || !display || !SINGLE_SERIES_DISPLAY_TYPES.includes(display) || series?.length === 1
 
-    const formulaFooter = showFormulaOption ? (
+    const formulaFooter = !showFormulaOption ? null : quillSurface ? (
+        <div className="mt-2">
+            <QuillChartOptionSwitch
+                label="Formula mode"
+                checked={hasFormula}
+                onChange={setFormulaMode}
+                disabledReason={
+                    hasFormula && !canDisableFormula
+                        ? 'This chart shows one series. Remove the other series to turn off formula mode.'
+                        : null
+                }
+                data-attr="trends-formula-switch"
+            />
+        </div>
+    ) : (
         <LemonSwitch
             className="mt-2"
             checked={hasFormula}
@@ -76,7 +93,7 @@ export function TrendsSeries(): JSX.Element | null {
             id="trends-formula-switch"
             data-attr="trends-formula-switch"
         />
-    ) : null
+    )
 
     return (
         <>

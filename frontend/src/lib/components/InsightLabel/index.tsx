@@ -9,10 +9,10 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { formatEventName } from 'lib/insights/entityFilterNames'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { hexToRGBA } from 'lib/utils/colors'
 import { capitalizeFirstLetter, midEllipsis } from 'lib/utils/strings'
-import { formatEventName } from 'scenes/insights/utils'
 import { ResultSeries, getResultSeriesCustomName } from 'scenes/insights/utils/resultSeries'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -21,6 +21,7 @@ import { BreakdownKeyType } from '~/types'
 import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { isPropertyMath, mathTagLabel } from './mathTagLabel'
 
 export enum IconSize {
     Small = 'small',
@@ -68,26 +69,12 @@ interface MathTagProps {
 function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagProps): JSX.Element {
     const { mathDefinitions } = useValues(mathsLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const label = mathTagLabel({ math, mathHogQL, mathGroupTypeIndex, mathDefinitions, aggregationLabel })
 
-    if (!math || math === 'total') {
-        return <LemonTag>Total</LemonTag>
-    }
-    if (math === 'dau') {
-        return <LemonTag>Unique</LemonTag>
-    }
-    if (math === 'unique_group' && mathGroupTypeIndex != undefined) {
-        return <LemonTag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
-    }
-    if (math === 'weekly_active' && mathGroupTypeIndex != undefined) {
-        return <LemonTag>Weekly active {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
-    }
-    if (math === 'monthly_active' && mathGroupTypeIndex != undefined) {
-        return <LemonTag>Monthly active {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
-    }
-    if (math && ['sum', 'avg', 'min', 'max', 'median', 'p75', 'p90', 'p95', 'p99'].includes(math)) {
+    if (isPropertyMath(math)) {
         return (
             <>
-                <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
+                <LemonTag>{label}</LemonTag>
                 {mathProperty && (
                     <>
                         <span className="shrink-0">of</span>
@@ -98,10 +85,9 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
         )
     }
     if (math === 'hogql') {
-        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'SQL'}</LemonTag>
+        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{label}</LemonTag>
     }
-    // Use mathDefinitions first, then fall back to capitalizing the math string
-    return <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
+    return <LemonTag>{label}</LemonTag>
 }
 
 export function InsightLabel({

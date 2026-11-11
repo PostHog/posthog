@@ -10,13 +10,12 @@ import {
     useChartTheme,
 } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 

@@ -14,6 +14,7 @@ import {
     TracesIngestionConsumerConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
+import { createTracesIngestionConsumer } from '~/logs/framework/create-consumer'
 import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
@@ -27,7 +28,7 @@ import {
 import { createTracesOutputsRegistry } from '~/logs/outputs/registry'
 import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { TracingConfigCache } from '~/logs/retention/tracing-config-cache'
-import { TracesIngestionConsumer } from '~/logs/traces-ingestion-consumer'
+import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 
 import { CommonConfig } from '../common/config'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
@@ -119,6 +120,10 @@ export class IngestionTracesServer implements NodeServer {
             ? new LogsMetricsEmitter(this.config.TRACES_METRICS_RULES_EXPORT_URL)
             : undefined
 
+        // Span drop rules share the log rules table; the consumer reads `source=spans` and gates on
+        // TRACES_SAMPLING_ENABLED_TEAMS and the killswitch per team.
+        const samplingRulesCache = new SamplingRulesCache(this.postgres)
+
         // The tracing config supplies the per-team default for spans no rule matches.
         const retentionRulesCache = new RetentionRulesCache(this.postgres)
         const tracingConfigCache = new TracingConfigCache(this.postgres)
@@ -134,11 +139,12 @@ export class IngestionTracesServer implements NodeServer {
                 unit: 'bytes',
                 isTeamEnabled: usageReportTeamMatcher(this.config),
             })
-            const consumer = new TracesIngestionConsumer(this.config, {
+            const consumer = createTracesIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
                 outputs,
                 usageBatch,
+                samplingRulesCache,
                 metricRulesCache,
                 metricsEmitter,
                 retentionRulesCache,

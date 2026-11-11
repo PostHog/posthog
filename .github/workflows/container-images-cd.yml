@@ -26,7 +26,7 @@ on:
             - 'rust/**'
             - 'livestream/**'
     # Break-glass: a manual dispatch must run from master. The ECR publish role
-    # (AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
+    # (AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
     # refs/heads/master, so a dispatch from any other branch is denied at
     # AssumeRoleWithWebIdentity — deliberate, so prod images only ship from master.
     # When GitHub Actions itself is down, build through Depot CI instead:
@@ -146,7 +146,8 @@ jobs:
                   # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
                   push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
-                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  # posthog-cloud is published to the shared-services ECR, where prod and Kargo pull it.
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -256,7 +257,7 @@ jobs:
               if: steps.build.outcome == 'failure'
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Re-login to Amazon ECR (retry)
@@ -520,6 +521,8 @@ jobs:
                         - 'products/review_hog/backend/**'
                         - 'products/business_knowledge/backend/**'
                         - 'products/customer_analytics/backend/**'
+                        - 'products/knowledge_writer/backend/**'
+                        - 'products/knowledge_writer/merge_check/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
@@ -656,7 +659,6 @@ jobs:
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*/**'
-                        - '!products/warehouse_sources/backend/temporal/data_imports/sources/_load_all.py'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/*.md'
                         - 'posthog/warehouse/**'
                         - 'posthog/temporal/common/**'
@@ -667,6 +669,7 @@ jobs:
 
                       warehouseSourcesLoad:
                         - 'products/warehouse_sources/backend/**'
+                        - 'products/warehouse_sources/sources/**'
                         - 'products/warehouse_sources_queue/**'
                         - 'posthog/warehouse/**'
                         - 'products/data_warehouse/backend/**'
@@ -940,7 +943,7 @@ jobs:
                         "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
-            - name: Trigger Self-Driving Temporal Worker Cloud deployment
+            - name: Trigger Self-driving Temporal Worker Cloud deployment
               if: steps.check_temporal_worker_changes.outputs.selfDriving == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
@@ -1471,10 +1474,10 @@ jobs:
         steps:
             - name: Assert default-branch publish role is configured
               env:
-                  DEFAULT_BRANCH_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  DEFAULT_BRANCH_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
               run: |
                   if [[ -z "$DEFAULT_BRANCH_ROLE" ]]; then
-                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set."
+                    echo "::error::AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set."
                     exit 1
                   fi
 
@@ -1493,7 +1496,7 @@ jobs:
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Login to Amazon ECR
@@ -1632,7 +1635,7 @@ jobs:
               if: ${{ steps.ordered-release.outputs.tag != '' }}
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Log in to Amazon ECR for ordered image alias
@@ -1732,7 +1735,7 @@ jobs:
                   shared-image-force: ${{ inputs.shared-image-force || '[]' }}
                   shared-image-bootstrap: ${{ inputs.shared-image-bootstrap }}
                   shared-image-regctl: ${{ runner.temp }}/regctl
-                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":4,"concurrency":2,"channelMs":300000,"totalMs":720000}'
+                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":20,"concurrency":4,"channelMs":300000,"totalMs":720000}'
 
             - name: Retain shared-image publication evidence
               if: ${{ !cancelled() && steps.shared-image-channels.outputs.channels == 'true' }}

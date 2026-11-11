@@ -9,15 +9,16 @@ from parameterized import parameterized
 from posthog.schema import HogQLNotice, HogQLQuery
 
 from posthog.event_usage import EventSource
-from posthog.models import EventDefinition, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.sync import database_sync_to_async
 
+from products.event_definitions.backend.models import EventDefinition
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.execute_sql.compatibility_hints import ACCEPTED_CAST_TYPES, NESTABLE_BINARY_FUNCTIONS
+from ee.hogai.tools.execute_sql.compatibility_hints import ACCEPTED_CAST_TYPES
 from ee.hogai.tools.execute_sql.mcp_tool import (
     ExecuteSQLMCPTool,
     ExecuteSQLMCPToolArgs,
@@ -155,8 +156,6 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("variadic_greatest", "SELECT greatest(1, 2, 3) FROM events", "greatest(x1, greatest(x2, x3))"),
-            ("variadic_least", "SELECT least(1, 2, 3) FROM events", "least(x1, least(x2, x3))"),
             ("like_escape", r"SELECT 1 FROM events WHERE event LIKE '%\_x%'", "position("),
             ("width_suffixed_cast", "SELECT CAST(1 AS Float64) FROM events", "CAST(x AS Float)"),
         ]
@@ -173,16 +172,9 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("<hogql_compatibility_hint>", message)
         self.assertIn(expected_rewrite, message)
 
-    @parameterized.expand([(name,) for name in NESTABLE_BINARY_FUNCTIONS])
-    async def test_nesting_rewrite_is_actually_accepted(self, name: str) -> None:
-        # Pins the advice against the validator: if the arity cap is ever lifted, the flat call
-        # starts passing and this test says the nesting hint has gone stale.
-        with self.assertRaises(MaxToolRetryableError):
-            await self.tool.execute(ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, 2, 3) FROM events"))
-
-        result = await self.tool.execute(
-            ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, {name}(2, 3)) AS x FROM events")
-        )
+    @parameterized.expand([("greatest",), ("least",)])
+    async def test_variadic_functions_are_accepted(self, name: str) -> None:
+        result = await self.tool.execute(ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, 2, 3) AS x"))
         self.assertIsNotNone(result.content)
 
     @parameterized.expand([(name,) for name in ACCEPTED_CAST_TYPES])
@@ -345,7 +337,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         # A connection query skips local validation, so a compatibility rejection arrives from the
         # runner. It has to gain the same rewrite the validation path attaches.
         async def fake_execute_and_format(self, *args, **kwargs):
-            raise MaxToolRetryableError("Function 'greatest' expects 2 arguments, found 3")
+            raise MaxToolRetryableError("Unsupported type cast to 'float64'")
 
         with patch(
             "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
@@ -353,12 +345,12 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ):
             with self.assertRaises(MaxToolRetryableError) as ctx:
                 await self.tool.execute(
-                    ExecuteSQLMCPToolArgs(query="SELECT greatest(1, 2, 3) FROM t", connectionId="conn_abc"),
+                    ExecuteSQLMCPToolArgs(query="SELECT CAST(1 AS Float64) FROM t", connectionId="conn_abc"),
                 )
 
         message = str(ctx.exception)
-        self.assertIn("Function 'greatest' expects 2 arguments, found 3", message)
-        self.assertIn("greatest(x1, greatest(x2, x3))", message)
+        self.assertIn("Unsupported type cast to 'float64'", message)
+        self.assertIn("CAST(x AS Float)", message)
 
     async def test_deferred_execution_error_without_a_rule_is_left_alone(self):
         # Most runner failures match no rule. Those must reach the caller unchanged rather than

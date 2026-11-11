@@ -265,6 +265,7 @@ class PostHogPreviewStack:
         ("products", "/code/products"),
         ("packages/personhog-proto/personhog", "/code/personhog"),
         ("rust/persons_migrations", "/code/rust/persons_migrations"),
+        ("rust/persons_migrations_hobby", "/code/rust/persons_migrations_hobby"),
         ("frontend/src/lib/constants.tsx", "/code/frontend/src/lib/constants.tsx"),
     ]
 

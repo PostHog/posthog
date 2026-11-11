@@ -1,10 +1,20 @@
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { ActivityScope, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'DataCatalog',
+    activityDescribers: {
+        [ActivityScope.EVENT_DEFINITION]: () =>
+            import('scenes/data-management/dataManagementDescribers').then(
+                (module) => module.dataManagementActivityDescriber
+            ),
+        [ActivityScope.PROPERTY_DEFINITION]: () =>
+            import('scenes/data-management/dataManagementDescribers').then(
+                (module) => module.dataManagementActivityDescriber
+            ),
+    },
     scenes: {
         DataCatalog: {
             import: () => import('./frontend/DataCatalogScene'),

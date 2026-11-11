@@ -34,19 +34,24 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
-                  fetch-depth: 0
-                  filter: blob:none
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      .github/scripts/post-reminder-section.mjs
+                      frontend/bin/ci-report/update-ci-report.mjs
+                      rust/deltalite/python/Cargo.toml
+                      rust/deltalite/python/pyproject.toml
+                  sparse-checkout-cone-mode: false
 
             - name: Check if rust/deltalite/python/ or the workflow has changed
               id: changed-files
               if: github.event_name == 'pull_request'
-              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
+              uses: ./.github/actions/paths-filter
               with:
-                  files_yaml: |
+                  filters: |
                       deltalite:
-                      - rust/deltalite/python/**
+                        - 'rust/deltalite/python/**'
                       workflow:
-                      - .github/workflows/build-deltalite.yml
+                        - '.github/workflows/build-deltalite.yml'
 
             - name: Check if version was bumped
               shell: bash
@@ -54,8 +59,8 @@ jobs:
               if: github.event_name == 'pull_request'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  DELTALITE_CHANGED: ${{ steps.changed-files.outputs.deltalite_any_changed }}
-                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
+                  DELTALITE_CHANGED: ${{ steps.changed-files.outputs.deltalite }}
+                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
               run: |
                   deltalite_release_needed='false'
@@ -136,6 +141,12 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  sparse-checkout: |
+                      /.gitignore
+                      rust/
+                      proto/
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:

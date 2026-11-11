@@ -26,6 +26,7 @@ from products.tasks.backend.metrics import (
     observe_task_run_dispatch_callback,
 )
 from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch, execute_after_commit
+from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
 
 DISPATCH_PAYLOAD_VERSION = 1
@@ -218,7 +219,6 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
                 status=TaskRun.Status.NOT_STARTED,
                 environment=TaskRun.Environment.CLOUD,
                 scheduled_at__lte=now,
-                task__deleted=False,
             )
             .select_related("team")
             .only("id", "task_id", "team_id", "team__parent_team_id", "state", "scheduled_at")
@@ -228,6 +228,11 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
         if not task_runs:
             return 0
 
+        deleted_task_ids = set(
+            Task.objects.filter(id__in={task_run.task_id for task_run in task_runs}, deleted=True).values_list(
+                "id", flat=True
+            )
+        )
         existing_dispatches = {
             task_run_id: (workflow_id, status)
             for task_run_id, workflow_id, status in TaskWorkflowDispatch.objects.unscoped()
@@ -240,8 +245,12 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
         dispatches: list[TaskWorkflowDispatch] = []
         valid_run_ids: list[UUID] = []
         invalid_run_ids: list[UUID] = []
+        cancelled_run_ids: list[UUID] = []
         prefixed_runs: list[TaskRun] = []
         for task_run in task_runs:
+            if task_run.task_id in deleted_task_ids:
+                cancelled_run_ids.append(task_run.id)
+                continue
             try:
                 dispatch = _prepare_scheduled_dispatch(task_run, existing_dispatches.get(task_run.id), now)
             except ValueError:
@@ -269,10 +278,18 @@ def materialize_due_scheduled_task_runs(batch_size: int) -> int:
             ),
             updated_at=now,
         )
+        TaskRun.objects.filter(id__in=cancelled_run_ids, status=TaskRun.Status.NOT_STARTED).update(
+            status=TaskRun.Status.CANCELLED,
+            completed_at=now,
+            error_message="This scheduled run was canceled because the task was deleted.",
+            updated_at=now,
+        )
+        sync_task_statuses_on_commit(task_run.task_id for task_run in task_runs)
 
     SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="materialized").inc(len(valid_run_ids))
     WORKFLOW_DISPATCH_CREATED_TOTAL.labels(kind=TaskWorkflowDispatch.Kind.CREATE).inc(len(dispatches))
     SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="invalid").inc(len(invalid_run_ids))
+    SCHEDULED_TASK_RUN_MATERIALIZATION_TOTAL.labels(outcome="cancelled").inc(len(cancelled_run_ids))
     _observe_runs_started_beside_live_runs(valid_run_ids)
     return len(valid_run_ids)
 

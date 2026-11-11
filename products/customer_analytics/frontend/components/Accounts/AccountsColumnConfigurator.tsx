@@ -20,8 +20,7 @@ import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
-
-import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type { AccountsTableCustomPropertyDefinition } from '~/queries/schema/schema-general'
 
 import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import {
@@ -34,6 +33,7 @@ import {
     PickerGroupKey,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
+import { AccountsDefinitionStatus } from './AccountsDefinitionStatus'
 import { accountsViewsLogic } from './accountsViewsLogic'
 
 const ACCOUNT_COLUMN_LABELS: Record<string, string> = {
@@ -61,8 +61,15 @@ export function AccountsColumnConfigurator(): JSX.Element {
 }
 
 function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { selectColumns, accountsColumnGroups, databaseLoading, editingColumn, editingColumnIndex } =
-        useValues(accountsColumnConfigLogic)
+    const {
+        selectColumns,
+        accountsColumnGroups,
+        databaseLoading,
+        customPropertyDefinitionsLoading,
+        relationshipDefinitionsLoading,
+        editingColumn,
+        editingColumnIndex,
+    } = useValues(accountsColumnConfigLogic)
     const { moveColumn, resetColumns, unselectColumn, setEditingColumnIndex } = useActions(accountsColumnConfigLogic)
 
     return (
@@ -127,7 +134,15 @@ function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean;
                     ) : (
                         <div className="w-full">
                             <h4 className="secondary uppercase text-secondary">Available columns</h4>
-                            <AvailableColumnsPicker groups={accountsColumnGroups} loading={databaseLoading} />
+                            <AccountsDefinitionStatus />
+                            <AvailableColumnsPicker
+                                groups={accountsColumnGroups}
+                                loading={
+                                    databaseLoading ||
+                                    customPropertyDefinitionsLoading ||
+                                    relationshipDefinitionsLoading
+                                }
+                            />
                         </div>
                     )}
                 </div>
@@ -195,7 +210,11 @@ function ColumnEditSection({ column, onClose }: { column: string; onClose: () =>
     )
 }
 
-function CustomPropertyDisplayEditor({ definition }: { definition: CustomPropertyDefinitionApi }): JSX.Element {
+function CustomPropertyDisplayEditor({
+    definition,
+}: {
+    definition: AccountsTableCustomPropertyDefinition
+}): JSX.Element {
     const { columnDisplay } = useValues(accountsColumnConfigLogic)
     const { setColumnDisplay } = useActions(accountsColumnConfigLogic)
     const definitionId = definition.id
@@ -280,8 +299,6 @@ function SelectedAccountColumn({
     const { aliasToDefinition, aliasToRelationshipDefinition } = useValues(accountsColumnConfigLogic)
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
     const alias = extractDisplayLabel(column)
-    // Custom-property and relationship columns are aliased to opaque `cp_<id>` / `rel_<id>`
-    // (or legacy role keys); show the definition name instead.
     const label =
         aliasToDefinition[alias]?.name ??
         aliasToRelationshipDefinition[alias]?.name ??
@@ -346,8 +363,8 @@ function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGrou
                 suffix={<CategoryPicker groups={groups} activeKey={pickerGroupKey} onChange={setPickerGroupKey} />}
             />
             <div className="AvailableColumnsList border border-border rounded">
-                {loading && filteredColumnOptions.length === 0 ? (
-                    <div className="p-3 text-secondary">Loading schema…</div>
+                {loading ? (
+                    <div className="p-3 text-secondary">Loading columns…</div>
                 ) : filteredColumnOptions.length === 0 ? (
                     <div className="p-3 text-secondary">
                         {pickerSearch.trim() ? 'No matching columns' : 'No columns available'}

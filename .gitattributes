@@ -7,11 +7,13 @@ CODE_OF_CONDUCT.md export-ignore
 
 # Generated code: exclude from GitHub Linguist stats and suppress diffs.
 frontend/src/generated/** linguist-generated
+frontend/public/admin-console/console.css linguist-generated
 frontend/src/lib/posthog-typed.ts linguist-generated
 frontend/src/products.tsx linguist-generated
-frontend/src/queries/latest-versions.json linguist-generated
+frontend/src/queries/schema/latest-versions.json linguist-generated
 frontend/src/queries/schema.json linguist-generated
 frontend/src/queries/validators.js linguist-generated
+frontend/src/queries/web-analytics-validators.js linguist-generated
 frontend/src/taxonomy/core-filter-definitions-by-group.json linguist-generated
 
 products/*/frontend/generated/** linguist-generated
@@ -23,7 +25,8 @@ services/mcp/src/tools/generated/** linguist-generated
 
 packages/personhog-proto/personhog/** linguist-generated
 posthog/schema.py linguist-generated
-products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py linguist-generated
+products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/*.py linguist-generated
+products/warehouse_sources/sources/*/_config.py linguist-generated
 posthog/temporal/proxy_service/proto/*_pb2*.py linguist-generated
 
 nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts linguist-generated
@@ -43,3 +46,7 @@ common/hogql_parser/HogQLParserVisitor.cpp linguist-generated
 common/hogql_parser/HogQLParserVisitor.h linguist-generated
 common/hogql_parser/HogQLParserBaseVisitor.cpp linguist-generated
 common/hogql_parser/HogQLParserBaseVisitor.h linguist-generated
+hog/test/parity/bundles/** linguist-generated -text
+hog/test/parity/golden/** linguist-generated
+hog/test/parity/native/bin/** binary linguist-generated
+hog/test/parity/real/** -text linguist-generated

@@ -56,11 +56,20 @@ from products.signals.backend.ranking.serving_manifest import (
     serving_manifest_key,
     serving_model_prefix,
     serving_project_vectors_key,
+    serving_user_vectors_key,
 )
 from products.signals.backend.ranking.sinks import REPORT_SCORED_EVENT
 from products.signals.dags.inbox_ranking.common import partition_object_key
-from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, PROJECT_VECTORS_TABLE, STATE_TABLE
-from products.signals.dags.inbox_ranking.dataset.project_vectors import PROJECT_VECTORS_SCHEMA_VERSION
+from products.signals.dags.inbox_ranking.dataset.dag import (
+    LABELS_TABLE,
+    PROJECT_VECTORS_TABLE,
+    STATE_TABLE,
+    USER_VECTORS_TABLE,
+)
+from products.signals.dags.inbox_ranking.dataset.project_vectors import (
+    PROJECT_VECTORS_SCHEMA_VERSION,
+    USER_VECTORS_SCHEMA_VERSION,
+)
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
     calibration_buckets,
@@ -108,6 +117,7 @@ from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
     ECE_TOLERANCE,
     PromotionDecision,
+    auto_promotion_candidate,
     decide_promotion,
 )
 from products.signals.dags.inbox_ranking.training.served import (
@@ -1469,6 +1479,82 @@ def test_decide_promotion(candidate, champion, expected_promote, reason_fragment
     assert reason_fragment in decision.reason
 
 
+_AUTO_SERVED_KEY = model_key(EMBEDDINGS_MODEL_NAME, "2026-08-10")
+_AUTO_POINTER = {
+    "model_key": _AUTO_SERVED_KEY,
+    "model_name": EMBEDDINGS_MODEL_NAME,
+    "model_version": "2026-08-10",
+    "promoted_at": "2026-08-10T05:02:00+00:00",
+}
+
+
+def _decision(would_promote: bool, incumbent_key: str | None = _AUTO_SERVED_KEY) -> dict[str, Any]:
+    return {"would_promote": would_promote, "reason": "open regressed", "incumbent_key": incumbent_key}
+
+
+@pytest.mark.parametrize(
+    "decisions,today,interval_days,pause,expected_version,reason_fragment",
+    [
+        # 05:00 three calendar days after a 05:02 promotion is under 72 hours, and still due.
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, "2026-08-12", "auto: newest"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 12), 3, {}, None, "promoted 2d ago"),
+        (
+            {"2026-08-11": _decision(True), "2026-08-12": _decision(False)},
+            datetime.date(2026, 8, 13),
+            3,
+            {},
+            "2026-08-11",
+            "auto: newest",
+        ),
+        # Graded against a model that no longer serves, for example before a manual rollback.
+        (
+            {"2026-08-12": _decision(True, model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01"))},
+            datetime.date(2026, 8, 13),
+            3,
+            {},
+            None,
+            "graded against",
+        ),
+        # The run's own partition can still be training when the publish starts.
+        ({"2026-08-13": _decision(True)}, datetime.date(2026, 8, 14), 3, {}, None, "no "),
+        # A backfilled decision at or before the served version must not move the pointer back.
+        ({"2026-08-10": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, None, "no "),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 0, {}, None, "off"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {"held": True}, None, "held"),
+        (
+            {"2026-08-12": _decision(True)},
+            datetime.date(2026, 8, 13),
+            3,
+            {"served_override": model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01")},
+            None,
+            "served override",
+        ),
+    ],
+    ids=[
+        "newest_passes",
+        "interval_not_elapsed",
+        "older_passes_when_newest_fails",
+        "other_incumbent",
+        "partition_version",
+        "not_newer_than_served",
+        "interval_zero",
+        "held",
+        "served_override",
+    ],
+)
+def test_auto_promotion_candidate(decisions, today, interval_days, pause, expected_version, reason_fragment):
+    choice = auto_promotion_candidate(
+        _AUTO_POINTER,
+        decisions,
+        partition_key="2026-08-13",
+        today=today,
+        interval_days=interval_days,
+        **{"held": False, **pause},
+    )
+    assert choice.model_version == expected_version
+    assert reason_fragment in choice.reason
+
+
 def test_decide_promotion_grades_the_champion_on_the_candidate_holdout():
     candidate = _metadata("d2", open=0.66)
     champion = {**_metadata("d1", open=0.60), "promoted_at": "2026-08-10T00:00:00+00:00"}
@@ -2215,14 +2301,14 @@ class _AppObjectStore:
         self.metadata = dict(metadata or {})
         self.fail_on = fail_on
         self.written: list[str] = []
-        self.extras: dict[str, dict[str, str] | None] = {}
+        self.extras: dict[str, dict[str, Any] | None] = {}
 
     def head_object(self, bucket: str, file_key: str) -> dict[str, Any] | None:
         if file_key not in self.objects:
             return None
         return {"ContentLength": len(self.objects[file_key]), "Metadata": self.metadata.get(file_key, {})}
 
-    def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, str] | None) -> None:
+    def write(self, bucket: str, key: str, content: str | bytes, extras: dict[str, Any] | None) -> None:
         if self.fail_on is not None and self.fail_on in key:
             raise RuntimeError("object store write failed")
         self.objects[key] = content if isinstance(content, bytes) else content.encode()
@@ -2392,6 +2478,40 @@ def test_project_vectors_are_published_before_the_manifest_that_names_them(
         assert mirror.objects == {}
 
 
+@pytest.mark.parametrize(
+    "source_present,already_published,write_fails",
+    [(True, False, False), (True, True, False), (False, False, False), (True, False, True)],
+)
+def test_user_vectors_are_published_when_present_and_never_block_the_manifest_or_reach_the_mirror(
+    monkeypatch: pytest.MonkeyPatch, source_present: bool, already_published: bool, write_fails: bool
+) -> None:
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    partition_key = "2026-08-19"
+    target = serving_user_vectors_key(prefix, partition_key)
+    store = _AppObjectStore(
+        {target: b"published before"} if already_published else None, fail_on="/user_vectors/" if write_fails else None
+    )
+    mirror = _AppObjectStore()
+    dataset = _serving_dataset_s3(prefix, partition_key)
+    if source_present:
+        dataset.objects[partition_object_key(prefix, USER_VECTORS_TABLE, partition_key)] = b"user vectors"
+    capture = _run_serving_manifest(monkeypatch, store, mirror=mirror, dataset_client=dataset)
+
+    named = source_present and not write_fails
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert manifest.user_vectors == (target if named else None)
+    assert _manifest_event(capture)["user_vectors_key"] == manifest.user_vectors
+    assert store.written[-1] == serving_manifest_key(prefix)
+    if named and not already_published:
+        assert store.objects[target] == b"user vectors"
+        assert store.extras[target] == {
+            "Metadata": {PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY: str(USER_VECTORS_SCHEMA_VERSION)}
+        }
+    # Per-user data stays in the deployment that owns the users.
+    assert not any("/user_vectors/" in key for key in mirror.objects)
+    assert ServingManifest.model_validate_json(mirror.objects[serving_manifest_key(prefix)]).user_vectors is None
+
+
 _MIRROR_PARTITION = "2026-08-19"
 
 
@@ -2410,6 +2530,7 @@ def _mirror_vectors_metadata(engagement_offset: int, schema_version: int = PROJE
     "mirror_days,expected_offset,skip_reason",
     [
         ({0: _mirror_vectors_metadata(1)}, 0, None),
+        ({0: _mirror_vectors_metadata(1, schema_version=1)}, 0, None),
         ({1: _mirror_vectors_metadata(2)}, 1, None),
         (
             {

@@ -366,7 +366,7 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
         ]
         analysis = readout.analysis
         # The scout's records live on the parent project. The variants endpoint checks the caller's
-        # parent access and credential scope with ScoutCanonicalTeamAccessPermission, and a tool sees
+        # parent access and credential scope with ScoutDataAccessPermission, and a tool sees
         # no credential, so a child environment gets its analysis only from the Variants tab.
         in_child_environment = self._team.parent_team_id is not None and self._team.parent_team_id != self._team.id
         if analysis is not None and in_child_environment:

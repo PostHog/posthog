@@ -20,7 +20,7 @@ import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
-import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
+import { useGoalLines, useTimeSeries, useValueBounds } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesComboChartConfig {
@@ -38,8 +38,8 @@ export interface TimeSeriesComboChartConfig {
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
      *  `'stacked'`. */
     barLayout?: ComboChartConfig['barLayout']
-    /** Stacked layout only — stack negative bar values below the zero baseline instead of
-     *  clamping them to 0. See {@link ComboChartConfig.divergingStack}. */
+    /** Stacked layout only — stack negative bar values below the zero baseline.
+     *  See {@link ComboChartConfig.divergingStack}. */
     divergingStack?: boolean
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
@@ -58,7 +58,7 @@ export interface TimeSeriesComboChartConfig {
     showTickMarks?: boolean
     /** Line interpolation for line/area series: `linear` (default) or `monotone` (smooth curve). */
     curve?: 'linear' | 'monotone'
-    /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
+    /** Tooltip behaviour and built-in content options. A `tooltip` render prop replaces the content. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
@@ -127,7 +127,13 @@ export function TimeSeriesComboChart<Meta = unknown>({
         valueLabelFormatter,
         primaryYAxis,
         yAxes,
-    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    } = useTimeSeries(series, labels, theme, {
+        xAxis,
+        yAxis,
+        valueLabels,
+        legend,
+        isPercent: barLayout === 'percent',
+    })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
     const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, chartSeries)
@@ -137,6 +143,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     )
 
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
+    const valueBounds = useValueBounds(primaryYAxis)
 
     const comboChartConfig: ComboChartConfig = {
         margins,
@@ -161,6 +168,8 @@ export function TimeSeriesComboChart<Meta = unknown>({
         bandPadding,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,
+        valueBounds,
+        floatBaseline: primaryYAxis?.startAtZero === false && primaryYAxis?.scale !== 'log',
         yAxes,
     }
 

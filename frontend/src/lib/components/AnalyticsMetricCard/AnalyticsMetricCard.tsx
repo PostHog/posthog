@@ -19,8 +19,8 @@ export interface AnalyticsMetricCardProps extends Omit<
     'children' | 'series'
 > {
     title: ReactNode
-    /** Render the change pill next to the headline instead of in the title row. */
-    changeInline?: boolean
+    /** Render the change pill after the subtitle instead of in the title row. */
+    changeBesideSubtitle?: boolean
     loading?: boolean
     error?: ReactNode
     emptyMessage?: ReactNode
@@ -45,7 +45,7 @@ export function AnalyticsMetricCard({
     className,
     dataAttr,
     title,
-    changeInline = false,
+    changeBesideSubtitle = false,
     ...metricProps
 }: AnalyticsMetricCardProps): JSX.Element {
     const Content = onClick ? 'button' : 'div'
@@ -101,23 +101,28 @@ export function AnalyticsMetricCard({
                     </span>
                 ) : (
                     <Metric {...metricProps} className="w-full px-3">
-                        {(label || !changeInline) && (
+                        {(label || !changeBesideSubtitle) && (
                             // The spare height goes above the headline, so a wrapped title does not move it.
-                            <MetricHeader className={clsx(!changeInline && 'flex-1', !label && 'justify-end')}>
+                            <MetricHeader className={clsx(!changeBesideSubtitle && 'flex-1', !label && 'justify-end')}>
                                 {label && <MetricTitle>{label}</MetricTitle>}
-                                {!changeInline && <MetricDelta />}
+                                {!changeBesideSubtitle && <MetricDelta />}
                             </MetricHeader>
                         )}
-                        {changeInline ? (
-                            // Wraps so a narrow card moves the pill under the number instead of clipping it.
-                            <div className="flex flex-wrap items-center justify-between gap-2">
+                        {changeBesideSubtitle ? (
+                            <>
                                 <MetricValue className={clsx(label && 'mt-2')} />
-                                <MetricDelta />
-                            </div>
+                                {/* The subtitle truncates, so the pill never wraps when hover changes the text width. */}
+                                <div className="mt-1 flex flex-1 items-start gap-2">
+                                    <MetricSubtitle className="min-w-0 flex-1 truncate" />
+                                    <MetricDelta className="ml-auto shrink-0" />
+                                </div>
+                            </>
                         ) : (
-                            <MetricValue className="mt-2" />
+                            <>
+                                <MetricValue className="mt-2" />
+                                <MetricSubtitle className="mt-1" />
+                            </>
                         )}
-                        <MetricSubtitle className={clsx('mt-1', changeInline && 'flex-1')} />
                         <MetricSparkline className="-mx-3 -mb-3 mt-3" />
                     </Metric>
                 )}

@@ -11,14 +11,14 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode } from '~/types'
 
+import { DashboardActions, FullscreenModeActions } from 'products/dashboards/frontend/DashboardHeaderActions'
+import { DashboardModals } from 'products/dashboards/frontend/DashboardModals'
+import { DashboardSceneMenuBar } from 'products/dashboards/frontend/DashboardSceneMenuBar'
+import { DashboardScenePanel } from 'products/dashboards/frontend/DashboardScenePanel'
+import { QuillDashboardHeaderActions } from 'products/dashboards/frontend/QuillDashboardHeaderActions'
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
-import { EditModeActions, FullscreenModeActions, ViewModeActions } from './DashboardHeaderActions'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
-import { DashboardModals } from './DashboardModals'
-import { DashboardSceneMenuBar } from './DashboardSceneMenuBar'
-import { DashboardScenePanel } from './DashboardScenePanel'
-import { QuillDashboardHeaderActions } from './QuillDashboardHeaderActions'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -27,7 +27,15 @@ export function insightIsAddedToDashboard(input: Record<string, unknown> | null,
     return Array.isArray(input?.dashboards) && input.dashboards.some((id) => Number(id) === dashboardId)
 }
 
-export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX.Element | null {
+export function DashboardHeader({
+    loading = false,
+    extraActions,
+    reloadOnAIChanges = true,
+}: {
+    loading?: boolean
+    extraActions?: JSX.Element
+    reloadOnAIChanges?: boolean
+}): JSX.Element | null {
     const { dashboard, dashboardLoading, dashboardMode, dashboardEditing, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
@@ -40,7 +48,7 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
     useMcpToolApplyBack({
         tools: ['insight-create', 'insight-update'],
         targetKey: `dashboard:${dashboard?.id ?? 'unloaded'}`,
-        active: !!dashboard && canEditDashboard,
+        active: reloadOnAIChanges && !!dashboard && canEditDashboard,
         onApply: (_event, { innerInput }) => {
             if (dashboard && insightIsAddedToDashboard(innerInput, dashboard.id)) {
                 loadDashboard({ action: DashboardLoadAction.Update })
@@ -54,13 +62,12 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
 
     let actions: JSX.Element | undefined
     if (dashboard) {
-        if (dashboardEditing) {
-            actions = <EditModeActions />
-        } else if (dashboardMode === DashboardMode.Fullscreen) {
-            actions = <FullscreenModeActions />
-        } else {
-            actions = <ViewModeActions />
-        }
+        actions =
+            dashboardMode === DashboardMode.Fullscreen && !dashboardEditing ? (
+                <FullscreenModeActions />
+            ) : (
+                <DashboardActions />
+            )
     }
 
     return (
@@ -116,7 +123,12 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
                           }
                         : undefined
                 }
-                actions={todayRailNav && dashboard ? <QuillDashboardHeaderActions /> : actions}
+                actions={
+                    <>
+                        {todayRailNav && dashboard ? <QuillDashboardHeaderActions /> : actions}
+                        {extraActions}
+                    </>
+                }
             />
         </>
     )

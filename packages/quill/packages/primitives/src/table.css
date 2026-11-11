@@ -11,11 +11,8 @@
         --tbl-edge-shadow: rgb(0 0 0 / 12%);
         --tbl-row-hover: color-mix(in oklab, var(--muted) 40%, var(--background));
 
-        /* Generic viewport-edge shadows, toggled per edge below. */
-        --tbl-shadow-top: 0 0 0 0 transparent;
-        --tbl-shadow-right: 0 0 0 0 transparent;
-        --tbl-shadow-bottom: 0 0 0 0 transparent;
-        --tbl-shadow-left: 0 0 0 0 transparent;
+        /* Above a sticky header cell (2) and a sticky header column (3). */
+        --tbl-z-resizer: 4;
 
         position: relative;
         width: 100%;
@@ -57,6 +54,14 @@
        viewport edge; on the root (non-scrolling) they stay put while scrolling. */
     .quill-table__root::before,
     .quill-table__root::after {
+        /* Generic viewport-edge shadows, toggled per edge below. They live on the pseudos and not
+           the root, because a custom property on the root is inherited by every cell, and changing
+           it restyles all of them. That is a long freeze in a large table. */
+        --tbl-shadow-top: 0 0 0 0 transparent;
+        --tbl-shadow-right: 0 0 0 0 transparent;
+        --tbl-shadow-bottom: 0 0 0 0 transparent;
+        --tbl-shadow-left: 0 0 0 0 transparent;
+
         position: absolute;
         inset: 0;
         z-index: 4;
@@ -78,21 +83,21 @@
        shadow when one exists (it sits beside the frozen edge, not over it). */
     .quill-table__root[data-scroll-right]:not(
         :has(.quill-table__cell[data-sticky='right'], .quill-table__head[data-sticky='right'])
-    ) {
+    )::after {
         --tbl-shadow-right: inset -16px 0 16px -16px var(--tbl-edge-shadow);
     }
 
-    .quill-table__root[data-scroll-bottom] {
+    .quill-table__root[data-scroll-bottom]::after {
         --tbl-shadow-bottom: inset 0 -16px 16px -16px var(--tbl-edge-shadow);
     }
 
     .quill-table__root[data-scroll-left]:not(
         :has(.quill-table__cell[data-sticky='left'], .quill-table__head[data-sticky='left'])
-    ) {
+    )::before {
         --tbl-shadow-left: inset 16px 0 16px -16px var(--tbl-edge-shadow);
     }
 
-    .quill-table__root[data-scroll-top]:not(:has(.quill-table[data-sticky-header])) {
+    .quill-table__root[data-scroll-top]:not(:has(.quill-table[data-sticky-header]))::before {
         --tbl-shadow-top: inset 0 16px 16px -16px var(--tbl-edge-shadow);
     }
 
@@ -123,6 +128,34 @@
     .quill-table__cell[data-expand] {
         width: 100%;
         min-width: 0;
+    }
+
+    /* Fixed layout: only the widths on the <col> elements decide the columns, so neither
+       the content nor a min or max width on a cell can hold a column back from a drag. */
+    .quill-table[data-layout='fixed'] {
+        table-layout: fixed;
+    }
+
+    /* Resizable columns. These hang off an attribute that is set from the first render and never
+       changes, because a rule that reaches every cell off an attribute that flips at the first drag
+       restyles them all, which is a visible pause in a large table. */
+
+    /* A head clips past its edge only by what its resizer needs. */
+    .quill-table[data-resizable] .quill-table__head {
+        overflow: clip;
+        overflow-clip-margin: 0.5rem;
+    }
+
+    /* While the columns fit their content, the expand column truncates its own and leaves the others alone. */
+    .quill-table[data-resizable] :is(.quill-table__head, .quill-table__cell)[data-expand] {
+        max-width: 0;
+    }
+
+    /* Keeps long content in its own column, and gives each cell its own layout and paint work,
+       so that moving a column does not repaint its neighbours. This cuts the cost of a frame
+       of a drag by about 40%. */
+    .quill-table[data-resizable] .quill-table__cell {
+        contain: layout paint style;
     }
 
     /* =========================================================================
@@ -192,6 +225,10 @@
         background-color: color-mix(in oklab, var(--primary) 12%, var(--background));
     }
 
+    .quill-table__row[data-state='selected']:hover .quill-table__cell {
+        background-color: color-mix(in oklab, var(--primary) 16%, var(--background));
+    }
+
     .quill-table__footer .quill-table__cell {
         font-weight: 500;
         background-color: color-mix(in oklab, var(--muted) 30%, var(--background));
@@ -255,6 +292,18 @@
         letter-spacing: inherit;
     }
 
+    /* A borderless Button in a left-aligned cell keeps its label in line with the
+       column header, the same as a header Button does. */
+    .quill-table__cell:not([data-align='center'], [data-align='right'])
+        > :is(
+            .quill-button--variant-default,
+            .quill-button--variant-link,
+            .quill-button--variant-link-foreground,
+            .quill-button--variant-link-muted
+        ):not([data-size^='icon']) {
+        margin-inline-start: -0.5rem;
+    }
+
     /* =========================================================================
        Sticky header + columns. Frozen edges are delineated by borders only; the
        generic viewport-edge shadows above still signal off-screen overflow.
@@ -315,5 +364,81 @@
     /* Sticky header cell that is also a sticky column must outrank both. */
     .quill-table[data-sticky-header] .quill-table__head[data-sticky] {
         z-index: 3;
+    }
+
+    /* An empty column that fills the space a fixed table's columns leave. It is always in the
+       DOM, so that fixing the layout at the start of a drag does not have to render every row. */
+    .quill-table [data-filler] {
+        padding: 0;
+    }
+
+    .quill-table:not([data-layout='fixed']) [data-filler] {
+        display: none;
+    }
+
+    /* =========================================================================
+       Column resizer. The line shows while the header is hovered, the handle while
+       its own header cell is. A keyboard user and a drag in progress see both.
+       ========================================================================= */
+    .quill-table__head:has(> .quill-table__resizer) {
+        position: relative;
+    }
+
+    /* The handle and hit target sit across the edge, so they reach over the next header cell. A head paints under the
+       next one, so it rises while the pointer is on either side of the edge. Hovering the next head is what lifts the
+       hit target under a pointer coming from the right, so this head has to outrank that head's own rise. */
+    .quill-table__head:has(> .quill-table__resizer):hover,
+    .quill-table__head:has(> .quill-table__resizer:focus-visible) {
+        z-index: var(--tbl-z-resizer);
+    }
+
+    .quill-table__head:has(> .quill-table__resizer):has(+ .quill-table__head:hover) {
+        z-index: calc(var(--tbl-z-resizer) + 1);
+    }
+
+    .quill-table__head > .quill-table__resizer {
+        --quill-resizable-hit-size: 0.75rem;
+
+        position: absolute;
+        inset-block: 0;
+        inset-inline-end: 0;
+        touch-action: none;
+        opacity: 0;
+        transition: opacity 0.1s;
+    }
+
+    .quill-table__head > .quill-table__resizer > div {
+        opacity: 0;
+        transition: opacity 0.1s;
+    }
+
+    [data-slot='table-header']:hover .quill-table__resizer,
+    [data-slot='table-header']:has(.quill-table__resizer[data-resizing]) .quill-table__resizer,
+    .quill-table__head > .quill-table__resizer:focus-visible {
+        opacity: 1;
+    }
+
+    .quill-table__head:hover > .quill-table__resizer > div,
+    .quill-table__head > .quill-table__resizer[data-resizing] > div,
+    .quill-table__head > .quill-table__resizer:focus-visible > div {
+        opacity: 1;
+    }
+
+    /* While a drag is on, only its own handle shows, whichever cell the pointer crosses. */
+    [data-slot='table-header']:has(.quill-table__resizer[data-resizing])
+        .quill-table__resizer:not([data-resizing])
+        > div {
+        opacity: 0;
+    }
+
+    .quill-table__head > .quill-table__resizer[data-resizing] > div {
+        background-color: color-mix(in oklab, var(--primary) 80%, transparent);
+    }
+
+    /* A touch screen has no hover to reveal the handle, and a drag along the header scrolls the table. */
+    @media (hover: none) {
+        .quill-table__head > .quill-table__resizer {
+            display: none;
+        }
     }
 }

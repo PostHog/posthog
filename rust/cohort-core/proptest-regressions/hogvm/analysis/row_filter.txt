@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc eb970ca426eb9751f4f6b63c4854b76f1a7268ac291c38b0e156f4097304bdb6 # shrinks to actual = Bool(false), expected = ""
+cc 6010d4ad367f4d798a2da4c6ba3547241939a40cd4a08dea3b9d9467626dd9c6 # shrinks to actual = Some(String(" false ")), literal = "my-flag"

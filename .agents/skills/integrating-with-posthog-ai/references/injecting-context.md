@@ -4,7 +4,7 @@ Tell the agent what the user is looking at. While a provider is registered, ever
 
 ## The item shape
 
-`AttachedContextItem` (`products/posthog_ai/frontend/types/contextTypes.ts`, exported from `api/types`):
+`AttachedContextItem` (`frontend/src/layout/ai/attachedContext.ts`, owned by the app shell; import it from `~/layout/ai/attachedContext`):
 
 | Field          | Meaning                                                                                                                                                                                                             |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

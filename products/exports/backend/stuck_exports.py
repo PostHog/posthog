@@ -10,6 +10,7 @@ from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_
 
 from products.exports.backend.analytics import capture_export_event
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
+from products.exports.backend.facade.exporters import is_product_export
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_TIMEOUT_GENERATION
 
@@ -29,12 +30,12 @@ def stuck_export_threshold(instance: ExportedAsset) -> timedelta:
     """How long an export may sit without content before nothing can still be working on it.
 
     Matched to whichever pipeline renders the format: video renders get the rasterize workflow's
-    envelope, dataset exports the export workflow's, and everything else the HogQL query timeout it
-    inherits from the Celery exporter.
+    envelope, product-owned exports get the export workflow's, and everything else gets the HogQL
+    query timeout it inherits from the Celery exporter.
     """
     if instance.is_rasterized_export:
         return RASTERIZE_WORKFLOW_TIMEOUT
-    if instance.is_dataset_export:
+    if is_product_export(export_format=instance.export_format, kind=instance.export_kind):
         return EXPORT_WORKFLOW_TIMEOUT
     return timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME)
 

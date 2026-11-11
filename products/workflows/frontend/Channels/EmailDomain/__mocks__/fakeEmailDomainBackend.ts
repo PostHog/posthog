@@ -207,6 +207,7 @@ export class FakeEmailDomainBackend {
             files_write_requestable: false,
             installation_shared: null,
             installation_status: null,
+            needs_webhook_reconnect: null,
         }
         this.senders.set(sender.id, sender)
         if (!this.domains.has(domain)) {
@@ -509,6 +510,7 @@ export class FakeEmailDomainBackend {
         const state = this.domainState((sender.config as EmailSenderConfig).domain)
         if (state.ses === 'verified') {
             state.awaitingRecord = false
+            this.verifyDomain(state.domain)
             return { status: 'success', dnsRecords: [] }
         }
         state.ses = 'pending'

@@ -114,8 +114,8 @@ class TestPublicSourceConfigs(APIBaseTest):
             assert isinstance(config["deprecatedVersions"], list), source_type
 
         stripe = data["Stripe"]
-        assert stripe["versions"] == ["2024-09-30.acacia"]
-        assert stripe["defaultVersion"] == "2024-09-30.acacia"
+        assert stripe["versions"] == ["2024-09-30.acacia", "2026-10-28.endive"]
+        assert stripe["defaultVersion"] == "2026-10-28.endive"
         assert stripe["apiDocsUrl"] == "https://docs.stripe.com/changelog"
 
     def test_many_fixed_schema_sources_list_tables(self):

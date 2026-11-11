@@ -5,21 +5,21 @@ import { useRef } from 'react'
 import { IconBottomPanel, IconSidePanel, IconX } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils/strings'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 
-import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
+import { useVisionSurfaceShown } from 'products/replay_vision/frontend/utils/useVisionSurfaceShown'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
+import { useLinkedIssuesAvailable } from './sidebar/useLinkedIssuesAvailable'
 import { DebugTabBar } from './watch/DebugTabBar'
 
 export function PlayerSidebar({
@@ -45,8 +45,9 @@ export function PlayerSidebar({
     const { setSidebarOpen, setDebugMode, setPreferredSidebarStacking } = useActions(playerSettingsLogic)
     const open = tabs ? debugMode : sidebarOpen
     const setOpen = tabs ? setDebugMode : setSidebarOpen
-    const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const { sessionPlayerMetaData, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const visionSurfaceShown = useVisionSurfaceShown()
+    const linkedIssuesAvailable = useLinkedIssuesAvailable()
     const { featureFlags } = useValues(featureFlagLogic)
 
     const logicKey = `player-sidebar-${isVerticallyStacked ? 'vertical' : 'horizontal'}`
@@ -72,7 +73,7 @@ export function PlayerSidebar({
               SessionRecordingSidebarTab.NETWORK_WATERFALL,
           ]
 
-    if (!tabs && visionSurfaceShown(logicProps)) {
+    if (!tabs && visionSurfaceShown) {
         sidebarTabs.push(SessionRecordingSidebarTab.OBSERVATIONS)
     }
 
@@ -81,11 +82,7 @@ export function PlayerSidebar({
         sidebarTabs.push(SessionRecordingSidebarTab.SESSIONS)
     }
 
-    // Show linked issues tab if there are integrations or existing references
-    const sessionReplayIntegrations = getIntegrationsByKind(['linear', 'github', 'gitlab', 'jira'])
-    const externalReferences = sessionPlayerMetaData?.external_references ?? []
-
-    if (!tabs && (sessionReplayIntegrations.length > 0 || externalReferences.length > 0)) {
+    if (!tabs && linkedIssuesAvailable) {
         sidebarTabs.push(SessionRecordingSidebarTab.LINKED_ISSUES)
     }
 

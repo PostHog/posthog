@@ -1,4 +1,4 @@
-import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
 
 import type { SignalSourceProductApi, SignalSourceConfigSourceTypeEnumApi } from '../generated/api.schemas'
 
@@ -7,7 +7,7 @@ interface ExternalSignalSourceDefinition {
     label: string
     category: string
     watches: string
-    dwSourceType: ExternalDataSourceTypeEnumApi
+    dwSourceType: ExternalDataSourceType
     requiredTables: readonly string[]
     sourceType: SignalSourceConfigSourceTypeEnumApi
     // Creation-only cursors miss later edits, so these sources opt into full refresh.

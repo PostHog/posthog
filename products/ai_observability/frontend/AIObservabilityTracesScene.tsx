@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useCallback, useEffect } from 'react'
@@ -22,6 +23,12 @@ import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { normalizeMessages } from './messageNormalization'
+import { toFullPageListParams } from './redesign/trace/traceBackLink'
+import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './redesign/trace/traceDrawerLists'
+import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
+import { hasOwnClickHandler } from './redesign/trace/traceDrawerRows'
+import { useTraceDrawerRows } from './redesign/trace/TraceDrawerRowsHost'
+import { TraceListRow } from './redesign/trace/traceListRows'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -36,8 +43,11 @@ import {
     isToolResult,
     isToolStepItem,
     LLM_TRACES_PAGE_SIZE,
-    sanitizeTraceUrlSearchParams,
 } from './utils'
+
+const TRACES_DATA_NODE_KEY = 'llm-analytics-traces'
+const TRACE_DRAWER_LIST_ID = 'traces'
+const TRACE_LINKS = '[data-attr="trace-id-link"], [data-attr="trace-name-link"]'
 
 export function AIObservabilityTraces(): JSX.Element {
     useMountedLogic(traceReviewsLazyLoaderLogic)
@@ -48,9 +58,9 @@ export function AIObservabilityTraces(): JSX.Element {
     const { tracesQuery } = useValues(aiObservabilityTracesTabLogic)
     const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
-    const baseContext = useTracesQueryContext()
+    const drawerContext = useTracesDrawerContext(TRACE_DRAWER_LIST_ID, TRACES_DATA_NODE_KEY)
     const context: QueryContext<DataTableNode> = {
-        ...baseContext,
+        ...drawerContext,
         ...(appliedSearchTerm
             ? {
                   emptyStateHeading: 'No traces matched your search',
@@ -89,7 +99,13 @@ export function AIObservabilityTraces(): JSX.Element {
                     )
                 }}
                 context={context}
-                uniqueKey="llm-analytics-traces"
+                uniqueKey={TRACES_DATA_NODE_KEY}
+            />
+            <TraceDrawerQueryHost
+                listId={TRACE_DRAWER_LIST_ID}
+                dataNodeKey={TRACES_DATA_NODE_KEY}
+                query={tracesQuery.source}
+                toRow={toTraceDrawerRow}
             />
         </div>
     )
@@ -137,15 +153,27 @@ function TracesOptionsMenu(): JSX.Element | null {
     )
 }
 
+// An omitted timestamp makes the detail view use its wide default date range. A timestamp
+// built from a missing or unparseable `createdAt` would instead point the lookup at a
+// ten-minute window around the present, where an older trace is not found.
+function getTraceLookupTimestamp(row: LLMTrace): string | undefined {
+    return row.createdAt && dayjs(row.createdAt).isValid() ? getTraceTimestamp(row.createdAt) : undefined
+}
+
+function toTraceListRow(trace: LLMTrace): TraceListRow {
+    return { traceId: trace.id, timestamp: getTraceLookupTimestamp(trace) ?? null, stepId: null }
+}
+
+export function toTraceDrawerRow(result: unknown): TraceListRow | null {
+    const trace = getTraceFromRow({ result })
+    return trace && toTraceListRow(trace)
+}
+
 function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, unknown>): string {
-    const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return combineUrl(urls.aiObservabilityTrace(row.id), {
-        ...nonTraceSearchParams,
-        back_to: 'traces',
-        // An omitted timestamp makes the detail view use its wide default date range. A timestamp
-        // built from a missing or unparseable `createdAt` would instead point the lookup at a
-        // ten-minute window around the present, where an older trace is not found.
-        timestamp: row.createdAt && dayjs(row.createdAt).isValid() ? getTraceTimestamp(row.createdAt) : undefined,
+        ...toFullPageListParams(searchParams),
+        back_to: TRACE_DRAWER_LISTS[TRACE_DRAWER_LIST_ID].backTo,
+        timestamp: getTraceLookupTimestamp(row),
     }).url
 }
 
@@ -160,9 +188,20 @@ function getTraceFromRow(record: unknown): LLMTrace | null {
     return result as LLMTrace
 }
 
-// Cells with their own link or button (ID, trace name, person) handle their own clicks.
-function hasOwnClickHandler(target: EventTarget | null): boolean {
-    return target instanceof Element && !!target.closest('button, a, [role="button"]')
+export function useTracesDrawerContext(listId: TraceDrawerListId, dataNodeKey: string): QueryContext<DataTableNode> {
+    const baseContext = useTracesQueryContext()
+    const { rowProps: baseRowProps } = baseContext
+    const { isEnabled, rowProps: toDrawerRowProps } = useTraceDrawerRows(listId, TRACE_LINKS)
+    const drawerRowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
+        (record) => {
+            const baseProps = baseRowProps?.(record) ?? {}
+            const trace = getTraceFromRow(record)
+            const rowProps = toDrawerRowProps(trace && toTraceListRow(trace))
+            return { ...baseProps, ...rowProps, className: clsx(baseProps.className, rowProps.className) }
+        },
+        [baseRowProps, toDrawerRowProps]
+    )
+    return { ...baseContext, dataNodeLogicKey: dataNodeKey, rowProps: isEnabled ? drawerRowProps : baseRowProps }
 }
 
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {

@@ -4,12 +4,12 @@ import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
+import { escapeHogQLString, escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import { DateRange, NodeKind, TrendsQuery, TrendsQueryResponse } from '~/queries/schema/schema-general'
-import { escapeHogQLString, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { HogQLMathType, type HogQLPropertyFilter, PropertyFilterType } from '~/types'
 
 import { evaluationsOverviewRetrieve } from '../../generated/api'

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -12,12 +12,12 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { inviteLogic } from 'lib/logic/inviteLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { OrganizationInviteType } from '~/types'
 
-import { inviteLogic } from './inviteLogic'
 import { EmailUnavailableForInvitesBanner } from './InviteModal'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
@@ -85,9 +85,18 @@ export function InvitesTable(): JSX.Element {
             key: 'target_email',
             render: function TargetEmail(_, invite): JSX.Element | string {
                 return invite.target_email ? (
-                    <div className="ph-no-capture flex items-center">
-                        {invite.target_email}
-                        {invite.first_name ? ` (${invite.first_name})` : ''}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="ph-no-capture">
+                            {invite.target_email}
+                            {invite.first_name ? ` (${invite.first_name})` : ''}
+                        </span>
+                        {invite.email_suppressed && (
+                            <Tooltip title="Our email provider is blocking email to this address, usually because an earlier email bounced. Share the invite link with them directly, or contact support to unblock the address.">
+                                <LemonTag type="danger" data-attr="invite-email-suppressed">
+                                    Email not delivered
+                                </LemonTag>
+                            </Tooltip>
+                        )}
                     </div>
                 ) : (
                     <i>no one</i>

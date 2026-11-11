@@ -22,6 +22,7 @@ export type UsageReportSite =
     | 'surveys'
     | 'logs'
     | 'apm_traces'
+    | 'metrics'
     | 'session_replay'
     | 'enhanced_persons'
 
@@ -33,6 +34,7 @@ const PRODUCER_IDS = {
     surveys: 'ingestion',
     logs: 'logs',
     apm_traces: 'apm-traces',
+    metrics: 'metrics',
     session_replay: 'session-replay',
     enhanced_persons: 'ingestion',
 } as const

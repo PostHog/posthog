@@ -42,10 +42,18 @@ TOPUP_RESOURCE_NAME = "Topup"
 REVIEW_RESOURCE_NAME = "Review"
 EARLY_FRAUD_WARNING_RESOURCE_NAME = "EarlyFraudWarning"
 SHIPPING_RATE_RESOURCE_NAME = "ShippingRate"
+OUTBOUND_PAYMENT_RESOURCE_NAME = "OutboundPayment"
+PAYOUT_INTENT_RESOURCE_NAME = "PayoutIntent"
+RECEIVED_CREDIT_RESOURCE_NAME = "ReceivedCredit"
+INBOUND_TRANSFER_RESOURCE_NAME = "InboundTransfer"
 
 # Vendor API version the sync pipeline pins by default. One constant so the source's version
 # declaration (`StripeSource.supported_versions`) and the request layer share a single label.
 STRIPE_API_VERSION_ACACIA = "2024-09-30.acacia"
+STRIPE_API_VERSION_ENDIVE = "2026-10-28.endive"
+
+# Versions that serve the API v2 money-management lists, which Stripe first published in 2026-10-28.endive.
+STRIPE_V2_MONEY_MANAGEMENT_VERSIONS = (STRIPE_API_VERSION_ENDIVE,)
 
 # CustomerPaymentMethodHistory metadata columns. Every row is one observation of a payment
 # method: either a `payment_method.*` webhook event, or a row from the initial attached-payment-
@@ -179,4 +187,6 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     #   EntitlementsActiveEntitlement - the one entitlements event carries an
     #       `entitlements.active_entitlement_summary` object (a per-customer summary), not an
     #       individual active entitlement, so routing it here would write the wrong shape.
+    #   OutboundPayment, PayoutIntent, ReceivedCredit, InboundTransfer - API v2 objects emit thin
+    #       events to event destinations, never snapshot events to a webhook endpoint.
 }

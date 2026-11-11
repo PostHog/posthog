@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -14,12 +14,31 @@ import {
     withFlagCallsAggregationTarget,
 } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { normalizeDisplay } from '~/queries/schema/node-accessors'
+import {
+    containsHogQLQuery,
+    isAnyDataWarehouseNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isDataWarehouseNode,
+    isFunnelsQuery,
+    isFunnelsDataWarehouseNode,
+    isInsightQueryWithBreakdown,
+    isInsightVizNode,
+    isLifecycleDataWarehouseNode,
+    isLifecycleQuery,
+    isMetricsQuery,
+    isPathsQuery,
+    isPathsV2Query,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -54,30 +73,12 @@ import {
 } from '~/queries/schema/schema-general'
 import type { Node } from '~/queries/schema/schema-general'
 import {
-    containsHogQLQuery,
     getResultCustomizations,
     filterForQuery,
-    isAnyDataWarehouseNode,
-    isDataTableNode,
-    isDataVisualizationNode,
-    isDataWarehouseNode,
     isEndpointsUsageQuery,
     isEventsQuery,
-    isFunnelsQuery,
-    isFunnelsDataWarehouseNode,
     isHogQuery,
-    isInsightQueryWithBreakdown,
-    isInsightVizNode,
-    isLifecycleDataWarehouseNode,
-    isLifecycleQuery,
-    isMetricsQuery,
-    isPathsQuery,
-    isPathsV2Query,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
     isWebAnalyticsInsightQuery,
-    normalizeDisplay,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -94,9 +95,10 @@ import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics
 import { expandGroupNodes } from './expandGroupNodes'
 
 export interface Tab {
-    label: string | JSX.Element
+    label: string
     type: InsightType
     dataAttr: string
+    beta?: boolean
 }
 
 type OmitConflictingProperties<T> = Omit<T, 'resultCustomizations'>
@@ -689,11 +691,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 // Visible when flagged or when viewing an existing journeys insight, so links never dead-end
                 if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2] || activeView === InsightType.JOURNEYS) {
                     tabs.push({
-                        label: (
-                            <>
-                                Journeys <LemonTag type="warning">BETA</LemonTag>
-                            </>
-                        ),
+                        label: 'Journeys',
+                        beta: true,
                         type: InsightType.JOURNEYS,
                         dataAttr: 'insight-journeys-tab',
                     })
@@ -714,7 +713,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
                     tabs.push({
-                        label: <>Hog 🦔</>,
+                        label: 'Hog 🦔',
                         type: InsightType.HOG,
                         dataAttr: 'insight-hog-tab',
                     })

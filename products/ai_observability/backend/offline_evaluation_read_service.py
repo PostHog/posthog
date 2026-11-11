@@ -539,14 +539,15 @@ class OfflineEvaluationReadService:
 
     def get_item_payload(self, experiment_id: UUID, item_id: UUID) -> OfflinePayloadRead:
         item = self._require_item(experiment_id, item_id)
+        payload_state = item.payload_state
         payload = (
             OfflineExperimentItemPayload.objects.for_team(self.team_id).filter(item_id=item.id).first()
-            if item.payload_state == PayloadState.AVAILABLE
+            if payload_state == PayloadState.AVAILABLE
             else None
         )
         return OfflinePayloadRead(
             id=item.id,
-            payload_state=item.payload_state,
+            payload_state=payload_state,
             payload_expires_at=item.payload_expires_at,
             available=payload is not None,
             data=payload.data if payload is not None else None,
@@ -556,14 +557,15 @@ class OfflineEvaluationReadService:
         result = self._results().filter(id=result_id, item__experiment_id=experiment_id).first()
         if result is None:
             raise OfflineEvaluationNotFound
+        payload_state = result.payload_state
         payload = (
             OfflineEvaluationResultPayload.objects.for_team(self.team_id).filter(result_id=result.id).first()
-            if result.payload_state == PayloadState.AVAILABLE
+            if payload_state == PayloadState.AVAILABLE
             else None
         )
         return OfflinePayloadRead(
             id=result.id,
-            payload_state=result.payload_state,
+            payload_state=payload_state,
             payload_expires_at=result.payload_expires_at,
             available=payload is not None,
             data=payload.data if payload is not None else None,

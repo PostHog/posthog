@@ -11,7 +11,7 @@ than a private parser — one semantics, many consumers.
 import re
 import sys
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -31,12 +31,16 @@ if TYPE_CHECKING:
 # ownership source.
 #
 # There are two candidate locations, and the code puts only the FIRST one that exists on the path.
-# The first entry covers a run from this repo, where the resolver is at packages/owners-yaml and the
-# engine's own home is under products/stamphog/packages/. The sibling `owners/` covers two cases:
-# the vendored layout that downstream repos copy, and the review sandbox, which receives this
-# directory at <checkout>/tools/pr-approval-agent with the resolver beside it at
-# <checkout>/tools/owners. Neither of those layouts has a first entry to find, so they fall through
-# to the sibling.
+# The sibling `owners/` covers two cases: the vendored layout that downstream repos copy, and the
+# review sandbox, which receives this directory at <checkout>/tools/pr-approval-agent with the
+# resolver beside it at <checkout>/tools/owners. The second entry covers a run from this repo, where
+# the resolver is at packages/owners-yaml and the engine's own home is under
+# products/stamphog/packages/, which has no `owners/` sibling.
+#
+# The sibling goes first because the sandbox extracts it from the same trusted payload as this file,
+# so it is always beside the engine there. The repo-root offset is a path in the PR checkout. If a PR
+# symlink moves the engine deeper in the tree, that offset lands on a directory the PR controls, and
+# checking it first would import the PR's code in place of the trusted resolver.
 #
 # Both entries are fixed offsets from this file, and not a discovered repo root.
 # `policy.repo_root()` walks up to find a `.stamphog/` directory, and the PR head is untrusted. A PR
@@ -46,9 +50,8 @@ if TYPE_CHECKING:
 def _owners_pkg_candidates(engine_file: Path) -> tuple[Path, ...]:
     engine_dir = engine_file.resolve().parent
     # engine_dir is products/stamphog/packages/pr-approval-agent in this repo, so the repo root is
-    # four levels up. In the sandbox and in a vendored copy that offset points outside the tree and
-    # finds nothing, which is what makes the sibling the answer there.
-    return (engine_dir.parents[3] / "packages" / "owners-yaml", engine_dir.parent / "owners")
+    # four levels up.
+    return (engine_dir.parent / "owners", engine_dir.parents[3] / "packages" / "owners-yaml")
 
 
 _OWNERS_PKG_CANDIDATES = _owners_pkg_candidates(Path(__file__))
@@ -262,7 +265,7 @@ TEAM_FILE_SAMPLE = 10
 #
 # Deliberately narrow. This is a "these files carry no news" rule, which AGENTS.md says needs an
 # argument, and the argument only holds for this one directory shape: the repo forbids hand-editing
-# it (root CLAUDE.md, "don't edit them manually, change serializers and rerun"), every product's
+# it (.agents/architecture.md: change the serializer and regenerate instead), every product's
 # generated directory has this exact path, and its only consumer decides who hears about a merge
 # rather than whether code is safe to approve. A bare `generated/` match would also catch
 # hand-editable directories elsewhere in the tree, which is the case AGENTS.md warns about.
@@ -536,14 +539,22 @@ def category_fully_exempt(category: str, files: list[str]) -> bool:
 
 
 def detect_deny_categories(
-    files: list[str], ignored_files: set[str] | None = None, *, apply_exceptions: bool = True
+    files: list[str],
+    lifted_files: Mapping[str, Collection[str]] | None = None,
+    *,
+    apply_exceptions: bool = True,
 ) -> list[str]:
-    """Categories hard-denied by the changed file paths. Titles never deny."""
+    """Categories hard-denied by the changed file paths. Titles never deny.
+
+    `lifted_files` maps a deny category to files that do not count toward that category only. A lift
+    matches the exact path, because Git paths are case-sensitive and `SDK/x` is not `sdk/x`.
+    """
     hits: set[str] = set()
-    ignored_files_lower = {f.lower() for f in ignored_files or set()}
-    paths_lower = [fl for f in files if (fl := f.lower()) not in ignored_files_lower]
+    lifted_by_category = lifted_files or {}
 
     for category, scopes in DENY_PATTERNS.items():
+        lifted_for_category = lifted_by_category.get(category, ())
+        paths_lower = [f.lower() for f in files if f not in lifted_for_category]
         path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
         exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
         if any(

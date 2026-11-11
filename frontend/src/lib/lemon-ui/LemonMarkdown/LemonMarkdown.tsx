@@ -1,18 +1,25 @@
 import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
-import React, { memo, useMemo } from 'react'
+import React, { Suspense, memo, useMemo } from 'react'
 import ReactMarkdown, { type Components, defaultUrlTransform } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 
 import { CodeSnippet, getLanguage, Language } from 'lib/components/CodeSnippet'
-import { RichContentMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 
 import { Link } from '../Link'
 import remarkMentions from './mention'
+
+// lemon-ui must not statically import app code, and the mention chip reads members from membersLogic.
+const RichContentMention = lazyWithRetry(() =>
+    import('lib/components/RichContentEditor/RichContentMention').then((module) => ({
+        default: module.RichContentMention,
+    }))
+)
 
 /**
  * Link target that places a chart inline in prose, e.g. `[Daily signups](chart:signups-drop)`.
@@ -270,7 +277,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             ),
             span: ({ className, ...props }: any): JSX.Element => {
                 if (className === 'ph-mention') {
-                    return <RichContentMention id={Number(props['data-mention-id'])} />
+                    return (
+                        <Suspense fallback={<span className="bg-fill-highlight-100 px-1 rounded font-medium">@</span>}>
+                            <RichContentMention id={Number(props['data-mention-id'])} />
+                        </Suspense>
+                    )
                 }
                 return <span className={className} {...props} />
             },

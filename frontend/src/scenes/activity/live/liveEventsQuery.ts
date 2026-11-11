@@ -1,6 +1,6 @@
 import api from 'lib/api'
+import { hogql } from 'lib/utils/hogql'
 
-import { hogql } from '~/queries/utils'
 import { LiveEvent } from '~/types'
 
 export const LIVE_EVENTS_QUERY_POLL_MS = 10000

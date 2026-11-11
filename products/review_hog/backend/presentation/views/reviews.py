@@ -1,6 +1,6 @@
-import uuid
 import dataclasses
 from typing import Any, cast, get_args
+from uuid import UUID
 
 from django.db import models
 from django.utils import timezone
@@ -16,6 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import github_rate_limited_response
+from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -395,7 +396,7 @@ class ReviewsTableParamsSerializer(serializers.Serializer):
     )
 
 
-class ReviewReviewsTablePageSerializer(serializers.Serializer):
+class ReviewReviewsTablePageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="How many reviews match the scope and every filter, across all pages.")
     running_count = serializers.IntegerField(
         help_text="How many reviews have a run in flight under the scope and filters, ignoring `status`. "
@@ -738,6 +739,13 @@ class ReviewPerspectiveStatsSerializer(serializers.Serializer):
     )
 
 
+def _next_table_offset(offset: int, limit: int, count: int) -> int | None:
+    next_offset = offset + limit
+    if next_offset >= count or next_offset > MAX_REVIEWS_TABLE_OFFSET:
+        return None
+    return next_offset
+
+
 class _PageEnvelopeSchema(AutoSchema):
     """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
 
@@ -846,6 +854,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None
     schema = _PageEnvelopeSchema()
+    path_parameters = {"pk": UUID}
 
     def _root_team_id(self) -> int:
         return resolve_effective_team_id(self.team_id)
@@ -908,7 +917,13 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             limit=filters["limit"],
             offset=filters["offset"],
         )
-        return Response(ReviewReviewsTablePageSerializer(page).data)
+        data = ReviewReviewsTablePageSerializer(page).data
+        offset, limit = filters["offset"], filters["limit"]
+        next_offset = _next_table_offset(offset, limit, page.count)
+        # Past the last row, `previous` points at the last page that holds rows, or is null when no row matches.
+        links_offset = min(offset, page.count)
+        data.update(offset_page_links(request, offset=links_offset, limit=limit, next_offset=next_offset))
+        return Response(data)
 
     @extend_schema(
         parameters=[PerspectiveStatsParamsSerializer],
@@ -1050,7 +1065,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @extend_schema(
         parameters=[
-            # The viewset has no queryset, so the path parameter does not get its type from the model.
+            # _PageEnvelopeSchema does not extend PostHogAutoSchema, so path_parameters does not type the id here.
             OpenApiParameter(
                 "id",
                 OpenApiTypes.UUID,
@@ -1073,15 +1088,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed "
         "under `scope=everyone` can be opened too.",
     )
-    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        try:
-            report_uuid = uuid.UUID(str(pk))
-        except ValueError:
-            raise NotFound("Review not found.")
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
         params = ReviewDetailParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         try:
-            detail = get_review_detail(self._root_team_id(), report_uuid, params.validated_data.get("run_index"))
+            detail = get_review_detail(self._root_team_id(), pk, params.validated_data.get("run_index"))
         except ReviewTurnNotFoundError:
             raise NotFound("No completed review turn with that run_index.")
         except ReviewNotFoundError:

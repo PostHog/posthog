@@ -10,7 +10,7 @@ from parameterized import parameterized
 from products.ai_observability.backend.translation.constants import SUPPORTED_LANGUAGES, TRANSLATION_MODEL
 from products.ai_observability.backend.translation.llm import TranslationTimeoutError, translate_text
 
-MOCK_PATH = "products.ai_observability.backend.translation.llm.get_llm_client"
+MOCK_PATH = "products.ai_observability.backend.translation.llm.build_openai_client"
 
 
 def mock_llm_client(mock_get_client: MagicMock) -> MagicMock:
@@ -72,7 +72,9 @@ class TestTranslateText:
 
         translate_text("Test", "es")
 
-        mock_get_client.assert_called_once_with("llma_translation")
+        mock_get_client.assert_called_once_with(
+            "llma_translation", ai_product="llma_translation", distinct_id="llma-translation"
+        )
 
     @patch(MOCK_PATH)
     def test_disables_client_retries(self, mock_get_client):

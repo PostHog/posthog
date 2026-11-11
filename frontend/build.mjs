@@ -35,12 +35,17 @@ const PRELOAD_MIN_CHUNK_BYTES = 50 * 1024
 
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+copyPublicFolder(
+    path.resolve(__dirname, '..', 'products', 'slack_app', 'backend', 'static'),
+    path.resolve(__dirname, 'dist')
+)
 
 copyPublicFolder(
     path.resolve(__dirname, 'node_modules', '@posthog', 'hedgehog-mode', 'assets'),
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
 copyEmojibaseData()
+copyWarehouseSourceIcons()
 copySnappyWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
 
@@ -335,11 +340,25 @@ function copyEmojibaseData() {
     }
 }
 
+// A warehouse source plugin keeps its icon in its own directory, and its catalog entry points at
+// /static/warehouse-sources/<vendor>/icon.png. Copying the icons to that path in dist puts them on the
+// static host with the rest of dist, so no vendor needs a file in frontend/public.
+function copyWarehouseSourceIcons() {
+    const sourcesDir = path.resolve(__dirname, '..', 'products', 'warehouse_sources', 'sources')
+    for (const entry of fs.readdirSync(sourcesDir, { withFileTypes: true })) {
+        const icon = path.resolve(sourcesDir, entry.name, 'icon.png')
+        if (entry.isDirectory() && fs.existsSync(icon)) {
+            const to = path.resolve(__dirname, 'dist', 'warehouse-sources', entry.name)
+            fs.mkdirSync(to, { recursive: true })
+            fs.copyFileSync(icon, path.resolve(to, 'icon.png'))
+        }
+    }
+}
+
 export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
     copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
-    // layout.html also gets the {% if stable_chunks %} boot branch, but posthog/utils.py only sets
-    // stable_chunks for "index.html", so this branch never renders here; the {% else %} default runs.
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
+    // posthog/utils.py sets stable_chunks only for "index.html", so layout.html gets the default boot script alone.
+    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
