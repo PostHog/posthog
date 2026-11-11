@@ -640,10 +640,11 @@ class TestDatasetRetentionMigration(TransactionTestCase):
     def test_existing_content_receives_a_full_retention_period(self) -> None:
         _, _, team = Organization.objects.bootstrap(None)
         executor = MigrationExecutor(connection)
+        latest = executor.loader.graph.leaf_nodes()
         before = [("ai_observability", "0070_offline_payload_expiry_indexes")]
         after = [("ai_observability", "0074_release_expired_dataset_names")]
-        executor.migrate(before)
         try:
+            executor.migrate(before)
             apps = executor.loader.project_state(before).apps
             legacy_dataset = apps.get_model("ai_observability", "Dataset").objects.create(
                 team_id=team.id, name="Existing dataset"
@@ -682,4 +683,4 @@ class TestDatasetRetentionMigration(TransactionTestCase):
             replacement = Dataset.objects.for_team(team.id, canonical=True).create(team_id=team.id, name=dataset.name)
             self.assertNotEqual(dataset.id, replacement.id)
         finally:
-            MigrationExecutor(connection).migrate(after)
+            MigrationExecutor(connection).migrate(latest)
