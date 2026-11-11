@@ -82,6 +82,13 @@ CLICKABLE_UNSUBSCRIBE_LINKS = [
         },
     ),
     (
+        "link_after_a_plain_script_that_follows_a_double_escaped_one",
+        {
+            "html": '<script><!--<script></script></script><script><script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+            "text": "",
+        },
+    ),
+    (
         "link_after_a_double_escaped_script_that_ends_after_a_style_tag",
         {
             "html": '<script><!--<script></script><style></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
@@ -100,6 +107,9 @@ TEXT_LINK_INTO_LONG_PUNCTUATION = "Unsubscribe: {{ unsubscribe_url }}" + "." * 2
 UNMATCHED_CLOSES_INSIDE_A_TEMPLATE = (
     "<div><template>" + "<span>" * 65536 + "</div>" * 65536 + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
 )
+LINK_AFTER_MANY_DOUBLE_ESCAPES = (
+    "<script><!--" + "<script></script>" * 65536 + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+)
 MISSING_UNSUBSCRIBE_LINKS = [
     *((case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]),
     ("text_link_running_into_liquid_markup", {"html": "", "text": "Unsubscribe: {{ unsubscribe_url }}{% endif %}"}),
@@ -113,6 +123,14 @@ MISSING_UNSUBSCRIBE_LINKS = [
         "link_after_an_upper_case_double_escaped_script",
         {"html": '<script><!--<SCRIPT></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
     ),
+    (
+        "link_after_a_script_end_tag_whose_attribute_escapes_again",
+        {
+            "html": '<script><!--<script></script x="<script>"></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+            "text": "",
+        },
+    ),
+    ("link_after_many_double_escapes_in_one_script", {"html": LINK_AFTER_MANY_DOUBLE_ESCAPES, "text": ""}),
 ]
 TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
