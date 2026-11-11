@@ -14,7 +14,7 @@ from products.knowledge_writer.backend.facade.contracts import (
     MergeCheckReport,
 )
 from products.knowledge_writer.backend.facade.enums import CriterionEffect, DocsChangeKind, DocsRequestSource
-from products.knowledge_writer.backend.logic import intake
+from products.knowledge_writer.backend.logic import intake, pull_requests
 
 SAMPLE_EVENTS: dict[DocsRequestSource, Any] = {
     DocsRequestSource.COMMAND_TAG: DocsCommandRequest(
@@ -143,7 +143,7 @@ def test_intake_accepts_a_valid_verdict_as_plain_data() -> None:
 def test_repo_merge_verdict_event_records_repository_pull_request_and_criteria() -> None:
     verdict = REGISTRY[DocsRequestSource.REPO_MERGE].assess(SAMPLE_EVENTS[DocsRequestSource.REPO_MERGE])
 
-    with patch.object(intake, "ph_scoped_capture") as scoped_capture:
+    with patch.object(pull_requests, "ph_scoped_capture") as scoped_capture:
         intake.capture_verdict(verdict, team_id=1)
 
     properties = scoped_capture.return_value.__enter__.return_value.call_args.kwargs["properties"]

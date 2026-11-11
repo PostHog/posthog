@@ -1,4 +1,3 @@
-import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, TypeVar
@@ -26,7 +25,6 @@ MAX_DIFF_CHARACTERS = 400_000
 JUDGE_TIMEOUT_SECONDS = 150
 JUDGE_MAX_RETRIES = 1
 MIN_QUOTE_CHARACTERS = 12
-WHITESPACE_PATTERN = re.compile(r"\s+")
 
 JUDGE_INSTRUCTIONS = """You decide whether a change merged into a product's code needs a change to that product's public docs.
 Docs need a change when the merge adds, renames, removes, or changes behavior that a customer reads about or configures.
@@ -207,4 +205,8 @@ def is_quoted_in(quote: str, text: str) -> bool:
 
 
 def normalized(text: str) -> str:
-    return WHITESPACE_PATTERN.sub(" ", text).strip().lower()
+    return single_line(text).lower()
+
+
+def single_line(text: str) -> str:
+    return " ".join(text.split())

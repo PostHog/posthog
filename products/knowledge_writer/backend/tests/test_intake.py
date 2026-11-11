@@ -90,15 +90,9 @@ def writer_env(team, user):
         ),
         patch(f"{GITHUB}.get_default_branch", return_value="master"),
         patch(LIST_PULL_REQUESTS, side_effect=_changed_on_branch(DOCS_PAGE_PATH)),
-        patch(FLAG_CHECK, side_effect=_flag_check()),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag == OPEN_PULL_REQUESTS_FLAG),
     ):
         yield
-
-
-def _flag_check(*flags_off: str, is_every_other_flag_on: bool = False) -> Callable[..., bool]:
-    return lambda flag, *args, **kwargs: (
-        flag not in flags_off and (is_every_other_flag_on or flag == OPEN_PULL_REQUESTS_FLAG)
-    )
 
 
 def _open_on_github(
@@ -490,7 +484,7 @@ def test_with_pull_requests_off_a_finished_run_is_logged_and_its_branch_deleted_
     monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
     monkeypatch.setenv("KNOWLEDGE_WRITER_DOCS_PATHS", "contents/docs")
     with (
-        patch(FLAG_CHECK, side_effect=_flag_check(OPEN_PULL_REQUESTS_FLAG, is_every_other_flag_on=True)),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != OPEN_PULL_REQUESTS_FLAG),
         patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
         patch(START_WORKFLOW),
     ):
@@ -605,7 +599,7 @@ def test_only_a_pull_request_the_writer_app_opened_can_be_joined_while_pull_requ
     assert section is not None
     lookalike_body = f"{LINK_BACK_START}\n{section_marker(section)}"
     with (
-        patch(FLAG_CHECK, side_effect=_flag_check(*flags_off, is_every_other_flag_on=True)),
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag not in flags_off),
         patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, lookalike_body), author_login=author_login)),
         patch(START_WORKFLOW),
     ):
