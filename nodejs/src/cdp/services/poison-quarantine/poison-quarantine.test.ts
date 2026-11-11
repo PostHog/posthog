@@ -4,7 +4,6 @@ import { defaultConfig } from '~/common/config/config'
 import { KAFKA_CDP_QUARANTINE } from '~/common/config/kafka-topics'
 import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { buildTestCdpProducerRegistry } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
@@ -122,9 +121,9 @@ describe('PoisonQuarantine', () => {
     it.each([
         ['the whole batch', true],
         ['a record that fails alone', false],
-    ])('fails the batch and quarantines nothing when %s hits a dependency outage', async (_, outageInBatch) => {
+    ])('fails the batch and quarantines nothing when %s fails with a retriable error', async (_, outageInBatch) => {
         const delivered: string[] = []
-        const outage = new DependencyUnavailableError('lookup failed', 'Postgres', new Error('ENOTFOUND'))
+        const outage = Object.assign(new Error('lookup failed'), { isRetriable: true })
         const handler = wrap((messages) => {
             const names = messages.map((message) => message.value!.toString())
             if (names.includes('uncached')) {
