@@ -12,6 +12,7 @@ export interface TraceDrawerToolbarProps {
     onPrevious: (() => void) | null
     onNext: (() => void) | null
     fullPageHref: string
+    fullPageInNewTab?: boolean
     onClose: () => void
 }
 
@@ -23,6 +24,7 @@ export function TraceDrawerToolbar({
     onPrevious,
     onNext,
     fullPageHref,
+    fullPageInNewTab = false,
     onClose,
 }: TraceDrawerToolbarProps): JSX.Element {
     return (
@@ -72,6 +74,7 @@ export function TraceDrawerToolbar({
                     type="secondary"
                     icon={<IconExpand45 />}
                     to={fullPageHref}
+                    targetBlank={fullPageInNewTab}
                     data-attr="trace-drawer-full-page"
                 >
                     Open full page

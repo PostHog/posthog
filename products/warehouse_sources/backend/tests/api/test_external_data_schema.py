@@ -491,15 +491,13 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (test name, source_cdc_enabled, team_ff_enabled, expected_cdc_available)
-            ("source_enabled_team_enabled", True, True, True),
-            ("source_enabled_team_disabled", True, False, None),
-            ("source_disabled_team_enabled", False, True, None),
-            ("source_disabled_team_disabled", False, False, None),
+            # (test name, source_cdc_enabled, expected_cdc_available)
+            ("source_enabled", True, True),
+            ("source_disabled", False, None),
         ]
     )
     def test_incremental_fields_cdc_available_gating(
-        self, _name: str, source_cdc_enabled: bool, team_ff_enabled: bool, expected_cdc_available
+        self, _name: str, source_cdc_enabled: bool, expected_cdc_available
     ):
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -542,10 +540,6 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)),
             mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=team_ff_enabled,
-            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
@@ -1460,10 +1454,6 @@ class TestExternalDataSchema(APIBaseTest):
 
         with (
             mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
-            mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
             mock.patch(
@@ -1525,10 +1515,6 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
             ),
@@ -1637,14 +1623,10 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"primary_key_columns": ["id"]},
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-            return_value=True,
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": sync_type, "primary_key_columns": ["id"]},
-            )
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_type": sync_type, "primary_key_columns": ["id"]},
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_message in str(response.json()).lower()
@@ -1833,10 +1815,6 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
                 return_value=False,
@@ -3330,10 +3308,6 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
-            mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ) as mock_add_table,
             mock.patch(
@@ -3411,7 +3385,6 @@ class TestUpdateExternalDataSchema:
     def _patch_cdc_switch(add_table_side_effect: BaseException | None = None) -> contextlib.ExitStack:
         stack = contextlib.ExitStack()
         views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
-        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
         stack.enter_context(mock.patch(f"{views}.external_data_workflow_exists", return_value=False))
         stack.enter_context(mock.patch(f"{views}.sync_external_data_job_workflow"))
         stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
@@ -3880,7 +3853,6 @@ class TestUpdateExternalDataSchema:
         views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
         data_imports = "products.warehouse_sources.backend.temporal.data_imports"
         facade = "products.data_warehouse.backend.facade.api"
-        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
         stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
         stack.enter_context(mock.patch(f"{facade}.trigger_cdc_extraction_schedule", return_value=True))
         stack.enter_context(mock.patch(f"{data_imports}.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"))
@@ -4066,10 +4038,6 @@ class TestUpdateExternalDataSchema:
         )
 
         with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-                return_value=True,
-            ),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
             ),
