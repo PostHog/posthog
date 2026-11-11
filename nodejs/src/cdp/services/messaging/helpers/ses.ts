@@ -213,7 +213,6 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Open: 'email_opened',
     Click: 'email_link_clicked',
     Delivery: 'email_delivered',
-    // SES keeps retrying a delayed message, so a later Delivery or Bounce still follows.
     DeliveryDelay: 'email_delivery_delayed',
     Bounce: 'email_bounced',
     // A Complaint is a recipient's "report spam" relayed through the provider's feedback loop.
