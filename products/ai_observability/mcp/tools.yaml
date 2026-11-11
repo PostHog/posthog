@@ -1218,15 +1218,16 @@ tools:
             reported scorers, supply status and value as appropriate. For composite scorers only, send {item_id,
             scorer_version_id, calculate: true} without a value or result metadata. The server evaluates that version's
             saved formula using its pinned input results for the same item. Include all inputs in this request, or use
-            credentials with evaluation:read and llm_analytics:read to reuse stored inputs, including on retries. Project
-            secret keys must include all inputs in the request. Missing inputs reject the whole batch. The server does not
-            run LLM judges or other external evaluators. Submit 1–1,000 results, keyed by item_id and exact scorer_version_id, with up to 1,000 item
-            declarations. Reuse caller-generated item IDs and unchanged content for retries; a result is unique per
-            item/scorer version. Existing items can be referenced without repeating their declaration or payload. Item
-            payloads allow 1 MiB and result payloads 256 KiB; use small batches through MCP and the API for bulk
-            uploads. Correct validation errors before retrying; never generate new IDs merely to retry an uncertain
-            response. Each result receipt includes status and error_code, including calculation failures. HTTP success
-            means the upload was accepted; inspect each result's status to check whether its calculation succeeded.
+            credentials with evaluation:read and llm_analytics:read to reuse stored inputs, including on retries.
+            Project secret keys must include all inputs in the request. Missing inputs reject the whole batch. The
+            server does not run LLM judges or other external evaluators. Submit 1–1,000 results, keyed by item_id and
+            exact scorer_version_id, with up to 1,000 item declarations. Reuse caller-generated item IDs and unchanged
+            content for retries; a result is unique per item/scorer version. Existing items can be referenced without
+            repeating their declaration or payload. Item payloads allow 1 MiB and result payloads 256 KiB; use small
+            batches through MCP and the API for bulk uploads. Correct validation errors before retrying; never generate
+            new IDs merely to retry an uncertain response. Each result receipt includes status and error_code, including
+            calculation failures. HTTP success means the upload was accepted; inspect each result's status to check
+            whether its calculation succeeded.
         param_overrides:
             items:
                 input_schema: OfflineExperimentUploadItemsSchema
