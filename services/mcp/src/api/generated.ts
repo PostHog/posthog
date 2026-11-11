@@ -34639,38 +34639,6 @@ export namespace Schemas {
       blocker: SyncFrequencyBlocker | null;
     }
 
-    /**
-     * * `source` - source
-     * * `plan` - plan
-     */
-    export type SyncFrequencyClampReasonEnum = typeof SyncFrequencyClampReasonEnum[keyof typeof SyncFrequencyClampReasonEnum];
-
-
-    export const SyncFrequencyClampReasonEnum = {
-      Source: 'source',
-      Plan: 'plan',
-    } as const;
-
-    export interface SyncFrequencyEffective {
-      /** The `sync_frequency` value the view refreshes at now. The saved `sync_frequency` is never rewritten, so this differs from it when something holds the view back, and is finer than it when a downstream view or endpoint needs fresher data.
-       *
-       * * `never` - never
-       * * `15min` - 15min
-       * * `30min` - 30min
-       * * `1hour` - 1hour
-       * * `6hour` - 6hour
-       * * `12hour` - 12hour
-       * * `24hour` - 24hour
-       * * `7day` - 7day
-       * * `30day` - 30day */
-      cadence: SavedQuerySyncFrequencyEnum;
-      /** Why `cadence` is slower than the view would otherwise refresh: 'plan' when the organization's plan does not allow refreshing that often, 'source' when the upstream sources do not sync that often. Null when nothing holds the view back.
-       *
-       * * `source` - source
-       * * `plan` - plan */
-      reason: SyncFrequencyClampReasonEnum | null;
-    }
-
     export interface SyncFrequencyBounds {
       /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, and 'no_node' means the view has no data modeling node to store a cadence on.
        *
@@ -34686,8 +34654,6 @@ export namespace Schemas {
       plan_floor: SyncFrequencyBound | null;
       /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
       ceiling: SyncFrequencyBound | null;
-      /** How often the view actually refreshes, and what holds it back when something does. Null when no schedule runs the view, and outside 'tiered' mode. */
-      effective: SyncFrequencyEffective | null;
       /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
       best_effort_sources: SyncFrequencyBlocker[];
       /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */

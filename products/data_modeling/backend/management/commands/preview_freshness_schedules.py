@@ -75,14 +75,9 @@ class Command(BaseCommand):
         wrote = False
         for clamp in sorted(preview.clamped, key=lambda c: names.get(c.node_id, c.node_id)):
             wrote = True
-            limit = (
-                f"its plan allows every {clamp.clamped_to} at most"
-                if clamp.reason == "plan"
-                else f"its sources only deliver every {clamp.source_floor}"
-            )
             self.stdout.write(
                 f"  ⚠ clamp: {names.get(clamp.node_id, clamp.node_id)} demanded every {clamp.demanded} "
-                f"but {limit} → will run {clamp.clamped_to}"
+                f"but its sources only deliver every {clamp.source_floor} → will run {clamp.clamped_to}"
             )
         for interval in preview.unsupported_tiers:
             wrote = True

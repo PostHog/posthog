@@ -21,7 +21,6 @@ function boundsWithPlanFloorAt6Hours(): SyncFrequencyBoundsApi {
         floor: null,
         plan_floor: { label: '6 hours', blocker: null },
         ceiling: null,
-        effective: null,
         best_effort_sources: [],
         best_effort_sources_withheld: false,
     } as unknown as SyncFrequencyBoundsApi

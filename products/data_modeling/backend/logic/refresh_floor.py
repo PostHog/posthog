@@ -1,31 +1,21 @@
-"""The finest cadence an organization's plan lets a view refresh at.
+"""The finest cadence an organization's plan lets a view be set to refresh at.
 
 Billing sets the floor per plan as the `limit`, in minutes, of the `data_modeling_refresh_interval` product
 feature. An organization without that feature has no floor. The `data-modeling-refresh-floor` flag rolls the
-floor out, and no floor applies while it is off for an organization.
+floor out, and no floor applies while it is off for an organization or can't be read.
 
-The flag payload, for example `{"clamp_existing": false}`, decides what happens to views already set faster
-than the floor. With `clamp_existing` false only new and
-changed cadences are held to the floor, and views already set faster keep running at their setting.
-With it true the scheduler also runs those views at the floor, and an endpoint keeps serving such a
-view's table for the floor's interval, because the table cannot refresh sooner. A view's saved cadence
-is never rewritten in either case, so turning the flag off restores every schedule. A flag change reaches a
-view's running schedule only when its DAG is reconciled again.
+The floor refuses new and faster cadences only. Views already set faster keep their cadence and keep running at it.
 """
 
-import json
-import dataclasses
 from datetime import timedelta
 
 import structlog
-import posthoganalytics
 
 from posthog.constants import AvailableFeature
-from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
-from posthog.run_mode import run_mode
+from posthog.ph_client import feature_enabled_or_false
 
-from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS
+from products.data_modeling.backend.logic.freshness import nearest_schedulable_bucket_at_least
 
 logger = structlog.get_logger(__name__)
 
@@ -33,156 +23,29 @@ REFRESH_FLOOR_FLAG = "data-modeling-refresh-floor"
 
 # An endpoint's freshness stops at seven days, so a coarser floor would leave its materialization no cadence to pick.
 _COARSEST_FLOOR = timedelta(days=7)
-_FLOOR_MINUTES = sorted(
-    int(bucket.total_seconds()) // 60 for bucket in SCHEDULABLE_BUCKETS if bucket <= _COARSEST_FLOOR
-)
-
-_reported_floor_errors: set[str] = set()
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class PlanRefreshFloor:
-    min_interval: timedelta
-    clamp_existing: bool
-
-    @property
-    def schedule_floor(self) -> timedelta | None:
-        """The floor the scheduler applies, or None while views set faster keep their cadence."""
-        return self.min_interval if self.clamp_existing else None
-
-
-class InvalidRefreshFloor(ValueError):
-    pass
-
-
-class RefreshFloorFlagInconclusive(Exception):
-    def __init__(self) -> None:
-        super().__init__(f"{REFRESH_FLOOR_FLAG} has conditions a local read can't evaluate, so no floor applies")
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class PlanRefreshFloorReading:
-    floor: PlanRefreshFloor | None
-    evaluated: bool
-
-
-def read_plan_refresh_floor(team_id: int) -> PlanRefreshFloorReading:
-    """The plan floor of the team's organization. See `read_organization_plan_refresh_floor`."""
+def read_plan_refresh_floor(team_id: int) -> timedelta | None:
     organization = Organization.objects.filter(team__id=team_id).first()
-    if organization is None:
-        return PlanRefreshFloorReading(floor=None, evaluated=True)
-    return read_organization_plan_refresh_floor(organization)
+    return organization_plan_refresh_floor(organization) if organization is not None else None
 
 
-def schedule_floor_for_organization(organization: Organization) -> timedelta | None:
-    floor = read_organization_plan_refresh_floor(organization).floor
-    return floor.schedule_floor if floor is not None else None
-
-
-def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefreshFloorReading:
-    """Read the organization's plan floor without raising.
-
-    Evaluated locally on the organization, so the bounds read and every reconcile can call it without
-    a network round trip.
-    """
-    organization_id = str(organization.id)
-    try:
-        minutes = _plan_limit_minutes(organization)
-        if minutes is None:
-            return PlanRefreshFloorReading(floor=None, evaluated=True)
-        if _definitions_failed_to_load():
-            return PlanRefreshFloorReading(floor=None, evaluated=False)
-        result = posthoganalytics.get_feature_flag_result(
-            REFRESH_FLOOR_FLAG,
-            organization_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        if result is None:
-            _report_if_the_flag_is_inconclusive(organization_id)
-            return PlanRefreshFloorReading(floor=None, evaluated=True)
-        if not result.enabled:
-            return PlanRefreshFloorReading(floor=None, evaluated=True)
-        return PlanRefreshFloorReading(
-            floor=PlanRefreshFloor(
-                min_interval=_plan_min_interval(minutes), clamp_existing=_clamp_existing(result.payload)
-            ),
-            evaluated=True,
-        )
-    except InvalidRefreshFloor as error:
-        # The flag payload and the billing feature limit are both set by hand, and neither is checked against
-        # the cadences a view can run at. Report a value the code cannot use, so the person who set it hears
-        # about it.
-        _report_once(error, organization_id)
-        return PlanRefreshFloorReading(floor=None, evaluated=False)
-    except Exception:
-        logger.warning("refresh_floor_flag_evaluation_failed", organization_id=organization_id, exc_info=True)
-        return PlanRefreshFloorReading(floor=None, evaluated=False)
-
-
-def _report_once(error: Exception, organization_id: str) -> None:
-    """Every graph build reads the floor, so report each distinct problem once per process."""
-    if str(error) in _reported_floor_errors:
-        return
-    _reported_floor_errors.add(str(error))
-    capture_exception(error, {"flag": REFRESH_FLOOR_FLAG, "organization_id": organization_id})
-
-
-def _definitions_failed_to_load() -> bool:
-    """On deployed cloud, a process with the SDK enabled but no definitions failed to load them.
-
-    Its read can't tell a floor from none, so a reconcile could speed up a schedule the floor holds back.
-    The check runs before the SDK call, because the SDK fetches missing definitions over the network even
-    for a local-only read, and a cadence save holds its DAG's row lock while it reads the floor.
-    Self-hosted instances and E2E stacks may never load definitions, and a disabled SDK returns no
-    result for every flag.
-    """
-    return (
-        run_mode().is_deployed_cloud
-        and not posthoganalytics.disabled
-        and not posthoganalytics.feature_flag_definitions()
-    )
-
-
-def _report_if_the_flag_is_inconclusive(organization_id: str) -> None:
-    """With definitions loaded, no result means the flag was deleted or its conditions need data this read
-    does not send.
-
-    That reads as no floor, so that one flag edit cannot block saves and reconciles for every
-    organization until someone edits it again. It is reported, because it turns the floor off everywhere.
-    """
-    if not run_mode().is_deployed_cloud or posthoganalytics.disabled:
-        return
-    if any(flag.get("key") == REFRESH_FLOOR_FLAG for flag in posthoganalytics.feature_flag_definitions() or []):
-        _report_once(RefreshFloorFlagInconclusive(), organization_id)
-
-
-def _plan_limit_minutes(organization: Organization) -> object:
+def organization_plan_refresh_floor(organization: Organization) -> timedelta | None:
     feature = organization.get_available_feature(AvailableFeature.DATA_MODELING_REFRESH_INTERVAL)
-    return feature.get("limit") if feature else None
-
-
-def _plan_min_interval(minutes: object) -> timedelta:
-    if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes not in _FLOOR_MINUTES:
-        raise InvalidRefreshFloor(
-            f"{AvailableFeature.DATA_MODELING_REFRESH_INTERVAL} limit must be one of {_FLOOR_MINUTES} minutes, got {minutes!r}"
-        )
-    return timedelta(minutes=minutes)
-
-
-def _clamp_existing(payload: object) -> bool:
-    if payload is None:
-        return False
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except ValueError as error:
-            raise InvalidRefreshFloor("payload is not JSON") from error
-    if not isinstance(payload, dict):
-        raise InvalidRefreshFloor(f"payload must be an object, got {payload!r}")
-    clamp_existing = payload.get("clamp_existing", False)
-    if not isinstance(clamp_existing, bool):
-        raise InvalidRefreshFloor(f"clamp_existing must be a boolean, got {clamp_existing!r}")
-    return clamp_existing
+    minutes = feature.get("limit") if feature else None
+    if minutes is None:
+        return None
+    if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes <= 0:
+        logger.warning("refresh_floor_limit_invalid", organization_id=str(organization.id), limit=minutes)
+        return None
+    organization_id = str(organization.id)
+    if not feature_enabled_or_false(
+        REFRESH_FLOOR_FLAG,
+        organization_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    ):
+        return None
+    return min(nearest_schedulable_bucket_at_least(timedelta(minutes=minutes)), _COARSEST_FLOOR)

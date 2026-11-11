@@ -22,9 +22,9 @@ Vocabulary, one term per concept:
   staler than a consumer requires).
   In interval-space a smaller timedelta means fresher/more frequent, so as plain
   timedeltas: source_floor <= target <= consumer_ceiling.
-- plan floor: the finest cadence the organization's plan allows. It applies to every node of the
-  team alike, so it is not a graph property: options finer than it are withheld, and the scheduler
-  can coarsen effective cadences up to it. The declared target is never rewritten.
+- plan floor: the finest cadence the organization's plan lets a person set. It applies to every node
+  of the team alike, so it is not a graph property. It withholds finer options and refuses new or
+  faster targets below it. The scheduler ignores it, and a target saved before it applied stays.
 - pinned: an opt-in on a node with a declared target. Its effective cadence is its own target,
   so consumers do not speed it up, and its ancestors see the pinned target instead of the demand
   below it. It has no consumer ceiling. Its children inherit the coarser of its source floor and
@@ -387,18 +387,14 @@ def _nearest_at_most(value: timedelta, buckets: frozenset[timedelta]) -> timedel
     return max(finer_or_equal) if finer_or_equal else min(buckets)
 
 
-ClampReason = Literal["source", "plan"]
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+@dataclasses.dataclass
 class ClampedCadence:
-    """A node whose effective cadence was coarsened to what its sources deliver or its plan allows."""
+    """A node whose effective cadence was coarsened to what its ancestor sources can deliver."""
 
     node_id: str
     demanded: timedelta  # cadence propagation or the seed asked for
     source_floor: timedelta  # slowest ancestor source
     clamped_to: timedelta  # the schedulable bucket it will actually run at
-    reason: ClampReason  # "source" when the sources alone set `clamped_to`, else "plan"
 
 
 def clamp_to_source_floor(
@@ -407,24 +403,18 @@ def clamp_to_source_floor(
     edges: list[tuple[str, str]],
     source_intervals: dict[str, timedelta],
     pinned: Collection[str] = frozenset(),
-    plan_floor: timedelta | None = None,
 ) -> tuple[dict[str, timedelta | None], list[ClampedCadence]]:
     """Coarsen every node scheduled finer than its sources can deliver to the nearest bucket >= its
-    source floor, and every node finer than `plan_floor` to the plan floor, returning the adjusted
-    cadences and the list of changes.
+    source floor, returning the adjusted cadences and the list of changes.
 
     Clamping each node independently can leave a slow-lineage ancestor coarser than a mixed-lineage
     consumer, which is intended: the consumer's fast inputs keep it changing at its fine cadence,
     while the columns derived from the slow lineage update as often as that lineage delivers.
     Streaming/best-effort sources have a zero floor and are never clamped.
 
-    When both floors coarsen a node to the same bucket, the source is the reason, because it is the
-    physical limit and a plan change would not make that node any fresher.
-
     A pinned node's effective cadence is its pinned target, so its children's floors read it from
     `effective`.
     """
-    plan_bucket = nearest_schedulable_bucket_at_least(plan_floor) if plan_floor is not None else None
     pinned_targets = {node: cadence for node in pinned if (cadence := effective.get(node)) is not None}
     floors = all_source_floors(edges, source_intervals, pinned_targets)
     clamped: dict[str, timedelta | None] = {}
@@ -434,27 +424,14 @@ def clamp_to_source_floor(
             clamped[node_id] = None
             continue
         source_floor = floors.get(node_id, STREAMING)
-        reason: ClampReason
-        source_bucket = (
-            nearest_schedulable_bucket_at_least(source_floor) if is_finer_than(cadence, source_floor) else None
-        )
-        if (
-            plan_bucket is not None
-            and is_finer_than(cadence, plan_bucket)
-            and (source_bucket is None or is_coarser_than(plan_bucket, source_bucket))
-        ):
-            target, reason = plan_bucket, "plan"
-        elif source_bucket is not None:
-            target, reason = source_bucket, "source"
+        if is_finer_than(cadence, source_floor):
+            target = nearest_schedulable_bucket_at_least(source_floor)
+            clamped[node_id] = target
+            changes.append(
+                ClampedCadence(node_id=node_id, demanded=cadence, source_floor=source_floor, clamped_to=target)
+            )
         else:
             clamped[node_id] = cadence
-            continue
-        clamped[node_id] = target
-        changes.append(
-            ClampedCadence(
-                node_id=node_id, demanded=cadence, source_floor=source_floor, clamped_to=target, reason=reason
-            )
-        )
     return clamped, changes
 
 
@@ -522,7 +499,6 @@ def compute_target_bounds(
     source_intervals: dict[str, timedelta],
     pinned: Collection[str] = frozenset(),
     plan_floor: timedelta | None = None,
-    schedule_plan_floor: timedelta | None = None,
 ) -> TargetBounds:
     """Resolve one node's selectable cadences, marking each blocked option with what blocks it.
 
@@ -537,17 +513,11 @@ def compute_target_bounds(
     ceiling = all_consumer_ceiling_bounds(edges, declared_targets, pinned).get(node_id)
     if node_id in pinned:
         ceiling = None
-    if schedule_plan_floor is not None and ceiling is not None:
-        enforced_floor = nearest_schedulable_bucket_at_least(schedule_plan_floor)
-        if is_finer_than(ceiling.value, enforced_floor):
-            ceiling = Bound(value=enforced_floor, blocker=ceiling.blocker)
     return _bounds_from(floor=floor, ceiling=ceiling, plan_floor=plan_floor)
 
 
 def _bounds_from(*, floor: Bound, ceiling: Bound | None, plan_floor: timedelta | None = None) -> TargetBounds:
     """Mark every cadence against the bounds, reporting each bound only if it blocks."""
-    if plan_floor is not None:
-        plan_floor = nearest_schedulable_bucket_at_least(plan_floor)
     options: list[TargetOption] = []
     for value in sorted(SCHEDULABLE_BUCKETS):
         if is_finer_than(value, floor.value):
@@ -654,7 +624,6 @@ def validate_declared_target(
     names: Mapping[str, str] | None = None,
     pinned: Collection[str] = frozenset(),
     plan_floor: timedelta | None = None,
-    schedule_plan_floor: timedelta | None = None,
 ) -> None:
     """Raise if `target` is not selectable or falls outside the node's bounds.
 
@@ -662,8 +631,6 @@ def validate_declared_target(
     that blocks the target, which is the thing a person has to change to unblock it. `pinned`
     holds the pin state the write would leave, including `node_id`'s own. `plan_floor` is the
     finest cadence the organization's plan allows, or None when its plan sets no floor.
-    `schedule_plan_floor` is the part of it the scheduler enforces, or None while views set faster
-    keep their cadence.
     """
     ensure_schedulable(target)
 
@@ -674,13 +641,11 @@ def validate_declared_target(
         source_intervals=source_intervals,
         pinned=pinned,
         plan_floor=plan_floor,
-        schedule_plan_floor=schedule_plan_floor,
     )
     option = bounds.option_for(target)
     if option is None or option.allowed:
         return
 
-    # A cadence saved before the floor applied stays saveable, so re-sending a whole view edits it.
     if option.blocked_by == "plan" and declared_targets.get(node_id) == target:
         return
 
@@ -699,12 +664,12 @@ def validate_declared_target(
             f"Can't refresh every {humanize_cadence(target)}: {_floor_reason(bounds.floor, names, pinned).why}."
             f" Pick {humanize_cadence(min(bounds.allowed))} instead."
         )
-    if option.blocked_by == "plan":
+    if option.blocked_by == "plan" and bounds.plan_floor is not None:
         raise PlanFloorRefusalError(
             f"Can't refresh every {humanize_cadence(target)} on your plan."
             f" Pick {humanize_cadence(min(bounds.allowed))} instead, or upgrade to refresh more often.",
             target=target,
-            plan_floor=bounds.plan_floor or min(bounds.allowed),
+            plan_floor=bounds.plan_floor,
         )
     if option.blocked_by == "consumer" and bounds.ceiling is not None:
         consumer = _describe(option.blocker, names, "a view or endpoint built on this one")

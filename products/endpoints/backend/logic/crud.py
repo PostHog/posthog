@@ -19,7 +19,6 @@ from posthog.schema import EndpointRequest, HogQLQuery
 
 from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import Product
-from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -30,7 +29,7 @@ from posthog.types import InsightQueryNode
 from products.data_modeling.backend.facade.api import HasDependentsError, delete_node_from_dag, materialize_saved_query
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.logic.activity import EndpointContext
-from products.endpoints.backend.logic.materialization import CadenceCarryRefusedError, EndpointMaterializationService
+from products.endpoints.backend.logic.materialization import EndpointMaterializationService
 from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
 from products.endpoints.backend.logic.validation import validate_bucket_overrides
 from products.endpoints.backend.models import Endpoint, EndpointVersion
@@ -46,13 +45,6 @@ def apply_tags(endpoint: Endpoint, tags: list[str] | None) -> None:
     # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / replace_tags_on_object;
     # it's not declared on the Endpoint model.
     endpoint.prefetched_tags = replace_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
-
-
-@frozen
-class _QueryChange:
-    target_version: EndpointVersion
-    version_was_created: bool
-    replaced_version: EndpointVersion | None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -212,16 +204,13 @@ class EndpointCrudService:
 
             # Before any write, so a refused update leaves the endpoint as it was.
             self._check_disable_breaks_no_reader(endpoint, data, target_version, version_targeted)
-            self._check_query_edit_keeps_cadence(endpoint, data, raw_data, current_version, version_targeted)
 
             step = "endpoint_activation"
             # Endpoint-level activation only — deactivating a single version must never
             # touch the endpoint or the current version's materialization.
             if data.is_active is not None and not version_targeted:
                 endpoint.is_active = data.is_active
-                endpoint.save(update_fields=["is_active", "updated_at"])
-            else:
-                endpoint.save(update_fields=["updated_at"])
+            endpoint.save()
             if not version_targeted and not endpoint.is_active:
                 # A deactivated endpoint serves no version, so none should keep a
                 # materialization schedule running — tear down every materialized
@@ -235,13 +224,13 @@ class EndpointCrudService:
                 # Activation affects throttle classification — force a lazy re-check.
                 clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
 
-            # A refused cadence carry rolls back the new version with everything else, so no request
-            # ever sees a version whose update returned a 400.
-            with transaction.atomic():
-                step = "versioning"
-                query_change = self._apply_query_change(endpoint, data, target_version, was_materialized)
-                target_version = query_change.target_version
+            step = "versioning"
+            target_version, version_was_created, replaced_version = self._apply_query_change(
+                endpoint, data, target_version, was_materialized
+            )
 
+            # A rejected enable must also roll back changes to the direct query cache duration.
+            with transaction.atomic():
                 step = "version_fields"
                 self._apply_version_field_updates(endpoint, target_version, data, raw_data, version_targeted)
 
@@ -253,8 +242,8 @@ class EndpointCrudService:
                     target_version,
                     version_targeted,
                     was_materialized=was_materialized,
-                    version_was_created=query_change.version_was_created,
-                    replaced_version=query_change.replaced_version,
+                    version_was_created=version_was_created,
+                    replaced_version=replaced_version,
                 )
 
             step = "tags_and_activity"
@@ -264,7 +253,7 @@ class EndpointCrudService:
                 endpoint_before_update,
                 target_version,
                 version_before_update,
-                query_change.version_was_created,
+                version_was_created,
                 previous_data_freshness_seconds,
             )
 
@@ -332,64 +321,28 @@ class EndpointCrudService:
         for version in versions_to_disable:
             self.materialization_dependencies.check_deletable(version)
 
-    def _check_query_edit_keeps_cadence(
-        self,
-        endpoint: Endpoint,
-        data: EndpointRequest,
-        raw_data: dict,
-        current_version: EndpointVersion,
-        version_targeted: bool,
-    ) -> None:
-        """Raise ValidationError if a query edit would lose its saved cadence on the new version.
-
-        Mirrors `_reconcile_materialization`, which can only report this after the new version exists.
-        Refusing first leaves the current version in place, so the person can change the request and retry.
-        """
-        if (
-            version_targeted
-            or data.query is None
-            or data.is_materialized is False
-            or current_version.saved_query_id is None
-            or not (endpoint.is_active if data.is_active is None else data.is_active)
-            or not endpoint.has_query_changed(data.query.model_dump())
-        ):
-            return
-        if "data_freshness_seconds" not in raw_data:
-            freshness = current_version.data_freshness_seconds
-        elif data.data_freshness_seconds is None:
-            freshness = DEFAULT_DATA_FRESHNESS_SECONDS
-        else:
-            freshness = data.data_freshness_seconds
-        self.materialization.check_cadence_carry(endpoint, current_version, freshness)
-
     def _apply_query_change(
         self,
         endpoint: Endpoint,
         data: EndpointRequest,
         target_version: EndpointVersion,
         was_materialized: bool,
-    ) -> _QueryChange:
-        """Create a new version when the query changed.
+    ) -> tuple[EndpointVersion, bool, EndpointVersion | None]:
+        """Create a new version when the query changed. Returns (target_version, created, replaced_version).
 
         `replaced_version` is the materialized version the new one takes over from, or None.
         """
-        unchanged = _QueryChange(target_version=target_version, version_was_created=False, replaced_version=None)
         if data.query is None:
-            return unchanged
+            return target_version, False, None
 
         new_query_dict = data.query.model_dump()
         if not endpoint.has_query_changed(new_query_dict):
-            return unchanged
+            return target_version, False, None
 
         new_version = endpoint.create_new_version(query=new_query_dict, user=self.user)
         # The "current" version changed — its cached throttle readiness no longer applies.
-        team_id, endpoint_name = self.team.pk, endpoint.name
-        transaction.on_commit(lambda: clear_endpoint_materialization_cache(team_id, endpoint_name), robust=True)
-        return _QueryChange(
-            target_version=new_version,
-            version_was_created=True,
-            replaced_version=target_version if was_materialized else None,
-        )
+        clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
+        return new_version, True, target_version if was_materialized else None
 
     def _apply_version_field_updates(
         self,
@@ -443,9 +396,8 @@ class EndpointCrudService:
     ) -> str | None:
         """Bring the target version's materialization in line with the request.
 
-        Returns a materialization error message when enabling a new version failed
-        (the update itself still succeeds and keeps the version). A refused cadence
-        raises instead, which rolls the new version back.
+        Returns a materialization error message when enabling failed after a new
+        version was already committed (the update itself still succeeds).
         """
         requested_freshness = (
             (data.data_freshness_seconds if data.data_freshness_seconds is not None else DEFAULT_DATA_FRESHNESS_SECONDS)
@@ -515,12 +467,10 @@ class EndpointCrudService:
                         )
 
                 transaction.on_commit(refresh_materialization)
-        except CadenceCarryRefusedError:
-            raise
         except Exception as e:
             if not version_was_created:
                 raise
-            # Keep the new version and don't fail the whole update.
+            # The new version was already committed — don't fail the whole update.
             # Materialization can be retried via a subsequent update.
             logger.exception(
                 "Materialization failed after version creation",
