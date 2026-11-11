@@ -748,23 +748,21 @@ export class KafkaConsumer {
                         const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
 
                         // CRITICAL: If task not found, this indicates some bigger problem
+                        // Without a position in the queue we cannot show that the batches ahead of us finished.
                         if (index < 0) {
                             captureException(new Error('Background task not found in array during cleanup'))
+                            return
                         }
 
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
                         // Important: capture the promises BEFORE removing the task, as the array changes after splice
-                        if (index >= 0) {
-                            // Task found - capture promises to wait for, then remove the task
-                            const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
-                            this.backgroundTask.splice(index, 1)
-                            // A rejected task ahead of us has already set fatalError when this resumes,
-                            // because its rejection handler below was attached before this wait.
-                            await Promise.allSettled(promisesToWait)
-                        }
+                        const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
+                        this.backgroundTask.splice(index, 1)
+                        // A rejected task ahead of us has already set fatalError when this resumes,
+                        // because its rejection handler below was attached before this wait.
+                        await Promise.allSettled(promisesToWait)
 
-                        // Without a position in the queue we cannot show that the batches ahead of us finished.
-                        if (index >= 0 && !this.fatalError && this.config.autoCommit && this.config.autoOffsetStore) {
+                        if (!this.fatalError && this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
                         }
                     }
@@ -775,7 +773,6 @@ export class KafkaConsumer {
                     void backgroundTask.then(settle, (error) => {
                         logger.error('🔥', 'kafka_consumer_background_task_failed', { error: String(error) })
                         captureException(error)
-                        // A task can reject with a falsy value, so fatalError always holds an Error.
                         this.fatalError ??=
                             error instanceof Error ? error : new Error(`Background task rejected with ${String(error)}`)
                         return settle()

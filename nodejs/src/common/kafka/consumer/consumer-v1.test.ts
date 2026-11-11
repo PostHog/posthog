@@ -422,7 +422,7 @@ describe('consumer', () => {
                 storedOffsets: [],
             },
         ])(
-            'stores only the offsets of batches ahead of a failed one when $name',
+            'stores no offsets for a batch that settles after a failure when $name',
             async ({ pendingBatches, steps, storedOffsets }) => {
                 const tasks: ReturnType<typeof triggerablePromise>[] = []
                 for (let offset = 1; offset <= pendingBatches; offset++) {
@@ -473,6 +473,17 @@ describe('consumer', () => {
                 await expect(loopOutcome).resolves.toBeInstanceOf(Error)
             }
         )
+
+        it('stores no offsets for a batch whose task is missing from the queue', async () => {
+            const p1 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            consumer['backgroundTask'] = []
+
+            p1.resolve()
+            await delay(1)
+
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+        })
 
         it('stores no offsets for a background task that rejects during disconnect, and still disconnects', async () => {
             const p1 = triggerablePromise()

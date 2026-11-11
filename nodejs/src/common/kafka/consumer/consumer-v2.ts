@@ -458,7 +458,6 @@ export class KafkaConsumerV2 {
             } catch (error) {
                 logger.error('🔥', 'kafka_consumer_v2_background_task_failed', { error: String(error) })
                 captureException(error)
-                // A task can reject with a falsy value, so fatalError always holds an Error.
                 this.fatalError ??=
                     error instanceof Error ? error : new Error(`Background task rejected with ${String(error)}`)
             } finally {
