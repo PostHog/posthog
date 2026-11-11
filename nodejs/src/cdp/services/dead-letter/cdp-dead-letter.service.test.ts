@@ -271,6 +271,17 @@ describe('CdpDeadLetterService', () => {
         expect(produce).toHaveBeenCalledTimes(2)
     })
 
+    it('fails the batch when most of it throws on messages that never became events', async () => {
+        const service = createService()
+        const messages = batchOf(4)
+        messages
+            .slice(0, 3)
+            .forEach((source) => service.recordMessageFailure(source, { step: 'process', error: 'boom' }))
+
+        await expect(service.produceForBatch(messages)).rejects.toThrow('Refusing to dead-letter 3 of 4 messages')
+        expect(produce).not.toHaveBeenCalled()
+    })
+
     it('reports that a disabled queue retained nothing, so a caller can let the error through', () => {
         const service = createService(false)
 
