@@ -197,6 +197,23 @@ export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> 
     )
 }
 
+export async function terminateRoleConnections(postgresUrl: string, share: number): Promise<number> {
+    return await withPostgres(async (client) => {
+        const { rows } = await client.query<{ pid: number }>(
+            `SELECT pid FROM pg_stat_activity
+             WHERE pid <> pg_backend_pid() AND (application_name = ANY($1) OR application_name LIKE 'scenario-%')
+             ORDER BY random()`,
+            [Object.keys(ROLE_PORTS)]
+        )
+        const chosen = rows.slice(0, Math.ceil(share * rows.length)).map(({ pid }) => pid)
+        const terminated = await client.query<{ terminated: number }>(
+            'SELECT count(*) FILTER (WHERE pg_terminate_backend(pid))::int AS terminated FROM unnest($1::int[]) AS pid',
+            [chosen]
+        )
+        return terminated.rows[0].terminated
+    }, postgresUrl)
+}
+
 export async function rolesNotReady(specs: RoleSpec[]): Promise<Role[]> {
     const results = await Promise.all(
         specs.map(({ role }) =>

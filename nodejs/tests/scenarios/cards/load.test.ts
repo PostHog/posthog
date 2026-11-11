@@ -9,7 +9,6 @@ const definitions: Definitions = {
     ...DEFINITIONS,
     valves: [
         ...DEFINITIONS.valves,
-        { name: 'pg.drop_connections', params: z.object({ share: z.number() }).strict(), target: z.string() },
         {
             name: 'ses.reject',
             params: z.object({ type: z.enum(['bounce', 'rejected']), share: z.number() }).strict(),
@@ -111,7 +110,12 @@ describe('load', () => {
         ],
         [
             'a dose its valve refuses',
-            { ...card, valves: [{ ...emailWorkerKill, valve: 'pg.drop_connections', dose: { share: 'all' } }] },
+            {
+                ...card,
+                valves: [
+                    { ...emailWorkerKill, valve: 'pg.drop_connections', target: 'postgres', dose: { share: 'all' } },
+                ],
+            },
             undefined,
             'valves.0.dose.share: ',
         ],

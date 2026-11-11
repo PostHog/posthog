@@ -7,6 +7,7 @@ import Redis from 'ioredis'
 import net from 'net'
 import os from 'os'
 import path from 'path'
+import { Client } from 'pg'
 import { setTimeout as nextTimers } from 'timers/promises'
 import { promisify } from 'util'
 
@@ -869,6 +870,51 @@ describe('scenario environment', () => {
         }, 15_000)
     })
 
+    it("drops the roles' Postgres connections and spares every other one", async () => {
+        const connect = async (applicationName: string): Promise<{ client: Client; ended: Promise<void> }> => {
+            const client = new Client({
+                connectionString: defaultConfig.DATABASE_URL,
+                application_name: applicationName,
+            })
+            const ended = new Promise<void>((resolve) => client.on('error', () => resolve()))
+            await client.connect()
+            return { client, ended }
+        }
+        const backendsOf = (names: string[]): Promise<string[]> =>
+            withPostgres(
+                async (client) =>
+                    (
+                        await client.query<{ application_name: string }>(
+                            'SELECT application_name FROM pg_stat_activity WHERE application_name = ANY($1) ORDER BY 1',
+                            [names]
+                        )
+                    ).rows.map((row) => row.application_name),
+                defaultConfig.DATABASE_URL
+            )
+        const tag = `${process.pid}-${Date.now()}`
+        const names = {
+            pool: 'cdp-cyclotron-worker-hogflow',
+            cyclotron: `scenario-${tag}`,
+            bystander: `bystander-${tag}`,
+        }
+        const pool = await connect(names.pool)
+        const cyclotron = await connect(names.cyclotron)
+        const bystander = await connect(names.bystander)
+        try {
+            const actuation = await createEnvironment({ postgresUrl: defaultConfig.DATABASE_URL }).actuate({
+                kind: 'pg.terminate',
+                share: 1,
+            })
+
+            expect(await actuation.observed()).toBe(true)
+            await Promise.all([pool.ended, cyclotron.ended])
+            expect(await backendsOf(Object.values(names))).toEqual([names.bystander])
+            await actuation.release()
+        } finally {
+            await Promise.all([pool, cyclotron, bystander].map(({ client }) => client.end().catch(() => undefined)))
+        }
+    })
+
     describe('up and reset', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         const realSpawn = childProcess.spawn
@@ -1319,6 +1365,22 @@ describe('scenario environment', () => {
             }, 15_000)
             await actuation.release()
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
+        }, 30_000)
+
+        it('freezes a role on a valve, sees it stopped, and resumes the same process on release', async () => {
+            const role = 'cdp-cyclotron-worker-hogflow'
+            environment = environmentOf()
+            await environment.up()
+            const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
+            const frozen = Number(await (await internalFetch(health)).text())
+
+            const actuation = await environment.actuate({ kind: 'freeze', role })
+
+            expect(await actuation.observed()).toBe(true)
+            expect(stateOf(frozen)).toBe('T')
+            await actuation.release()
+            expect(Number(await (await internalFetch(health)).text())).toBe(frozen)
+            expect(environment.exits()).toEqual([])
         }, 30_000)
 
         it('brings every role up healthy', async () => {

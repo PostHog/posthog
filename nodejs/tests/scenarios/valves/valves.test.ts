@@ -1,7 +1,7 @@
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
-import { Actuation } from '../environment/environment'
+import { Action, Actuation } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
 import { ValveContext, createValves } from './valves'
@@ -14,7 +14,7 @@ type Job = { team: number; queue: Queue; status: 'available' | 'running' }
 type StackSetup = {
     running?: Role[]
     unkillable?: boolean
-    finishesJobsBeforeKill?: boolean
+    finishesJobsFirst?: boolean
     probeFailure?: string
     probeFailsFor?: number
     runningJobs?: number
@@ -23,7 +23,7 @@ type StackSetup = {
 function stackOf({
     running = [EMAIL_WORKER],
     unkillable = false,
-    finishesJobsBeforeKill = false,
+    finishesJobsFirst = false,
     probeFailure,
     probeFailsFor = Infinity,
     runningJobs = 0,
@@ -31,6 +31,7 @@ function stackOf({
     let probeReads = 0
     let nextPid = 1
     const processes = new Map<Role, number>(running.map((role) => [role, nextPid++]))
+    const actions: Action[] = []
     const gone: number[] = []
     const goneAfterRelease: number[] = []
     let releaseBegan = false
@@ -42,15 +43,19 @@ function stackOf({
         teams: [OUR_TEAM],
         environment: {
             actuate: (action): Promise<Actuation> => {
+                actions.push(action)
+                if (finishesJobsFirst) {
+                    jobs.splice(0)
+                }
+                if (action.kind === 'pg.terminate') {
+                    return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
+                }
                 const pid = processes.get(action.role)
                 if (pid === undefined) {
                     return Promise.resolve({
                         observed: () => Promise.reject(new Error(`${action.role} is not running`)),
                         release: () => Promise.resolve(),
                     })
-                }
-                if (finishesJobsBeforeKill) {
-                    jobs.splice(0)
                 }
                 if (!unkillable) {
                     gone.push(pid)
@@ -86,6 +91,7 @@ function stackOf({
 
     return {
         context,
+        actions: () => [...actions],
         gone: () => [...gone],
         goneAfterRelease: () => [...goneAfterRelease],
         releasing: (release: () => Promise<void>) => {
@@ -107,6 +113,16 @@ const kill = (schedule: Pick<ValveEntry, 'at' | 'when'>, holdFor = '10ms'): Valv
     target: EMAIL_WORKER,
     dose: {},
     for: holdFor,
+    ...schedule,
+})
+
+const freeze = (schedule: Pick<ValveEntry, 'at' | 'when'>): ValveEntry => ({ ...kill(schedule), valve: 'role.freeze' })
+
+const dropConnections = (schedule: Pick<ValveEntry, 'at' | 'when'>): ValveEntry => ({
+    valve: 'pg.drop_connections',
+    target: 'postgres',
+    dose: { share: 0.5 },
+    for: '10ms',
     ...schedule,
 })
 
@@ -150,6 +166,30 @@ describe('valves', () => {
         await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
         await valves.releaseAll()
 
+        expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
+    })
+
+    it.each<[string, ValveEntry, StackSetup, Action]>([
+        ['a kill', kill({ at: '0ms' }), {}, { kind: 'kill', role: EMAIL_WORKER }],
+        ['a freeze', freeze({ at: '0ms' }), {}, { kind: 'freeze', role: EMAIL_WORKER }],
+        [
+            'a connection drop, though the workers finish their jobs on new connections',
+            dropConnections({ when: RUNNING_ON_EMAIL }),
+            { runningJobs: 2, finishesJobsFirst: true },
+            { kind: 'pg.terminate', share: 0.5 },
+        ],
+    ])('applies and observes %s', async (_story, entry, stackSetup, action) => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf(stackSetup)
+
+        await valves.start([entry], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        expect({ actions: stack.actions(), error: valves.timeline()[0].error }).toEqual({
+            actions: [action],
+            error: undefined,
+        })
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
     })
 
@@ -224,13 +264,19 @@ describe('valves', () => {
         [
             'whose kill stranded no job, because the worker finished them first',
             kill({ when: RUNNING_ON_EMAIL }),
-            { runningJobs: 2, finishesJobsBeforeKill: true },
+            { runningJobs: 2, finishesJobsFirst: true },
+            'applied after running_on_queue email at least 2 stopped holding',
+        ],
+        [
+            'whose freeze stranded no job, because the worker finished them first',
+            freeze({ when: RUNNING_ON_EMAIL }),
+            { runningJobs: 2, finishesJobsFirst: true },
             'applied after running_on_queue email at least 2 stopped holding',
         ],
         [
             'whose kill stranded no job, read by a probe that had failed once before',
             kill({ when: RUNNING_ON_EMAIL }),
-            { runningJobs: 2, finishesJobsBeforeKill: true, probeFailure: 'connection refused', probeFailsFor: 1 },
+            { runningJobs: 2, finishesJobsFirst: true, probeFailure: 'connection refused', probeFailsFor: 1 },
             'applied after running_on_queue email at least 2 stopped holding',
         ],
     ])('records an error for an entry %s, and releases it', async (_story, entry, stackSetup, error) => {

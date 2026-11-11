@@ -15,6 +15,7 @@ export type ValveContext = {
 
 export type ValveDefinition = Definition & {
     target: z.ZodType<string>
+    strandsRunningJobs: boolean
     apply(context: ValveContext, target: string, dose: unknown): Promise<Actuation>
 }
 
@@ -38,10 +39,30 @@ export const roleKill: ValveDefinition = {
     name: 'role.kill',
     params: z.object({}).strict(),
     target: CdpRole,
+    strandsRunningJobs: true,
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
 }
 
-export const VALVES: ValveDefinition[] = [roleKill]
+export const roleFreeze: ValveDefinition = {
+    name: 'role.freeze',
+    params: z.object({}).strict(),
+    target: CdpRole,
+    strandsRunningJobs: true,
+    apply: ({ environment }, target) => environment.actuate({ kind: 'freeze', role: CdpRole.parse(target) }),
+}
+
+const ConnectionShare = z.object({ share: z.number().gt(0).max(1) }).strict()
+
+export const pgDropConnections: ValveDefinition = {
+    name: 'pg.drop_connections',
+    params: ConnectionShare,
+    target: z.literal('postgres'),
+    strandsRunningJobs: false,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({ kind: 'pg.terminate', share: ConnectionShare.parse(dose).share }),
+}
+
+export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections]
 
 const POLL_MS = 1000
 
@@ -99,7 +120,11 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             actuation = await definition.apply(context, entry.target, entry.dose)
             if (!(await actuation.observed())) {
                 record.error = 'applied but not observed'
-            } else if (entry.when && (await runningJobs(entry.when.params.queue)) < entry.when.params.atLeast) {
+            } else if (
+                entry.when &&
+                definition.strandsRunningJobs &&
+                (await runningJobs(entry.when.params.queue)) < entry.when.params.atLeast
+            ) {
                 record.error = withProbeFailure(
                     `applied after running_on_queue ${entry.when.params.queue} at least ${entry.when.params.atLeast} stopped holding`
                 )
