@@ -10,7 +10,17 @@ import {
     resolvedFacetFilterKey,
     serializeFacetQuery,
 } from './FacetSearchBar/facetQuery'
+import type { MatchesText } from './FacetSearchBar/facetQuery'
+import {
+    folderFileFacets,
+    folderFileMatcher,
+    folderFileMatchesText,
+    searchesAcrossFolders,
+    type WorkflowFolderFileRow,
+} from './workflowListFacets'
 import { DEFAULT_COLUMNS, OPTIONAL_COLUMNS, OptionalColumn } from './workflowListLabels'
+import type { WorkflowListRow } from './workflowListRows'
+import { MIN_SERVER_SEARCH_LENGTH, type ServerSearchResult } from './workflowsListV2Logic'
 
 export type WorkflowSavedView = Pick<WorkflowViewApi, 'id' | 'name' | 'state' | 'version' | 'default_key'> & {
     builtIn?: boolean
@@ -140,6 +150,35 @@ export function filtersFromView<TItem>(
     const viewKeys = new Set(viewFilters.map(key))
     const addedKeys = new Set(added.map(key))
     return filters.filter((filter) => viewKeys.has(key(filter)) && !addedKeys.has(key(filter)))
+}
+
+export function savedViewFileCounts(
+    views: WorkflowSavedView[],
+    files: WorkflowFolderFileRow[],
+    facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
+    matchesText: MatchesText<WorkflowListRow>,
+    serverSearch: ServerSearchResult | null,
+    metricsLoaded: boolean
+): Record<string, number> {
+    const fileMatchesText = folderFileMatchesText(matchesText)
+    return Object.fromEntries(
+        views.flatMap((view) => {
+            if (!metricsLoaded && view.state.filters.some((filter) => filter.facet === 'health')) {
+                return []
+            }
+            const text = view.state.text.trim()
+            if (text.length >= MIN_SERVER_SEARCH_LENGTH && (serverSearch?.text !== text || serverSearch.failed)) {
+                return []
+            }
+            const value = workflowViewValue(view.state)
+            const matches = folderFileMatcher(
+                value,
+                folderFileFacets(facetsFor(value), searchesAcrossFolders(value)),
+                fileMatchesText
+            )
+            return [[view.id, files.filter(matches).length]]
+        })
+    )
 }
 
 export type SavedViewAction = 'save-as' | 'update' | 'rename' | 'delete' | 'restore' | 'reset'
