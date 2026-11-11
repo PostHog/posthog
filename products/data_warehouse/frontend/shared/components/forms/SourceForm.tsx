@@ -17,7 +17,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -1053,11 +1052,9 @@ export function SourceFormComponent({
                         )
                 )}
             </Group>
-            {!isUpdateMode &&
-                showCdcConfig &&
-                !!sourceConfig.cdcEngine &&
-                featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
-                selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
+            {!isUpdateMode && showCdcConfig && !!sourceConfig.cdcEngine && selectedAccessMethod === 'warehouse' && (
+                <CDCConfigSection sourceName={sourceConfig.name} />
+            )}
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
