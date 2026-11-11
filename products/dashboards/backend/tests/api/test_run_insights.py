@@ -29,10 +29,10 @@ from posthog.models.team import Team
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.access import DashboardAccessMethod
-from products.dashboards.backend.api.dashboard import DashboardsViewSet
 from products.dashboards.backend.constants import RUN_INSIGHTS_MIN_TILE_CHARS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.dashboards.backend.presentation.views.dashboard import DashboardsViewSet
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 
@@ -149,7 +149,7 @@ class TestDashboardRunInsights(APIBaseTest):
     def test_records_dashboard_access(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="dash")
 
-        with patch("products.dashboards.backend.api.dashboard.record_dashboard_access") as record_access:
+        with patch("products.dashboards.backend.presentation.views.dashboard.record_dashboard_access") as record_access:
             body = self._run(dashboard.id, output_format="json")
 
         self.assertEqual(body["results"], [])
