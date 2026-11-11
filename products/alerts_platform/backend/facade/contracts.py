@@ -1110,6 +1110,8 @@ class PlatformAlertConfigurationEdit:
     cooldown_minutes: int
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
+    # Only a native create reads it, because an edit never moves the schedule. None takes the kind's default.
+    check_interval_minutes: int | None = None
 
 
 class InvalidPlatformAlertEdit(ValueError):
@@ -1204,13 +1206,13 @@ class SourceAdmission(Protocol):
 
 
 class NativeAlertRemoveDestinations(Protocol):
-    """Removes the destinations of an alert that is about to be deleted.
+    """Removes the destinations of an alert the platform owns that is about to be deleted, with a
+    source row or without one. `alert_id` is the id they match on, the alert's public id.
 
-    The alert's open incidents are closed before this runs, while the destinations their resolves go
-    to still exist. It runs in the delete's transaction, so a delete that fails keeps them.
+    It runs in the delete's transaction, so a delete that fails keeps them.
     """
 
-    def __call__(self, *, team_id: int, configuration_id: UUID) -> None: ...
+    def __call__(self, *, team_id: int, alert_id: UUID) -> None: ...
 
 
 @frozen
@@ -1222,10 +1224,13 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
+    # Each cadence a create may choose, with the calendar unit it repeats on, since a month is not a fixed
+    # number of minutes. None for a kind with one fixed cadence.
+    check_intervals: Mapping[int, str | None] | None = None
     # The most alerts of the kind a team can have, or None for no cap.
     max_per_team: int | None = None
-    # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
-    # destinations are `AlertDestination` rows from the start, which go with the configuration.
+    # Removes the HogFunction destinations of any deleted alert the platform owns. None for a kind
+    # whose destinations are `AlertDestination` rows, which go with the configuration.
     remove_destinations: NativeAlertRemoveDestinations | None = None
     # False for a kind whose alerts without a source row the platform deletes but does not create
     # yet. The API then neither publishes nor accepts a create of the kind.
@@ -1390,6 +1395,8 @@ class AlertDestinationData(TypedDict):
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
     email_addresses: NotRequired[list[str]]
+    # Users rather than addresses, so a send reaches each one's current address, and only while they have access.
+    email_user_ids: NotRequired[list[int]]
     in_app_user_ids: NotRequired[list[int]]
     # What an in-app notification is about, so the inbox applies its access rules for that resource.
     in_app_resource_type: NotRequired[str]
@@ -1576,6 +1583,12 @@ class AlertDelivery:
     at: str  # ISO-8601 timestamp
 
 
+class LiveHogFunctionLookup(Protocol):
+    """Which of these HogFunctions still exist, enabled or not. The product that owns them registers it."""
+
+    def __call__(self, *, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]: ...
+
+
 class DestinationResolver(Protocol):
     """The lookup the product that owns destinations registers for native delivery."""
 
@@ -1666,6 +1679,16 @@ class SourceRecipients(Protocol):
     """
 
     def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
+
+
+class SubscriberAccess(Protocol):
+    """Which of these users may still hear about an alert, by the source's own access rules.
+
+    The platform has already kept only users who can view the alert's project. The source adds what
+    only it knows, such as access to the insight an insight alert watches.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> Collection[int]: ...
 
 
 class SourceAlertCreator(Protocol):

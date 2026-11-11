@@ -128,7 +128,7 @@ from products.alerts.backend.facade.destinations import (
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
 from products.alerts.backend.facade.platform import (
     close_moved_alert_firings,
-    delete_moved_alert_copy,
+    delete_alert_destinations_and_copy,
     follow_insight_alert,
     hand_over_new_alert,
     moved_alert_check_page,
@@ -137,7 +137,9 @@ from products.alerts.backend.facade.platform import (
     native_insight_alert_matches,
     native_insight_alert_view,
     native_insight_alert_views,
+    platform_subscriber_ids,
     platform_takes_new_alert_with,
+    sync_alert_subscriber_destinations,
     write_moved_alert_edit,
 )
 from products.alerts.backend.insight_alert_state_machine import (
@@ -901,7 +903,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         from products.product_analytics.backend.presentation.insight import InsightBasicSerializer  # noqa: PLC0415
 
         data = super().to_representation(instance)
-        data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
+        shown = getattr(instance, "platform_subscribers", None)
+        subscribers = shown if shown is not None else instance.subscribed_users.all()
+        data["subscribed_users"] = UserBasicSerializer(subscribers, many=True, read_only=True).data
         data["insight"] = InsightBasicSerializer(instance.insight).data
         if data.get("checks_total") is None:
             data.pop("checks_total", None)
@@ -971,6 +975,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             AlertSubscription.objects.create(
                 user=user, alert_configuration=instance, created_by=self.context["request"].user
             )
+        sync_alert_subscriber_destinations(team_id=instance.team_id, alert_id=instance.id)
 
         instance.report_created(
             self.context["request"].user,
@@ -1118,6 +1123,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 raise ValidationError(str(error)) from error
             except InvalidPlatformAlertEdit as error:
                 raise ValidationError({error.field_name: str(error)}) from error
+        # The insight decides the in-app destination's resource, so any edit can change the copy's subscribers.
+        sync_alert_subscriber_destinations(team_id=instance.team_id, alert_id=instance.id)
         # Again under the lock, because `validate` counted without it and another update can race. After
         # `write_moved_alert_edit`, because the platform locks a copy before this lock, and an update
         # that took them the other way round could deadlock with it.
@@ -1608,6 +1615,18 @@ class AlertListFiltersSerializer(serializers.Serializer):
     has_detector = OptionalBooleanField(required=False)
 
 
+def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
+    """Shows each alert's subscribers as its platform copy names them, in place. An alert whose copy
+    names none keeps its subscriptions."""
+    if not alerts:
+        return
+    user_ids = platform_subscriber_ids(team_id=alerts[0].team_id, alert_ids=[alert.id for alert in alerts])
+    users = User.objects.in_bulk({user_id for ids in user_ids.values() for user_id in ids})
+    for alert in alerts:
+        if alert.id in user_ids:
+            alert.platform_subscribers = [users[user_id] for user_id in user_ids[alert.id] if user_id in users]  # type: ignore[attr-defined]
+
+
 def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
     """Shows each alert the platform owns as the platform has it, in place. Its own row stops
     moving once the insight stack stops checking it."""
@@ -1883,6 +1902,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             offset = 0
 
         _show_platform_status([instance], now=timezone.now())
+        _show_platform_subscribers([instance])
         platform_page = (
             moved_alert_check_page(
                 team_id=instance.team_id,
@@ -1982,8 +2002,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             close_moved_alert_firings(team_id=instance.team_id, alert_id=instance.id)
         # The copy and the alert go together, so a failed delete leaves no moved alert without its copy.
         with transaction.atomic():
-            if instance.platform_owned:
-                delete_moved_alert_copy(team_id=instance.team_id, alert_id=instance.id)
+            delete_alert_destinations_and_copy(team_id=instance.team_id, alert_id=instance.id)
             super().perform_destroy(instance)
 
     def list(self, request, *args, **kwargs):
@@ -2029,6 +2048,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # An alert deleted since its key was read drops out of the page rather than failing it.
         alerts = [loaded[key.id] for key in listed if key.id in loaded]
         _show_platform_status(alerts, now=timezone.now())
+        _show_platform_subscribers(alerts)
 
         # Prefetch firing checks for anomaly point display on chart.
         if alerts:
