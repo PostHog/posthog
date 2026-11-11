@@ -51,7 +51,6 @@ import {
     SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { tagsModel } from '~/models/tagsModel'
 import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -121,7 +120,6 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { copyImage, downloadImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
-    const { tags: allExistingTags } = useValues(tagsModel)
 
     const { user, hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
@@ -448,7 +446,6 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     <SceneTagsCombobox
                         onSave={(tags) => setInsightMetadata({ tags })}
                         tags={insight.tags}
-                        tagsAvailable={allExistingTags}
                         dataAttrKey={RESOURCE_TYPE}
                         canEdit={canEditInsight}
                         loading={isSavingTags}

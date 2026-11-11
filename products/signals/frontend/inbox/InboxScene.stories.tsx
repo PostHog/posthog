@@ -44,6 +44,7 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
+        '/api/projects/:id/signals/trial/': { enabled: false, grant_status: 'not_claimed' },
         '/api/projects/:id/integrations/github/available_installations/': {
             discovery_id: '11111111-1111-4111-8111-111111111111',
             discovered_at: '2026-06-11T00:00:00Z',
@@ -385,7 +386,7 @@ export const SettingsWithSpendBilling: Story = {
     ],
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('$12.34')).toBeVisible()
+        await expect(await canvas.findByText('1,234 credits')).toBeVisible()
         await expect(await canvas.findByText('Spending limit reached')).toBeVisible()
         await expect(canvas.getByText(/Work already underway will finish/)).toBeVisible()
     },

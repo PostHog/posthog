@@ -215,14 +215,20 @@ function notebookText(data: Record<string, unknown>, projectUrl: string): string
 }
 
 export function classicThreadItems(state: ClassicState, projectUrl: string): SessionThreadItem[] {
+    let currentTraceId: string | undefined
     return state.messages.flatMap((message): SessionThreadItem[] => {
         const data = message.data
         const text = typeof data.content === 'string' ? data.content : ''
+        const traceId = typeof data.trace_id === 'string' && data.trace_id ? data.trace_id : undefined
+        if (data.type === 'human') currentTraceId = traceId
+        const feedback = traceId || currentTraceId ? { traceId: traceId ?? currentTraceId } : {}
         switch (data.type) {
             case 'human':
                 return [{ kind: 'user', id: message.id, text }]
             case 'ai':
-                return text ? [{ kind: 'assistant', id: message.id, text, complete: message.complete, projectUrl }] : []
+                return text
+                    ? [{ kind: 'assistant', id: message.id, text, complete: message.complete, projectUrl, ...feedback }]
+                    : []
             case 'ai/reasoning':
                 return text ? [{ kind: 'thought', id: message.id, text, complete: message.complete }] : []
             case 'ai/viz':
@@ -231,14 +237,24 @@ export function classicThreadItems(state: ClassicState, projectUrl: string): Ses
                     asRecord(data.content)?.content_type === 'notebook'
                         ? notebookText(data, projectUrl)
                         : visualizationLink(data, projectUrl)
-                return link ? [{ kind: 'assistant', id: message.id, text: link, complete: true, projectUrl }] : []
+                return link
+                    ? [{ kind: 'assistant', id: message.id, text: link, complete: true, projectUrl, ...feedback }]
+                    : []
             }
             case 'ai/multi_viz':
                 return Array.isArray(data.visualizations)
                     ? data.visualizations.flatMap((viz, index): SessionThreadItem[] => {
                           const link = visualizationLink(asRecord(viz) ?? {}, projectUrl)
                           return link
-                              ? [{ kind: 'assistant', id: `${message.id}-${index}`, text: link, complete: true }]
+                              ? [
+                                    {
+                                        kind: 'assistant',
+                                        id: `${message.id}-${index}`,
+                                        text: link,
+                                        complete: true,
+                                        ...feedback,
+                                    },
+                                ]
                               : []
                       })
                     : []

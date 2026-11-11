@@ -110,6 +110,14 @@ def build_insight_alert_slack_config(
     )
 
 
+def build_insight_alert_pagerduty_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    return insight_alert_destinations.build_insight_alert_pagerduty_configs(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
 def insight_alert_slack_properties(
     *,
     breaches: list[str],

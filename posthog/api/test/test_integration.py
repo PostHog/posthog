@@ -55,6 +55,7 @@ from posthog.credentials_service.errors import (
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader, IntegrationRecord
+from posthog.integrations.testing import fake_integrations_backend
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.integration import (
     ANY as ANY_AUTH_TYPE,
@@ -83,6 +84,7 @@ from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayl
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -103,6 +105,7 @@ from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
 from products.workflows.backend.facade.testing import create_workflow_for_test
@@ -1648,6 +1651,34 @@ class TestAzureBlobIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Integration.objects.filter(team=self.team, kind="azure-blob").exists()
+
+
+class TestTwilioIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
+
+    @patch("products.workflows.backend.facade.api.get_twilio_account_info", return_value={"sid": "AC123"})
+    def test_create_stores_the_account_that_twilio_confirms(self, account_info: MagicMock, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/projects/{self.team.pk}/integrations/",
+            {"kind": "twilio", "config": {"account_sid": "AC123", "auth_token": "fake-token"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        account_info.assert_called_once_with(account_sid="AC123", auth_token="fake-token")
+        row = IntegrationManager.twilio.token.get(self.team.id, response.json()["id"])
+        assert (row.integration_id, row.created_by_id, dict(row.sensitive_config)) == (
+            "AC123",
+            self.user.id,
+            {"auth_token": "fake-token"},
+        )
+        assert response.json()["created_by"]["id"] == self.user.id
 
 
 class TestIntegrationAPIKeyAccess:
@@ -3385,6 +3416,75 @@ class TestIntegrationAPIKeyAccess:
 
         assert paged_ids == [self.twilio_integration.id, self.github_integration.id]
 
+    @pytest.mark.parametrize("deny_resource", [True, False], ids=["resource_level_none", "object_level_none"])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_list_and_retrieve_leave_out_integrations_the_member_may_not_view(
+        self, client: HttpClient, deny_resource: bool
+    ):
+        member = User.objects.create_and_join(
+            self.organization, "integration-viewer@example.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        granted, denied = self.github_integration, self.twilio_integration
+        own = Integration.objects.create(team=self.team, kind="slack", integration_id="own", created_by=member)
+        if deny_resource:
+            AccessControl.objects.create(team=self.team, resource="integration", access_level="none")
+            AccessControl.objects.create(
+                team=self.team,
+                resource="integration",
+                resource_id=str(granted.id),
+                access_level="viewer",
+                organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            )
+        else:
+            AccessControl.objects.create(
+                team=self.team, resource="integration", resource_id=str(denied.id), access_level="none"
+            )
+        client.force_login(member)
+        base_url = f"/api/projects/{self.team.pk}/integrations"
+
+        with (
+            patch.object(GitHubIntegration, "ensure_account_name"),
+            patch.object(GitHubIntegration, "installation_unavailable", return_value=False),
+        ):
+            listed = client.get(f"{base_url}/").json()
+            granted_response = client.get(f"{base_url}/{granted.id}/")
+        denied_response = client.get(f"{base_url}/{denied.id}/")
+
+        assert {row["id"] for row in listed["results"]} == {granted.id, own.id}
+        assert listed["count"] == 2
+        assert granted_response.status_code == status.HTTP_200_OK
+        assert denied_response.status_code == status.HTTP_403_FORBIDDEN
+
+    @pytest.mark.parametrize("denied", [True, False], ids=["denied", "allowed"])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_retrieve_checks_object_access_rules_on_a_frozen_record(self, client: HttpClient, denied: bool):
+        member = User.objects.create_and_join(
+            self.organization, "integration-viewer@example.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        client.force_login(member)
+        with fake_integrations_backend() as backend:
+            row = backend.seed(
+                team_id=self.team.id,
+                kind="twilio",
+                external_id="AC1",
+                config={"account_sid": "AC1"},
+                created_by_id=self.user.id,
+            )
+            if denied:
+                AccessControl.objects.create(
+                    team=self.team, resource="integration", resource_id=str(row.id), access_level="none"
+                )
+
+            response = client.get(f"/api/projects/{self.team.pk}/integrations/{row.id}/")
+
+        assert response.status_code == (status.HTTP_403_FORBIDDEN if denied else status.HTTP_200_OK)
+        if not denied:
+            assert (response.json()["id"], response.json()["created_by"]["id"]) == (row.id, self.user.id)
+
 
 class TestGithubAccountTypeHelper:
     @parameterized.expand(
@@ -5104,9 +5204,11 @@ class TestGitHubTeamIntegrationComplete:
         assert "github_setup_error=invalid_state" in response["Location"]
 
     @pytest.mark.parametrize("stored_installation_id", [12345, "12345"])
+    @pytest.mark.parametrize("client_ip", ["203.0.113.4", "198.51.100.7"])
+    @pytest.mark.parametrize("with_state", [False, True])
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
     def test_team_update_heuristic_finds_existing_integration_regardless_of_jsonb_id_type(
-        self, mock_refresh, stored_installation_id, client: HttpClient
+        self, mock_refresh, stored_installation_id, client_ip: str, with_state: bool, client: HttpClient
     ):
         # ``config.installation_id`` has historically been written as either a
         # JSONB number or string; the update-without-state heuristic must match
@@ -5120,12 +5222,32 @@ class TestGitHubTeamIntegrationComplete:
             sensitive_config={"access_token": "ghs_test"},
         )
         mock_refresh.return_value = existing
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        selected, _, selected_team = Organization.objects.bootstrap(self.user, name="Other organization")
+        self.user.current_organization = selected
+        self.user.current_team = selected_team
+        self.user.save(update_fields=["current_organization", "current_team"])
 
-        response = client.get(
-            "/integrations/github/callback/",
-            {"installation_id": "12345", "setup_action": "update"},
-        )
+        payload = {"installation_id": "12345", "setup_action": "update"}
+        if with_state:
+            store_unified_authorize_state(
+                GitHubAuthorizeState(
+                    token="example-update-token",
+                    flow=FlowKind.TEAM_UPDATE,
+                    user_id=self.user.id,
+                    team_id=self.team.pk,
+                    installation_id="12345",
+                )
+            )
+            payload["state"] = urlencode({"token": "example-update-token"})
+        response = client.get("/integrations/github/callback/", payload, REMOTE_ADDR=client_ip)
 
+        if client_ip == "198.51.100.7":
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            mock_refresh.assert_not_called()
+            retained = IntegrationManager.github.oauth.get(self.team.id, existing.id)
+            assert retained.sensitive_config["access_token"] == "ghs_test"
+            response = client.get("/integrations/github/callback/", payload, REMOTE_ADDR="203.0.113.4")
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_setup_error" not in response["Location"]
         assert f"integration_id={existing.id}" in response["Location"]
@@ -7664,6 +7786,23 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert "Test batch export" in content
         assert Integration.objects.filter(id=self.integration.id).exists()
 
+    def test_destroy_blocked_when_a_warehouse_destination_writes_through_the_integration(self, client: HttpClient):
+        destination = ExternalDataDestination.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            type=ExternalDataDestination.Type.POSTGRES,
+            name="private_destination_name",
+            integration_id=self.integration.id,
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        content = response.content.decode()
+        assert "data warehouse destinations: 1" in content
+        assert "private_destination_name" not in content
+        destination.refresh_from_db()
+        assert destination.integration_id == self.integration.id
+
 
 class TestIntegrationRequestAccessAPI(APIBaseTest):
     def setUp(self):
@@ -8338,6 +8477,8 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert link.call_args.kwargs["installation_id_param"] is None
 
 
+# Sources here point at rows by hand, so a raw save keeps the reference that the test sets.
+@pytest.mark.raw_warehouse_source_credentials
 class TestWarehouseSourceIntegrationKind(APIBaseTest):
     def _credentials_row(self, kind: str, auth_type: str = "credentials") -> IntegrationRecord:
         rows = IntegrationManager.source(kind)

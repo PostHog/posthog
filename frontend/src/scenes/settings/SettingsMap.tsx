@@ -59,6 +59,7 @@ import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
+import { LearnFromSupportSection } from 'products/conversations/frontend/scenes/settings/LearnFromSupportSection'
 import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
@@ -182,6 +183,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
+import { OrganizationIPRestrictions } from './organization/OrganizationIPRestrictions'
 import { OrganizationMemberNotice } from './organization/OrganizationMemberNotice'
 import { OrganizationPersonalAPIKeys } from './organization/OrganizationPersonalAPIKeys'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
@@ -1649,6 +1651,33 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
+                id: 'conversations-ai',
+                title: (
+                    <>
+                        AI agent
+                        <LemonTag type="highlight" size="small" className="ml-1">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                description:
+                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
+                component: <AISection />,
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
+            },
+            {
+                id: 'conversations-learn-from-support',
+                title: 'Learn from support',
+                description:
+                    'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
+                component: <LearnFromSupportSection />,
+                flag: ['PRODUCT_SUPPORT_AI_SUGGESTION_ORGS', 'PRODUCT_BUSINESS_KNOWLEDGE'],
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['learn', 'support', 'ticket', 'resolved', 'business', 'knowledge', 'conversation'],
+            },
+            {
                 id: 'conversations-notifications',
                 title: 'Notifications',
                 description:
@@ -1667,32 +1696,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
-                id: 'conversations-ai',
-                title: (
-                    <>
-                        AI agent
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
-                description:
-                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
-                component: <AISection />,
-                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
-            },
-            {
                 id: 'conversations-imports',
-                title: (
-                    <>
-                        Imports
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
+                title: 'Imports',
                 description: 'Import historical support data from external tools into Support.',
                 component: <ZendeskImportSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
@@ -2623,6 +2628,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure organization-wide security policies.',
                 component: <OrganizationSecuritySettings />,
                 keywords: ['compliance', 'sharing', 'public'],
+            },
+            {
+                id: 'organization-ip-restrictions',
+                title: 'IP restrictions',
+                description: 'Restrict access to PostHog to a list of IP addresses or CIDR blocks.',
+                component: <OrganizationIPRestrictions />,
+                keywords: ['ip', 'allowlist', 'whitelist', 'cidr', 'security', 'access'],
             },
             {
                 id: 'organization-mcp-access',

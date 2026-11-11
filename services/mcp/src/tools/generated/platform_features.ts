@@ -228,6 +228,7 @@ const changeRequestsApprovePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'change-requests-approve',
+            inputSchema: ChangeRequestsApproveSchema(),
             actionLabel: 'approve change request',
             messageTemplate:
                 "About to APPROVE change request {id}. If this reaches the required quorum, the underlying change is applied immediately. Reply 'confirm' to proceed.\n",
@@ -250,8 +251,8 @@ const changeRequestsApproveExecute = (): ToolBase<
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ChangeRequestsApproveSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'change-requests-approve',
+            inputSchema: ChangeRequestsApproveSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -373,6 +374,7 @@ const changeRequestsRejectPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'change-requests-reject',
+            inputSchema: ChangeRequestsRejectSchema(),
             actionLabel: 'reject change request',
             messageTemplate:
                 "About to REJECT change request {id}. This blocks the proposed change and notifies the requester. Reply 'confirm' to proceed.\n",
@@ -395,8 +397,8 @@ const changeRequestsRejectExecute = (): ToolBase<
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof ChangeRequestsRejectSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'change-requests-reject',
+            inputSchema: ChangeRequestsRejectSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -590,6 +592,7 @@ const commentsSendToSlackPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'comments-send-to-slack',
+            inputSchema: CommentsSendToSlackSchema(),
             actionLabel: 'send discussion to Slack',
             messageTemplate:
                 "About to send discussion {id} to Slack channel {channel_id} through integration {integration_id}. Its replies post to the same Slack thread, and later replies keep syncing both ways. Anyone who can read the channel can read the discussion. Reply 'confirm' to send.\n",
@@ -612,8 +615,8 @@ const commentsSendToSlackExecute = (): ToolBase<
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof CommentsSendToSlackSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'comments-send-to-slack',
+            inputSchema: CommentsSendToSlackSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -712,6 +715,8 @@ const OrganizationEnforce2faSchema = () => {
             is_ai_training_opted_in: true,
             default_anonymize_ips: true,
             default_role_id: true,
+            ip_restrictions: true,
+            ip_restrictions_enabled: true,
         }).shape
     ).extend({
         id: PartialUpdateParams.shape['id']
@@ -747,6 +752,7 @@ const organizationEnforce2faPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: { ...params, id },
             purpose: 'organization-enforce-2fa',
+            inputSchema: OrganizationEnforce2faSchema(),
             actionLabel: 'change 2FA enforcement',
             messageTemplate:
                 "About to set organization-wide two-factor-authentication enforcement to {enforce_2fa}. This immediately affects every member of the organization — when enabled, all members must set up 2FA before they can continue using PostHog. Reply 'confirm' to proceed.\n",
@@ -769,8 +775,9 @@ const organizationEnforce2faExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'organization-enforce-2fa',
+                inputSchema: OrganizationEnforce2faSchema(),
+                resolvedArgs: ['id'],
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
             }
         )

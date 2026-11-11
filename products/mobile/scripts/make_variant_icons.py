@@ -1,9 +1,11 @@
-"""Draw the development and preview app icons: the production icon with a labeled color band.
+"""Generate development and preview app icons with a labeled color band.
 
-Run from products/mobile after a change to assets/icon.png or assets/adaptive-icon.png:
+Run from products/mobile after changing the production icons:
 uv run --with pillow python scripts/make_variant_icons.py
 """
 
+import json
+import shutil
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,8 +50,7 @@ class VariantIconMaker:
     def __init__(self, font_path: Path) -> None:
         self.font_path = font_path
 
-    def draw(self, source: Path, target: Path, band: Band, badge: Badge) -> None:
-        image = Image.open(source).convert("RGB")
+    def draw(self, image: Image.Image, target: Path, band: Band, badge: Badge) -> None:
         scale = image.width / 1024
         draw = ImageDraw.Draw(image)
         top, bottom = round(band.top * scale), round(band.bottom * scale)
@@ -64,15 +65,30 @@ class VariantIconMaker:
         )
         image.save(target, optimize=True)
 
+    def draw_ios_bundle(self, badge: Badge) -> None:
+        source = ASSETS / "app.icon"
+        target = ASSETS / f"app-{badge.variant}.icon"
+        shutil.copytree(source / "Assets", target / "Assets", dirs_exist_ok=True)
+        self.draw(Image.new("RGBA", (1024, 1024)), target / "Assets" / "badge.png", ICON_BAND, badge)
+        manifest = json.loads((source / "icon.json").read_text())
+        manifest["groups"].append({"layers": [{"glass": False, "image-name": "badge.png", "name": badge.label}]})
+        (target / "icon.json").write_text(json.dumps(manifest, indent=4) + "\n")
+
     def run(self) -> None:
         for badge in BADGES:
-            self.draw(ASSETS / "icon.png", ASSETS / f"icon-{badge.variant}.png", ICON_BAND, badge)
             self.draw(
-                ASSETS / "adaptive-icon.png",
+                Image.open(ASSETS / "icon.png").convert("RGB"),
+                ASSETS / f"icon-{badge.variant}.png",
+                ICON_BAND,
+                badge,
+            )
+            self.draw(
+                Image.open(ASSETS / "adaptive-icon.png").convert("RGB"),
                 ASSETS / f"adaptive-icon-{badge.variant}.png",
                 ADAPTIVE_BAND,
                 badge,
             )
+            self.draw_ios_bundle(badge)
 
 
 def main() -> None:

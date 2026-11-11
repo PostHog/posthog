@@ -121,3 +121,29 @@ class TeamCreditRefused(Exception):
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
         self.detail = detail
+
+
+@dataclass(frozen=True)
+class TeamWalletEntry:
+    when: str
+    kind: str
+    amount: str
+    reference: str
+
+
+@dataclass(frozen=True)
+class TeamWallet:
+    # False when the team has no gateway account yet. The balance is then zero until the first credit or spend.
+    known: bool
+    # False when this region's gateway has no ledger backend, so there is no wallet to read.
+    has_ledger: bool
+    balance_usd: str | None
+    recent: list[TeamWalletEntry]
+
+
+class TeamWalletUnavailable(Exception):
+    """The wallet could not be read: the gateway's internal API is not set up in this region, or the call failed."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
