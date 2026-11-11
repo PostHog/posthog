@@ -291,6 +291,53 @@ describe('facetSearchBarLogic', () => {
         capture.mockRestore()
     })
 
+    it.each([
+        ['a facet draft', ['tag:', 'tag:d', 'tag:de'], 50, 'deal0001'],
+        ['a bare word', ['de', 'dea', 'deal'], 8, 'Tag: deal0001'],
+    ])(
+        'reuses the counts of a scope and builds only the rows it shows while typing %s',
+        (_, keystrokes, rowCount, firstLabel) => {
+            let valueReads = 0
+            let formats = 0
+            const tag: FacetDefinition<number> = {
+                key: 'tag',
+                label: 'Tag',
+                description: 'Labels',
+                getValues: (item) => {
+                    valueReads++
+                    return [`deal${String(item).padStart(4, '0')}`]
+                },
+                formatValue: (value) => {
+                    formats++
+                    return value
+                },
+            }
+            logic = facetSearchBarLogic({
+                id: 'test',
+                facets: [tag],
+                items: Array.from({ length: 1000 }, (_, index) => index + 1),
+                value: { filters: [], text: '' },
+                onChange,
+                matchesText: () => true,
+            })
+            logic.mount()
+
+            logic.actions.setInput(keystrokes[0])
+            expect(logic.values.suggestions.length).toBeGreaterThan(0)
+            const readsForScope = valueReads
+            for (const keystroke of keystrokes.slice(1)) {
+                logic.actions.setInput(keystroke)
+            }
+            formats = 0
+            const rows = logic.values.suggestions.filter((suggestion) => suggestion.kind === 'value')
+
+            expect(rows).toHaveLength(rowCount)
+            expect(rows[0].label).toEqual(firstLabel)
+            expect(valueReads).toEqual(readsForScope)
+            expect(formats).toBeLessThanOrEqual(rowCount)
+        }
+    )
+
     it('adds a pill from a value row and keeps the text before the draft', () => {
         mountWith({ filters: [], text: '' })
         logic.actions.setInput('wel status:')
