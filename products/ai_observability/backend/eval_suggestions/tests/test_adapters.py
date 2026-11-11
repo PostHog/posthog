@@ -53,7 +53,14 @@ def _span(name: str, error: str | None = None) -> tuple[str, dict[str, Any]]:
     return "$ai_span", {"$ai_span_name": name, **({"$ai_is_error": True, "$ai_error": error} if error else {})}
 
 
-UNRECOVERED = adapters.unrecovered_errors(["GraphInterrupt(value=1)", "Approval paused: waiting for a person"])
+UNRECOVERED = adapters.unrecovered_errors(
+    [
+        "GraphInterrupt(value=1)",
+        "Approval paused: waiting for a person",
+        "('Connection aborted.', RemoteDisconnected('Remote end closed connection'))",
+        "ApprovalServiceError: 503 Service Unavailable",
+    ]
+)
 REPEATS = adapters.repeated_tool_calls(
     adapters.skipped_repeat_tools({"run_action": 90, "check_job_status": 5}, ["run_action"])
 )
@@ -72,6 +79,21 @@ class TestAdaptedChecks:
                 "model_call_fails_last",
                 UNRECOVERED,
                 [_answer("x"), _answer("", **{"$ai_is_error": True, "$ai_error": "model not found"})],
+                False,
+            ),
+            # Mentioning an abort or an approval does not make a real failure a pause.
+            ("connection_abort_is_a_failure", UNRECOVERED, [_span("search", "('Connection aborted.', x)")], False),
+            (
+                "approval_service_outage_is_a_failure",
+                UNRECOVERED,
+                [_span("approve", "ApprovalServiceError: 503")],
+                False,
+            ),
+            # Some SDKs send the message without the flag.
+            (
+                "error_message_without_the_flag",
+                UNRECOVERED,
+                [("$ai_span", {"$ai_span_name": "search", "$ai_error": "Timeout"})],
                 False,
             ),
             ("retry_recovers", UNRECOVERED, [_span("search", "Timeout"), _span("search"), _answer("done")], True),
@@ -97,6 +119,19 @@ class TestAdaptedChecks:
                 None,
             ),
             ("refusal_in_final_answer", adapters.refusals(), [_answer("I’m unable to share that.")], False),
+            (
+                "refusal_word_inside_another_word",
+                adapters.refusals(),
+                [_answer("The API can't help here, so I used the CLI.")],
+                True,
+            ),
+            (
+                "unable_to_find_is_not_a_refusal",
+                adapters.refusals(),
+                [_answer("I'm unable to find any bug; it is correct.")],
+                True,
+            ),
+            ("decline", adapters.refusals(), [_answer("I must decline this request.")], False),
             (
                 "refusal_only_in_earlier_step",
                 adapters.refusals(),

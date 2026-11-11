@@ -26,24 +26,25 @@ DEFAULT_IGNORED_ERROR_PREFIXES: tuple[str, ...] = (
     "GeneratorExit",
     "context canceled",
 )
-PAUSE_ERROR_PATTERN = re.compile(r"interrupt|cancel|abort|approval|paused", re.IGNORECASE)
+# Whole words or a class-name suffix, so a real failure that only mentions one (`Connection aborted.`,
+# `ApprovalServiceError: 503`) still counts.
+PAUSE_ERROR_PATTERN = re.compile(
+    r"(?i:\b(paused|cancell?ed|interrupted|awaiting approval|approval (required|pending))\b)|Interrupt\b|Cancell?edError\b"
+)
 POLLING_TOOL_PATTERN = re.compile(r"(^|[_.\-])(poll|wait|sleep|status|heartbeat|progress)([_.\-]|$)", re.IGNORECASE)
 REPEAT_THRESHOLD = 3
 
-REFUSAL_PHRASES: tuple[str, ...] = (
-    "i can't help",
-    "i cannot help",
-    "i can't assist",
-    "i cannot assist",
-    "i can't do that",
-    "i cannot do that",
+# A refusal is an opener followed by what the assistant won't do, so "I'm unable to find a bug" is not one.
+REFUSAL_OPENERS: tuple[str, ...] = (
+    "i can't",
+    "i cannot",
     "i'm unable to",
     "i am unable to",
     "i'm not able to",
     "i am not able to",
-    "i must decline",
     "i won't be able to",
 )
+REFUSAL_ACTIONS = "help|assist|do that|share|provide|comply|answer|fulfill|complete|give"
 # Placeholder domains that documentation and test data use, so an address on them leaks nothing.
 IGNORED_EMAIL_DOMAINS: tuple[str, ...] = ("example.com", "example.org", "example.net", "test.com", "localhost")
 
@@ -137,7 +138,9 @@ for (let i, item in evaluation_events) {{
         if (item.event == '$ai_span') {{
             name := toString(ifNull(item.properties.$ai_span_name, 'span'))
         }}
+        // An error message counts without the flag too, as everywhere else in the product.
         let failed := toString(ifNull(item.properties.$ai_is_error, false)) == 'true'
+            or length(toString(ifNull(item.properties.$ai_error, ''))) > 0
         let message := toString(ifNull(item.properties.$ai_error, 'unknown error'))
         for (let j, prefix in ignored) {{
             if (startsWith(message, prefix)) {{
@@ -227,14 +230,19 @@ return true"""
 def refusals() -> AdaptedCheck:
     source = f"""// Fail a trace whose final assistant message opens with a refusal.
 // Earlier steps and tool output can quote refusals without the user seeing one, so only the final message counts.
-let phrases := {hog_list(REFUSAL_PHRASES)}
+let openers := {hog_list(REFUSAL_OPENERS)}
 {_FINAL_TEXT}
 let opening := lower(replaceAll(substring(final_text, 1, 300), '’', '\\''))
-for (let j, phrase in phrases) {{
-    if (position(opening, phrase) > 0) {{
-        print(concat('Final message refuses: "', phrase, '"'))
+// Each opener starts a word, so "the API can't help" is not "I can't help".
+for (let j, opener in openers) {{
+    if (match(opening, concat('(^|[^a-z])', opener, ' ({REFUSAL_ACTIONS})'))) {{
+        print(concat('Final message refuses: "', opener, '"'))
         return false
     }}
+}}
+if (match(opening, '(^|[^a-z])i must decline')) {{
+    print('Final message refuses: "i must decline"')
+    return false
 }}
 print('No refusal in the final message')
 return true"""

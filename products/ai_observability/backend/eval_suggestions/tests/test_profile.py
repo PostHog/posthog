@@ -94,14 +94,24 @@ class TestStructuredGaps:
         )
         assert find_structured_gaps(outputs) == []
 
-    def test_reads_enum_fields_from_fenced_json(self) -> None:
+    @parameterized.expand([("lowercase", "json"), ("uppercase", "JSON"), ("bare", "")])
+    def test_reads_enum_fields_from_fenced_json(self, _name: str, language: str) -> None:
         parsed = parse_structured(
-            '```json\n{"findings": [{"priority": "P1", "title": "A long sentence about a bug here"}]}\n```'
+            f'```{language}\n{{"findings": [{{"priority": "P1", "title": "A long sentence about a bug here"}}]}}\n```'
         )
         assert short_string_fields(parsed) == {"findings[].priority": ["P1"]}
 
 
-@parameterized.expand([("security-2", "security"), ("lens_10", "lens"), ("performance", "performance")])
+@parameterized.expand(
+    [
+        ("security-2", "security"),
+        ("lens_10", "lens"),
+        ("performance", "performance"),
+        # A version without a separator is its own segment.
+        ("v2", "v2"),
+        ("tier1", "tier1"),
+    ]
+)
 def test_segment_values_drop_numeric_suffixes(raw: str, expected: str) -> None:
     assert normalize_segment_value(raw) == expected
 

@@ -36,7 +36,8 @@ MIN_SEGMENT_GENERATIONS = 50
 PROFILE_SAMPLE_GENERATIONS = 200_000
 # The sample keeps whole traces. `$ai_trace_id` is materialized, so the filter runs before any JSON is parsed.
 # Shared by Python and the segments query, ASCII digits only, so both count the same normalized values.
-NUMERIC_SUFFIX_PATTERN = "[-_ .#]?[0-9]+$"
+# The separator is required, so versions such as `v1` and `v2` stay apart.
+NUMERIC_SUFFIX_PATTERN = "[-_ .#][0-9]+$"
 NUMERIC_SUFFIX = re.compile(NUMERIC_SUFFIX_PATTERN)
 
 # Structured-output gaps: a field value one segment uses far more than its siblings.
@@ -157,7 +158,7 @@ FROM events
 WHERE event IN ('$ai_generation', '$ai_span')
   AND timestamp >= {start}
   AND timestamp < {end}
-  AND toString(properties.$ai_is_error) = 'true'
+  AND (toString(properties.$ai_is_error) = 'true' OR notEmpty(toString(properties.$ai_error)))
 GROUP BY prefix
 ORDER BY errors DESC
 LIMIT 20
@@ -338,7 +339,8 @@ def parse_structured(text: str) -> Any:
     """The JSON an output carries, also when a model wrapped it in a code fence. None when it is prose."""
     stripped = text.strip()
     if stripped.startswith("```"):
-        stripped = stripped.strip("`").removeprefix("json").strip()
+        stripped = stripped.strip("`")
+        stripped = (stripped[4:] if stripped[:4].lower() == "json" else stripped).strip()
     if not stripped.startswith(("{", "[")):
         return None
     try:
