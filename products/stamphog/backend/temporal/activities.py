@@ -651,7 +651,7 @@ def signal_review_started(input: StamphogReviewInput) -> dict:
     on ``run.output`` so the terminal activities (``post_verdict``, ``mark_review_failed``) can remove it.
     """
     run = _load_run(input)
-    if run.status == ReviewRunStatus.SUPERSEDED:
+    if run.status == ReviewRunStatus.SUPERSEDED or not run.may_publish():
         return {"reaction_id": None}
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
@@ -1013,7 +1013,8 @@ def _refuse_on_pre_gates(run: ReviewRun) -> dict:
         return {"refused": False}
 
     summary = None
-    if outcome.needs_summary:
+    # A refusal that is never posted needs no LLM call for its wording.
+    if outcome.needs_summary and run.may_publish():
         with timer.step("summary"):
             summary = _fast_refusal_summary(run, outcome)
     if summary:
@@ -1637,6 +1638,8 @@ def _review_timing_properties(run: ReviewRun, verdict: str, post_verdict_ms: int
         "stamphog_repo": pull_request.repo_config.repository,
         "stamphog_pr_number": pull_request.pr_number,
         "stamphog_final_verdict": verdict,
+        "stamphog_review_trigger": trigger_for_run(output=output, review_mode=pull_request.repo_config.review_mode),
+        "stamphog_verdict_published": run.verdict_posted_at is not None,
         "stamphog_fast_path": bool(output.get("fast_path")),
         "stamphog_pregate_outcome": output.get("pregate_outcome"),
         "stamphog_familiarity_status": output.get("familiarity_status"),
@@ -1842,7 +1845,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Computed before the branch chain because two things must agree on it: the trigger label is only
     # stripped for a refusal, and only then may the review tell the author to re-add it.
     is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
-    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal
+    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal and run.may_publish(parsed.verdict)
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -1889,9 +1892,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
 
+    # A verdict that may not be published is still saved below, with verdict_posted_at left empty.
+    published = run.may_publish(run.verdict)
+
     # One post for every non-approval, keyed off the verdict the run just stored, so the review text
     # and the recorded verdict cannot disagree. The approve branch above posted its own APPROVE.
-    if run.verdict != ReviewVerdict.APPROVED:
+    if run.verdict != ReviewVerdict.APPROVED and published:
         _post_non_approval_review(client, repo, run, pull_request, _verdict_body(parsed, run.verdict, relabel_label))
 
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
@@ -1908,7 +1914,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
 
     run.completed_at = timezone.now()
-    run.verdict_posted_at = run.completed_at
+    run.verdict_posted_at = run.completed_at if published else None
     # Conditional terminal save: a delivery superseding this run between the guards above and here
     # must win — a plain save would write COMPLETED back over SUPERSEDED and resurrect a stale run.
     updated = (
@@ -1964,7 +1970,9 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
-    return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
+    # Nobody saw a WAIT that was not published, so the external review finishing has nothing to update.
+    waited = _waited_on_external_review(run) and run.verdict_posted_at is not None
+    return {"verdict": str(parsed.verdict), "waited_on_external_review": waited}
 
 
 def _notify_finished_review(
@@ -1990,6 +1998,10 @@ def _notify_finished_review(
             hook(finished)
         except Exception:
             activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
+    # Routing requests reviewers and can comment on the PR, which a silent run may only do for an
+    # approval. The callbacks above still hear every outcome.
+    if not run.may_publish(finished.verdict):
+        return
     # Stamphog's own follow-up, called directly rather than registered, because registering it at
     # app-ready would pull the task module onto the django.setup() path. It only queues a task.
     queue_routing_after_verdict(
@@ -2496,7 +2508,11 @@ def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: 
     A GitHub error propagates. If this function hides it, the activity completes, Temporal does not
     retry, and the PR keeps no notice. Raising is safe: the FAILED update is committed, and the retry
     finishes the post through the terminal guard.
+
+    A silent run posts nothing, on the first attempt and on every retry.
     """
+    if not run.may_publish():
+        return
     replaced_at_same_head = (
         ReviewRun.objects.for_team(team_id)
         .using(router.db_for_write(ReviewRun))

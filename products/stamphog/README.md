@@ -47,6 +47,12 @@ A project member can also ask for a review directly, by creating a review run (`
 The request replaces the trigger label, so it works in label mode.
 Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
 
+A repository can also let a clean PostHog Review run start a review, with the `review_on_clean_external_review` switch on the repo config API (off by default, `manager` level to change, reset when a placeholder row binds).
+Such a run is silent: it has the `reviewhog_clean` trigger, and only an approval reaches the PR.
+Any other verdict, and a failure, is stored on the run and nothing is written to GitHub: no review, no label change, no failure notice, no 👀.
+A stored verdict that was not posted has an empty `verdict_posted_at`.
+The silent trigger skips the review mode and nothing else, so the same PRs are refused as for a direct request, and so is a head that moved or already has a review.
+
 ## Connect a repository
 
 1. Install the Stamphog GitHub App on your GitHub organization.
