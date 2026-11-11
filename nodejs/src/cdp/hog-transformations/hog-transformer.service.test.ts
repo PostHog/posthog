@@ -14,7 +14,7 @@ import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-ou
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
-import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
+import { createHogFunction, insertHogFunction, insertIntegration } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
 import { HogFunctionTemplate, HogFunctionType } from '../types'
@@ -81,6 +81,7 @@ describe('HogTransformer', () => {
             // Deliberately not the default, so the assertion below proves the value is plumbed
             // through rather than hardcoded in the factory.
             TRANSFORMATIONS_HOG_TIMEOUT_MS: 123,
+            CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS: '',
             CDP_INTERNAL_LOGS_SOURCES: '',
             LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
             LOGS_INTERNAL_PRODUCER_URL: '',
@@ -972,6 +973,41 @@ describe('HogTransformer', () => {
                     message: expect.stringContaining("The integration for input 'oauth' no longer exists"),
                 }),
             ])
+        })
+
+        it('keeps a Slack token out of a transformation for a team the enforce list names', async () => {
+            const slack = await insertIntegration(hub.postgres, teamId, {
+                kind: 'slack',
+                config: { team: 'workspace' },
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('xoxb-secret') },
+            })
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: 'Copies a connection',
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(`
+                    let returnEvent := event
+                    returnEvent.properties.copied := inputs.slack
+                    return returnEvent
+                `),
+                inputs_schema: [{ key: 'slack', type: 'integration', integration: 'slack', required: true }],
+                inputs: { slack: { value: slack.id } },
+                execution_order: 1,
+            })
+            await insertHogFunction(hub.postgres, teamId, hogFunction)
+            const transformer = createHogTransformerService(
+                { ...hub, CDP_CREDENTIAL_AUTH_ENFORCE_TEAMS: String(teamId) },
+                { ...hub, monitoringOutputs: createTestMonitoringOutputs(mockProducer) }
+            )
+
+            const result = await transformer.transformEventAndProduceMessages(
+                createPluginEvent({ event: 'test', properties: {} }, teamId)
+            )
+
+            expect(result.event?.properties?.copied).toMatchObject({ $integration_id: slack.id })
+            expect(JSON.stringify(result.event?.properties)).not.toContain('xoxb-secret')
+            await transformer.stop()
         })
 
         it('should apply a matching transformation and skip a filtered one in sequence', async () => {
