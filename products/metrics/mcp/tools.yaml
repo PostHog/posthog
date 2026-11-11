@@ -90,16 +90,16 @@ tools:
                 default: 50
             sparklines:
                 description:
-                    Attach a 24-point sparkline of the last 6 hours to each name. Defaults to false; turn on only when
-                    you need the recent shape, since it makes the response several times larger.
+                    Attach a 24-point sparkline of the last 6 hours to each name. Defaults to false; turn on only when you need
+                    the recent shape, since it makes the response several times larger.
                 default: false
             first_seen:
                 description: Add `first_seen`, the earliest hour each name arrived in within retention. Defaults to true.
                 default: true
             fold_histograms:
                 description:
-                    Fold a Prometheus classic histogram's `_bucket`, `_sum` and `_count` names into one `_bucket`
-                    entry with `classic_histogram` set. Defaults to true.
+                    Fold a Prometheus classic histogram's `_bucket`, `_sum` and `_count` names into one `_bucket` entry with
+                    `classic_histogram` set. Defaults to true.
                 default: true
         feature_flag: metrics
         response:
