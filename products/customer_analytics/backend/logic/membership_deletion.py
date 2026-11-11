@@ -1,10 +1,11 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import timedelta
-from functools import lru_cache
 from time import monotonic
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 import structlog
@@ -96,7 +97,6 @@ class MembershipDeletionCounts:
     has_more: bool = False
 
 
-@lru_cache(maxsize=1)
 def _get_cleanup_cluster(host: str) -> ClickhouseCluster:
     return get_cluster(
         host=host,
@@ -112,6 +112,22 @@ class MembershipDeletionStore:
     def __init__(self, deadline: float | None = None) -> None:
         self.deadline = deadline
         self.timings = MembershipTimings(job="deletion")
+
+    @contextmanager
+    def _query(self, team_id: int, stage: str) -> Iterator[None]:
+        with self.timings.measure(stage):
+            try:
+                yield
+            except Exception as error:
+                code = getattr(error, "code", None)
+                logger.warning(
+                    "membership_deletion_query_failed",
+                    team_id=team_id,
+                    stage=stage,
+                    error_code=code if isinstance(code, int) else None,
+                )
+                # Driver errors can contain membership keys after parameter substitution.
+                raise RuntimeError(f"Membership deletion query failed at {stage}. Retry the batch.") from None
 
     def _delete(self, team_id: int, keys: Sequence[MembershipKey] | None = None) -> None:
         target = CONFIG_TARGET if keys is None else MEMBERSHIP_TARGET
@@ -133,7 +149,7 @@ class MembershipDeletionStore:
 
         # The cluster logs the callable representation, so keep membership keys in the closure.
         def delete_membership(client: Client) -> None:
-            with self.timings.measure("check_pending_mutations"):
+            with self._query(team_id, "check_pending_mutations"):
                 pending = client.execute(
                     "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s AND NOT is_done",
                     {"table": target.data_table},
@@ -141,7 +157,7 @@ class MembershipDeletionStore:
                 )
                 if pending[0][0]:
                     raise RuntimeError("Membership deletion has a pending mutation. Retry the batch later.")
-            with self.timings.measure("read_erasure_targets"):
+            with self._query(team_id, "read_erasure_targets"):
                 remaining = client.execute(
                     f"SELECT 1 FROM {escape_clickhouse_identifier(target.data_table)} WHERE {predicate} LIMIT 1",
                     parameters,
@@ -149,7 +165,7 @@ class MembershipDeletionStore:
                 )
             if not remaining:
                 return
-            with self.timings.measure("delete_config" if keys is None else "delete_membership"):
+            with self._query(team_id, "delete_config" if keys is None else "delete_membership"):
                 client.execute(
                     f"DELETE FROM {escape_clickhouse_identifier(target.data_table)} WHERE {predicate}",
                     parameters,
@@ -162,13 +178,14 @@ class MembershipDeletionStore:
                 )
 
         placement.cluster.map_one_host_per_shard(delete_membership, concurrency=1).result()
-        with self.timings.measure("verify_config_erasure" if keys is None else "verify_membership_erasure"):
+        with self._query(team_id, "verify_config_erasure" if keys is None else "verify_membership_erasure"):
             # nosemgrep: clickhouse-fstring-param-audit -- Only fixed SQL and escaped identifiers enter this string.
             survivors = sync_execute(
                 f"SELECT count() FROM {escape_clickhouse_identifier(target.read_table)} WHERE {predicate}",
                 parameters,
                 settings=get_membership_query_settings(self.deadline),
                 workload=Workload.OFFLINE,
+                send_receive_timeout=SOCKET_TIMEOUT_SECONDS,
             )
             if survivors[0][0]:
                 raise RuntimeError("Membership deletion found surviving rows. Retry the batch later.")
@@ -180,13 +197,14 @@ class MembershipDeletionStore:
         self._delete(team_id)
 
     def has_membership(self, team_id: int) -> bool:
-        with self.timings.measure("verify_team_empty"):
+        with self._query(team_id, "verify_team_empty"):
             return bool(
                 sync_execute(
                     "SELECT 1 FROM person_group_membership WHERE team_id = %(team_id)s LIMIT 1",
                     {"team_id": team_id},
                     settings=get_membership_query_settings(self.deadline),
                     workload=Workload.OFFLINE,
+                    send_receive_timeout=SOCKET_TIMEOUT_SECONDS,
                 )
             )
 
@@ -206,7 +224,7 @@ def list_membership_deletion_teams() -> list[int]:
     deleted_teams = list(
         MembershipCleanupScan.objects.unscoped()
         .filter(team_id__gt=scan.last_team_id)
-        .exclude(team_id__in=Team.objects.values("id"))
+        .filter(~Exists(Team.objects.filter(id=OuterRef("team_id"))))
         .order_by("team_id")
         .values_list("team_id", flat=True)[:TEAM_BATCH_SIZE]
     )
@@ -238,7 +256,7 @@ def _delete_missing_membership(
     except Exception:
         OUTCOMES.labels("deletion_failed").inc()
         store.timings.failed_step = store.timings.failed_step or "erase_membership"
-        logger.exception("membership_deletion_failed", team_id=input.team_id)
+        logger.warning("membership_deletion_failed", team_id=input.team_id, stage=store.timings.failed_step)
         return None
 
 

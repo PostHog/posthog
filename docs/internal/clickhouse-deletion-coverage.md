@@ -171,8 +171,10 @@ Its coordinator selects teams from overdue candidates and deleted-team scan stat
 
 The deletion job uses lightweight deletes on storage shards and verifies that no matching membership survives.
 It checks for pending mutations before retrying and skips shards where matching rows are already absent.
-Shard connections use a finite socket timeout of twice the shared query execution limit.
-Mutation logs omit membership keys. Candidates are removed only after verified erasure.
+Each deletion resolves fresh shard topology, including sibling clusters.
+Shard and verification connections use a finite socket timeout of twice the shared query execution limit.
+Query failure logs include the team, stage, and error code, without database exception text or membership keys.
+Candidates are removed only after verified erasure.
 Deleted-team erasure also removes eligibility config and clears scan state after membership is gone.
 Live-team erasure keeps eligibility config and unrelated membership.
 The `customer_analytics_membership_deletion_` metrics report checked candidates, recovery, deletion, and failures.

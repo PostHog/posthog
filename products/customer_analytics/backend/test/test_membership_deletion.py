@@ -1,3 +1,5 @@
+import logging
+import traceback
 from collections.abc import Callable
 from datetime import timedelta
 from time import monotonic
@@ -6,12 +8,18 @@ import pytest
 from time_machine import travel
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
+from clickhouse_driver.errors import ServerException, SocketTimeoutError
 from parameterized import parameterized
+from redis.exceptions import LockNotOwnedError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import ConnectionInfo
 
-from products.customer_analytics.backend.logic.membership import MembershipKey
+from products.customer_analytics.backend.logic.membership import MembershipKey, get_membership_cleanup_lease
 from products.customer_analytics.backend.logic.membership_deletion import (
+    SOCKET_TIMEOUT_SECONDS,
     MembershipDeletionCounts,
     MembershipDeletionInput,
     MembershipDeletionStore,
@@ -175,21 +183,56 @@ class TestMembershipDeletion(MembershipTestCase):
             assert self.run_deletion().deleted == 1
         assert not MembershipCleanupCandidate.objects.for_team(self.team.pk).exists()
 
+    @parameterized.expand([("verify_membership_erasure",), ("verify_team_empty",)])
+    def test_stalled_verification_preserves_cleanup_state(self, stage: str) -> None:
+        self.create_membership()
+        self.run_discovery()
+        MembershipCleanupCandidate.objects.for_team(self.team.pk).update(first_missing_at=self.now - timedelta(days=2))
+        timeouts: list[int | None] = []
+
+        def stalled_query(*args: object, send_receive_timeout: int | None = None, **kwargs: object) -> None:
+            timeouts.append(send_receive_timeout)
+            raise SocketTimeoutError("verification stalled")
+
+        with patch(
+            "products.customer_analytics.backend.logic.membership_deletion.sync_execute", side_effect=stalled_query
+        ):
+            if stage == "verify_team_empty":
+                with self.assertRaisesRegex(RuntimeError, stage):
+                    self.store.has_membership(self.team.pk)
+            else:
+                assert self.run_deletion().failed_batches == 1
+        assert timeouts == [SOCKET_TIMEOUT_SECONDS]
+        assert self.store.timings.failed_step == stage
+        assert MembershipCleanupCandidate.objects.for_team(self.team.pk).count() == 2
+        assert MembershipCleanupScan.objects.for_team(self.team.pk).exists()
+
     @parameterized.expand([("lease",), ("deadline",)])
     def test_lost_lease_preserves_candidates_and_scan_position(self, failure: str) -> None:
         self.create_membership()
         self.run_discovery()
         MembershipCleanupCandidate.objects.for_team(self.team.pk).update(first_missing_at=self.now - timedelta(days=2))
         candidates = list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values())
-        with patch("products.customer_analytics.backend.logic.membership.get_redis_client") as redis:
-            lease = redis.return_value.lock.return_value
+        lease = get_membership_cleanup_lease(self.team.pk)
+
+        with patch(
+            "products.customer_analytics.backend.logic.membership_deletion.get_membership_cleanup_lease",
+            return_value=lease,
+        ):
             if failure == "deadline":
                 self.store.deadline = monotonic() - 1
                 error_type: type[Exception] = TimeoutError
+                extension = patch.object(lease, "extend", wraps=lease.extend)
             else:
-                lease.extend.side_effect = RuntimeError("lease lost")
-                error_type = RuntimeError
-            with self.assertRaises(error_type):
+                original_extend = lease.extend
+
+                def extend_lost_lease(*args: object, **kwargs: object) -> bool:
+                    lease.redis.delete(lease.name)
+                    return original_extend(60, replace_ttl=True)
+
+                extension = patch.object(lease, "extend", side_effect=extend_lost_lease)
+                error_type = LockNotOwnedError
+            with extension, self.assertRaises(error_type):
                 self.run_deletion()
         assert list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values()) == candidates
         assert MembershipCleanupScan.objects.for_team(self.team.pk).get().cursor == []
@@ -320,11 +363,11 @@ def test_mutation_retry_does_not_resubmit_pending_or_completed_deletes(state: st
         ),
     ):
         if state == "pending":
-            with pytest.raises(RuntimeError, match="pending mutation"):
+            with pytest.raises(RuntimeError, match="check_pending_mutations"):
                 store.delete_keys(1, [key])
             assert store.timings.failed_step == "check_pending_mutations"
         elif state == "survivors":
-            with pytest.raises(RuntimeError, match="surviving rows"):
+            with pytest.raises(RuntimeError, match="verify_membership_erasure"):
                 store.delete_keys(1, [key])
             assert store.timings.failed_step == "verify_membership_erasure"
         else:
@@ -333,3 +376,86 @@ def test_mutation_retry_does_not_resubmit_pending_or_completed_deletes(state: st
     assert len(deletes) == (1 if state in ("present", "survivors") else 0)
     if deletes:
         assert deletes[0].kwargs["settings"]["lightweight_deletes_sync"] == "2"
+
+
+@pytest.mark.parametrize(
+    "stage", ["read_erasure_targets", "delete_membership", "verify_membership_erasure", "verify_team_empty"]
+)
+def test_query_failures_do_not_expose_membership_identifiers(stage: str, caplog: pytest.LogCaptureFixture) -> None:
+    identifier = "private-membership-identifier"
+    error = ServerException(f"Query size exceeded near {identifier}", code=62)
+    client = MagicMock()
+    client.execute.side_effect = [
+        [(0,)],
+        error if stage == "read_erasure_targets" else [(1,)],
+        error if stage == "delete_membership" else [],
+    ]
+    placement = MagicMock()
+    placement.cluster.shards = [1]
+
+    def dispatch(delete: Callable[[object], None], **kwargs: object) -> MagicMock:
+        try:
+            delete(client)
+        except Exception:
+            logging.getLogger("membership-dispatch-test").exception("Dispatcher failed")
+            raise
+        return MagicMock()
+
+    placement.cluster.map_one_host_per_shard.side_effect = dispatch
+    store = MembershipDeletionStore()
+    with (
+        patch("products.customer_analytics.backend.logic.membership_deletion._get_cleanup_cluster"),
+        patch("products.customer_analytics.backend.logic.membership_deletion.placement_for", return_value=placement),
+        patch("products.customer_analytics.backend.logic.membership_deletion.sync_execute", side_effect=error),
+        pytest.raises(RuntimeError) as raised,
+    ):
+        if stage == "verify_team_empty":
+            store.has_membership(1)
+        else:
+            store.delete_keys(1, [MembershipKey(group_type_index=0, group_key=identifier, distinct_id=identifier)])
+    assert identifier not in "".join(traceback.format_exception(raised.value))
+    assert identifier not in caplog.text
+    assert store.timings.failed_step == stage
+
+
+@override_settings(CLICKHOUSE_CLUSTER="posthog", CLICKHOUSE_AUX_CLUSTER="auxiliary")
+def test_deletion_refreshes_sibling_shards_between_batches() -> None:
+    hosts = {
+        "posthog": [("main", 9000, 1, 1, "offline", "data")],
+        "auxiliary": [("aux-one", 9000, 1, 1, "offline", "aux")],
+    }
+    remaining = {"aux-one"}
+    bootstrap = MagicMock()
+    bootstrap.execute.side_effect = lambda query, params: hosts[params["name"]]
+
+    def make_pool(connection: ConnectionInfo, *args: object, **kwargs: object) -> MagicMock:
+        def execute(query: str, *args: object, **kwargs: object) -> list[tuple[int]]:
+            if "system.tables" in query:
+                return [(int(connection.host.startswith("aux-")),)]
+            if "system.mutations" in query:
+                return [(0,)]
+            if query.startswith("DELETE FROM"):
+                remaining.discard(connection.host)
+                return []
+            return [(1,)] if connection.host in remaining else []
+
+        pool = MagicMock()
+        pool.get_client.return_value.__enter__.return_value.execute.side_effect = execute
+        return pool
+
+    key = MembershipKey(group_type_index=0, group_key="example-account", distinct_id="example-person")
+    store = MembershipDeletionStore()
+    with (
+        patch("posthog.clickhouse.cluster.default_client", return_value=bootstrap),
+        patch.object(ConnectionInfo, "make_pool", autospec=True, side_effect=make_pool),
+        patch(
+            "products.customer_analytics.backend.logic.membership_deletion.sync_execute",
+            side_effect=lambda *args, **kwargs: [(len(remaining),)],
+        ),
+    ):
+        store.delete_keys(1, [key])
+        assert remaining == set()
+        hosts["auxiliary"].append(("aux-two", 9000, 2, 1, "offline", "aux"))
+        remaining.add("aux-two")
+        store.delete_keys(1, [key])
+        assert remaining == set()
