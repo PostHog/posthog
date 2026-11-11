@@ -175,18 +175,22 @@ Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:
 ### Automatic release
 
 Quarantines pile up, because a person has to come back and lift each one.
-Visual review lifts a quarantine by itself once trusted runs render its story clean for a week.
+Visual review lifts a quarantine by itself once trusted runs render its story clean for long enough.
 
 When a full default-branch run without a pull request finishes, a Celery task, `release clean quarantines`, checks every active quarantine of the run's type, whoever opened it.
 The task runs at most once an hour per repository and run type, and it checks with GitHub that the run is on the default branch.
+The window starts at the `AUTO_LIFT_CLEAN_RUNS`th newest completed full default-branch run, so it adapts to how busy the repository is.
+With fewer default-branch runs than that, nothing lifts.
 A quarantine lifts when all of these hold:
 
-- It was created at least `AUTO_LIFT_CLEAN_DAYS` ago, so a quarantine somebody just opened is never lifted under them.
-- The trusted runs of the last `AUTO_LIFT_CLEAN_DAYS`, on the default branch and in the merge queue, hold at least `AUTO_LIFT_MIN_RUNS` rows for the story, and every one of them is `unchanged`. Any other result blocks, also one that a quarantine, an approval, or a toleration kept out of the gate.
-- The finishing run rendered the story `unchanged` against a baseline.
+- It was created before the window started, so a quarantine somebody just opened is never lifted under them.
+- No trusted run since the window started, on the default branch or in the merge queue, rendered the story as anything but `unchanged`. A `changed`, `new` or `removed` row blocks, also one that a quarantine, an approval, or a toleration kept out of the gate.
+- The window's first run and the finishing run rendered the story `unchanged`, the finishing run against a baseline.
+
+The read counts only the rows that block, by a list of run ids, so it stays on the covering index.
 
 The lift works like a manual one: every active row of the story ends, and `lifted_at_sha` is the finishing run's commit, so a branch that forked before it keeps the quarantine.
-`lift_reason` on the quarantine says why, for example "Lifted automatically: unchanged in 1243 runs over 7 days".
+`lift_reason` on the quarantine says why, for example "Lifted automatically: unchanged in the last 500 default-branch runs, since 1a2b3c4".
 A pending lift request on that quarantine is marked superseded the next time a default-branch run reconciles lift requests.
 No Slack notice goes out.
 A relapse needs nothing special: the story fails again, and automatic quarantine proves the flake again.

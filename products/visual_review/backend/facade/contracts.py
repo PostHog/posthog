@@ -708,15 +708,12 @@ AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
 # and a capture regression produced 12 proofs in 24 hours.
 AUTO_QUARANTINE_DAILY_LIMIT = 10
 
-# How long trusted runs must render a quarantined story clean before the quarantine lifts itself, and
-# how old a quarantine must be before that. It matches `FLAKINESS_RATE_DAYS` and the retention of
-# merge queue runs, so the window never reaches past the runs that are still stored. A quarantine
-# somebody just opened is never lifted under them.
-AUTO_LIFT_CLEAN_DAYS = 7
-
-# Trusted runs inside the window that must all render the story unchanged. A clean streak shorter
-# than this still relapses too often to act on, and a week of a busy repo holds far more runs.
-AUTO_LIFT_MIN_RUNS = 300
+# Newest full default-branch runs that must render a quarantined story clean, together with every
+# trusted run since the first of them, before the quarantine lifts itself. A run count adapts to how
+# busy the repo is, and a day count does not: a slow week would lift a story on too little evidence.
+# As of November 2026, 3 percent of clean streaks in this repo relapsed after 500 default-branch runs,
+# against 15 percent after 300.
+AUTO_LIFT_CLEAN_RUNS = 500
 
 # Bounds GitHub requests, so a storm of failures cannot stall run completion.
 AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25
