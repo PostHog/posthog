@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -22,7 +22,6 @@ interface ReleaseImportLogicValues {
 
 interface ReleaseImportLogicActions {
     reload: (force?: boolean) => { force: boolean }
-    loadReleasesSuccess: (releases: ReleaseDTOApi[]) => { releases: ReleaseDTOApi[] }
     runAutoImport: () => void
     setAutoImportState: (state: AutoImportState) => { state: AutoImportState }
     markAutoImported: (projectId: string) => { projectId: string }
@@ -34,7 +33,7 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
     path(['products', 'release', 'frontend', 'releaseImportLogic']),
     connect(() => ({
         values: [releaseLogic, ['currentProjectId', 'releases', 'dataLoading', 'loadFailed', 'canEditReleases']],
-        actions: [releaseLogic, ['reload', 'loadReleasesSuccess']],
+        actions: [releaseLogic, ['reload']],
     })),
     actions({
         runAutoImport: () => ({}),
@@ -75,11 +74,6 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        loadReleasesSuccess: () => {
-            if (values.showAutoImport && values.autoImportState === 'idle') {
-                actions.runAutoImport()
-            }
-        },
         runAutoImport: async () => {
             const projectId = String(values.currentProjectId)
             actions.setAutoImportState('running')
@@ -104,9 +98,4 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.showAutoImport && values.autoImportState === 'idle') {
-            actions.runAutoImport()
-        }
-    }),
 ])

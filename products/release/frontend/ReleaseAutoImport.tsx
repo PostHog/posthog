@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import {
@@ -17,6 +18,12 @@ import { releaseImportLogic } from './releaseImportLogic'
 export function ReleaseAutoImport(): JSX.Element {
     const { autoImportState } = useValues(releaseImportLogic)
     const { runAutoImport } = useActions(releaseImportLogic)
+
+    useEffect(() => {
+        if (autoImportState === 'idle') {
+            runAutoImport()
+        }
+    }, [autoImportState, runAutoImport])
 
     if (autoImportState === 'failed') {
         return (
