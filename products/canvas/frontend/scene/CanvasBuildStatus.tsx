@@ -4,6 +4,8 @@ import { ReactNode, useEffect, useState } from 'react'
 import { IconPin, IconPinFilled, IconRefresh, IconX } from '@posthog/icons'
 import { Badge, Button, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
+
 import {
     activeCanvasBuild,
     currentHeadBuildFailure,
@@ -82,6 +84,7 @@ function StatusBadge({
 export function CanvasBuildStatus(): JSX.Element | null {
     const { builds, view, buildActionPending, fixRequestPending } = useValues(canvasSceneLogic)
     const { buildAction, requestFix } = useActions(canvasSceneLogic)
+    const inExperiment = useInCanvasExperiment()
     const active = builds ? activeCanvasBuild(builds) : null
     const [, setTick] = useState(0)
 
@@ -113,7 +116,7 @@ export function CanvasBuildStatus(): JSX.Element | null {
                     <span>{active.build_status === 'queued' ? 'Queued' : 'Building'}</span>
                     <span translate="no">{formatBuildElapsed(Date.now() - Date.parse(active.created_at))}</span>
                 </StatusBadge>
-                {active.build_status === 'queued' && (
+                {active.build_status === 'queued' && !inExperiment && (
                     <IconAction
                         label="Cancel build"
                         onClick={() => buildAction('cancel', active.id)}
@@ -151,34 +154,40 @@ export function CanvasBuildStatus(): JSX.Element | null {
                     label="Build failed"
                     title="The latest version didn't build"
                     description={
-                        builds.published_build_id
-                            ? 'The last working version stays live. Ask the agent to fix the errors, or retry the build.'
-                            : 'The canvas shows its source as a draft until a build works. Ask the agent to fix the errors, or retry the build.'
+                        inExperiment
+                            ? builds.published_build_id
+                                ? 'The last working version stays live. Ask your agent to fix the errors.'
+                                : 'The canvas shows its source as a draft until a build works. Ask your agent to fix the errors.'
+                            : builds.published_build_id
+                              ? 'The last working version stays live. Ask the agent to fix the errors, or retry the build.'
+                              : 'The canvas shows its source as a draft until a build works. Ask the agent to fix the errors, or retry the build.'
                     }
                     details={topBuildErrors(latest.diagnostics)}
                     dataAttr="canvas-build-failed-details"
                     actions={
-                        <>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                loading={buildActionPending}
-                                onClick={() => buildAction('retry', latest.id)}
-                                data-attr="canvas-build-retry"
-                            >
-                                <IconRefresh />
-                                Retry build
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="primary"
-                                loading={fixRequestPending}
-                                onClick={() => requestFix({ buildId: latest.id })}
-                                data-attr="canvas-build-ask-fix"
-                            >
-                                Ask agent to fix
-                            </Button>
-                        </>
+                        inExperiment ? null : (
+                            <>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    loading={buildActionPending}
+                                    onClick={() => buildAction('retry', latest.id)}
+                                    data-attr="canvas-build-retry"
+                                >
+                                    <IconRefresh />
+                                    Retry build
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="primary"
+                                    loading={fixRequestPending}
+                                    onClick={() => requestFix({ buildId: latest.id })}
+                                    data-attr="canvas-build-ask-fix"
+                                >
+                                    Ask agent to fix
+                                </Button>
+                            </>
+                        )
                     }
                 />
             </div>
@@ -199,15 +208,17 @@ export function CanvasBuildStatus(): JSX.Element | null {
                 >
                     Live
                 </StatusBadge>
-                <IconAction
-                    label={published.pinned ? 'Unpin build' : 'Pin build'}
-                    pressed={published.pinned}
-                    onClick={() => buildAction(published.pinned ? 'unpin' : 'pin', published.id)}
-                    disabled={buildActionPending}
-                    dataAttr={published.pinned ? 'canvas-build-unpin' : 'canvas-build-pin'}
-                >
-                    {published.pinned ? <IconPinFilled /> : <IconPin />}
-                </IconAction>
+                {!inExperiment && (
+                    <IconAction
+                        label={published.pinned ? 'Unpin build' : 'Pin build'}
+                        pressed={published.pinned}
+                        onClick={() => buildAction(published.pinned ? 'unpin' : 'pin', published.id)}
+                        disabled={buildActionPending}
+                        dataAttr={published.pinned ? 'canvas-build-unpin' : 'canvas-build-pin'}
+                    >
+                        {published.pinned ? <IconPinFilled /> : <IconPin />}
+                    </IconAction>
+                )}
             </div>
         )
     }
@@ -221,15 +232,17 @@ export function CanvasBuildStatus(): JSX.Element | null {
                 >
                     Pinned
                 </StatusBadge>
-                <IconAction
-                    label="Unpin build"
-                    pressed
-                    onClick={() => buildAction('unpin', published.id)}
-                    disabled={buildActionPending}
-                    dataAttr="canvas-build-unpin"
-                >
-                    <IconPinFilled />
-                </IconAction>
+                {!inExperiment && (
+                    <IconAction
+                        label="Unpin build"
+                        pressed
+                        onClick={() => buildAction('unpin', published.id)}
+                        disabled={buildActionPending}
+                        dataAttr="canvas-build-unpin"
+                    >
+                        <IconPinFilled />
+                    </IconAction>
+                )}
             </div>
         )
     }

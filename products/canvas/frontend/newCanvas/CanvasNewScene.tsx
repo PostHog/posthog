@@ -1,7 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconApps } from '@posthog/icons'
+import { IconApps, IconPalette } from '@posthog/icons'
 import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
     Item,
     ItemContent,
     ItemDescription,
@@ -15,7 +22,10 @@ import {
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { CanvasComposer } from '../scene/CanvasComposer'
 import { CanvasStartHero } from '../scene/CanvasStartHero'
@@ -31,6 +41,7 @@ export const scene: SceneExport = {
 /** The start page for a new canvas. Nothing is saved until the first prompt is sent, or until Start blank. */
 export function CanvasNewScene(): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const inExperiment = useInCanvasExperiment()
     const { instruction, sending, sendDisabledReason, startingBlank, startBlankDisabledReason } =
         useValues(canvasNewLogic)
     const { setInstruction, send, startBlank } = useActions(canvasNewLogic)
@@ -38,6 +49,39 @@ export function CanvasNewScene(): JSX.Element {
 
     if (!enabled) {
         return <NotFound object="page" />
+    }
+    if (inExperiment) {
+        return (
+            <div data-quill className="flex h-full min-h-0 flex-col bg-background">
+                <CanvasToolbar dataAttr="canvas-new-toolbar">
+                    <Text size="sm" weight="medium" className="truncate pl-2">
+                        New canvas
+                    </Text>
+                </CanvasToolbar>
+                <main className="min-h-0 flex-1">
+                    <Empty className="h-full border-0">
+                        <EmptyHeader>
+                            <EmptyMedia variant="icon">
+                                <IconPalette />
+                            </EmptyMedia>
+                            <EmptyTitle>Canvases are made with the PostHog MCP server</EmptyTitle>
+                            <EmptyDescription>
+                                Ask your agent to build one. It appears in your canvases list when it's ready.
+                            </EmptyDescription>
+                        </EmptyHeader>
+                        <EmptyContent>
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={urls.canvases()} />}
+                                data-attr="canvas-new-back-to-list"
+                            >
+                                Back to canvases
+                            </Button>
+                        </EmptyContent>
+                    </Empty>
+                </main>
+            </div>
+        )
     }
     return (
         <div data-quill className="flex h-full min-h-0 flex-col bg-background">

@@ -3,9 +3,11 @@ import { EmptyMedia, Heading, Text } from '@posthog/quill'
 
 /** The centered start of a canvas with nothing in it yet, like PostHog Desktop: a heading, a line of help, and the composer. */
 export function CanvasStartHero({
+    title = 'Build a canvas',
     description,
     children,
 }: {
+    title?: string
     description: string
     children: React.ReactNode
 }): JSX.Element {
@@ -17,7 +19,7 @@ export function CanvasStartHero({
                         <IconPalette />
                     </EmptyMedia>
                     <Heading render={<h1 />} size="xl">
-                        Build a canvas
+                        {title}
                     </Heading>
                     <Text size="sm" variant="muted">
                         {description}

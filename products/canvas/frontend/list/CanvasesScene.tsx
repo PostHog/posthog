@@ -6,6 +6,7 @@ import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -35,6 +36,7 @@ function CanvasesList(): JSX.Element {
     const { canvases, canvasesResponse, canvasesResponseLoading, canvasesLoadFailed, search, ordering, page } =
         useValues(canvasesListLogic)
     const { loadCanvases, setSearch, setOrdering, setPage, deleteCanvas } = useActions(canvasesListLogic)
+    const inExperiment = useInCanvasExperiment()
 
     // Loads on mount rather than on the route, because the list only mounts once the flag is on.
     useOnMountEffect(loadCanvases)
@@ -81,9 +83,15 @@ function CanvasesList(): JSX.Element {
                 name="Canvases"
                 resourceType={{ type: 'canvas', forceIcon: <IconPalette /> }}
                 actions={
-                    <Button variant="primary" render={<LinkPrimitive to={urls.canvasNew()} />} data-attr="canvases-new">
-                        New canvas
-                    </Button>
+                    inExperiment ? undefined : (
+                        <Button
+                            variant="primary"
+                            render={<LinkPrimitive to={urls.canvasNew()} />}
+                            data-attr="canvases-new"
+                        >
+                            New canvas
+                        </Button>
+                    )
                 }
             />
             <LemonInput
@@ -128,6 +136,8 @@ function CanvasesList(): JSX.Element {
                         </div>
                     ) : search ? (
                         'No canvases match that search.'
+                    ) : inExperiment ? (
+                        'No canvases yet. Ask your agent to make one with the PostHog MCP server.'
                     ) : (
                         'No canvases yet. Create one to get started.'
                     )

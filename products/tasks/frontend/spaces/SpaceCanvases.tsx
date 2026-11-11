@@ -13,6 +13,7 @@ import {
     Text,
 } from '@posthog/quill'
 
+import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -46,17 +47,20 @@ export function SpaceCanvases({ id }: { id: string }): JSX.Element {
     const { canvases, canvasesLoading, canvasesUnavailable, canvasSections } = useValues(spaceSceneLogic({ id }))
     const { loadCanvases } = useActions(spaceSceneLogic({ id }))
 
-    const newCanvasButton = (variant: 'outline' | 'primary'): JSX.Element => (
-        <Button
-            variant={variant}
-            size="sm"
-            render={<LinkPrimitive to={urls.canvasNew(id)} />}
-            data-attr="today-space-canvases-new"
-        >
-            <IconPlus />
-            New canvas
-        </Button>
-    )
+    const inExperiment = useInCanvasExperiment()
+
+    const newCanvasButton = (variant: 'outline' | 'primary'): JSX.Element | null =>
+        inExperiment ? null : (
+            <Button
+                variant={variant}
+                size="sm"
+                render={<LinkPrimitive to={urls.canvasNew(id)} />}
+                data-attr="today-space-canvases-new"
+            >
+                <IconPlus />
+                New canvas
+            </Button>
+        )
 
     if (canvasesUnavailable) {
         return (
@@ -101,9 +105,13 @@ export function SpaceCanvases({ id }: { id: string }): JSX.Element {
                         <IconPalette />
                     </EmptyMedia>
                     <EmptyTitle>No canvases yet</EmptyTitle>
-                    <EmptyDescription>Create one and build it with the agent, then save it.</EmptyDescription>
+                    <EmptyDescription>
+                        {inExperiment
+                            ? 'Ask your agent to make one with the PostHog MCP server.'
+                            : 'Create one and build it with the agent, then save it.'}
+                    </EmptyDescription>
                 </EmptyHeader>
-                <EmptyContent>{newCanvasButton('primary')}</EmptyContent>
+                {!inExperiment && <EmptyContent>{newCanvasButton('primary')}</EmptyContent>}
             </Empty>
         )
     }
