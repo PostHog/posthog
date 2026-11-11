@@ -229,6 +229,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     plan_lens_chunks,
     reconcile_chunks,
 )
+from products.review_hog.backend.silent_stamphog import finish_standard_automatic_turn, start_silent_stamphog
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.review_hog.backend.temporal.types import (
     REQUESTED_TRIGGERS,
@@ -236,6 +237,8 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_LABEL,
     TRIGGER_MANUAL,
     TRIGGER_STAMPHOG,
+    FinishedStandardAutomaticTurn,
+    SilentStamphogRequest,
 )
 from products.signals.backend.facade.report_artefacts import (
     CodeReview,
@@ -315,6 +318,8 @@ class ReviewMeta:
     empty_diff: bool = False
     already_completed: bool = False
     pr_open: bool = True
+    # Only forwarded to the acting-user re-check; the workflow does not branch on it.
+    draft: bool = False
     # Decided here so the workflow branches on a recorded result; older histories decode as the pipeline.
     review_design: str = REVIEW_DESIGN_PIPELINE
     # Why the design was chosen, for the started event. Empty on histories from before it existed.
@@ -358,6 +363,11 @@ class ResolveActingUserInput:
     repository: str | None = None
     installation_id: str | None = None
     github_repo_id: int | None = None
+    # Whether the PR was a draft when the turn fetched it, for the automatic trigger's re-check of the draft rules.
+    # False in older payloads, which reviews the draft as before.
+    draft: bool = False
+    # Read GitHub again before a draft skip. None in older payloads, which keeps the fetched draft state.
+    pr_number: int | None = None
     # The PR's head branch, which links a self-driving PR to its Inbox report. The fetch refuses forks,
     # so the branch is in the base repository. None in older payloads: such a PR then has no owner.
     head_branch: str | None = None
@@ -626,6 +636,7 @@ class TrackReviewCompletedInput:
     # and a person's re-trigger of an inbox report is the case the tier telemetry has to see.
     # Defaulted so in-flight payloads from before the field still deserialize.
     turn_trigger_source: str | None = None
+    turn_trigger_action: str | None = None
     # What THIS turn ran on; the event names the flash arm in both seats for a flash turn.
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
@@ -667,6 +678,7 @@ class TrackReviewStartedInput:
     head_sha: str
     run_index: int
     turn_trigger_source: str | None
+    turn_trigger_action: str | None = None
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     review_design: str = REVIEW_DESIGN_PIPELINE
@@ -685,6 +697,7 @@ class TrackReviewFailedInput:
     report_id: str
     run_index: int
     turn_trigger_source: str | None = None
+    turn_trigger_action: str | None = None
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     review_design: str = REVIEW_DESIGN_PIPELINE
@@ -968,6 +981,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         empty_diff=pr_number is None and not fetched.pr_files,
         already_completed=already_completed,
         pr_open=fetched.pr_metadata.state == "open",
+        draft=fetched.pr_metadata.draft,
         review_design=design_choice.design,
         review_design_reason=design_choice.reason,
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
@@ -1001,6 +1015,22 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
 
 
+def _pr_draft_on_github(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool | None:
+    """The PR's draft state on GitHub now, or None when the read fails."""
+    try:
+        response = github_api_request(
+            "GET",
+            f"/repos/{repository}/pulls/{pr_number}",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            installation_id=installation_id,
+        )
+    except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
+        logger.warning("Could not re-read the draft state of %s#%s", repository, pr_number)
+        return None
+    return response.json().get("draft") is True
+
+
 def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     if not login:
         return None
@@ -1015,14 +1045,27 @@ def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int
         report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
         if full_review_published(report):
             return False
-    return automatic_flash_allowed(
-        team_id=input.team_id,
-        repository=input.repository,
-        user_id=acting_user_id,
-        author_login=input.author_login,
-        installation_id=input.installation_id,
-        github_repo_id=input.github_repo_id,
-    )
+    repository, user_id = input.repository, acting_user_id
+
+    def allowed(draft: bool) -> bool:
+        return automatic_flash_allowed(
+            team_id=input.team_id,
+            repository=repository,
+            user_id=user_id,
+            author_login=input.author_login,
+            installation_id=input.installation_id,
+            github_repo_id=input.github_repo_id,
+            draft=draft,
+        )
+
+    if allowed(input.draft):
+        return True
+    if not input.draft or input.pr_number is None or not allowed(False):
+        return False
+    # The queue drops a ready request for the head this turn already holds, so a PR marked ready after the
+    # fetch would stay unreviewed. Unlike the push gate, a failed read keeps the skip: the repository said no drafts.
+    token, installation_id = _installation_auth(input.team_id, repository)
+    return _pr_draft_on_github(repository, input.pr_number, token=token, installation_id=installation_id) is False
 
 
 def _flash_after_full(input: ResolveActingUserInput) -> bool:
@@ -2266,12 +2309,17 @@ def _review_event_identity(report: ReviewReport) -> str:
 
 
 def _turn_event_properties(
-    report: ReviewReport, *, run_index: int, turn_trigger_source: str | None
+    report: ReviewReport,
+    *,
+    run_index: int,
+    turn_trigger_source: str | None,
+    turn_trigger_action: str | None = None,
 ) -> dict[str, str | int | None]:
     """The identity every per-turn review event shares: which report, which turn, and who asked for it.
 
     `trigger_source` is the trigger that created the report; `turn_trigger_source` is the trigger
-    of this turn, which differs when a person re-triggers an inbox report.
+    of this turn, which differs when a person re-triggers an inbox report. `turn_trigger_action` is
+    the GitHub `pull_request` action behind an automatic turn, and None for every other trigger.
     """
     return {
         "report_id": str(report.id),
@@ -2281,6 +2329,8 @@ def _turn_event_properties(
         "run_index": run_index,
         "trigger_source": report.trigger_source,
         "turn_trigger_source": turn_trigger_source,
+        "turn_trigger_action": turn_trigger_action,
+        **({"$update_person_last_seen_at": False} if turn_trigger_source == TRIGGER_AUTOMATIC else {}),
         "author_login": report.author_login,
     }
 
@@ -2363,7 +2413,12 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
             review_design=input.review_design,
         ),
         properties={
-            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **_turn_event_properties(
+                report,
+                run_index=input.run_index,
+                turn_trigger_source=input.turn_trigger_source,
+                turn_trigger_action=input.turn_trigger_action,
+            ),
             **review_routing_properties(
                 report,
                 review_mode=input.review_mode,
@@ -2445,22 +2500,6 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision, d
     )
 
 
-def _pr_is_draft_now(repository: str, pr_number: int, *, token: str, installation_id: str | None) -> bool:
-    """The PR's draft state on GitHub now. A failed read counts as ready, so the gate reviews the push."""
-    try:
-        response = github_api_request(
-            "GET",
-            f"/repos/{repository}/pulls/{pr_number}",
-            token=token,
-            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
-            installation_id=installation_id,
-        )
-    except (GitHubAPIError, GitHubRateLimitError, GitHubEgressBudgetExhausted, requests.RequestException):
-        logger.warning("Could not re-read the draft state of %s#%s; reviewing the push", repository, pr_number)
-        return False
-    return response.json().get("draft") is True
-
-
 def _previous_turn_findings(input: GatePushInput) -> int | None:
     """The findings the last counted turn kept. A turn that failed before publishing does not count."""
     try:
@@ -2501,7 +2540,8 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         # ready before this turn reads as ready. One marked ready while this turn runs does not: the queue
         # drops the ready request for the head this turn gates. So a draft skip reads GitHub again after the
         # gate's other reads, which leaves only the moment between this read and the end of the turn.
-        if decision.reason == "draft" and not _pr_is_draft_now(
+        # A failed read counts as ready, so the gate reviews the push.
+        if decision.reason == "draft" and not _pr_draft_on_github(
             input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
         ):
             draft = False
@@ -2589,7 +2629,12 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             review_design=input.review_design,
         ),
         properties={
-            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **_turn_event_properties(
+                report,
+                run_index=input.run_index,
+                turn_trigger_source=input.turn_trigger_source,
+                turn_trigger_action=input.turn_trigger_action,
+            ),
             "published": input.published,
             "findings_total": len(findings),
             "findings_valid": sum(1 for _, verdict in findings if verdict is not None and verdict.is_valid),
@@ -2709,7 +2754,12 @@ def _track_review_failed(input: TrackReviewFailedInput) -> None:
             review_design=input.review_design,
         ),
         properties={
-            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **_turn_event_properties(
+                report,
+                run_index=input.run_index,
+                turn_trigger_source=input.turn_trigger_source,
+                turn_trigger_action=input.turn_trigger_action,
+            ),
             **review_routing_properties(
                 report,
                 review_mode=input.review_mode,
@@ -2908,6 +2958,60 @@ async def nudge_stamphog_activity(input: TurnEndedInput) -> None:
     catches the final failure, because a lost nudge must never fail the review.
     """
     await database_sync_to_async(_nudge_stamphog, thread_sensitive=False)(input)
+
+
+def _log_silent_stamphog(repository: str, pr_number: int, head_sha: str) -> None:
+    logger.info(
+        "Queued a silent stamphog review of %s#%s at %s after a clean Standard review", repository, pr_number, head_sha
+    )
+
+
+def _finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> None:
+    queued = finish_standard_automatic_turn(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        repository=input.repository,
+        pr_number=input.pr_number,
+        head_sha=input.head_sha,
+        run_index=input.run_index,
+        lens_chunks_capped=input.lens_chunks_capped,
+        delta_review=input.delta_review,
+        marks_ready=input.marks_ready,
+    )
+    if queued:
+        _log_silent_stamphog(input.repository, input.pr_number, input.head_sha)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def finish_standard_automatic_turn_activity(input: FinishedStandardAutomaticTurn) -> None:
+    """Record on the turn marker whether the turn was clean with full coverage, and start a silent stamphog
+    review when the turn's own event marked the PR ready.
+
+    The workflow catches the final failure. The turn then stays unrecorded, which never counts as clean.
+    """
+    await database_sync_to_async(_finish_standard_automatic_turn, thread_sensitive=False)(input)
+
+
+def _start_silent_stamphog(input: SilentStamphogRequest) -> None:
+    queued = start_silent_stamphog(
+        team_id=input.team_id, repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
+    )
+    if queued:
+        _log_silent_stamphog(input.repository, input.pr_number, input.head_sha)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def start_silent_stamphog_activity(input: SilentStamphogRequest) -> None:
+    """Ask stamphog for a silent review of a head that a later event marked ready, when its automatic turn was recorded clean.
+
+    A dispatch error raises, so Temporal retries it. The workflow catches the final failure, because
+    a missed stamphog review must never fail the review.
+    """
+    await database_sync_to_async(_start_silent_stamphog, thread_sensitive=False)(input)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

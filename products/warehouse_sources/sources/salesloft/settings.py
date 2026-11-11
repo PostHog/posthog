@@ -73,6 +73,8 @@ SALESLOFT_ENDPOINTS: dict[str, SalesloftEndpointConfig] = {
     "email_templates": _incremental("email_templates", "/email_templates"),
     "notes": _incremental("notes", "/notes"),
     "opportunities": _incremental("opportunities", "/opportunities", sort_by="updated_at"),
+    "opportunity_people": _incremental("opportunity_people", "/opportunity_people"),
+    "opportunity_stages": _incremental("opportunity_stages", "/opportunity_stages"),
     "people": _incremental("people", "/people"),
     "successes": _incremental("successes", "/successes"),
     "tasks": _incremental("tasks", "/tasks", sort_by="updated_at"),
@@ -94,6 +96,7 @@ SALESLOFT_ENDPOINTS: dict[str, SalesloftEndpointConfig] = {
         "phone_number_assignments", "/phone_number_assignments", partition_key=None
     ),
     "steps": _full_refresh("steps", "/steps"),
+    "tags": _full_refresh("tags", "/tags", partition_key=None),
     "team_template_attachments": _full_refresh(
         "team_template_attachments", "/team_template_attachments", partition_key=None
     ),

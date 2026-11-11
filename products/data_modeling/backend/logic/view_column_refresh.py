@@ -9,6 +9,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -38,7 +39,7 @@ def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], 
     views = {
         view.id: view
         for view in DataWarehouseSavedQuery.objects.select_related("team")
-        .filter(team_id=team.pk, id__in=list(saved_query_ids), managed_viewset__isnull=True)
+        .filter(team_id=team.pk, id__in=_saved_query_uuids(saved_query_ids), managed_viewset__isnull=True)
         .exclude(deleted=True)
     }
     return {view_id for view_id in _upstream_first(team.pk, set(views)) if _refresh_columns(views[view_id], user)}
@@ -47,7 +48,7 @@ def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], 
 def views_updated_since(team: "Team", saved_query_ids: Collection[UUID | str], since: datetime) -> bool:
     """Whether any of these views was written after ``since``, for example by another request's refresh."""
     return DataWarehouseSavedQuery.objects.filter(
-        team_id=team.pk, id__in=list(saved_query_ids), updated_at__gt=since
+        team_id=team.pk, id__in=_saved_query_uuids(saved_query_ids), updated_at__gt=since
     ).exists()
 
 
@@ -64,6 +65,10 @@ def _readable_by(team: "Team", user: "User | None", view_ids: list[UUID]) -> Col
     if user is None:
         return view_ids
     return allowed_saved_query_ids(team.pk, UserAccessControl(user=user, team=team), ids=view_ids)
+
+
+def _saved_query_uuids(saved_query_ids: Collection[UUID | str]) -> list[UUID]:
+    return [UUID(str(value)) for value in saved_query_ids if UUIDT.is_valid_uuid(str(value))]
 
 
 def _infers_masked_columns(team: "Team", user: "User | None") -> bool:

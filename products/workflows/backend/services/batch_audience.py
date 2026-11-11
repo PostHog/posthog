@@ -1,4 +1,5 @@
-from typing import Optional
+import json
+from typing import Any, Optional
 
 from django.conf import settings
 
@@ -14,6 +15,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.property import GroupTypeIndex, PropertyGroup
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.models.property.property import Property, PropertyValidationError
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.user_blast_radius import (
@@ -52,7 +54,54 @@ BATCH_FLAG_CONDITION_REJECTION = (
 )
 
 
-def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
+INCOMPLETE_AUDIENCE_CONDITION = "An audience filter is incomplete. Finish it or remove it."
+
+
+def _is_condition_group(condition: Any) -> bool:
+    return isinstance(condition, dict) and "type" in condition and "values" in condition
+
+
+VALUELESS_OPERATORS = ("is_set", "is_not_set")
+
+
+def _is_finished_condition(condition: Any) -> bool:
+    try:
+        Property(**condition)
+    except (PropertyValidationError, exceptions.ValidationError, TypeError):
+        return False
+    if condition.get("type") == "cohort" and not str(condition.get("value")).isdigit():
+        return False
+    return (
+        condition.get("value") != []
+        or condition.get("operator") in VALUELESS_OPERATORS
+        or condition.get("type") == "hogql"
+    )
+
+
+def _has_unfinished_condition(conditions: Any) -> bool:
+    if _is_condition_group(conditions):
+        if not isinstance(conditions["values"], list):
+            return True
+        conditions = conditions["values"]
+    if not isinstance(conditions, list):
+        return False
+    return any(
+        _has_unfinished_condition(condition)
+        if _is_condition_group(condition)
+        else not _is_finished_condition(condition)
+        for condition in conditions
+    )
+
+
+def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
+    properties = (filters or {}).get("properties")
+    if isinstance(properties, str) and properties.strip():
+        try:
+            properties = json.loads(properties)
+        except json.JSONDecodeError:
+            properties = None
+    if _has_unfinished_condition(properties):
+        raise exceptions.ValidationError(INCOMPLETE_AUDIENCE_CONDITION)
     # Cohorts are expanded so a flag condition nested inside one is still caught.
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
@@ -102,7 +151,7 @@ def get_batch_audience_person_ids_snapshot(
     The whole person audience in one query, in person id order, for a run that resolves its audience
     once up front instead of rescanning the person table per page. Applies the same email dedupe.
     """
-    reject_flag_conditions_in_audience(team, filters)
+    reject_unusable_audience_conditions(team, filters)
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
         select_query = _build_audience_person_query(team, cleaned_filter, dedupe_key=dedupe_key, limit=limit)

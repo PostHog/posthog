@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconRefresh, IconTrends } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -49,6 +49,25 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
             size="small"
             data-attr="llma-sentiment-evaluation-runs-filter"
         />
+    )
+}
+
+function TrendInsightButton(): JSX.Element | null {
+    const { trendInsightUrl } = useValues(llmEvaluationLogic)
+    if (!trendInsightUrl) {
+        return null
+    }
+    return (
+        <LemonButton
+            type="secondary"
+            icon={<IconTrends />}
+            to={trendInsightUrl}
+            targetBlank
+            size="small"
+            data-attr="llma-evaluation-trend-insight"
+        >
+            Trend insight
+        </LemonButton>
     )
 }
 
@@ -207,6 +226,7 @@ export function EvaluationRunsTable(): JSX.Element {
                                 )}
                             </>
                         )}
+                        <TrendInsightButton />
                         <LemonButton
                             type="secondary"
                             icon={<IconRefresh />}

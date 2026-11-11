@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ComponentType, useState } from 'react'
 
-import { IconPulse, IconSparkles } from '@posthog/icons'
+import { IconPulse, IconSparkles, IconSupport } from '@posthog/icons'
 import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
@@ -10,9 +10,11 @@ import { SidePanelTab } from '~/types'
 
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 
-// The top bar's own icons where the side panel's would read wrong at this size.
+// The top bar's own icons where the side panel's would read wrong at this size. Support also stays static because the
+// side panel's icon reads the ticket logic for its unread count, and this bar renders on every page without live tickets.
 const TODAY_TAB_ICONS: Partial<Record<SidePanelTab, ComponentType>> = {
     [SidePanelTab.Max]: IconSparkles,
+    [SidePanelTab.Support]: IconSupport,
     [SidePanelTab.Activity]: IconPulse,
 }
 

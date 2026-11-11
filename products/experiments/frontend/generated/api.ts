@@ -38,6 +38,7 @@ import type {
     ExperimentSessionEventDeltaResponseApi,
     ExperimentSetupContextInputApi,
     ExperimentSetupContextResponseApi,
+    ExperimentTimeseriesResultsApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
@@ -795,6 +796,11 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * for a cause that a setting fixes, because the calculation after the fix reads the events up
  * to the end. It is info otherwise.
  *
+ * A launched experiment that has not ended gets the info `stale_experiment` more than 60 days
+ * after its start date, when the daily calculation leaves it out, with `days_running` from the
+ * start date in `evidence`.
+ * It offers `freeze_exposure` next to `end_experiment` when the experiment can freeze exposure.
+ *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
  * the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
@@ -813,7 +819,10 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
  * flag version that are no local evaluation, from an hour after the window starts. When
  * every condition that includes users pins the variant whose key one property holds,
- * `assigned_by_property` replaces `all_conditions_pinned`.
+ * `assigned_by_property` replaces `all_conditions_pinned`. When none of them includes
+ * everyone, so that every other user gets no variant, `closed_to_matched_users` replaces it,
+ * as a warning. A condition without filters, or with only filters that leave users out,
+ * includes everyone.
  *
  * A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
  * is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
@@ -1321,11 +1330,14 @@ export const experimentsTimeseriesResultsRetrieve = async (
     id: number,
     params: ExperimentsTimeseriesResultsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<ExperimentTimeseriesResultsApi> => {
+    return apiMutator<ExperimentTimeseriesResultsApi>(
+        getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExperimentsUnarchiveCreateUrl = (projectId: string, id: number) => {

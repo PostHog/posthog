@@ -48,8 +48,10 @@ export interface metricsSqlEditorTrackingLogicActions {
         folderId?: string | null | undefined,
         isTest?: any,
         queryOverride?: string | undefined,
-        incremental?: import('~/types').DataWarehouseSavedQueryIncremental | undefined
+        incremental?: import('~/types').DataWarehouseSavedQueryIncremental | undefined,
+        description?: string | undefined
     ) => {
+        description: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
         incremental: import('~/types').DataWarehouseSavedQueryIncremental | undefined

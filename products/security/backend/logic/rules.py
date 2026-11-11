@@ -32,6 +32,7 @@ class EmailPattern:
         literal domain is posthog.com. That check is not repeated here, because a decision never
         blocks a posthog.com account.
         """
+        # nosemgrep: email-domain-after-last-at -- the next line refuses a second "@", so first and last agree
         local, at, domain = value.partition("@")
         if not at or "@" in domain or re.search(r"\s", value):
             return None

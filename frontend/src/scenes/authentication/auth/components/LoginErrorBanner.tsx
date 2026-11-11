@@ -120,7 +120,9 @@ export function LoginErrorBanner(): JSX.Element | null {
                         }}
                         className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                     >
-                        Need help?
+                        {generalError.code === 'login_code_email_undeliverable'
+                            ? 'Contact support to get back into your account.'
+                            : 'Need help?'}
                     </Link>
                 </>
             )}

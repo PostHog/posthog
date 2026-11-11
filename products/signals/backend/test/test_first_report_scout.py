@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -187,6 +188,51 @@ class TestFirstReportScout(BaseTest):
         result = first_report_state(self.team.id)
         assert result["status"] == expected
         assert result["task_run_id"] == str(task_run.id)
+
+    def test_completion_before_run_creation_keeps_incomplete_outcome(self) -> None:
+        with (
+            patch("products.signals.backend.first_report_completion.capture_exception") as capture,
+            patch("products.signals.backend.first_report_completion.create_notification") as notify,
+        ):
+            result = complete_first_report_investigation(self.team.id, str(uuid4()))
+        assert result == {
+            "first_report_outcome": "incomplete",
+            "report_delivered": False,
+            "report_delivered_within_five_minutes": False,
+        }
+        capture.assert_not_called()
+        notify.assert_not_called()
+
+    def test_restart_updates_onboarding_state_to_the_latest_run(self) -> None:
+        previous_task = Task.objects.create(team=self.team, title="First investigation")
+        previous_run = TaskRun.objects.create(team=self.team, task=previous_task, status="failed")
+        previous_scout = SignalScoutRun.objects.create(
+            team=self.team, task_run=previous_run, skill_name=FIRST_REPORT_SCOUT, skill_version=1
+        )
+        SignalScoutRun.objects.for_team(self.team.id).filter(id=previous_scout.id).update(
+            created_at=timezone.now() - timedelta(days=1)
+        )
+        assert first_report_state(self.team.id)["status"] == "incomplete"
+
+        task = Task.objects.create(team=self.team, title="Restarted investigation")
+        task_run = TaskRun.objects.create(team=self.team, task=task, status="queued")
+        scout = SignalScoutRun.objects.create(
+            team=self.team, task_run=task_run, skill_name=FIRST_REPORT_SCOUT, skill_version=1
+        )
+        state = first_report_state(self.team.id)
+        assert state["status"] == "running"
+        assert state["scout_run_id"] == str(scout.id)
+        assert state["task_run_id"] == str(task_run.id)
+
+        report = SignalReport.objects.create(team=self.team, status="ready", first_visible_at=timezone.now())
+        scout.emitted_report_ids = [str(report.id)]
+        scout.save(update_fields=["emitted_report_ids"])
+        state = first_report_state(self.team.id)
+        assert state["status"] == "report_created"
+        assert state["report_id"] == str(report.id)
+        assert state["task_run_id"] == str(task_run.id)
+        previous_run.refresh_from_db()
+        assert previous_run.status == "failed"
 
     @parameterized.expand([(True, "report_created"), (False, "insufficient_data")])
     def test_experiment_measures_persisted_delivery_even_when_run_failed(self, delivered: bool, expected: str) -> None:

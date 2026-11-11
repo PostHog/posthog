@@ -2,7 +2,7 @@ import type { DashboardBasicApi } from '@/api/dashboards'
 import type { InsightBasicApi } from '@/api/insights'
 import type { FileSystemShortcutApi } from '@/api/shortcuts'
 
-import type { BrowseRow, DeviceRecentEntry, PinDisplay, PinView, RecentView, ViewKind } from '../views'
+import type { BrowseRow, DeviceRecentEntry, PinDisplay, PinKind, PinView, RecentView, ViewKind } from '../views'
 
 // Shortcut paths are escaped like the web's `escapePath` (`frontend/src/layout/panel-layout/ProjectTree/utils.tsx`):
 // `\` becomes `\\` and `/` becomes `\/`, so a name with a slash stays one segment.
@@ -31,29 +31,19 @@ export function shortcutName(path: string): string {
     return segments.filter((segment) => segment.length > 0).pop() ?? ''
 }
 
-const NATIVE_KINDS: ReadonlySet<ViewKind> = new Set<ViewKind>(['dashboard', 'insight', 'web_analytics'])
-
-export function viewKindForType(type: string | null): ViewKind {
-    switch (type) {
-        case 'dashboard':
-        case 'insight':
-        case 'web_analytics':
-        case 'notebook':
-        case 'canvas':
-            return type
-        default:
-            return 'web_link'
-    }
-}
-
-export function isNativeKind(kind: ViewKind): boolean {
-    return NATIVE_KINDS.has(kind)
-}
-
 /**
- * The identity of a pinned view. Dashboards, insights and notebooks match by `type` and `ref`. A product page such as
- * web analytics has no `ref`, and the backend writes its stars without `href`, so it matches by `type` alone.
+ * The web's Starred list also holds product pages, because the web sidebar keeps its product list as stars. A product
+ * page has no `ref`, and the Dashboards page has the type `dashboard`. Only a dashboard or an insight with a `ref` is a
+ * view the list can draw, so every other star stays on the web.
  */
+export function pinKindOf(row: Pick<FileSystemShortcutApi, 'type' | 'ref'>): PinKind | null {
+    if (!row.ref) {
+        return null
+    }
+    return row.type === 'dashboard' || row.type === 'insight' ? row.type : null
+}
+
+/** The identity of a view. A view matches by `type` and `ref`. Web analytics has no `ref`, so it matches by `type`. */
 export function shortcutMatchKey(type: string | null, ref: string | null): string {
     return ref ? `${type ?? ''}:${ref}` : `${type ?? ''}:`
 }
@@ -79,22 +69,31 @@ function keeps(a: FileSystemShortcutApi, b: FileSystemShortcutApi, rank: Record<
     return Date.parse(a.created_at) <= Date.parse(b.created_at)
 }
 
+interface PinGroup {
+    kind: PinKind
+    ref: string
+    kept: FileSystemShortcutApi
+    ids: string[]
+    serverOrder: number
+}
+
 /**
- * Pins from the server's shortcut rows, in this phone's order. Rows that match one view (a star in a sibling
- * environment, or one left over after a rename) collapse into one pin: the row with a local rank, else the lowest
- * `order`, then the oldest. Folder shortcuts are not views and are left out.
+ * Pins from the server's shortcut rows, in this phone's order. Rows that `pinKindOf` rejects are left out. Rows that
+ * match one view (a star in a sibling environment, or one left over after a rename) collapse into one pin: the row
+ * with a local rank, else the lowest `order`, then the oldest.
  */
 export function pinsFromShortcuts(rows: readonly FileSystemShortcutApi[], prefs: PinPrefs): PinView[] {
     // Rows arrive in server order, so a group's first row holds its position.
-    const groups = new Map<string, { kept: FileSystemShortcutApi; ids: string[]; serverOrder: number }>()
+    const groups = new Map<string, PinGroup>()
     rows.forEach((row, serverOrder) => {
-        if (row.type === 'folder') {
+        const kind = pinKindOf(row)
+        if (!kind || !row.ref) {
             return
         }
-        const key = shortcutMatchKey(row.type, row.ref)
+        const key = shortcutMatchKey(kind, row.ref)
         const group = groups.get(key)
         if (!group) {
-            groups.set(key, { kept: row, ids: [row.id], serverOrder })
+            groups.set(key, { kind, ref: row.ref, kept: row, ids: [row.id], serverOrder })
             return
         }
         group.ids.push(row.id)
@@ -102,22 +101,19 @@ export function pinsFromShortcuts(rows: readonly FileSystemShortcutApi[], prefs:
             group.kept = row
         }
     })
-    const pins = [...groups.values()].map(({ kept, ids, serverOrder }): PinView => {
-        const kind = viewKindForType(kept.type)
-        return {
+    const pins = [...groups.values()].map(
+        ({ kind, ref, kept, ids, serverOrder }): PinView => ({
             kind,
-            ref: kept.ref,
+            ref,
             href: kept.href,
             name: shortcutName(kept.path) || 'Untitled',
             shortcutId: kept.id,
             shortcutIds: ids,
-            type: kept.type ?? '',
             serverOrder,
             rank: prefs.rank[kept.id] ?? null,
-            display: isNativeKind(kind) ? (prefs.display[kept.id] ?? ROW) : ROW,
-            native: isNativeKind(kind),
-        }
-    })
+            display: prefs.display[kept.id] ?? ROW,
+        })
+    )
     return orderPins(pins)
 }
 

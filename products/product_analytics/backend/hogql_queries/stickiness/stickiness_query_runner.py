@@ -41,7 +41,8 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.cohorts.backend.models.util import get_count_operator, get_count_operator_ast
 
 
@@ -335,7 +336,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
                 try:
                     series_label = self.series_event(series_with_extra.series)
-                except Action.DoesNotExist:
+                except ActionNotFound:
                     # Dont append the series if the action doesnt exist
                     continue
 
@@ -425,9 +426,9 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             )
         elif isinstance(series, ActionsNode):
             try:
-                action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+                action = get_action(action_id=int(series.id), project_id=self.team.project_id)
                 filters.append(action_to_expr(action))
-            except Action.DoesNotExist:
+            except ActionNotFound:
                 # If an action doesn't exist, we want to return no events
                 filters.append(parse_expr("1 = 2"))
 
@@ -486,7 +487,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
-            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            action = get_action(action_id=int(series.id), project_id=self.team.project_id)
             return action.name
 
     def setup_series(self) -> list[SeriesWithExtras]:

@@ -33,8 +33,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.error_tracking.backend.facade import testing as error_tracking_testing
 from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
 from products.experiments.backend.facade.testing import create_experiment
@@ -823,7 +822,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
         self._make_bot_ready()
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Growth")
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
@@ -831,7 +830,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self._unfurl_links(
             [
                 f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}",
-                f"http://testserver/project/{self.team.pk}/dashboard/{dashboard.pk}",
+                f"http://testserver/project/{self.team.pk}/dashboard/{dashboard_id}",
             ],
         )
 
@@ -904,13 +903,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_dashboard(self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Main board", description="Overview")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Main board", description="Overview")
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
         site = "http://testserver"
-        url = f"{site}/project/{self.team.pk}/dashboard/{dashboard.pk}"
+        url = f"{site}/project/{self.team.pk}/dashboard/{dashboard_id}"
 
         handle_posthog_link_unfurl(
             {
@@ -1161,18 +1160,18 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         ]
         self.organization.save()
         member = User.objects.create_and_join(self.organization, "dashboard-viewer@posthog.com", "password")
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth review")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Growth review")
         visible = Insight.objects.create(team=self.team, name="Visible tile", saved=True)
         hidden = Insight.objects.create(team=self.team, name="Hidden tile", saved=True)
-        DashboardTile.objects.create(dashboard=dashboard, insight=visible)
-        DashboardTile.objects.create(dashboard=dashboard, insight=hidden)
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=visible.id)
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=hidden.id)
         AccessControl.objects.create(
             team=self.team, resource="insight", resource_id=str(hidden.id), access_level="none"
         )
         mock_resolve.return_value = MagicMock(user=member)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
-        url = f"http://testserver/project/{self.team.pk}/dashboard/{dashboard.pk}"
+        url = f"http://testserver/project/{self.team.pk}/dashboard/{dashboard_id}"
 
         self._unfurl_links([url])
 

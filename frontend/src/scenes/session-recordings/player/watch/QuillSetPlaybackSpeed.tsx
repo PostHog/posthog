@@ -20,7 +20,7 @@ export function QuillSetPlaybackSpeed(): JSX.Element {
             <DropdownMenuTrigger
                 render={
                     <Button
-                        size="xs"
+                        size="sm"
                         variant={speed === 1 ? 'default' : 'secondary'}
                         data-attr="session-recording-speed-select"
                     />

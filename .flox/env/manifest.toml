@@ -61,7 +61,7 @@ watchman = { pkg-path = "watchman" } # Fast file watching for Django/Celery auto
 trunk-io = { pkg-path = "trunk-io", version = "^1.3.4" } # Launcher for the Trunk merge queue CLI; the CLI version itself is pinned in .trunk/trunk.yaml
 # depot-cli has its own group because the toplevel group's version pins cannot resolve with it.
 # Keep its version floor current: flox puts its bin first on PATH, so an old lock shadows a newer host `depot`.
-depot-cli = { pkg-path = "depot-cli", pkg-group = "depot", version = "^2.102" }
+depot-cli = { pkg-path = "depot-cli", pkg-group = "depot", version = "^2.102.19" }
 # hog (hog/) needs Bun 1.3.3+ to turn off .env and bunfig.toml autoloading. 1.4.2 is the newest in the catalog.
 bun = { pkg-path = "bun", pkg-group = "bun", version = "^1.4.2" }
 
@@ -111,8 +111,8 @@ bash = '''
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
-  export GOPATH="$FLOX_ENV_CACHE/go"
-  export GOCACHE="$FLOX_ENV_CACHE/go-build"
+  export GOPATH="$HOME/.cache/posthog/go"
+  export GOCACHE="$HOME/.cache/posthog/go-build"
   export GOMODCACHE="$GOPATH/pkg/mod"
   export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
@@ -140,8 +140,8 @@ zsh = '''
   fi
   unset GOROOT
   export GOTOOLCHAIN=local
-  export GOPATH="$FLOX_ENV_CACHE/go"
-  export GOCACHE="$FLOX_ENV_CACHE/go-build"
+  export GOPATH="$HOME/.cache/posthog/go"
+  export GOCACHE="$HOME/.cache/posthog/go-build"
   export GOMODCACHE="$GOPATH/pkg/mod"
   export GOFLAGS=-modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
@@ -167,8 +167,8 @@ zsh = '''
 fish = '''
   set -e GOROOT
   set -gx GOTOOLCHAIN local
-  set -gx GOPATH "$FLOX_ENV_CACHE/go"
-  set -gx GOCACHE "$FLOX_ENV_CACHE/go-build"
+  set -gx GOPATH "$HOME/.cache/posthog/go"
+  set -gx GOCACHE "$HOME/.cache/posthog/go-build"
   set -gx GOMODCACHE "$GOPATH/pkg/mod"
   set -gx GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
@@ -187,8 +187,8 @@ fish = '''
 tcsh = '''
   unsetenv GOROOT
   setenv GOTOOLCHAIN local
-  setenv GOPATH "$FLOX_ENV_CACHE/go"
-  setenv GOCACHE "$FLOX_ENV_CACHE/go-build"
+  setenv GOPATH "$HOME/.cache/posthog/go"
+  setenv GOCACHE "$HOME/.cache/posthog/go-build"
   setenv GOMODCACHE "$GOPATH/pkg/mod"
   setenv GOFLAGS -modcacherw
   # Ensure flox binaries (especially Node.js) take precedence over system binaries

@@ -127,6 +127,7 @@ pub fn build_events(
             timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let metadata = ProcessedEventMetadata {

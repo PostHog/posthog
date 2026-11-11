@@ -6,6 +6,7 @@ recognizable.
 
 import re
 import datetime as dt
+from collections.abc import Sequence
 from dataclasses import asdict
 from typing import cast
 from zoneinfo import ZoneInfo
@@ -30,29 +31,36 @@ from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.exceptions import InsufficientScope
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
 from posthog.models import User
-from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
+from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled, scopes_caller_lacks
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import relative_date_parse
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
     check_metric_variable_regex,
+    derived_metric_resources,
     get_metrics_overview,
+    is_derived_metric_name,
     list_metric_attribute_keys,
     list_metric_attribute_values,
     list_metric_error_spikes,
     list_metric_event_samples,
     list_metric_names,
     list_metric_picker_names,
+    list_metric_query_counts,
     list_metric_variable_options,
     run_metric_query,
     run_promql_query,
     team_has_metrics,
 )
 from products.metrics.backend.facade.contracts import (
+    DEFAULT_QUERY_COUNT_DAYS,
     MAX_CLAUSES_PER_QUERY,
+    MAX_PROMQL_LENGTH,
+    MAX_QUERY_COUNT_DAYS,
     MAX_SPARKLINE_BATCH_SIZE,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
@@ -291,7 +299,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
     promql = serializers.CharField(
         required=False,
         allow_null=True,
-        max_length=8192,
+        max_length=MAX_PROMQL_LENGTH,
         help_text="PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero.",
     )
     dateFrom = _RelativeOrIsoDateTimeField(
@@ -642,6 +650,32 @@ class _MetricNamesResponseSerializer(serializers.Serializer):
 
 class _MetricPickerNamesResponseSerializer(serializers.Serializer):
     results = _MetricPickerNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
+
+
+class _MetricQueryCountsParamsSerializer(serializers.Serializer):
+    days = serializers.IntegerField(
+        default=DEFAULT_QUERY_COUNT_DAYS,
+        min_value=1,
+        max_value=MAX_QUERY_COUNT_DAYS,
+        help_text="Number of UTC days to count, today included.",
+    )
+    limit = serializers.IntegerField(
+        default=100, min_value=1, max_value=1000, help_text="Maximum number of metrics to return."
+    )
+
+
+class _MetricQueryCountSerializer(serializers.Serializer):
+    metric_name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
+    query_count = serializers.IntegerField(
+        help_text="Number of builder and PromQL queries that read the metric in the window. SQL mode queries do not count."
+    )
+    last_queried_at = serializers.DateTimeField(help_text="When a query last read the metric, ISO 8601.")
+
+
+class _MetricQueryCountsResponseSerializer(serializers.Serializer):
+    results = _MetricQueryCountSerializer(
+        many=True, help_text="Metrics that queries read in the window, the most queried first."
+    )
 
 
 class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
@@ -1105,6 +1139,33 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"results": results}, status=status.HTTP_200_OK)
 
     @extend_schema(
+        parameters=[_MetricQueryCountsParamsSerializer],
+        responses={200: _MetricQueryCountsResponseSerializer},
+    )
+    @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
+    def query_counts(self, request: Request, *args, **kwargs) -> Response:
+        """How often queries read each metric of the team. A metric that no query reads is not in the list."""
+        params = _MetricQueryCountsParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        counts = list_metric_query_counts(
+            team=self.team, days=params.validated_data["days"], limit=params.validated_data["limit"]
+        )
+
+        report_user_action(
+            request.user,
+            "metrics query counts viewed",
+            {"days": params.validated_data["days"], "metric_count": len(counts)},
+            team=self.team,
+            request=request,
+        )
+
+        return Response(
+            _MetricQueryCountsResponseSerializer({"results": [asdict(count) for count in counts]}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
         parameters=[_MetricAttributeKeysParamsSerializer],
         responses={200: _MetricAttributeKeysResponseSerializer},
     )
@@ -1265,6 +1326,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 interval=query_data.get("interval"),
                 formula=query_data.get("formula"),
             )
+            self._enforce_derived_source_access(request, clauses)
             series = run_metric_query(team=self.team, request=metric_request)
         except ValueError as exc:
             raise ParseError(str(exc))
@@ -1279,12 +1341,25 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "has_formula": metric_request.formula is not None,
                 "series_count": len(series),
                 "result_count": sum(len(s.points) for s in series),
+                "is_derived": any(is_derived_metric_name(c.metric_name) for c in clauses),
             },
             team=self.team,
             request=request,
         )
 
         return _series_response(series)
+
+    def _enforce_derived_source_access(self, request: Request, clauses: Sequence[MetricQueryClause]) -> None:
+        # A derived metric reads spans or logs, so metrics access alone must not expose their attributes.
+        resources = derived_metric_resources(clause.metric_name for clause in clauses)
+        missing = scopes_caller_lacks(request, [f"{resource}:read" for resource in resources])
+        if missing:
+            raise InsufficientScope(
+                missing, detail=f"Derived metrics read spans or logs, so they also need: {', '.join(missing)}."
+            )
+        for resource in resources:
+            if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
+                raise PermissionDenied(f"You do not have access to {resource}.")
 
     def _run_promql_query(self, request: Request, query_data: dict, date_to: dt.datetime) -> Response:
         if not posthog_feature_flag_enabled(

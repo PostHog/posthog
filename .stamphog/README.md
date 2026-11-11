@@ -22,6 +22,7 @@ The repository uses the shipped default `review-guidance.md`.
 
 `steering.md` tells the reviewer to refuse a diff that adds a suppression or an exemption for one of those guards.
 A path rule cannot see these, because the marker sits in product code or in a busy file.
+That covers the isolation exemptions inside `tach.toml` and the product `turbo.json` files, which stay off the deny list because most of their edits are routine `depends_on` and input additions.
 
 `ownership` comes from the shipped default, which declares one `hogli-resolver` source at the repo root, so stamphog reads the same merged view the reviewer auto-assigner builds.
 

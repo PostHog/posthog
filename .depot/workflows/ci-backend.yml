@@ -321,6 +321,11 @@ jobs:
                         # backend:mcp-surface task). Add a manifest here only with that wiring.
                         - products/feature_flags/mcp/tools.yaml
                         - products/tasks/mcp/tools.yaml
+                        # The message normalizer tests read the case file shared with the frontend and the
+                        # frontend's copies of the bundled recipes. Both are turbo inputs of ai_observability's
+                        # backend:test, in products/ai_observability/turbo.json.
+                        - 'products/ai_observability/shared/**'
+                        - 'packages/llm-normalizer/src/normalizer/recipe/default_recipes/**'
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
                         - bin/check_uv_python_compatibility.py
@@ -536,6 +541,12 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
+                        # A test file added or deleted, Jest included, can change the baseline that
+                        # test_unowned_test_directories.py enforces. Keep in step with runner_for_path
+                        # in packages/owners-yaml/owners_yaml/census.py.
+                        - added|deleted: '**/test_*.py'
+                        - added|deleted: '**/*_test.py'
+                        - added|deleted: '**/*.{test,spec}.{js,jsx,ts,tsx}'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
@@ -590,10 +601,8 @@ jobs:
                         - 'products/*/mcp/**/*.yaml'
                         - 'products/*/mcp/prompts/**/*.md'
                         - 'services/mcp/schema/tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-v2.json'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-all.json'
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
@@ -1709,7 +1718,7 @@ jobs:
               with:
                   enable-cache: false
             - name: Install Python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package posthog --package hogli
             - name: Validate changed product.yaml owners
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}

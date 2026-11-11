@@ -70,6 +70,7 @@ import {
     parseSortParam,
     serializeSortParam,
 } from '../utils/urlParams'
+import { draftChanges } from './draftChanges'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
@@ -548,6 +549,7 @@ export interface replayScannerLogicValues {
     experimentContextLinked: boolean
     goalBudgetInput: number | null
     goalDraft: DraftScannerResponseApi | null
+    goalDraftBaseline: ScannerFormValues | null
     goalDraftInput: string
     goalDraftLoading: boolean
     goalDraftQuery: RecordingsQuery | null
@@ -797,6 +799,9 @@ export interface replayScannerLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setCreationMethod: (creationMethod: ScannerCreationMethodEnumApi) => {
+        creationMethod: ScannerCreationMethodEnumApi
+    }
     setCreditLimitUnit: (unit: CreditLimitUnit) => {
         unit: CreditLimitUnit
     }
@@ -811,6 +816,9 @@ export interface replayScannerLogicActions {
     }
     setGoalBudgetInput: (budget: number | null) => {
         budget: number | null
+    }
+    setGoalDraftBaseline: (baseline: ScannerFormValues | null) => {
+        baseline: ScannerFormValues | null
     }
     setGoalDraftInput: (goal: string) => {
         goal: string
@@ -1073,6 +1081,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setGoalSpendMode: (mode: GoalSpendMode) => ({ mode }),
         setGoalDraftQuery: (query: RecordingsQuery | null) => ({ query }),
         setEntryPoint: (entryPoint: string | null) => ({ entryPoint }),
+        setGoalDraftBaseline: (baseline: ScannerFormValues | null) => ({ baseline }),
+        setCreationMethod: (creationMethod: ScannerCreationMethodEnumApi) => ({ creationMethod }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -1228,6 +1238,20 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 entry_point: values.entryPoint,
                             })
                         )
+                        if (values.creationMethod === 'ai') {
+                            // Null changes mean the drafted form is unknown, not that it was saved unchanged.
+                            const changes = values.goalDraftBaseline
+                                ? draftChanges(values.goalDraftBaseline, scanner)
+                                : null
+                            posthog.capture('replay_vision_scanner_draft_saved', {
+                                scanner_id: response.id,
+                                draft_edited: changes ? changes.length > 0 : null,
+                                draft_changes: changes,
+                                drafted_scanner_type: values.goalDraftBaseline?.scanner_type ?? null,
+                                scanner_type: scanner.scanner_type,
+                                entry_point: values.entryPoint,
+                            })
+                        }
                         actions.scannerSaved(scanner)
                         leaveScannerEditor(props.id, urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
@@ -1408,6 +1432,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 startFromScratch: () => null,
             },
         ],
+        // The form as the AI draft filled it, so the save can report what the person changed on review.
+        goalDraftBaseline: [
+            null as ScannerFormValues | null,
+            {
+                setGoalDraftBaseline: (_, { baseline }) => baseline,
+                draftScannerFromGoal: () => null,
+                startFromScratch: () => null,
+                discardScannerDraft: () => null,
+                scannerSaved: () => null,
+            },
+        ],
         // How the form standing in front of the user was built, sent with the create request so the
         // saved scanner can be attributed. Last path taken wins, because each of these replaces the
         // form: someone who drafts with AI and then starts from scratch saved a hand-built scanner.
@@ -1416,6 +1451,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 draftScannerFromGoal: () => 'ai' as ScannerCreationMethodEnumApi,
                 startFromScratch: () => 'scratch' as ScannerCreationMethodEnumApi,
+                setCreationMethod: (_, { creationMethod }) => creationMethod,
             },
         ],
         savingCohortKey: [
@@ -2012,7 +2048,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             const savedAt = writeScannerDraft(
                 teamId,
                 values.scanner,
-                typeof linkedExperimentId === 'number' ? linkedExperimentId : null
+                typeof linkedExperimentId === 'number' ? linkedExperimentId : null,
+                { creationMethod: values.creationMethod, goalDraftBaseline: values.goalDraftBaseline }
             )
             if (savedAt === null) {
                 // A failed write leaves any older draft behind; drop it so it can't resurrect stale edits.
@@ -2195,6 +2232,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         if (draft) {
                             actions.setScannerValues(draft.scanner)
                             actions.setScannerDraftSavedAt(draft.savedAt)
+                            if (draft.provenance) {
+                                actions.setCreationMethod(draft.provenance.creationMethod)
+                                actions.setGoalDraftBaseline(draft.provenance.goalDraftBaseline)
+                            }
                             // A draft made from an experiment prefill carries targeting the
                             // loadScannerSuccess above (a bare newScanner) didn't see. A draft started
                             // from an experiment link restores that link, so the wizard stays locked.
@@ -2466,6 +2507,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.rebuildExperimentContext()
                 // The form now carries the drafted filter, so count what it will actually watch.
                 actions.loadScannerEstimate()
+                actions.setGoalDraftBaseline(values.scanner)
             },
 
             draftScannerFromGoalFailure: ({ errorObject }) => {
@@ -2498,6 +2540,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
             setScannerValues: () => {
                 actions.requestScannerEstimate()
+                persistDraft()
+            },
+            setGoalDraftBaseline: () => {
                 persistDraft()
             },
             startFromScratch: () => {

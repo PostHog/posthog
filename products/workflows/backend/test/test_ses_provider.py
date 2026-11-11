@@ -337,6 +337,21 @@ class TestSESProvider(TestCase):
 
     @parameterized.expand(
         [
+            ("set", {TEST_DOMAIN: {"MailFromDomain": f"bounces.{TEST_DOMAIN}"}}, "bounces"),
+            ("nested", {TEST_DOMAIN: {"MailFromDomain": f"mail.out.{TEST_DOMAIN}"}}, "mail.out"),
+            ("identity_without_mail_from", {TEST_DOMAIN: {}}, None),
+            ("unknown_identity", {}, None),
+            ("outside_domain", {TEST_DOMAIN: {"MailFromDomain": "bounces.other.example.com"}}, None),
+        ]
+    )
+    def test_get_mail_from_subdomain(self, _name, attributes, expected):
+        provider = SESProvider()
+        with patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs:
+            mock_mail_from_attrs.return_value = {"MailFromDomainAttributes": attributes}
+            assert provider.get_mail_from_subdomain(TEST_DOMAIN) == expected
+
+    @parameterized.expand(
+        [
             ("all_missing", set()),
             ("partial_present", {"token2", "token3"}),
             ("all_present", {"token1", "token2", "token3"}),

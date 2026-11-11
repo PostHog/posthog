@@ -46,6 +46,17 @@ class FilterProjection:
         )
 
 
+@frozen
+class FilterPredicate:
+    """Filter a candidate query with `matches OR malformed` before its limit, and drop malformed rows after.
+
+    Selecting the malformed rows lets the caller count them without a second scan of the window.
+    """
+
+    matches: ast.Expr
+    malformed: ast.Expr
+
+
 class _RecipeBinder(CloningVisitor):
     def __init__(self, projections: Mapping[str, FilterProjection]) -> None:
         super().__init__()
@@ -72,19 +83,20 @@ class WarehouseFilterBindings:
         self._source_alias = source_alias
         self.projections = {name: self._compile(field) for name, field in self._fields.items()}
 
-    def predicate(self, expression: str) -> ast.Expr | None:
-        """AND this predicate with scope, time and status restrictions before applying a limit."""
+    def predicate(self, expression: str) -> FilterPredicate | None:
         validated = FilterExpression(expression, {name: field.type for name, field in self._fields.items()})
         predicate = validated.predicate()
         if predicate is None:
             return None
         bound = _call("ifNull", _RecipeBinder(self.projections).visit(predicate), ast.Constant(value=False))
-        guards = [
-            expr
-            for name in sorted(validated.referenced_fields)
-            for expr in (clone_expr(self.projections[name].invalid), self.projections[name].error())
-        ]
-        return _call("multiIf", *guards, bound) if guards else bound
+        invalid = [clone_expr(self.projections[name].invalid) for name in sorted(validated.referenced_fields)]
+        if not invalid:
+            return FilterPredicate(matches=bound, malformed=ast.Constant(value=False))
+        malformed = ast.Or(exprs=invalid)
+        # A malformed value must never pass, even under `OR true`, so the guard wraps the bound expression.
+        return FilterPredicate(
+            matches=_call("if", clone_expr(malformed), ast.Constant(value=False), bound), malformed=malformed
+        )
 
     @staticmethod
     def _physical_type(column: DatabaseField) -> str | None:

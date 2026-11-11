@@ -30,6 +30,7 @@ import { issueFiltersLogic } from './issueFiltersLogic'
 const ERROR_TRACKING_EVENT_NAMES = ['$exception']
 
 export const FilterGroup = ({
+    rootKey = TAXONOMIC_FILTER_LOGIC_KEY,
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
     excludeFilterTypes,
     activeFiltersInline = false,
@@ -38,6 +39,8 @@ export const FilterGroup = ({
     menuItems,
     leadingFilters,
 }: {
+    // A surface outside the Issues screen passes its own key, so the two never share filter state.
+    rootKey?: string
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     excludeFilterTypes?: PropertyFilterType[]
     activeFiltersInline?: boolean
@@ -58,7 +61,7 @@ export const FilterGroup = ({
 
     return (
         <UniversalFilters
-            rootKey={TAXONOMIC_FILTER_LOGIC_KEY}
+            rootKey={rootKey}
             group={displayGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}

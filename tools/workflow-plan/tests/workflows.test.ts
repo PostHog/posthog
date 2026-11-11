@@ -6,7 +6,7 @@ import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
+import { type JsonValue, evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -592,6 +592,41 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
+    it.each([
+        ['unrelated PR', pullRequest(), 'false', '2', 2, false],
+        ['unrelated fork PR', pullRequest({ fork: true }), 'false', '2', 2, false],
+        ['Markdown inputs changed', pullRequest(), 'true', '2', 2, true],
+        ['missing filter output', pullRequest(), '', '', 2, true],
+        ['missing file count', pullRequest(), 'false', '', 2, true],
+        ['missing event count', pullRequest(), 'false', '0', null, true],
+        ['incomplete list', pullRequest(), 'false', '2', 3, true],
+        ['rename expands the list', pullRequest(), 'false', '3', 2, true],
+        ['API file cap', pullRequest(), 'false', '3000', 3000, true],
+        ['API truncated list', pullRequest(), 'false', '3000', 3001, true],
+        ['merge queue', mergeQueue(), 'false', '2', 2, true],
+        ['master push', push(), 'false', '2', 2, true],
+        ['manual run', workflowDispatch(), 'false', '2', 2, true],
+    ])('frontend Markdown lint keeps full coverage (%s)', (name, github, markdown, count, changedFiles, runs) => {
+        const wf = workflow('ci-frontend.yml')
+        const event = github.event as Record<string, JsonValue>
+        const scenarioGithub = {
+            ...github,
+            event: { ...event, pull_request: { ...(event.pull_request as object), changed_files: changedFiles } },
+        }
+        const plan = planWorkflow(wf, {
+            name,
+            github: scenarioGithub,
+            steps: {
+                ...allFiltersChanged(wf),
+                changes: { filter: { outputs: { frontend: 'true', markdown, all_files_count: count } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['frontend-format']?.steps ?? []
+        expect(steps.find((step) => step.name === 'Lint markdown files')?.runs).toBe(runs)
+        expect(steps.find((step) => step.name === 'Check markdown formatting with oxfmt')?.runs).toBe(true)
+    })
+
     it.each([
         ['ready PR', pullRequest(), true, true],
         ['merge queue', mergeQueue(), true, false],

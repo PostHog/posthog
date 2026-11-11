@@ -13,6 +13,7 @@ const PAUSED: ExperimentHealthFindingApi = {
     evidence: {},
     actions: ['open_feature_flag'],
     diagnostic_ref: 'A5',
+    check: 'flag_state',
 }
 
 const input = (overrides: Partial<HealthDebugInput>): HealthDebugInput => ({

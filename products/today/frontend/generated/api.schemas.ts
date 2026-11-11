@@ -97,6 +97,11 @@ export interface HighlightValueFormatApi {
  * * `dashboard` - On a dashboard you open often
  * * `key_metric` - Project key metric
  * * `popular` - Opened often in this project
+ * * `watched` - You get updates on this
+ * * `built` - You created or edited this
+ * * `experiment` - An experiment you run
+ * * `agent` - Your agents query this
+ * * `evaluation` - An evaluation you created
  */
 export type HighlightMetricReasonEnumApi =
     (typeof HighlightMetricReasonEnumApi)[keyof typeof HighlightMetricReasonEnumApi]
@@ -106,6 +111,11 @@ export const HighlightMetricReasonEnumApi = {
     Dashboard: 'dashboard',
     KeyMetric: 'key_metric',
     Popular: 'popular',
+    Watched: 'watched',
+    Built: 'built',
+    Experiment: 'experiment',
+    Agent: 'agent',
+    Evaluation: 'evaluation',
 } as const
 
 export interface HighlightMoverApi {
@@ -120,8 +130,25 @@ export interface HighlightMoverApi {
     change_pct: number | null
 }
 
+export interface HighlightExperimentResultApi {
+    /** Name of the primary metric of the experiment. */
+    metric_name: string
+    /** Key of the variant the number compares with the control. */
+    variant: string
+    /** Key of the control variant. */
+    control: string
+    /** How many variants the experiment tests against the control. */
+    variants: number
+    /** Whether the difference of `variant` is significant. */
+    significant: boolean
+    /** Whether `variant` moves the metric toward its goal: up, or down for a metric that should decrease. */
+    favorable: boolean
+    /** How many people the result counts across every variant, or groups for an experiment on groups. */
+    exposures: number
+}
+
 export interface HighlightMetricApi {
-    /** Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>. */
+    /** Stable key of the metric: a key metric setting such as signup_event, insight:<short_id>, or experiment:<id>. */
     key: string
     /** Name of the key metric or of the insight, for example Sign-ups. */
     name: string
@@ -155,12 +182,17 @@ export interface HighlightMetricApi {
     value_format: HighlightValueFormatApi | null
     /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
     period_starts: string[]
-    /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.
+    /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created, `agent` for an insight the person's AI agents read on several days, `evaluation` for the pass rate of an evaluation the person created. Null for metrics computed before this field existed.
      *
      * * `routine` - You open this often
      * * `dashboard` - On a dashboard you open often
      * * `key_metric` - Project key metric
-     * * `popular` - Opened often in this project */
+     * * `popular` - Opened often in this project
+     * * `watched` - You get updates on this
+     * * `built` - You created or edited this
+     * * `experiment` - An experiment you run
+     * * `agent` - Your agents query this
+     * * `evaluation` - An evaluation you created */
     reason: HighlightMetricReasonEnumApi | null
     /**
      * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -189,6 +221,8 @@ export interface HighlightMetricApi {
     previous_value: number | null
     /** For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise. */
     movers: HighlightMoverApi[]
+    /** The primary metric result of an experiment. Then `value` is the change of `variant` against the control, in percent, and `series` is empty. Null for other metrics. */
+    experiment: HighlightExperimentResultApi | null
 }
 
 /**
@@ -212,7 +246,12 @@ export interface PulseSlotApi {
      * * `routine` - You open this often
      * * `dashboard` - On a dashboard you open often
      * * `key_metric` - Project key metric
-     * * `popular` - Opened often in this project */
+     * * `popular` - Opened often in this project
+     * * `watched` - You get updates on this
+     * * `built` - You created or edited this
+     * * `experiment` - An experiment you run
+     * * `agent` - Your agents query this
+     * * `evaluation` - An evaluation you created */
     reason?: HighlightMetricReasonEnumApi | null
     /** Stable key of the selected number. */
     key: string
@@ -344,7 +383,7 @@ export interface HighlightsApi {
     /** Key metrics of the project from its settings. */
     pulse: HighlightMetricApi[]
     /**
-     * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+     * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null only in results stored before every computation listed its numbers.
      * @nullable
      */
     pulse_slots?: PulseSlotApi[] | null
@@ -372,9 +411,32 @@ export interface PulsePinApi {
     dashboard_id?: number | null
 }
 
+export interface HiddenPulseNumberApi {
+    /** Key of the hidden number: a key metric setting such as signup_event, or insight:<short_id>. */
+    key: string
+    /** Current name of the number. */
+    name: string
+}
+
 export interface PulsePinsApi {
     /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
     pins: PulsePinApi[]
+    /** Numbers the person hid from the key numbers, oldest first. Suggestions skip them. Change them with the hidden numbers endpoint. */
+    readonly hidden: readonly HiddenPulseNumberApi[]
+}
+
+export interface SetHiddenPulseNumbersApi {
+    /**
+     * Keys of every number to hide, oldest first. Replaces the hidden numbers. At most 50 keys.
+     * @maxItems 50
+     * @items.maxLength 200
+     */
+    keys: string[]
+}
+
+export interface HiddenPulseNumbersApi {
+    /** Numbers the person hid from the key numbers, oldest first. Numbers the person can no longer see are left out. */
+    hidden: HiddenPulseNumberApi[]
 }
 
 /**
@@ -655,7 +717,7 @@ export interface ReportPageApi {
 
 export type TodayHighlightsRetrieveParams = {
     /**
-     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     * Retry failed sources. An active computation is reused.
      */
     refresh?: boolean
 }

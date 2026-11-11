@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         list_team_connected_repositories,
         resolve_team_github_integration,
         select_repository,
+        team_repository_names,
     )
     from products.tasks.backend.logic.repo_selection.cascade import select_repository_for_message
 
@@ -29,6 +30,7 @@ __all__ = [
     "resolve_team_github_integration",
     "select_repository",
     "select_repository_for_message",
+    "team_repository_names",
 ]
 
 # Everything except the leaf `RepoSelectionResult` DTO lives in `agent.py` / `cascade.py`, which
@@ -44,6 +46,7 @@ _LAZY_FROM_AGENT = frozenset(
         "list_team_connected_repositories",
         "resolve_team_github_integration",
         "select_repository",
+        "team_repository_names",
     }
 )
 _LAZY_FROM_CASCADE = frozenset({"select_repository_for_message"})

@@ -138,14 +138,14 @@ export class RefreshQueue {
     }
 
     /**
-     * Drops the queued jobs that only this screen wanted. A running read goes on: the server finishes a started compute
+     * Drops queued jobs that only this screen wanted, except keys it still needs. A running read goes on: the server finishes a started compute
      * anyway, so the answer still fills the cache, its minute floor holds, and a screen that comes back joins it or
      * finds the result instead of sending the same compute again. It also keeps its in-flight slot, so the app never
      * has more than 2 computes running on the server.
      */
-    leave(group: string): void {
+    leave(group: string, keepKeys?: ReadonlySet<string>): void {
         for (const job of [...this.jobs.values()]) {
-            if (!job.groups.delete(group) || job.groups.size > 0 || job.state === 'running') {
+            if (keepKeys?.has(job.key) || !job.groups.delete(group) || job.groups.size > 0 || job.state === 'running') {
                 continue
             }
             this.finish(job, 'aborted', false)

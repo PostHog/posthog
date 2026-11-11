@@ -14,8 +14,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
-import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -27,28 +25,31 @@ import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
+import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
+import { DashboardFilterBar } from 'products/dashboards/frontend/DashboardFilters'
+import { DashboardFlagCalledBanner } from 'products/dashboards/frontend/DashboardFlagCalledBanner'
+import { DashboardEmbeddedShareButton } from 'products/dashboards/frontend/DashboardHeaderActions'
+import { DashboardItems } from 'products/dashboards/frontend/DashboardItems'
+import { DashboardModalLoading } from 'products/dashboards/frontend/DashboardModalLoading'
+import { dashboardPerformanceLogic } from 'products/dashboards/frontend/dashboardPerformanceLogic'
+import { DashboardQueryScanBanner } from 'products/dashboards/frontend/DashboardQueryScanBanner'
+import { DashboardRetentionBanner } from 'products/dashboards/frontend/DashboardRetentionBanner'
+import { dashboardSubscribeNudgeLogic } from 'products/dashboards/frontend/dashboardSubscribeNudgeLogic'
+import { DashboardWarehouseSyncBanner } from 'products/dashboards/frontend/DashboardWarehouseSyncBanner'
+import { EmptyDashboardComponent } from 'products/dashboards/frontend/EmptyDashboardComponent'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
 import { teamLogic } from '../teamLogic'
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
-import { DashboardFlagCalledBanner } from './DashboardFlagCalledBanner'
 import { DashboardHeader } from './DashboardHeader'
-import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
-import { DashboardModalLoading } from './DashboardModalLoading'
-import { dashboardPerformanceLogic } from './dashboardPerformanceLogic'
-import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
-import { DashboardRetentionBanner } from './DashboardRetentionBanner'
-import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
-import { DashboardWarehouseSyncBanner } from './DashboardWarehouseSyncBanner'
-import { DashboardZoomControl } from './DashboardZoomControl'
-import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 // The modal renders the saved insights list, which no dashboard needs until someone adds an insight.
 const AddInsightToDashboardModal = lazyWithRetry(() =>
-    import('./addInsightToDashboardModal/AddInsightToDashboardModal').then((m) => ({
-        default: m.AddInsightToDashboardModal,
-    }))
+    import('products/dashboards/frontend/components/AddInsightToDashboardModal/AddInsightToDashboardModal').then(
+        (m) => ({
+            default: m.AddInsightToDashboardModal,
+        })
+    )
 )
 
 // Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
@@ -145,19 +146,16 @@ function DashboardScene({
         itemsLoading,
         dashboardLoading,
         dashboardStreaming,
-        layoutEditMode,
         dashboardFailedToLoad,
         internetConnectionIssue,
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
     } = useValues(dashboardLogic)
-    const { layoutZoom } = useValues(dashboardLogic)
     const { id: dashboardId } = useMountedLogic(dashboardLogic).props
     useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad, setLayoutZoom } =
-        useActions(dashboardLogic)
+    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const closeAddInsightToDashboardModal = (): void => {
@@ -284,15 +282,6 @@ function DashboardScene({
 
                     <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
                         <DashboardFilterBar backTo={backTo} />
-                        {layoutEditMode &&
-                            canEditDashboard &&
-                            [
-                                DashboardPlacement.Dashboard,
-                                DashboardPlacement.ProjectHomepage,
-                                DashboardPlacement.Builtin,
-                            ].includes(placement) && (
-                                <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
-                            )}
                     </SceneStickyBar>
 
                     <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />

@@ -38,12 +38,21 @@ ALL_POSTGRES_SYSTEM_TABLES: list[tuple[str, PostgresTable]] = [
 _SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
     name: table for name, table in ALL_POSTGRES_SYSTEM_TABLES if table.access_scope is not None
 }
+# Tables read through a service (system.integrations) have no Postgres table, so the checks that
+# resolve a Django model from `postgres_table_name` skip them.
+_MODEL_BACKED_SYSTEM_TABLES: list[tuple[str, PostgresTable]] = [
+    (name, table) for name, table in ALL_POSTGRES_SYSTEM_TABLES if table.postgres_table_name
+]
+_MODEL_BACKED_SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
+    name: table for name, table in _MODEL_BACKED_SYSTEM_TABLES if table.access_scope is not None
+}
 
 # Facade-isolated products route data through their facade: their viewsets declare
 # `queryset = None` and DTO serializers, so the object-restrictable model can't be derived
 # from the viewset. Declared by db_table so product internals stay unimported here.
 _FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
     "customer_analytics_account": "account",
+    "posthog_action": "action",
     "customer_analytics_customertask": "customer_task",
 }
 
@@ -66,6 +75,7 @@ def _object_grant_registry() -> dict[type[Model], str]:
 
     def all_subclasses(cls: type) -> set[type]:
         subs: set[type] = set()
+        sub: type
         for sub in cls.__subclasses__():
             subs.add(sub)
             subs |= all_subclasses(sub)
@@ -109,6 +119,7 @@ def _object_grant_scopes() -> frozenset[str]:
 
     def all_subclasses(cls: type) -> set[type]:
         subs: set[type] = set()
+        sub: type
         for sub in cls.__subclasses__():
             subs.add(sub)
             subs |= all_subclasses(sub)
@@ -468,7 +479,7 @@ class TestPostgresTable(BaseTest):
 class TestPostgresTablePrimaryKey(BaseTest):
     """Validate primary_key auto-detection and access_scope constraints."""
 
-    @parameterized.expand(_SCOPED_SYSTEM_TABLES.items())
+    @parameterized.expand(_MODEL_BACKED_SCOPED_SYSTEM_TABLES.items())
     def test_tables_with_access_scope_have_single_column_pk(self, table_name, table):
         """Object-level access control requires a single-column PK to filter by."""
         assert table.primary_key is not None, (
@@ -514,7 +525,7 @@ class TestObjectAccessControlIdField(SimpleTestCase):
     derived from `AccessControlViewSetMixin` viewsets, so new restrictable models or child
     tables fail this test until their `access_control_id_field` is declared correctly."""
 
-    @parameterized.expand(ALL_POSTGRES_SYSTEM_TABLES)
+    @parameterized.expand(_MODEL_BACKED_SYSTEM_TABLES)
     def test_access_control_id_field_targets_the_restricted_object(self, table_name, table) -> None:
         if table.access_scope is None:
             self.assertIsNone(
@@ -584,9 +595,9 @@ class TestObjectAccessControlCreatorField(SimpleTestCase):
     column. A restrictable table that has a creator but doesn't declare it silently hides rows from
     the person who created them, so require the declaration wherever REST would honor it."""
 
-    @parameterized.expand(sorted(_SCOPED_SYSTEM_TABLES))
+    @parameterized.expand(sorted(_MODEL_BACKED_SCOPED_SYSTEM_TABLES))
     def test_creator_field_is_declared_and_queryable(self, table_name: str) -> None:
-        table = _SCOPED_SYSTEM_TABLES[table_name]
+        table = _MODEL_BACKED_SCOPED_SYSTEM_TABLES[table_name]
         model = _model_by_pg_table().get(table.postgres_table_name)
         assert model is not None, f"could not resolve a Django model for system.{table_name}"
 
