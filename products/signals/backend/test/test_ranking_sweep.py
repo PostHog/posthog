@@ -132,12 +132,7 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         )
 
     def _due(self, limit: int = 100) -> list[str]:
-        candidates = reports_due_for_scoring(
-            self.now,
-            served_key=SERVED_KEY,
-            rendering=EMBEDDING_RENDERING_TITLE_SUMMARY,
-            limit=limit,
-        )
+        candidates = reports_due_for_scoring(self.now, rendering=EMBEDDING_RENDERING_TITLE_SUMMARY, limit=limit)
         return [candidate.report_id for candidate in candidates]
 
     def test_due_reports_are_the_in_window_scorable_ones_whose_score_is_missing_or_stale(self) -> None:
@@ -160,7 +155,7 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         other_manifest = self._report()
         self._scored(other_manifest, vector_at=self._vector(other_manifest, hours_ago=5), manifest=OLD_MANIFEST)
 
-        # A served override changes the served model under the same manifest version.
+        # A promotion or a served override changes the served model, and the old model's score stays current.
         other_served = self._report()
         self._scored(other_served, vector_at=self._vector(other_served, hours_ago=5), served_version=OLD_SERVED_VERSION)
 
@@ -180,26 +175,21 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
 
         # A newer current score stored under another team must not count as this report's score.
         cross_team_score = self._report()
-        cross_team_vector = self._vector(cross_team_score, hours_ago=5)
-        self._scored(cross_team_score, vector_at=cross_team_vector, served_version=OLD_SERVED_VERSION, hours_ago=3)
+        self._scored(cross_team_score, vector_at=self._vector(cross_team_score, hours_ago=5), hours_ago=3)
+        cross_team_vector = self._vector(cross_team_score, hours_ago=2)
         self._scored(cross_team_score, vector_at=cross_team_vector, team=other_team)
         SignalReportArtefact.objects.filter(team=other_team, report_id=cross_team_score).update(
             created_at=self.now + datetime.timedelta(hours=1)
         )
 
-        assert sorted(self._due()) == sorted([unscored, edited, other_served, cross_team_score])
+        assert sorted(self._due()) == sorted([unscored, edited, cross_team_score])
 
     def test_the_cap_keeps_unscored_reports_first_then_the_oldest_scores(self) -> None:
         recently_scored, long_ago_scored, unscored = self._report(), self._report(), self._report()
-        self._scored(
-            recently_scored, vector_at=self._vector(recently_scored, hours_ago=5), served_version=OLD_SERVED_VERSION
-        )
-        self._scored(
-            long_ago_scored,
-            vector_at=self._vector(long_ago_scored, hours_ago=5),
-            served_version=OLD_SERVED_VERSION,
-            hours_ago=3,
-        )
+        self._scored(recently_scored, vector_at=self._vector(recently_scored, hours_ago=5))
+        self._scored(long_ago_scored, vector_at=self._vector(long_ago_scored, hours_ago=5), hours_ago=3)
+        self._vector(recently_scored, hours_ago=2)
+        self._vector(long_ago_scored, hours_ago=2)
         self._vector(unscored, hours_ago=5)
 
         assert self._due(limit=2) == [unscored, long_ago_scored]
@@ -377,7 +367,6 @@ class TestScoreInboxReports(SimpleTestCase):
         score_inbox_reports()
 
         assert self.score_reports.call_args.kwargs["serving"] is self.serving
-        assert self.due.call_args.kwargs["served_key"] == SERVED_KEY
         self.logger.warning.assert_any_call(
             "inbox_ranking_override_rejected",
             override_served="tabular_xgb@2026-09-01",
