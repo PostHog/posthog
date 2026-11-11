@@ -21,9 +21,9 @@ from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
 
-MAX_ATTACHED_SKILLS = 10
+MAX_ATTACHED_SKILLS = 20
 
-# Long enough to say when a skill applies, short enough that ten of them stay a small part of
+# Long enough to say when a skill applies, short enough that twenty of them stay a small part of
 # the prompt. The store allows 4096, and legacy rows use it.
 MANIFEST_DESCRIPTION_MAX_CHARS = 300
 

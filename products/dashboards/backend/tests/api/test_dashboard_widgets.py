@@ -1,0 +1,1732 @@
+from typing import Any
+
+import time_machine
+from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, MagicMock, patch
+
+from django.core.cache import cache
+from django.db import connection
+from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
+
+from drf_spectacular.generators import SchemaGenerator
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.api.test.dashboards import DashboardAPI
+from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
+from posthog.scopes import APIScopeObject
+
+from products.access_control.backend.facade.testing import create_access_control
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_GROUPS
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.presentation.views.dashboard import DashboardsViewSet, DashboardTileSerializer
+from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
+from products.product_analytics.backend.facade.models import Insight
+
+
+class TestDashboardWidgets(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+    @time_machine.travel("2022-04-01 12:45", tick=False)
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_can_create_widget_tile(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+
+        assert len(dashboard_json["tiles"]) == 1
+        tile = dashboard_json["tiles"][0]
+        assert tile["widget"]["widget_type"] == "error_tracking_list"
+        assert tile["widget"]["config"]["limit"] == 10
+        assert tile["widget"]["created_by"]["id"] == self.user.id
+        assert tile["insight"] is None
+        assert tile["text"] is None
+        assert tile["button_tile"] is None
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_can_create_widget_tile_with_catalog_default_config(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            config={"limit": 10, "dateRange": {"date_from": "-7d"}},
+        )
+
+        tile = dashboard_json["tiles"][0]
+        assert tile["widget"]["config"]["dateRange"] == {"date_from": "-7d"}
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_can_update_widget_tile_config(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, config={"limit": 5, "orderBy": "last_seen"}
+        )
+
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["config"] = {"limit": 15, "orderBy": "occurrences"}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["config"]["limit"] == 15
+        assert updated_tile["widget"]["config"]["orderBy"] == "occurrences"
+        assert updated_tile["widget"]["id"] == tile["widget"]["id"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_can_update_widget_tile_name_and_description(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["name"] = "My top errors"
+        tile["widget"]["description"] = "Worst issues this week"
+        tile["show_description"] = True
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["name"] == "My top errors"
+        assert updated_tile["widget"]["description"] == "Worst issues this week"
+        assert updated_tile["show_description"] is True
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_dashboard_patch_widget_update_without_config_preserves_config(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, config={"limit": 5, "orderBy": "last_seen"}
+        )
+
+        tile = dashboard_json["tiles"][0]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile["id"], "widget": {"id": tile["widget"]["id"], "name": "Renamed"}}]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["name"] == "Renamed"
+        assert updated_tile["widget"]["config"]["limit"] == 5
+        assert updated_tile["widget"]["config"]["orderBy"] == "last_seen"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_marking_widget_tiles_does_not_load_each_widget_separately(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        for _ in range(3):
+            _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+
+        with CaptureQueriesContext(connection) as queries:
+            self.dashboard_api.update_dashboard(
+                dashboard_id, {"tiles": [{"id": tile_id, "badge": "winner"} for tile_id in tile_ids]}
+            )
+
+        widget_lookups = [query["sql"] for query in queries if 'FROM "posthog_dashboardwidget" WHERE' in query["sql"]]
+        assert widget_lookups == []
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_duplicate_dashboard_copies_widget_name_with_suffix(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["name"] = "Custom widget title"
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+
+        _, duplicated = self.dashboard_api.create_dashboard(
+            {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": True}
+        )
+
+        assert duplicated["tiles"][0]["widget"]["name"] == "Custom widget title (Copy)"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_cannot_patch_widget_from_another_team(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+
+        other_team = Team.objects.create(
+            organization=self.organization,
+            name="other team",
+            api_token="other-token",
+        )
+        other_dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "other"}, team_id=other_team.id)
+
+        foreign_widget_id = dashboard_json["tiles"][0]["widget"]["id"]
+        response = self.client.patch(
+            f"/api/projects/{other_team.id}/dashboards/{other_dashboard_id}",
+            {
+                "tiles": [
+                    {
+                        "widget": {
+                            "id": foreign_widget_id,
+                            "widget_type": "error_tracking_list",
+                            "config": {"limit": 10},
+                        }
+                    }
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "widget"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_patch_widget_denies_without_product_access(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["config"] = {"limit": 12}
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl,
+            "check_access_level_for_resource",
+            autospec=True,
+            side_effect=deny_error_tracking_only,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+                {"tiles": [tile]},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You do not have access to error tracking."
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_cannot_change_widget_type_via_dashboard_patch(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["widget_type"] = "session_replay_list"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "widget"
+        assert "widget_type cannot be changed" in response.json()["detail"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_duplicate_dashboard_without_deep_clone_still_clones_widgets(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 7})
+        original_widget = dashboard_json["tiles"][0]["widget"]
+
+        _, duplicated = self.dashboard_api.create_dashboard(
+            {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": False}
+        )
+
+        assert len(duplicated["tiles"]) == 1
+        assert duplicated["tiles"][0]["widget"]["config"] == original_widget["config"]
+        assert duplicated["tiles"][0]["widget"]["id"] != original_widget["id"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_duplicate_dashboard_preserves_widget_layout(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile = dashboard_json["tiles"][0]
+        tile_layout = {"sm": {"x": 0, "y": 2, "w": 6, "h": 4}}
+        tile["layouts"] = tile_layout
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+
+        _, duplicated = self.dashboard_api.create_dashboard(
+            {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": True}
+        )
+
+        assert duplicated["tiles"][0]["layouts"] == tile_layout
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_duplicate_dashboard_skips_soft_deleted_widget_tiles(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile = dashboard_json["tiles"][0]
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile["id"], "deleted": True}]},
+        )
+
+        _, duplicated = self.dashboard_api.create_dashboard(
+            {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": True}
+        )
+
+        assert duplicated["tiles"] == []
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_duplicate_dashboard_writes_widget_activity_log(self) -> None:
+        ActivityLog.objects.filter(team_id=self.team.id, scope="DashboardWidget").delete()
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        self.dashboard_api.create_widget_tile(dashboard_id)
+        create_count = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="DashboardWidget", activity="created"
+        ).count()
+
+        self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": True})
+
+        duplicate_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="DashboardWidget", activity="created")
+        assert duplicate_logs.count() == create_count + 1
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_duplicate_dashboard_deep_clones_widget(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 7})
+
+        _, duplicated = self.dashboard_api.create_dashboard(
+            {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": True}
+        )
+
+        assert len(duplicated["tiles"]) == 1
+        original = self.dashboard_api.get_dashboard(dashboard_id)
+        assert duplicated["tiles"][0]["widget"]["config"] == original["tiles"][0]["widget"]["config"]
+        assert duplicated["tiles"][0]["widget"]["id"] != original["tiles"][0]["widget"]["id"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_create_from_template_json_widget_tile(self) -> None:
+        template = {
+            "template_name": "ET dashboard",
+            "dashboard_description": "Errors",
+            "dashboard_filters": {},
+            "tiles": [
+                {
+                    "type": "WIDGET",
+                    "widget_type": "error_tracking_list",
+                    "config": {"limit": 12},
+                    "layouts": {"sm": {"h": 4, "w": 6, "x": 0, "y": 0}},
+                }
+            ],
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        dashboard_json = response.json()
+        assert len(dashboard_json["tiles"]) == 1
+        assert dashboard_json["tiles"][0]["widget"]["widget_type"] == "error_tracking_list"
+        assert dashboard_json["tiles"][0]["widget"]["config"]["limit"] == 12
+
+    def _widget_template_payload(self, **overrides: Any) -> dict[str, Any]:
+        tile: dict[str, Any] = {
+            "type": "WIDGET",
+            "widget_type": "error_tracking_list",
+            "config": {"limit": 12},
+            "layouts": {"sm": {"h": 4, "w": 6, "x": 0, "y": 0}},
+        }
+        tile.update(overrides)
+        return {
+            "template_name": "ET dashboard",
+            "dashboard_description": "Errors",
+            "dashboard_filters": {},
+            "tiles": [tile],
+        }
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_create_from_template_json_widget_denies_without_product_access(self) -> None:
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl,
+            "check_access_level_for_resource",
+            autospec=True,
+            side_effect=deny_error_tracking_only,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+                {"template": self._widget_template_payload()},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You do not have access to error tracking."
+        assert Dashboard.objects.filter(team_id=self.team.id, deleted=False).count() == 0
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_create_dashboard_use_template_widget_denies_without_product_access(self) -> None:
+        template_name = "widget-et-use-template"
+        DashboardTemplate.objects.create(
+            team=self.team,
+            template_name=template_name,
+            dashboard_description="Errors",
+            dashboard_filters={},
+            tiles=[self._widget_template_payload()["tiles"][0]],
+        )
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl,
+            "check_access_level_for_resource",
+            autospec=True,
+            side_effect=deny_error_tracking_only,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "ET from template", "use_template": template_name},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You do not have access to error tracking."
+        assert not DashboardWidget.all_teams.filter(team_id=self.team.id).exists()
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_create_from_template_json_widget_rejects_unknown_widget_type(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": self._widget_template_payload(widget_type="not_a_real_widget_type")},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Dashboard.objects.filter(team_id=self.team.id, deleted=False).count() == 0
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_create_from_template_json_widget_rejects_invalid_config(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": self._widget_template_payload(config={"limit": 999})},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Dashboard.objects.filter(team_id=self.team.id, deleted=False).count() == 0
+
+    @time_machine.travel("2022-04-01 12:45", tick=False)
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_create_and_update_writes_activity_log(self) -> None:
+        ActivityLog.objects.filter(team_id=self.team.id, scope="DashboardWidget").delete()
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+
+        create_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="DashboardWidget", activity="created")
+        assert create_logs.count() == 1
+        create_log = create_logs.first()
+        assert create_log is not None
+        detail = create_log.detail
+        assert detail is not None
+        assert detail["name"] == "error_tracking_list"
+
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["config"] = {"limit": 20}
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+
+        update_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="DashboardWidget", activity="updated")
+        assert update_logs.count() == 1
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_copy_tile_copies_widget_tile(self) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        _, source_json = self.dashboard_api.create_widget_tile(source_id, config={"limit": 7})
+        tile = source_json["tiles"][0]
+        tile["widget"]["name"] = "Top errors"
+        tile["widget"]["description"] = "Weekly summary"
+        tile["group_key"] = "plans"
+        tile["badge"] = "winner"
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{source_id}",
+            {"tiles": [tile]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_tile",
+            {"fromDashboardId": source_id, "tileId": tile["id"]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        source_dashboard = self.dashboard_api.get_dashboard(source_id)
+        dest_dashboard = self.dashboard_api.get_dashboard(dest_id)
+        assert len(source_dashboard["tiles"]) == 1
+        assert len(dest_dashboard["tiles"]) == 1
+
+        source_widget = source_dashboard["tiles"][0]["widget"]
+        dest_widget = dest_dashboard["tiles"][0]["widget"]
+        assert dest_widget["id"] != source_widget["id"]
+        assert dest_widget["name"] == "Top errors (Copy)"
+        assert dest_widget["description"] == "Weekly summary"
+        assert dest_widget["config"]["limit"] == 7
+        assert dest_dashboard["tiles"][0]["layouts"] == source_dashboard["tiles"][0]["layouts"]
+        assert source_dashboard["tiles"][0]["group_key"] == "plans"
+        assert (dest_dashboard["tiles"][0]["group_key"], dest_dashboard["tiles"][0]["badge"]) == (None, "winner")
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_copy_group_copies_tiles_settings_and_relative_layout(self) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        self.dashboard_api.create_text_tile(
+            dest_id,
+            extra_data={"layouts": {"sm": {"x": 0, "y": 0, "w": 6, "h": 3}, "xs": {"x": 0, "y": 0, "w": 1, "h": 2}}},
+        )
+        _, source = self.dashboard_api.create_widget_tile(source_id)
+        widget_id = source["tiles"][0]["id"]
+        _, source = self.dashboard_api.create_text_tile(source_id)
+        text_id = next(tile["id"] for tile in source["tiles"] if tile["text"])
+        insight_id, _ = self.dashboard_api.create_insight({"name": "Activation"})
+        self.dashboard_api.add_insight_to_dashboard([source_id], insight_id)
+        source = self.dashboard_api.get_dashboard(source_id)
+        insight_tile_id = next(tile["id"] for tile in source["tiles"] if tile["insight"])
+        self.dashboard_api.update_dashboard(
+            source_id,
+            {
+                "groups": {"plans": {"title": "Plans", "color": "green", "collapsed": True}},
+                "tiles": [
+                    {
+                        "id": widget_id,
+                        "group_key": "plans",
+                        "layouts": {"sm": {"x": 0, "y": 4, "w": 6, "h": 3}, "xs": {"x": 0, "y": 7, "w": 1, "h": 2}},
+                    },
+                    {
+                        "id": text_id,
+                        "group_key": "plans",
+                        "layouts": {"sm": {"x": 6, "y": 5, "w": 6, "h": 2}, "xs": {"x": 0, "y": 9, "w": 1, "h": 2}},
+                    },
+                    {
+                        "id": insight_tile_id,
+                        "group_key": "plans",
+                        "layouts": {"sm": {"x": 0, "y": 6, "w": 6, "h": 2}, "xs": {"x": 0, "y": 11, "w": 1, "h": 2}},
+                    },
+                ],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+            {"fromDashboardId": source_id, "groupKey": "plans"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        copied = [tile for tile in response.json()["tiles"] if tile["group_key"]]
+        assert len(copied) == 3
+        new_key = copied[0]["group_key"]
+        assert new_key != "plans"
+        assert all(tile["group_key"] == new_key for tile in copied)
+        assert next(tile["insight"]["id"] for tile in copied if tile["insight"]) == insight_id
+        assert next(tile["widget"]["id"] for tile in copied if tile["widget"]) != next(
+            tile["widget"]["id"] for tile in source["tiles"] if tile["widget"]
+        )
+        assert response.json()["customization"]["groups"][new_key] == {
+            "title": "Plans",
+            "color": "green",
+            "collapsed": True,
+        }
+        assert sorted(tile["layouts"]["sm"]["y"] for tile in copied) == [3, 4, 5]
+        assert sorted(tile["layouts"]["xs"]["y"] for tile in copied) == [2, 4, 6]
+        assert self.dashboard_api.get_dashboard(source_id)["customization"]["groups"]["plans"]["title"] == "Plans"
+
+    def test_copy_group_rejects_existing_tile_without_partial_copy(self) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        _, source = self.dashboard_api.create_text_tile(source_id, extra_data={"group_key": "plans"})
+        self.dashboard_api.create_text_tile(dest_id, text="I AM TEXT!")
+        source_tile = source["tiles"][0]
+        self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_tile",
+            {"fromDashboardId": source_id, "tileId": source_tile["id"]},
+        )
+        before = self.dashboard_api.get_dashboard(dest_id)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+            {"fromDashboardId": source_id, "groupKey": "plans"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self.dashboard_api.get_dashboard(dest_id)["tiles"] == before["tiles"]
+
+    def test_copy_group_rejects_same_dashboard_as_source(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_text_tile(dashboard_id, extra_data={"group_key": "plans"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/copy_group",
+            {"fromDashboardId": dashboard_id, "groupKey": "plans"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("source_dashboard", True, False),
+            ("insight_in_group", False, True),
+        ]
+    )
+    def test_copy_group_denies_without_viewer_access(
+        self, _name: str, deny_source_dashboard: bool, deny_insight: bool
+    ) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        insight_id, _ = self.dashboard_api.create_insight({"name": "Activation"})
+        self.dashboard_api.add_insight_to_dashboard([source_id], insight_id)
+        source = self.dashboard_api.get_dashboard(source_id)
+        insight_tile_id = next(tile["id"] for tile in source["tiles"] if tile["insight"])
+        self.dashboard_api.update_dashboard(source_id, {"tiles": [{"id": insight_tile_id, "group_key": "plans"}]})
+
+        real_check = UserAccessControl.check_access_level_for_object
+
+        def deny_selectively(
+            user_access_control: UserAccessControl,
+            obj: Dashboard | Insight,
+            required_level: AccessControlLevel,
+            explicit: bool = False,
+        ) -> bool:
+            if deny_source_dashboard and isinstance(obj, Dashboard) and obj.pk == source_id:
+                return False
+            if deny_insight and isinstance(obj, Insight) and obj.pk == insight_id:
+                return False
+            return real_check(user_access_control, obj, required_level, explicit=explicit)
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_object", autospec=True, side_effect=deny_selectively
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+                {"fromDashboardId": source_id, "groupKey": "plans"},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("duplicate_insight_tile", status.HTTP_400_BAD_REQUEST),
+            ("widget_tile_denied_product_access", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_copy_group_rolls_back_whole_group_on_validation_failure(
+        self, failure_mode: str, expected_status: int
+    ) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        _, source = self.dashboard_api.create_widget_tile(source_id)
+        widget_tile_id = source["tiles"][0]["id"]
+        _, source = self.dashboard_api.create_text_tile(source_id)
+        text_tile_id = next(tile["id"] for tile in source["tiles"] if tile["text"])
+        insight_id, _ = self.dashboard_api.create_insight({"name": "Activation"})
+        self.dashboard_api.add_insight_to_dashboard([source_id], insight_id)
+        source = self.dashboard_api.get_dashboard(source_id)
+        insight_tile_id = next(tile["id"] for tile in source["tiles"] if tile["insight"])
+        self.dashboard_api.update_dashboard(
+            source_id,
+            {
+                "tiles": [
+                    {"id": widget_tile_id, "group_key": "plans"},
+                    {"id": text_tile_id, "group_key": "plans"},
+                    {"id": insight_tile_id, "group_key": "plans"},
+                ],
+            },
+        )
+
+        if failure_mode == "duplicate_insight_tile":
+            self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_tile",
+                {"fromDashboardId": source_id, "tileId": insight_tile_id},
+            )
+
+        before = self.dashboard_api.get_dashboard(dest_id)["tiles"]
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if failure_mode == "widget_tile_denied_product_access" and resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=deny_error_tracking_only
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+                {"fromDashboardId": source_id, "groupKey": "plans"},
+            )
+
+        assert response.status_code == expected_status
+        assert self.dashboard_api.get_dashboard(dest_id)["tiles"] == before
+
+    @parameterized.expand(
+        [
+            ("below_limit", MAX_GROUPS - 1, status.HTTP_200_OK),
+            ("at_limit", MAX_GROUPS, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_copy_group_enforces_max_groups_on_destination(
+        self, _name: str, existing_group_count: int, expected_status: int
+    ) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        self.dashboard_api.create_text_tile(source_id, extra_data={"group_key": "plans"})
+        Dashboard.objects.filter(id=dest_id).update(
+            customization={"groups": {f"group-{i}": {"title": f"group {i}"} for i in range(existing_group_count)}}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+            {"fromDashboardId": source_id, "groupKey": "plans"},
+        )
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("keeps_concurrent_group", 1, status.HTTP_200_OK),
+            ("counts_concurrent_groups_against_limit", MAX_GROUPS, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_copy_group_reads_destination_groups_written_after_the_request_loaded_it(
+        self, _name: str, concurrent_group_count: int, expected_status: int
+    ) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        self.dashboard_api.create_text_tile(source_id, extra_data={"group_key": "plans"})
+        concurrent_groups = {f"group-{i}": {"title": f"group {i}"} for i in range(concurrent_group_count)}
+        load_destination = DashboardsViewSet.get_object
+
+        def load_destination_then_write_groups_concurrently(viewset: DashboardsViewSet) -> Dashboard:
+            destination = load_destination(viewset)
+            Dashboard.objects.filter(id=destination.id).update(customization={"groups": concurrent_groups})
+            return destination
+
+        with (
+            patch.object(DashboardsViewSet, "get_object", load_destination_then_write_groups_concurrently),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+                {"fromDashboardId": source_id, "groupKey": "plans"},
+            )
+
+        assert response.status_code == expected_status
+        assert any("FOR NO KEY UPDATE" in query["sql"] for query in queries.captured_queries)
+        stored_group_keys = set(Dashboard.objects.get(id=dest_id).customization["groups"])
+        assert set(concurrent_groups) <= stored_group_keys
+        assert len(stored_group_keys) == concurrent_group_count + (expected_status == status.HTTP_200_OK)
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_move_tile_moves_widget_tile(self) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        _, source_json = self.dashboard_api.create_widget_tile(source_id, config={"limit": 9})
+        tile = source_json["tiles"][0]
+        widget_id = tile["widget"]["id"]
+        self.dashboard_api.update_dashboard(
+            source_id, {"tiles": [{"id": tile["id"], "group_key": "plans", "badge": "winner"}]}
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{source_id}/move_tile",
+            {"to_dashboard": dest_id, "tile": {"id": tile["id"]}},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tiles"] == []
+
+        source_dashboard = self.dashboard_api.get_dashboard(source_id)
+        dest_dashboard = self.dashboard_api.get_dashboard(dest_id)
+        assert len(source_dashboard["tiles"]) == 0
+        assert len(dest_dashboard["tiles"]) == 1
+        assert dest_dashboard["tiles"][0]["widget"]["id"] == widget_id
+        assert dest_dashboard["tiles"][0]["widget"]["config"]["limit"] == 9
+        assert (dest_dashboard["tiles"][0]["group_key"], dest_dashboard["tiles"][0]["badge"]) == (None, "winner")
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_catalog_lists_registered_types(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/widget_catalog/")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        assert any(entry["widget_type"] == "error_tracking_list" for entry in results)
+        error_tracking_list = next(entry for entry in results if entry["widget_type"] == "error_tracking_list")
+        assert error_tracking_list["config_schema"]["properties"]["limit"]["default"] == DEFAULT_WIDGET_LIST_LIMIT
+        assert error_tracking_list["availability_requirements"] == ["exception_autocapture"]
+
+    @parameterized.expand(
+        [
+            ("single_type", "?widget_type=logs_list", {"logs_list"}),
+            ("comma_separated", "?widget_type=logs_list,survey_results", {"logs_list", "survey_results"}),
+            ("repeated_param", "?widget_type=logs_list&widget_type=survey_results", {"logs_list", "survey_results"}),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_catalog_filters_by_widget_type(self, _name: str, query: str, expected: set[str]) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/widget_catalog/{query}")
+        assert response.status_code == status.HTTP_200_OK
+        assert {entry["widget_type"] for entry in response.json()["results"]} == expected
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_catalog_rejects_unknown_widget_type(self) -> None:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/widget_catalog/?widget_type=logs_list,not_a_widget"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not_a_widget" in response.json()["detail"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_add_widget_via_batch_endpoint(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Errors"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        tile = response.json()["tiles"][0]
+        assert tile["widget"]["widget_type"] == "error_tracking_list"
+        assert tile["widget"]["config"]["limit"] == 8
+        assert tile["widget"]["name"] == "Errors"
+        assert tile["layouts"]["sm"]["w"] == 6
+
+    @parameterized.expand([({},), ({"notebookShortId": None, "snapshotId": None},)])
+    @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
+    def test_batch_add_rejects_notebook_widgets_without_saved_results(
+        self, config: dict[str, object], _flag: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "notebook_widget", "config": config}]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Add this widget from a notebook" in str(response.json())
+        assert not DashboardTile.objects.filter(dashboard_id=dashboard_id).exists()
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widgets_batch_endpoint_rejects_legacy_error_tracking_widget_type(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "error_tracking", "config": {"limit": 10}}]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widgets_batch_endpoint_rejects_unknown_widget_type(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "unknown", "config": {}}]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_add_widget_tile_via_patch_fires_tile_added_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile added",
+            {
+                "tile_type": "widget",
+                "insight_type": None,
+                "dashboard_id": dashboard_id,
+                "widget_type": "error_tracking_list",
+            },
+            team=ANY,
+            request=ANY,
+        )
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_added_calls[0][0][2]["dashboard_widget_count"] == 1
+        assert "tile_id" in widget_added_calls[0][0][2]
+        assert "widget_id" in widget_added_calls[0][0][2]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_add_widget_tile_via_batch_endpoint_fires_tile_added_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Errors"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile added",
+            {
+                "tile_type": "widget",
+                "insight_type": None,
+                "dashboard_id": dashboard_id,
+                "widget_type": "error_tracking_list",
+            },
+            team=ANY,
+            request=ANY,
+        )
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_added_calls[0][0][2]["dashboard_widget_count"] == 1
+        assert "tile_id" in widget_added_calls[0][0][2]
+        assert "widget_id" in widget_added_calls[0][0][2]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_add_session_replay_widget_fires_dashboard_widget_added_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "session_replay_list", "config": {"limit": 5}, "name": "Recent replays"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "session_replay_list"
+
+    @parameterized.expand(
+        [
+            ("session_replay_off", "session_replay_list", "session_recording_opt_in", False),
+            ("session_replay_on", "session_replay_list", "session_recording_opt_in", True),
+            ("error_tracking_off", "error_tracking_list", "autocapture_exceptions_opt_in", False),
+            ("error_tracking_on", "error_tracking_list", "autocapture_exceptions_opt_in", True),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_dashboard_widget_added_records_feature_enabled(
+        self, _name: str, widget_type: str, team_field: str, expected: bool, mock_report_user_action
+    ) -> None:
+        setattr(self.team, team_field, expected)
+        self.team.save()
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": widget_type, "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == widget_type
+        assert widget_added_calls[0][0][2]["feature_enabled"] is expected
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_delete_widget_tile_fires_tile_removed_and_widget_removed_events(self, mock_report_user_action) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/delete_tile",
+            {"tile_id": tile_id},
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile removed",
+            {
+                "tile_type": "widget",
+                "insight_type": None,
+                "dashboard_id": dashboard_id,
+                "widget_type": "error_tracking_list",
+            },
+            team=ANY,
+            request=ANY,
+        )
+        widget_removed_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget removed"
+        ]
+        assert len(widget_removed_calls) == 1
+        assert widget_removed_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_removed_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_removed_calls[0][0][2]["tile_id"] == tile_id
+        assert "widget_id" in widget_removed_calls[0][0][2]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_soft_delete_widget_tile_via_dashboard_patch_fires_removed_events(self, mock_report_user_action) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+        mock_report_user_action.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile_id, "deleted": True}]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        removed_events = [call[0][1] for call in mock_report_user_action.call_args_list]
+        assert "dashboard tile removed" in removed_events
+        widget_removed_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget removed"
+        ]
+        assert len(widget_removed_calls) == 1
+        assert widget_removed_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_removed_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_removed_calls[0][0][2]["tile_id"] == tile_id
+
+        # Re-sending the same soft-delete payload must not double-report the removal
+        mock_report_user_action.reset_mock()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile_id, "deleted": True}]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        for call in mock_report_user_action.call_args_list:
+            assert call[0][1] not in ("dashboard tile removed", "dashboard widget removed")
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_update_widget_filters_via_dashboard_patch_fires_filters_updated_event(
+        self, mock_report_user_action
+    ) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["config"] = {
+            "limit": 10,
+            "widgetFilters": {
+                "qf-1": {
+                    "filterId": "qf-1",
+                    "propertyName": "$environment",
+                    "optionId": "opt-1",
+                    "operator": "exact",
+                    "value": "production",
+                }
+            },
+        }
+        mock_report_user_action.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        filters_updated_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget filters updated"
+        ]
+        assert len(filters_updated_calls) == 1
+        assert filters_updated_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert filters_updated_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert filters_updated_calls[0][0][2]["widget_id"] == tile["widget"]["id"]
+        assert filters_updated_calls[0][0][2]["filters_count"] == 1
+
+    @parameterized.expand(
+        [
+            ("experiments_list", {"limit": 10, "status": "all"}, {"limit": 10, "status": "running"}, 1),
+            ("experiments_list", {"limit": 10}, {"limit": 10, "createdBy": 7}, 1),
+            ("experiment_results", {}, {"experimentId": 123}, 1),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_experiments_widget_top_level_filter_change_fires_filters_updated_event(
+        self, widget_type, initial_config, changed_config, expected_count, mock_report_user_action
+    ) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type=widget_type,
+            config=initial_config,
+        )
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["config"] = changed_config
+        mock_report_user_action.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        filters_updated_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget filters updated"
+        ]
+        assert len(filters_updated_calls) == 1
+        assert filters_updated_calls[0][0][2]["widget_type"] == widget_type
+        assert filters_updated_calls[0][0][2]["filters_count"] == expected_count
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_update_widget_config_without_filters_change_does_not_fire_filters_updated_event(
+        self, mock_report_user_action
+    ) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["config"] = {"limit": 15}
+        mock_report_user_action.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        for call in mock_report_user_action.call_args_list:
+            assert call[0][1] != "dashboard widget filters updated"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_can_batch_create_widget_tiles(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "error_tracking_list", "config": {"limit": 5}, "name": "Errors A"},
+                    {"widget_type": "error_tracking_list", "config": {"limit": 3}, "name": "Errors B"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        tiles = response.json()["tiles"]
+        assert len(tiles) == 2
+        assert tiles[0]["widget"]["widget_type"] == "error_tracking_list"
+        assert tiles[1]["widget"]["widget_type"] == "error_tracking_list"
+        # Batch adds stack downward so vertical compaction keeps each tile at the bottom.
+        assert tiles[0]["layouts"]["sm"]["y"] == 0
+        assert tiles[0]["layouts"]["sm"]["x"] == 0
+        assert tiles[1]["layouts"]["sm"]["y"] == 5
+        assert tiles[1]["layouts"]["sm"]["x"] == 0
+
+    @parameterized.expand(
+        [
+            # (persisted_sm_layouts, layoutless_count, expected_y)
+            # Insights added to a dashboard get `layouts = {}` until a layout save; the backend
+            # must still count them so a new widget lands below, not in a mid-page gap.
+            # Layout-less tiles pack two-per-row at 6×5 (y boundaries every 2 tiles).
+            ("one_layoutless", [], 1, 5),
+            ("two_layoutless", [], 2, 5),
+            ("three_layoutless", [], 3, 10),
+            ("five_layoutless", [], 5, 15),
+            # Persisted full-width header (h=2) + one layout-less tile packed below it (y=2,h=5 → 7).
+            ("mixed_persisted_and_layoutless", [{"x": 0, "y": 0, "w": 12, "h": 2}], 1, 7),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_lands_below_tiles_with_no_persisted_layout(
+        self, _name: str, persisted_sm_layouts: list[dict], layoutless_count: int, expected_y: int
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        for sm in persisted_sm_layouts:
+            insight = Insight.objects.create(team=self.team, name="persisted")
+            DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight, layouts={"sm": sm})
+        for _ in range(layoutless_count):
+            insight = Insight.objects.create(team=self.team, name="layoutless")
+            DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight, layouts={})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "error_tracking_list", "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # The widget must land below the tallest column, not in a mid-page gap.
+        sm = response.json()["tiles"][0]["layouts"]["sm"]
+        assert sm["y"] == expected_y
+        assert sm["x"] == 0
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_batch_create_widget_tiles_rejects_empty_list(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": []},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_batch_create_widget_tiles_is_atomic(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "error_tracking_list", "config": {"limit": 5}},
+                    {"widget_type": "unknown_widget", "config": {}},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        assert dashboard.tiles.filter(widget__isnull=False).count() == 0
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_dashboard_widget_count_increments_with_each_add(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        # First widget
+        self.dashboard_api.create_widget_tile(dashboard_id, widget_type="error_tracking_list", config={"limit": 5})
+        first_add = next(
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        )
+        assert first_add[0][2]["dashboard_widget_count"] == 1
+
+        mock_report_user_action.reset_mock()
+
+        # Second widget on the same dashboard
+        self.dashboard_api.create_widget_tile(dashboard_id, widget_type="session_replay_list")
+        second_add = next(
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        )
+        assert second_add[0][2]["dashboard_widget_count"] == 2
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_update_widget_tile_does_not_fire_tile_added_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        mock_report_user_action.reset_mock()
+
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["config"] = {"limit": 15}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        for call in mock_report_user_action.call_args_list:
+            assert call[0][1] != "dashboard tile added"
+            assert call[0][1] != "dashboard widget added"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("posthog.resource_limits.evaluator.report_user_action")
+    def test_widget_tile_creation_does_not_emit_limit_hit_below_threshold(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "error_tracking_list", "config": {"limit": 8}}]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        limit_calls = [call for call in mock_report_user_action.call_args_list if call[0][1] == "resource limit hit"]
+        assert limit_calls == []
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("posthog.resource_limits.evaluator.report_user_action")
+    def test_widget_tile_creation_emits_resource_limit_hit_at_threshold(self, mock_report_user_action) -> None:
+        from posthog.resource_limits import LimitKey
+
+        from products.dashboards.backend.models.dashboard_tile import DashboardTile
+        from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+
+        for index in range(19):
+            widget = DashboardWidget.all_teams.create(
+                team_id=self.team.id,
+                widget_type="error_tracking_list",
+                name=f"Widget {index}",
+                config={"limit": 10},
+                created_by=self.user,
+                last_modified_by=self.user,
+            )
+            DashboardTile.objects.create(
+                dashboard=dashboard,
+                team_id=self.team.id,
+                widget=widget,
+                layouts={"sm": {"x": 0, "y": index, "w": 6, "h": 5}},
+            )
+
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Widget 20"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        limit_calls = [call for call in mock_report_user_action.call_args_list if call[0][1] == "resource limit hit"]
+        assert len(limit_calls) == 1
+        properties = limit_calls[0][0][2]
+        assert properties["limit_key"] == LimitKey.MAX_WIDGETS_PER_DASHBOARD
+        assert properties["limit"] == 20
+        assert properties["current_count"] == 19
+        assert properties["crossing_threshold"] is True
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_shared_dashboard_tile_serializer_omits_widget_payload(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="conversations_recent_tickets",
+            config={"limit": 10, "search": "sensitive ticket text"},
+        )
+        tile = DashboardTile.objects.get(id=dashboard_json["tiles"][0]["id"])
+
+        class ViewShim:
+            action = "retrieve"
+
+        context = {"view": ViewShim(), "order": 0}
+        full_widget = DashboardTileSerializer(tile, context=context).data["widget"]
+        assert full_widget is not None
+        assert full_widget["created_by"] is not None
+
+        shared_context = {**context, "is_shared": True}
+        shared_widget = DashboardTileSerializer(tile, context=shared_context).data["widget"]
+        assert shared_widget is not None
+        assert set(shared_widget.keys()) == {"id", "widget_type", "name", "description", "config"}
+        assert shared_widget["widget_type"] == "conversations_recent_tickets"
+        assert shared_widget["config"]["limit"] == 10
+        assert "search" not in shared_widget["config"]
+
+        assert tile.widget_id is not None
+        DashboardWidget.objects.for_team(self.team.id).filter(id=tile.widget_id).update(
+            widget_type="metrics", config={"query": {"kind": "MetricsQuery", "sql": "select secret"}}
+        )
+        tile.refresh_from_db()
+        retired_widget = DashboardTileSerializer(tile, context=shared_context).data["widget"]
+        assert retired_widget is not None
+        assert retired_widget["widget_type"] == "metrics"
+        assert retired_widget["config"] == {}
+
+
+class TestDashboardWidgetsBatchUpdate(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+    def _batch_update(self, dashboard_id: int, widgets: list[dict[str, Any]], team_id: int | None = None) -> Any:
+        team_id = team_id or self.team.id
+        return self.client.patch(
+            f"/api/projects/{team_id}/dashboards/{dashboard_id}/widgets/batch_update/",
+            {"widgets": widgets},
+        )
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_updates_widget_config_in_place(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, config={"limit": 5, "orderBy": "last_seen"}
+        )
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(
+            dashboard_id,
+            [{"tile_id": tile["id"], "config": {"limit": 15, "orderBy": "occurrences"}}],
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["config"]["limit"] == 15
+        assert updated_tile["widget"]["config"]["orderBy"] == "occurrences"
+        # The widget row is edited in place, not recreated.
+        assert updated_tile["widget"]["id"] == tile["widget"]["id"]
+        assert updated_tile["id"] == tile["id"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_updates_widget_name_and_description(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(
+            dashboard_id,
+            [{"tile_id": tile["id"], "name": "My top errors", "description": "Worst issues this week"}],
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["name"] == "My top errors"
+        assert updated_tile["widget"]["description"] == "Worst issues this week"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_partial_update_preserves_other_settings(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, config={"limit": 5, "orderBy": "last_seen"}
+        )
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "name": "Renamed"}])
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["name"] == "Renamed"
+        assert updated_tile["widget"]["config"]["limit"] == 5
+        assert updated_tile["widget"]["config"]["orderBy"] == "last_seen"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_config_patch_preserves_fields_unknown_to_stale_clients(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="activity_events_list",
+            config={
+                "limit": 5,
+                "properties": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+            },
+        )
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 10}}])
+
+        assert response.status_code == status.HTTP_200_OK
+        updated_config = response.json()["tiles"][0]["widget"]["config"]
+        assert updated_config["limit"] == 10
+        assert updated_config["properties"] == [
+            {"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}
+        ]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_sets_session_replay_saved_filter_id(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, widget_type="session_replay_list", config={"limit": 5}
+        )
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(
+            dashboard_id,
+            [{"tile_id": tile["id"], "config": {"limit": 5, "savedFilterId": "abc123"}}],
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["config"]["savedFilterId"] == "abc123"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_updates_multiple_widgets_atomically(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tiles = self.dashboard_api.get_dashboard(dashboard_id)["tiles"]
+        assert len(tiles) == 2
+
+        response = self._batch_update(
+            dashboard_id,
+            [
+                {"tile_id": tiles[0]["id"], "config": {"limit": 11}},
+                {"tile_id": tiles[1]["id"], "config": {"limit": 22}},
+            ],
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        limits = sorted(t["widget"]["config"]["limit"] for t in response.json()["tiles"])
+        assert limits == [11, 22]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_batch_update_is_atomic(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tiles = self.dashboard_api.get_dashboard(dashboard_id)["tiles"]
+
+        # Second entry has an out-of-range limit; the whole batch must roll back.
+        response = self._batch_update(
+            dashboard_id,
+            [
+                {"tile_id": tiles[0]["id"], "config": {"limit": 15}},
+                {"tile_id": tiles[1]["id"], "config": {"limit": 999}},
+            ],
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        after = self.dashboard_api.get_dashboard(dashboard_id)["tiles"]
+        assert all(t["widget"]["config"]["limit"] == 5 for t in after)
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_cannot_change_widget_type(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(
+            dashboard_id,
+            [{"tile_id": tile["id"], "widget_type": "session_replay_list", "config": {"limit": 10}}],
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "widget_type cannot be changed" in response.json()["detail"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_rejects_non_widget_tile(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        insight = Insight.objects.create(team=self.team, name="an insight")
+        insight_tile = DashboardTile.objects.create(
+            dashboard=dashboard, team_id=self.team.id, insight=insight, layouts={}
+        )
+
+        response = self._batch_update(dashboard_id, [{"tile_id": insight_tile.id, "config": {"limit": 5}}])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not a widget tile" in response.json()["detail"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_rejects_unknown_tile_id(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self._batch_update(dashboard_id, [{"tile_id": 99999999, "config": {"limit": 5}}])
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_cannot_update_tile_from_another_dashboard(self) -> None:
+        dashboard_a, _ = self.dashboard_api.create_dashboard({"name": "a"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_a, config={"limit": 5})
+        foreign_tile_id = dashboard_json["tiles"][0]["id"]
+        dashboard_b, _ = self.dashboard_api.create_dashboard({"name": "b"})
+
+        response = self._batch_update(dashboard_b, [{"tile_id": foreign_tile_id, "config": {"limit": 9}}])
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_rejects_empty_list(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self._batch_update(dashboard_id, [])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_does_not_touch_tile_placement(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        layout = {"sm": {"x": 0, "y": 3, "w": 6, "h": 4}}
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile["id"], "layouts": layout}]},
+        )
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 12}}])
+        assert response.status_code == status.HTTP_200_OK
+
+        after = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]
+        assert after["widget"]["config"]["limit"] == 12
+        assert after["layouts"] == layout
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_update_does_not_fire_tile_added_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        mock_report_user_action.reset_mock()
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 15}}])
+        assert response.status_code == status.HTTP_200_OK
+
+        for call in mock_report_user_action.call_args_list:
+            assert call[0][1] != "dashboard tile added"
+            assert call[0][1] != "dashboard widget added"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
+    def test_update_fires_widget_updated_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        mock_report_user_action.reset_mock()
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "name": "Renamed"}])
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_events = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget updated"
+        ]
+        assert len(updated_events) == 1
+        properties = updated_events[0][0][2]
+        assert properties["tile_id"] == tile["id"]
+        assert properties["fields_changed"] == ["name"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_denies_without_edit_permission(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard.id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        create_access_control(
+            team_id=self.team.id,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="viewer",
+            organization_member_id=self.organization_membership.id,
+        )
+        cache.clear()
+
+        response = self._batch_update(dashboard.id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_rejects_update_on_deleted_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        Dashboard.objects.filter(id=dashboard_id).update(deleted=True)
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_denies_without_product_access(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile = dashboard_json["tiles"][0]
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl,
+            "check_access_level_for_resource",
+            autospec=True,
+            side_effect=deny_error_tracking_only,
+        ):
+            response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 12}}])
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You do not have access to error tracking."
+
+
+class TestDashboardWidgetOpenApiSchema(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+    @parameterized.expand([("AddDashboardWidgetRequest",), ("UpdateDashboardWidgetRequest",)])
+    def test_batch_widget_openapi_schema_lists_every_type_and_leaves_config_untyped(self, component_name: str) -> None:
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        components = schema["components"]["schemas"]
+        properties = components[component_name]["properties"]
+        widget_type = properties["widget_type"]
+        widget_type_ref = widget_type.get("$ref") or widget_type["allOf"][0]["$ref"]
+        widget_type_enum = components[widget_type_ref.split("/")[-1]]["enum"]
+
+        assert set(widget_type_enum) == set(EXPECTED_WIDGET_TYPES)
+        assert properties["config"]["type"] == "object"
+        assert not {"oneOf", "anyOf", "allOf", "$ref", "properties"} & set(properties["config"])
+
+    def test_batch_add_rejects_unknown_widget_type(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "not_a_real_widget", "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
