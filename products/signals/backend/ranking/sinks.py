@@ -1,11 +1,13 @@
-"""Where a scoring pass writes: one `ranking_score` artefact per report, and one event per model.
+"""Where a scoring pass writes: one `ranking_score` artefact per report, one event per model, and one
+facts event per report.
 
 `ranking_score` is in `NON_WRITABLE_ARTEFACT_TYPES`, so this system path is its only writer. The
 events go to PostHog's own project, where the inbox label streams join them on `report_id` like
 every other ranking event.
 """
 
-from collections.abc import Sequence
+import dataclasses
+from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 
 from django.conf import settings
@@ -18,8 +20,10 @@ from products.signals.backend.models import SignalActorKind, SignalReport, Signa
 from products.signals.backend.ranking.cache import RANKING_CACHE_FIELDS, apply_ranking_cache, latest_edit_ats
 from products.signals.backend.ranking.model_contract import classification_thresholds, head_lifts, readable_head_names
 from products.signals.backend.ranking.overrides import RankingOverrides
+from products.signals.backend.ranking.report_facts import FACTS_SCHEMA_VERSION, ReportFacts
 
 REPORT_SCORED_EVENT = "inbox_ranking_report_scored"
+REPORT_FACTS_EVENT = "inbox_ranking_report_facts_recorded"
 DISTINCT_ID = "inbox_ranking_scoring"
 
 
@@ -29,8 +33,12 @@ def persist_scores(
     *,
     capture: ScopedCapture | None = None,
     served_override: RankingOverrides | None = None,
+    facts: Mapping[str, ReportFacts] | None = None,
 ) -> int:
     """Write one artefact per `(report_id, score)` of the team, then capture its events.
+
+    Every model of a pass sees the same report, so a report gets one facts event, not one per model. A
+    report without an entry in `facts` gets none.
 
     A report id that is not one of the team's reports is dropped. Returns the rows written. Without
     `capture`, the call opens its own scope, which blocks on a flush when it closes. A caller that
@@ -89,6 +97,25 @@ def persist_scores(
                         "override_expires_at": override_expires_at,
                         **{f"p_{head}": probability for head, probability in result.scores.items()},
                         **classification_properties(result),
+                    },
+                )
+            report_facts = (facts or {}).get(report_id)
+            if report_facts is not None:
+                active_capture(
+                    distinct_id=DISTINCT_ID,
+                    event=REPORT_FACTS_EVENT,
+                    properties={
+                        "$process_person_profile": False,
+                        "environment": settings.CLOUD_DEPLOYMENT,
+                        "team_id": team_id,
+                        "report_id": report_id,
+                        "scored_at": score.scored_at.isoformat(),
+                        "embedding_inserted_at": score.embedding_inserted_at.isoformat()
+                        if score.embedding_inserted_at
+                        else None,
+                        "manifest_version": score.manifest_version,
+                        "facts_schema_version": FACTS_SCHEMA_VERSION,
+                        **dataclasses.asdict(report_facts),
                     },
                 )
     return len(kept)
