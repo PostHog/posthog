@@ -451,6 +451,7 @@ interface ReleaseFacts {
     flags: FeatureFlagApi[]
     unloadedFlagIds: number[]
     missingFlagIds: number[]
+    hasHiddenFlags: boolean
     complete: boolean
     experiments: ExperimentBasicApi[]
     earlyAccess: EarlyAccessFeatureApi[]
@@ -519,6 +520,7 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         flags,
         unloadedFlagIds,
         missingFlagIds,
+        hasHiddenFlags: release.has_hidden_flags,
         complete,
         experiments,
         earlyAccess,
@@ -564,7 +566,7 @@ function releaseStage(facts: ReleaseFacts): ReleaseStage {
     if (openEarlyAccess) {
         return 'early_access'
     }
-    return flags.length ? 'flag' : 'planned'
+    return flags.length || facts.hasHiddenFlags ? 'flag' : 'planned'
 }
 
 function lastDoneCopy(lastDone: ExperimentBasicApi): { headline: string; detail: string } {
@@ -631,6 +633,13 @@ function releaseCopy(facts: ReleaseFacts): { status: string; headline: string; d
             status: 'Behind a flag',
             headline: 'Behind a flag',
             detail: audienceSummary ? `${audienceSummary}.` : '',
+        }
+    }
+    if (facts.hasHiddenFlags) {
+        return {
+            status: 'Flags hidden from you',
+            headline: 'Behind flags you cannot see',
+            detail: 'You do not have access to the flags of this release.',
         }
     }
     return {
@@ -733,7 +742,7 @@ function rolloutNextStep(facts: ReleaseFacts): ReleaseNextStep | null {
 }
 
 function releaseNextStep(facts: ReleaseFacts): ReleaseNextStep | null {
-    if (!facts.flags.length) {
+    if (!facts.flags.length && !facts.hasHiddenFlags) {
         return {
             title: 'Link a feature flag',
             detail: 'Pick the flag your code checks for this change, or create one.',
@@ -939,7 +948,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         stage,
         audience: releaseAudience(facts),
         nextStep,
-        needsDecision: !facts.flags.length || !!nextStep?.urgent,
+        needsDecision: (!facts.flags.length && !facts.hasHiddenFlags) || !!nextStep?.urgent,
         runningDays: facts.runningDays,
         nextDate:
             events

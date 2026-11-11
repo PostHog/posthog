@@ -14,13 +14,13 @@ const FLAG = {
     experiment_set: [],
 } as unknown as FeatureFlagApi
 
-function row(hasHiddenFlags: boolean): ReturnType<typeof buildReleaseRow> {
+function row(hasHiddenFlags: boolean, flags: FeatureFlagApi[] = [FLAG]): ReturnType<typeof buildReleaseRow> {
     const release = {
         id: 'release-1',
         name: 'Quiet theme',
         description: '',
         owner: null,
-        feature_flag_ids: [FLAG.id],
+        feature_flag_ids: flags.map((flag) => flag.id),
         has_hidden_flags: hasHiddenFlags,
         created_at: '2026-10-02T00:00:00Z',
     } as ReleaseDTOApi
@@ -34,12 +34,15 @@ function row(hasHiddenFlags: boolean): ReturnType<typeof buildReleaseRow> {
 
 describe('buildReleaseRow', () => {
     it.each([
-        ['every linked flag is visible', false, 'released', 'Clean up the flag'],
-        ['a linked flag is hidden from the caller', true, 'flag', undefined],
-    ])('when %s', (_name, hasHiddenFlags, stage, nextStep) => {
-        const result = row(hasHiddenFlags)
+        ['every linked flag is visible', false, [FLAG], 'released', 'Clean up the flag', false],
+        ['a linked flag is hidden from the caller', true, [FLAG], 'flag', undefined, false],
+        ['every linked flag is hidden from the caller', true, [], 'flag', undefined, false],
+        ['no flag is linked', false, [], 'planned', 'Link a feature flag', true],
+    ])('when %s', (_name, hasHiddenFlags, flags, stage, nextStep, needsDecision) => {
+        const result = row(hasHiddenFlags, flags)
 
         expect(result.stage).toBe(stage)
         expect(result.nextStep?.title).toBe(nextStep)
+        expect(result.needsDecision).toBe(needsDecision)
     })
 })
