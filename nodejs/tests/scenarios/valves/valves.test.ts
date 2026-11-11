@@ -11,7 +11,21 @@ const OUR_TEAM = 7
 
 type Job = { team: number; queue: Queue; status: 'available' | 'running' }
 
-function stackOf({ running = [EMAIL_WORKER], unkillable = false }: { running?: Role[]; unkillable?: boolean } = {}) {
+type StackSetup = {
+    running?: Role[]
+    unkillable?: boolean
+    finishesJobsBeforeKill?: boolean
+    probeFailure?: string
+    runningJobs?: number
+}
+
+function stackOf({
+    running = [EMAIL_WORKER],
+    unkillable = false,
+    finishesJobsBeforeKill = false,
+    probeFailure,
+    runningJobs = 0,
+}: StackSetup = {}) {
     let nextPid = 1
     const processes = new Map<Role, number>(running.map((role) => [role, nextPid++]))
     const gone: number[] = []
@@ -27,7 +41,13 @@ function stackOf({ running = [EMAIL_WORKER], unkillable = false }: { running?: R
             actuate: (action): Promise<Actuation> => {
                 const pid = processes.get(action.role)
                 if (pid === undefined) {
-                    return Promise.reject(new Error(`${action.role} is not running`))
+                    return Promise.resolve({
+                        observed: () => Promise.reject(new Error(`${action.role} is not running`)),
+                        release: () => Promise.resolve(),
+                    })
+                }
+                if (finishesJobsBeforeKill) {
+                    jobs.splice(0)
                 }
                 if (!unkillable) {
                     gone.push(pid)
@@ -46,12 +66,20 @@ function stackOf({ running = [EMAIL_WORKER], unkillable = false }: { running?: R
             runningJobs: async ({ teams, queues }) => {
                 readers.splice(0).forEach((read) => read())
                 await gate
+                if (probeFailure !== undefined) {
+                    throw new Error(probeFailure)
+                }
                 return jobs.filter(
                     (job) => teams.includes(job.team) && queues.includes(job.queue) && job.status === 'running'
                 ).length
             },
         },
     }
+
+    const run = (count: number, queue: Queue = 'email'): void => {
+        jobs.push(...Array.from({ length: count }, () => ({ team: OUR_TEAM, queue, status: 'running' as const })))
+    }
+    run(runningJobs)
 
     return {
         context,
@@ -61,8 +89,7 @@ function stackOf({ running = [EMAIL_WORKER], unkillable = false }: { running?: R
             releaseBegan = true
             return release()
         },
-        run: (count: number, queue: Queue = 'email') =>
-            jobs.push(...Array.from({ length: count }, () => ({ team: OUR_TEAM, queue, status: 'running' as const }))),
+        run,
         nextRead: () => new Promise<void>((resolve) => readers.push(resolve)),
         holdReads: () => {
             let open = (): void => undefined
@@ -125,23 +152,32 @@ describe('valves', () => {
 
     const NEVER_HELD = 'never applied: running_on_queue email at least 2 did not hold before the drive ended'
 
-    it.each<[string, ValveEntry, boolean, string]>([
-        ['a waiting entry whose predicate never held', kill({ when: RUNNING_ON_EMAIL }), false, NEVER_HELD],
+    it.each<[string, ValveEntry, StackSetup, boolean, string]>([
+        ['a waiting entry whose predicate never held', kill({ when: RUNNING_ON_EMAIL }), {}, false, NEVER_HELD],
         [
             'a waiting entry whose predicate held only once the release had begun',
             kill({ when: RUNNING_ON_EMAIL }),
+            {},
             true,
             NEVER_HELD,
         ],
         [
+            'a waiting entry whose probe failed',
+            kill({ when: RUNNING_ON_EMAIL }),
+            { probeFailure: 'connection refused' },
+            false,
+            `${NEVER_HELD}; the probe last failed: connection refused`,
+        ],
+        [
             'an entry whose offset the drive did not reach',
             kill({ at: '1m' }),
+            {},
             false,
             'never applied: released before its offset',
         ],
-    ])('never kills for %s', async (_story, entry, heldAcrossRelease, error) => {
+    ])('never kills for %s', async (_story, entry, stackSetup, heldAcrossRelease, error) => {
         const valves = createValves({ pollMs: 5 })
-        const stack = stackOf()
+        const stack = stackOf(stackSetup)
 
         await valves.start([entry], stack.context)
         const open = heldAcrossRelease ? stack.holdReads() : () => undefined
@@ -179,18 +215,26 @@ describe('valves', () => {
         }
     )
 
-    it.each<[string, Parameters<typeof stackOf>[0], string]>([
-        ['whose kill did not take', { unkillable: true }, 'applied but not observed'],
-        ['whose role was not running', { running: [] }, `${EMAIL_WORKER} is not running`],
-    ])('records an error for an entry %s', async (_story, stackSetup, error) => {
+    it.each<[string, ValveEntry, StackSetup, string]>([
+        ['whose kill did not take', kill({ at: '0ms' }), { unkillable: true }, 'applied but not observed'],
+        ['whose role was not running', kill({ at: '0ms' }), { running: [] }, `${EMAIL_WORKER} is not running`],
+        [
+            'whose kill stranded no job, because the worker finished them first',
+            kill({ when: RUNNING_ON_EMAIL }),
+            { runningJobs: 2, finishesJobsBeforeKill: true },
+            'applied after running_on_queue email at least 2 stopped holding',
+        ],
+    ])('records an error for an entry %s, and releases it', async (_story, entry, stackSetup, error) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf(stackSetup)
 
-        await valves.start([kill({ at: '0ms' })], stack.context)
+        await valves.start([entry], stack.context)
         await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
         await valves.releaseAll()
 
-        expect(valves.timeline()).toEqual([expect.objectContaining({ error, appliedAt: expect.any(String) })])
+        expect(valves.timeline()).toEqual([
+            expect.objectContaining({ error, appliedAt: expect.any(String), releasedAt: expect.any(String) }),
+        ])
         expect(valves.timeline()[0].observedAt).toBeUndefined()
     })
 

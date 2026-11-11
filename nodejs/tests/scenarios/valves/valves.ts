@@ -5,7 +5,7 @@ import type { Definition } from '../cards/definitions'
 import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
-import type { CyclotronProbe } from '../probe/cyclotron-probe'
+import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
 
 export type ValveContext = {
     environment: Pick<Environment, 'actuate'>
@@ -47,45 +47,58 @@ const POLL_MS = 1000
 
 const now = (): string => new Date().toISOString()
 
-export function createValves({ pollMs = POLL_MS, definitions = VALVES } = {}): Valves {
+export function createValves({ pollMs = POLL_MS } = {}): Valves {
     const entries: ValveTimelineEntry[] = []
     const running: Promise<void>[] = []
     const released = new AbortController()
     let releasing: Promise<void> | undefined
 
-    const scheduled = async (entry: ValveEntry, context: ValveContext): Promise<boolean> => {
-        if (entry.at !== undefined) {
-            await sleep(durationMs(entry.at), undefined, { signal: released.signal }).catch(() => undefined)
-            return true
-        }
-        const { queue, atLeast } = entry.when!.params
-        while (!released.signal.aborted) {
-            const jobs = await context.probe.runningJobs({ teams: context.teams, queues: [queue] }).catch(() => 0)
-            if (jobs >= atLeast) {
+    const run = async (entry: ValveEntry, context: ValveContext, record: ValveTimelineEntry): Promise<void> => {
+        let probeFailure: string | undefined
+        const runningJobs = (queue: Queue): Promise<number> =>
+            context.probe.runningJobs({ teams: context.teams, queues: [queue] }).catch((error: unknown) => {
+                probeFailure = (error as Error).message
+                return 0
+            })
+        const withProbeFailure = (error: string): string =>
+            probeFailure === undefined ? error : `${error}; the probe last failed: ${probeFailure}`
+
+        const due = async (): Promise<boolean> => {
+            if (entry.at !== undefined) {
+                await sleep(durationMs(entry.at), undefined, { signal: released.signal }).catch(() => undefined)
                 return true
             }
-            await sleep(pollMs, undefined, { signal: released.signal }).catch(() => undefined)
+            const { queue, atLeast } = entry.when!.params
+            while (!released.signal.aborted) {
+                if ((await runningJobs(queue)) >= atLeast) {
+                    return true
+                }
+                await sleep(pollMs, undefined, { signal: released.signal }).catch(() => undefined)
+            }
+            return false
         }
-        return false
-    }
 
-    const run = async (entry: ValveEntry, context: ValveContext, record: ValveTimelineEntry): Promise<void> => {
-        if (!(await scheduled(entry, context)) || released.signal.aborted) {
-            const { queue, atLeast } = entry.when?.params ?? {}
+        if (!(await due()) || released.signal.aborted) {
             record.error = entry.when
-                ? `never applied: running_on_queue ${queue} at least ${atLeast} did not hold before the drive ended`
+                ? withProbeFailure(
+                      `never applied: running_on_queue ${entry.when.params.queue} at least ${entry.when.params.atLeast} did not hold before the drive ended`
+                  )
                 : 'never applied: released before its offset'
             return
         }
-        const definition = definitions.find(({ name }) => name === entry.valve)!
+        const definition = VALVES.find(({ name }) => name === entry.valve)!
         let actuation: Actuation | undefined
         try {
             record.appliedAt = now()
             actuation = await definition.apply(context, entry.target, entry.dose)
-            if (await actuation.observed()) {
-                record.observedAt = now()
-            } else {
+            if (!(await actuation.observed())) {
                 record.error = 'applied but not observed'
+            } else if (entry.when && (await runningJobs(entry.when.params.queue)) < entry.when.params.atLeast) {
+                record.error = withProbeFailure(
+                    `applied after running_on_queue ${entry.when.params.queue} at least ${entry.when.params.atLeast} stopped holding`
+                )
+            } else {
+                record.observedAt = now()
             }
             await sleep(durationMs(entry.for), undefined, { signal: released.signal }).catch(() => undefined)
         } catch (error) {

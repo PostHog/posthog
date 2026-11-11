@@ -81,6 +81,12 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
         ],
         [
+            'a role exited while a valve on another role was applied',
+            { timeline: [killed(EMAIL_WORKER, 10, 30)], exits: [exited(HOGFLOW_WORKER, 20)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
+        ],
+        [
             'a valve was never observed',
             {
                 timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }],
