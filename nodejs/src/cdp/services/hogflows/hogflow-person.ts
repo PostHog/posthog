@@ -2,7 +2,6 @@ import { HogFlow, isRowScopedTrigger } from '~/cdp/schema/hogflow'
 import { hasPushActions } from '~/cdp/services/hogflows/hogflow-utils'
 import type { PersonsManagerService } from '~/cdp/services/managers/persons-manager.service'
 import { CyclotronJobInvocationHogFlow, CyclotronPerson } from '~/cdp/types'
-import { DEVICE_SUBSCRIPTION_PREFIX } from '~/cdp/utils/push-subscription-utils'
 
 export type HogFlowPersonLookup = {
     id: string
@@ -58,21 +57,12 @@ export function hogFlowPersonLookup(hogFlow: HogFlow, state: HogFlowState): HogF
 
 // A transactional email's caller holds only a send key, which grants no access to person data, so its
 // template never sees person properties, or the display name derived from them. The person stays attached
-// so the send is recorded against them. A push step reads the person's encrypted device tokens to know where
-// to send, and only that person's own devices get the push, so those properties stay.
+// so the send is recorded against them.
 function personForFlow(hogFlow: HogFlow, person: CyclotronPerson | null): CyclotronPerson | undefined {
     if (!person) {
         return undefined
     }
-    if (hogFlow.trigger?.type !== 'api') {
-        return person
-    }
-    const properties = hasPushActions(hogFlow.actions)
-        ? Object.fromEntries(
-              Object.entries(person.properties ?? {}).filter(([key]) => key.startsWith(DEVICE_SUBSCRIPTION_PREFIX))
-          )
-        : {}
-    return { ...person, properties, name: '' }
+    return hogFlow.trigger?.type === 'api' ? { ...person, properties: {}, name: '' } : person
 }
 
 export async function loadHogFlowPerson(

@@ -125,13 +125,6 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 properties: { name: 'Person A 1' },
             },
             {
-                id: '9',
-                uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e9',
-                teamId: team.id,
-                distinctId: 'push_person',
-                properties: { name: 'Push Person', '$device_push_subscription_com.example.app:abc': 'encrypted-token' },
-            },
-            {
                 id: '2',
                 uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e2',
                 teamId: team.id,
@@ -402,15 +395,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(personManagerSpy).not.toHaveBeenCalled()
         })
 
-        it.each([
-            ['a transactional email without their properties', 'distinct_A_1', false, {}],
-            [
-                'a transactional push with only their device tokens',
-                'push_person',
-                true,
-                { '$device_push_subscription_com.example.app:abc': 'encrypted-token' },
-            ],
-        ])('attaches the person to %s', async (_name, distinctId, sendsPush, expectedProperties) => {
+        it('attaches the person to a transactional email without their properties', async () => {
             const transactional = await insertHogFlow(
                 hub.postgres,
                 new FixtureHogFlowBuilder()
@@ -419,27 +404,14 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     .withWorkflow({
                         actions: {
                             trigger: { type: 'trigger', config: { type: 'api' } },
-                            ...(sendsPush
-                                ? {
-                                      push: {
-                                          type: 'function_push',
-                                          config: { template_id: 'template-native-push', inputs: {} },
-                                      },
-                                  }
-                                : {}),
                             exit: { type: 'exit', config: {} },
                         },
-                        edges: sendsPush
-                            ? [
-                                  { from: 'trigger', to: 'push', type: 'continue' },
-                                  { from: 'push', to: 'exit', type: 'continue' },
-                              ]
-                            : [{ from: 'trigger', to: 'exit', type: 'continue' }],
-                    } as any)
+                        edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                    })
                     .build()
             )
             const invocation = createSerializedHogFlowInvocation(transactional, {
-                event: { distinct_id: distinctId, properties: {} } as any,
+                event: { distinct_id: 'distinct_A_1', properties: { to: 'a@example.com' } } as any,
             })
 
             const results = (await processor.processInvocations([
@@ -447,10 +419,13 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
 
             // The send is still recorded against the person, but the template can't read what they hold.
-            expect(results[0].invocation.person).toMatchObject({ properties: expectedProperties, name: '' })
-            expect(Object.keys(results[0].invocation.person!.properties)).toEqual(Object.keys(expectedProperties))
+            expect(results[0].invocation.person).toMatchObject({
+                id: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                properties: {},
+                name: '',
+            })
             const refreshed = await results[0].invocation.refreshPerson!()
-            expect(refreshed.person).toMatchObject({ properties: expectedProperties, name: '' })
+            expect(refreshed.person).toMatchObject({ properties: {}, name: '' })
         })
 
         it('should make minimal calls to the person manager', async () => {
