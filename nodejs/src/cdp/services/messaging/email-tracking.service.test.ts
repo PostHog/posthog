@@ -929,12 +929,15 @@ describe('EmailTrackingService', () => {
                         })
                         .build()
                 )
-                const trackingService = consumer['emailTrackingService'] as any
-                jest.spyOn(
-                    trackingService.teamWorkflowsConfigService,
-                    'shouldCaptureEngagementEvents'
-                ).mockResolvedValue(true)
-                const queueEvent = jest.spyOn(trackingService.capturedEventsService, 'queueEvent')
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, true, 'off', '', '', 0)`,
+                    [team.id],
+                    'test-set-engagement-capture'
+                )
 
                 await recordBounce({
                     functionId: hogFlow.id,
@@ -943,12 +946,14 @@ describe('EmailTrackingService', () => {
                     transactionalMessageId: transactional ? new UUIDT().toString() : undefined,
                 })
 
-                const bounced = queueEvent.mock.calls
-                    .map(([event]) => event as { event: string; properties: Record<string, unknown> })
+                const bounced = mockInternalFetch.mock.calls
+                    .map(([, options]) => parseJSON(String(options?.body)))
                     .find(({ event }) => event === '$workflows_email_bounced')
                 expect(
                     Object.fromEntries(
-                        Object.entries(bounced!.properties).filter(([key]) => key.startsWith('$email_template_'))
+                        Object.entries(bounced.properties as Record<string, unknown>).filter(([key]) =>
+                            key.startsWith('$email_template_')
+                        )
                     )
                 ).toStrictEqual(identity)
             })
