@@ -4,6 +4,7 @@ They run the same flows as the in-product API, without the organization's featur
 before the organization has the in-product UI.
 """
 
+import dataclasses
 from uuid import UUID
 
 import structlog
@@ -11,7 +12,12 @@ import posthoganalytics
 
 from posthog.models import Organization, Team
 
-from products.managed_warehouse.backend.facade.contracts import DuckgresServerSummary, StaffActionOutcome
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresServerSummary,
+    ProvisionedWarehouseLogin,
+    StaffActionOutcome,
+    StaffProvisionPreview,
+)
 from products.managed_warehouse.backend.logic.access import is_internal_warehouse
 from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseSourceLifecycle
 
@@ -120,3 +126,47 @@ class StaffActions:
             organization_id, require_enabled=False, triggered_by=self.audit_principal
         )
         return self.outcome("deprovision", response, f"Deprovisioned managed warehouse for org {organization_id}")
+
+    @classmethod
+    def preview_provision(cls, organization_id: UUID, team_id: int, database_name: str) -> StaffProvisionPreview:
+        from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
+
+        host = managed_warehouse._present_connection({"database": database_name})["host"]
+        team = cls.resolve_team(str(organization_id), str(team_id))
+        if isinstance(team, str):
+            return StaffProvisionPreview(team_name="", host=host, problem=team)
+        return StaffProvisionPreview(team_name=team.name, host=host)
+
+    def provision(
+        self, organization_id: UUID, team_id: int, database_name: str, schema_name: str, *, internal_only: bool
+    ) -> StaffActionOutcome:
+        from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
+
+        self.track("provision", None)
+        team = self.resolve_team(str(organization_id), str(team_id))
+        if isinstance(team, str):
+            return StaffActionOutcome(ok=False, status_code=400, message=team)
+        response = managed_warehouse.provision(
+            team.organization_id,
+            database_name,
+            team.id,
+            schema_name,
+            require_enabled=False,
+            triggered_by=self.audit_principal,
+            internal_only=internal_only,
+        )
+        outcome = self.outcome("provision", response, f"Provisioned managed warehouse for org {team.organization_id}")
+        if not outcome.ok:
+            return outcome
+        body = response.data if isinstance(response.data, dict) else {}
+        connection = managed_warehouse._present_connection(
+            {"database": database_name, "username": body.get("username", "root")}
+        )
+        login = ProvisionedWarehouseLogin(
+            host=connection["host"],
+            port=connection["port"],
+            database=connection["database"],
+            username=connection["username"],
+            password=body.get("password", ""),
+        )
+        return dataclasses.replace(outcome, login=login)

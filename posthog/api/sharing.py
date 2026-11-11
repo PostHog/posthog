@@ -73,8 +73,8 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
-from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.presentation.views.dashboard import DashboardSerializer
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
 from products.exports.backend.facade.api import export_limit_context, query_with_reference_lines
 from products.exports.backend.models.exported_asset import (
@@ -1292,7 +1292,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if not heatmap_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_url")
 
-            ok, err = is_heatmap_url_allowed(heatmap_url, resource.export_context.get("heatmap_type"))
+            ok, err = is_heatmap_url_allowed(heatmap_url, resource.export_context.get("heatmap_type"), resource.team)
             if not ok:
                 raise ValidationError(f"heatmap_url not allowed: {err}")
 

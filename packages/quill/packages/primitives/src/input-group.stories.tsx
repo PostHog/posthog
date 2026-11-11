@@ -49,6 +49,24 @@ export const Default: Story = {
     ),
 } satisfies Story
 
+export const RichPlaceholder: Story = {
+    render: () => (
+        <InputGroup className="max-w-sm">
+            <InputGroupAddon>
+                <SearchIcon />
+            </InputGroupAddon>
+            <InputGroupInput
+                aria-label="Search"
+                placeholder={
+                    <>
+                        Search… try&nbsp;<span className="font-medium text-foreground">is:dashboard</span>
+                    </>
+                }
+            />
+        </InputGroup>
+    ),
+} satisfies Story
+
 export const InlineStart: Story = {
     render: () => (
         <Field className="max-w-sm">
