@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
 
+import structlog
 from anthropic import Anthropic
 from anthropic.types import TextBlockParam
 from pydantic import BaseModel, Field, ValidationError
@@ -12,6 +13,10 @@ from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_
 from ..backend.facade.contracts import CriterionResult
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
 from .gather import MergeEvidence
+
+logger = structlog.get_logger(__name__)
+
+JudgeDeclineCause = Literal["validation_error", "refusal", "no_parsed_output"]
 
 JudgedChangeKind = Literal[DocsChangeKind.UPDATE, DocsChangeKind.CREATE, DocsChangeKind.REMOVE]
 JUDGE_MODEL = "claude-sonnet-5-5"
@@ -152,9 +157,11 @@ def judge_merge(
             output_format=JudgeVerdict,
         )
     except ValidationError:
-        return declined_verdict()
-    if response.stop_reason == "refusal" or response.parsed_output is None:
-        return declined_verdict()
+        return declined_verdict("validation_error")
+    if response.stop_reason == "refusal":
+        return declined_verdict("refusal")
+    if response.parsed_output is None:
+        return declined_verdict("no_parsed_output")
     return response.parsed_output
 
 
@@ -169,7 +176,8 @@ def system_with_cached_page_list(instructions: str, docs_page_paths: list[str]) 
     ]
 
 
-def declined_verdict() -> JudgeVerdict:
+def declined_verdict(cause: JudgeDeclineCause) -> JudgeVerdict:
+    logger.warning("knowledge_writer_judge_declined", cause=cause)
     return JudgeVerdict(needs_docs=False, change_kind=None, page_urls=[], reason="judge_declined")
 
 
