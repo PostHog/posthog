@@ -239,12 +239,20 @@ def _create_worker(activity_environment: WorkflowEnvironment, activity_executor:
     )
 
 
-@pytest_asyncio.fixture(scope="module", loop_scope="module")
+_shared_workflow_environment: WorkflowEnvironment | None = None
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module", autouse=True)
 async def warehouse_workflow_environment() -> AsyncIterator[WorkflowEnvironment]:
+    global _shared_workflow_environment
     with ThreadPoolExecutor(max_workers=50) as activity_executor:
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with _create_worker(activity_environment, activity_executor):
-                yield activity_environment
+                _shared_workflow_environment = activity_environment
+                try:
+                    yield activity_environment
+                finally:
+                    _shared_workflow_environment = None
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -579,13 +587,9 @@ async def _execute_run(
             )
         )
 
-        if activity_environment is not None:
-            await _execute_workflow(activity_environment, workflow_id, inputs)
-        else:
-            with ThreadPoolExecutor(max_workers=50) as activity_executor:
-                async with await WorkflowEnvironment.start_time_skipping() as isolated_environment:
-                    async with _create_worker(isolated_environment, activity_executor):
-                        await _execute_workflow(isolated_environment, workflow_id, inputs)
+        environment = activity_environment or _shared_workflow_environment
+        assert environment is not None
+        await _execute_workflow(environment, workflow_id, inputs)
 
 
 _STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
