@@ -10,6 +10,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { settleAllThenThrowFirst } from '../../utils/settle-all'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { JobQueue } from './job-queue.interface'
@@ -29,7 +30,7 @@ const resultWriteFailuresCounter = new Counter({
 const jobLatenessHistogram = new Histogram({
     name: 'cdp_cyclotron_job_lateness_seconds',
     help: 'Seconds between a postgres-v2 job becoming due and a worker dequeuing it',
-    labelNames: ['queue'],
+    labelNames: ['queue', 'wait'],
     buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900],
 })
 
@@ -144,12 +145,13 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         await this.worker.connect(async (jobs) => {
             const invocations: CyclotronJobInvocation[] = []
             const now = Date.now()
-            const jobLateness = jobLatenessHistogram.labels({ queue })
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
-                invocations.push(v2JobToInvocation(job))
-                jobLateness.observe(Math.max(0, now - job.scheduled.toMillis()) / 1000)
+                const invocation = v2JobToInvocation(job)
+                invocations.push(invocation)
+                const { wait, dueAt } = dueTimeOf(job, invocation)
+                jobLatenessHistogram.labels({ queue, wait }).observe(Math.max(0, now - dueAt) / 1000)
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -163,13 +165,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
             const { backgroundTask } = await consumeBatch(invocations)
             void this.resultWrites.schedule(backgroundTask)
-            void backgroundTask.catch((error) => {
-                resultWriteFailuresCounter.labels({ queue }).inc()
-                logger.warn('CyclotronV2 failed to write batch results', {
-                    queue,
-                    error: String(error),
-                })
-            })
+            void backgroundTask.catch((error) => reportResultWriteFailure(queue, error))
 
             pendingJobsGauge.set(this.pendingJobs.size)
         })
@@ -287,7 +283,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
         const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
 
-        const writes = await Promise.allSettled(
+        await settleAllThenThrowFirst(
             sanitizedResults.map(async (result) => {
                 const job = this.pendingJobs.get(result.invocation.id)
                 if (!job) {
@@ -307,10 +303,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 }
             })
         )
-        const failed = writes.find((write): write is PromiseRejectedResult => write.status === 'rejected')
-        if (failed) {
-            throw failed.reason
-        }
     }
 
     private async writeResult(job: CyclotronV2DequeuedJob, result: CyclotronJobInvocationResult): Promise<void> {
@@ -364,6 +356,23 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         )
     }
 
+    public async deferInvocations(
+        deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
+    ): Promise<void> {
+        await settleAllThenThrowFirst(
+            deferrals.map(async ({ invocation, scheduledAt }) => {
+                const job = this.pendingJobs.get(invocation.id)
+                if (job) {
+                    try {
+                        await this.resultWrites.schedule(job.defer({ scheduledAt, state: serializeState(invocation) }))
+                    } finally {
+                        this.forgetPendingJob(job)
+                    }
+                }
+            })
+        )
+    }
+
     public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {
@@ -388,6 +397,21 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             })
         )
     }
+}
+
+export function reportResultWriteFailure(queue: string, error: unknown): void {
+    resultWriteFailuresCounter.labels({ queue }).inc()
+    logger.warn('CyclotronV2 failed to write batch results', { queue, error: String(error) })
+}
+
+function dueTimeOf(
+    job: CyclotronV2DequeuedJob,
+    invocation: CyclotronJobInvocation
+): { wait: 'deferred' | 'scheduled'; dueAt: number } {
+    const firstDueAt = invocation.queueMetadata?.attachmentDueAt
+    return typeof firstDueAt === 'number'
+        ? { wait: 'deferred', dueAt: firstDueAt }
+        : { wait: 'scheduled', dueAt: job.scheduled.toMillis() }
 }
 
 function serializeState(invocation: CyclotronJobInvocation): Buffer {

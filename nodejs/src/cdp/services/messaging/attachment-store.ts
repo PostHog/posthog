@@ -17,6 +17,8 @@ import { Counter } from 'prom-client'
 import { CdpConfig } from '~/cdp/config'
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 
+import { holdUntilSettled } from './in-flight-registry'
+
 const MINUTE_MS = 60 * 1000
 export const DAY_MS = 24 * 60 * MINUTE_MS
 export const ATTACHMENT_LIFETIME_MS = 37 * DAY_MS
@@ -277,6 +279,7 @@ const urlEncodedCopySource = (bucket: string, key: string): string =>
     `${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`
 
 export function settleBeforeAbortEvenWhileCredentialsStall<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
+    holdUntilSettled(promise)
     return new Promise<T>((resolve, reject) => {
         const abort = (): void => reject(signal.reason)
         promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))

@@ -1,14 +1,20 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { IncomingMessage, Server, ServerResponse, createServer, request as httpRequest } from 'node:http'
-import { AddressInfo } from 'node:net'
+import { randomUUID } from 'node:crypto'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import {
+    BucketProxy,
+    DeliveredEmail,
+    StoredFile,
+    attachmentFile,
+    deliveredTo,
+    sesClientFor,
+    uploadAttachment,
+} from '~/cdp/_tests/email-delivery-fakes'
 import { FakeSes, FakeSesAttachment, FakeSesFault, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
@@ -24,7 +30,6 @@ import { createCdpOutputsRegistry } from '~/cdp/outputs/registry'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
-    EmailAttachmentMetadata,
 } from '~/cdp/schema/cyclotron'
 import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2/types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
@@ -50,7 +55,7 @@ import { RecipientsManagerService } from '../managers/recipients-manager.service
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { AttachmentStore, buildAttachmentStore } from './attachment-store'
+import { AttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -65,6 +70,7 @@ import {
 } from './email.service'
 import { MailDevAPI, mailDevWebUrl } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -192,107 +198,6 @@ const createEmailParams = (
         },
     }
 }
-const attachmentStoreConfig = {
-    ...getDefaultCdpConfig(),
-    CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `email-service-test/${Date.now()}`,
-}
-const attachmentStore = buildAttachmentStore(attachmentStoreConfig)!
-
-type StoredFile = { bytes: Buffer; metadata: EmailAttachmentMetadata }
-
-const attachmentFile = (ref: Omit<Partial<EmailAttachmentMetadata>, 'sha256' | 'sizeBytes'> = {}): StoredFile => {
-    const bytes = Buffer.from(`%PDF-1.4 ${randomBytes(16).toString('hex')}`)
-    return {
-        bytes,
-        metadata: {
-            filename: 'a.pdf',
-            ...ref,
-            sha256: createHash('sha256').update(bytes).digest('hex'),
-            sizeBytes: bytes.length,
-        },
-    }
-}
-
-const uploadAttachment = async (
-    teamId: number,
-    ref: Omit<Partial<EmailAttachmentMetadata>, 'sha256' | 'sizeBytes'>
-): Promise<StoredFile> => {
-    const file = attachmentFile(ref)
-    const [slot] = await attachmentStore.prepareUploads(teamId, [
-        { sha256: file.metadata.sha256, size: file.bytes.length },
-    ])
-    if (slot.status !== 'upload') {
-        throw new Error(`expected an upload slot, got ${slot.status}`)
-    }
-    const { internalFetch } = jest.requireActual('~/common/utils/request')
-    const response = await internalFetch(slot.url, { method: slot.method, headers: slot.headers, body: file.bytes })
-    expect(response.status).toBe(200)
-    return file
-}
-
-const listen = async (server: Server): Promise<string> => {
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-}
-
-const shutDown = async (server: Server): Promise<void> => {
-    server.closeAllConnections()
-    await new Promise((resolve) => server.close(resolve))
-}
-
-type DeliveredEmail = { to: string[]; attachments: FakeSesAttachment[] }
-
-type BucketAnswer = 'pass' | 'refuse' | 'hold' | 'holdFilesItHas'
-
-class BucketProxy {
-    answer: BucketAnswer = 'pass'
-    abandonedRequests = 0
-    private endpoint = ''
-    private readonly server = createServer((request, response) => this.handle(request, response))
-
-    static async start(): Promise<BucketProxy> {
-        const proxy = new BucketProxy()
-        proxy.endpoint = await listen(proxy.server)
-        return proxy
-    }
-
-    store(): AttachmentStore {
-        return buildAttachmentStore({ ...attachmentStoreConfig, CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: this.endpoint })!
-    }
-
-    close(): Promise<void> {
-        return shutDown(this.server)
-    }
-
-    private handle(request: IncomingMessage, response: ServerResponse): void {
-        response.on('close', () => {
-            if (!response.writableEnded) {
-                this.abandonedRequests++
-            }
-        })
-        if (this.answer === 'refuse') {
-            request.socket.destroy()
-            return
-        }
-        if (this.answer === 'hold') {
-            return
-        }
-        const upstream = httpRequest(
-            `${attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT}${request.url}`,
-            { method: request.method, headers: request.headers },
-            (answer) => {
-                if (this.answer === 'holdFilesItHas' && request.method === 'GET' && answer.statusCode === 200) {
-                    answer.resume()
-                    return
-                }
-                response.writeHead(answer.statusCode!, answer.headers)
-                answer.pipe(response)
-            }
-        )
-        request.pipe(upstream)
-    }
-}
-
 const oneRetryAfter = (delayMs: number): any => {
     const token = (retries: number): { getRetryCount: () => number; getRetryDelay: () => number } => ({
         getRetryCount: () => retries,
@@ -388,17 +293,6 @@ describe('EmailService', () => {
         useClient: () => Promise.reject(new Error('connect ECONNREFUSED')),
         usePipeline: () => Promise.reject(new Error('connect ECONNREFUSED')),
     }
-    const deliveredTo = (address: string): DeliveredEmail[] =>
-        ses.sent
-            .filter((message) => message.to.some((to) => to.includes(address)))
-            .map(({ to, attachments }) => ({ to, attachments }))
-    const sesClientWith = (overrides: Partial<ConstructorParameters<typeof SESv2Client>[0]>): SESv2Client =>
-        new SESv2Client({
-            region: 'us-east-1',
-            endpoint: ses.endpoint,
-            credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },
-            ...overrides,
-        })
     const sendsLeftInTheTeamBudget = async (sender: EmailService): Promise<number> => {
         for (let sent = 0; sent < 3; sent++) {
             const another = createExampleInvocation({ team_id: team.id, id: new UUIDT().toString() })
@@ -1213,7 +1107,7 @@ describe('EmailService', () => {
 
                         expect(result.error).toBeUndefined()
                         expect(result.finished).toBe(true)
-                        expect(deliveredTo('test@example.com')).toHaveLength(1)
+                        expect(deliveredTo(ses, 'test@example.com')).toHaveLength(1)
                         expect(await sendsLeftInTheTeamBudget(sender)).toBe(1)
                     }
                 )
@@ -1757,7 +1651,7 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(true)
                 const delivered =
                     provider === 'ses'
-                        ? deliveredTo(recipient)
+                        ? deliveredTo(ses, recipient)
                         : await waitForExpect(async () => {
                               const emails = await maildevDelivered()
                               expect(emails).toHaveLength(1)
@@ -1797,7 +1691,7 @@ describe('EmailService', () => {
                     expect(retried.finished).toBe(false)
                     expect(result.error).toBeUndefined()
                     expect(result.finished).toBe(true)
-                    expect(deliveredTo(recipient)).toHaveLength(1)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
@@ -1814,7 +1708,7 @@ describe('EmailService', () => {
                     await untilDue(paced.invocation.queueScheduledAt!)
                     const result = await emailService.executeSendEmail(paced.invocation)
 
-                    expect(deliveredTo(recipient)).toEqual([
+                    expect(deliveredTo(ses, recipient)).toEqual([
                         { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
                     ])
                     expect(result.error).toBeUndefined()
@@ -1845,6 +1739,83 @@ describe('EmailService', () => {
                 }
             )
 
+            const inOneAdmission = async <T>(sends: () => Promise<T>): Promise<T> => {
+                const registry = new InFlightRegistry({
+                    budgetBytes: Number.MAX_SAFE_INTEGER,
+                    heapLimitBytes: Number.MAX_SAFE_INTEGER,
+                    maxInFlight: 1,
+                })
+                const admission = registry.tryStart(pdf.bytes.length, sends)
+                return await (admission as Extract<typeof admission, { started: unknown }>).started
+            }
+            const outcomeOf = (result: Awaited<ReturnType<EmailService['executeSendEmail']>>) => ({
+                finished: result.finished,
+                error: result.error,
+                retryLater: (result.invocation.queueScheduledAt?.toMillis() ?? 0) > Date.now(),
+            })
+            const sent = { finished: true, error: undefined, retryLater: false }
+            const retriedLoad = { finished: false, error: undefined, retryLater: true }
+
+            it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
+                const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
+                bucket.answer = 'stallFileBodies'
+
+                const { first, second } = await inOneAdmission(async () => {
+                    send([pdf, attachmentFile()])
+                    const first = await emailService.executeSendEmail(invocation)
+                    bucket.answer = 'pass'
+                    send([pdf, logo])
+                    return { first, second: await emailService.executeSendEmail(invocation) }
+                })
+
+                expect(first.error).toMatch(/^attachments_missing: /)
+                await waitForExpect(() => expect(bucket.abandonedRequests).toBe(1), 3000)
+                expect(outcomeOf(second)).toEqual(sent)
+                expect(deliveredTo(ses, recipient)).toEqual([
+                    { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
+                ])
+            })
+
+            it.each([
+                [
+                    'loads its files and sends only once that call settles',
+                    true,
+                    3_000,
+                    sent,
+                    () => [
+                        { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
+                    ],
+                ],
+                ['reschedules as a load retry once its deadline passes', false, 1_000, retriedLoad, () => []],
+            ])(
+                'when a flow sends its next email inline while the SES call of the email before still waits for its credentials, it %s',
+                async (_name, credentialsArrive, attachmentSendDeadlineMs, expected, inbox) => {
+                    const emailService = sender({ attachmentSendDeadlineMs })
+                    let giveCredentials!: () => void
+                    const credentials = new Promise<{ accessKeyId: string; secretAccessKey: string }>((resolve) => {
+                        giveCredentials = () =>
+                            resolve({ accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' })
+                    })
+                    emailService.sesV2Client = sesClientFor(ses, { credentials: () => credentials })
+
+                    const { first, second } = await inOneAdmission(async () => {
+                        const first = await emailService.executeSendEmail(invocation)
+                        bucket.answer = 'refuse'
+                        if (credentialsArrive) {
+                            setTimeout(() => {
+                                bucket.answer = 'pass'
+                                giveCredentials()
+                            }, 300)
+                        }
+                        return { first, second: await emailService.executeSendEmail(invocation) }
+                    })
+
+                    expect(outcomeOf(first)).toEqual(retriedLoad)
+                    expect(outcomeOf(second)).toEqual(expected)
+                    expect(deliveredTo(ses, recipient)).toEqual(inbox())
+                }
+            )
+
             it.each([
                 [
                     'the bucket does not answer',
@@ -1855,14 +1826,16 @@ describe('EmailService', () => {
                 [
                     'the SES client never gets its credentials',
                     (emailService: EmailService) => {
-                        emailService.sesV2Client = sesClientWith({ credentials: () => new Promise<never>(() => {}) })
+                        emailService.sesV2Client = sesClientFor(ses, {
+                            credentials: () => new Promise<never>(() => {}),
+                        })
                     },
                 ],
                 [
                     'SES refuses with a throttle and the SDK is still backing off',
                     (emailService: EmailService) => {
                         ses.failWith(sesThrottles)
-                        emailService.sesV2Client = sesClientWith({ retryStrategy: oneRetryAfter(2_000) })
+                        emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
                     },
                 ],
             ])(
@@ -1877,7 +1850,7 @@ describe('EmailService', () => {
                         finished: retry.finished,
                         error: retry.error,
                         retryLater: retry.invocation.queueScheduledAt!.toMillis() > Date.now(),
-                        delivered: deliveredTo(recipient),
+                        delivered: deliveredTo(ses, recipient),
                     }).toEqual({ finished: false, error: undefined, retryLater: true, delivered: [] })
 
                     bucket.answer = 'pass'
@@ -1887,7 +1860,7 @@ describe('EmailService', () => {
 
                     expect(result.error).toBeUndefined()
                     expect(result.finished).toBe(true)
-                    expect(deliveredTo(recipient)).toEqual([
+                    expect(deliveredTo(ses, recipient)).toEqual([
                         { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
                     ])
                 }
@@ -1910,7 +1883,7 @@ describe('EmailService', () => {
                     'the connection drops after the request went out and the SDK is still backing off',
                     (emailService: EmailService) => {
                         ses.failWith('drop-connection')
-                        emailService.sesV2Client = sesClientWith({ retryStrategy: oneRetryAfter(2_000) })
+                        emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
                     },
                 ],
             ])(
@@ -1925,7 +1898,7 @@ describe('EmailService', () => {
                         finished: result.finished,
                         error: result.error,
                         failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
-                        delivered: deliveredTo(recipient),
+                        delivered: deliveredTo(ses, recipient),
                     }).toEqual({
                         finished: true,
                         error: expect.stringMatching(/^Failed to send email via SES: /),

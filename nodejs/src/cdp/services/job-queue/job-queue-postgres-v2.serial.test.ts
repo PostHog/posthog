@@ -1,14 +1,24 @@
 import { DateTime } from 'luxon'
 import { AddressInfo, Socket, connect, createServer } from 'node:net'
 import { Pool, PoolClient } from 'pg'
+import { register } from 'prom-client'
 import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
+import * as posthogUtils from '~/common/utils/posthog'
+import { PubSub } from '~/common/utils/pubsub'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
+import { createHogFunction, createIntegration } from '../../_tests/fixtures'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { EncryptedFields } from '../../utils/encryption-utils'
+import { markServerResolvedIntegration } from '../../utils/integration-input-refs'
+import { HogInputsService } from '../hog-inputs.service'
+import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { IntegrationSource } from '../managers/integration-source'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
 
 describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
+    const ENCRYPTION_SALT_KEYS = '00beef0000beef0000beef0000beef00'
     const baseInvocation = {
         teamId: 1,
         functionId: '0196a6b9-1104-0000-f099-9cf11985a307',
@@ -83,6 +93,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
     afterEach(async () => {
         jest.useRealTimers()
+        jest.restoreAllMocks()
         await Promise.all(proxies.map((proxy) => proxy.close()))
         for (const lock of locks) {
             await lock.client.query('ROLLBACK')
@@ -96,6 +107,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         await admin.query(`DROP SCHEMA ${schema} CASCADE`)
     })
 
+    const otherTeamId = (): number => teamId + 1
+
     async function startQueue(url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port)) {
         const queue = new CyclotronJobQueuePostgresV2(10, {
             CYCLOTRON_NODE_DATABASE_URL: url,
@@ -105,7 +118,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-            ENCRYPTION_SALT_KEYS: '',
+            ENCRYPTION_SALT_KEYS,
         })
         queues.push(queue)
         await queue.startAsProducer()
@@ -154,9 +167,37 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             invocation: { ...invocation, queue: 'email', queueScheduledAt: DateTime.now().plus({ hours: 1 }) },
         })
 
-    async function jobRow(id: string): Promise<{ status: string; queue_name: string; priority: number }> {
-        const { rows } = await db.query('SELECT status, queue_name, priority FROM cyclotron_jobs WHERE id = $1', [id])
+    async function jobRow(
+        id: string
+    ): Promise<{ status: string; queue_name: string; priority: number; scheduled: string }> {
+        const { rows } = await db.query(
+            'SELECT status, queue_name, priority, scheduled FROM cyclotron_jobs WHERE id = $1',
+            [id]
+        )
         return rows[0]
+    }
+
+    const inAnHour = (): Date => DateTime.now().plus({ hours: 1 }).toJSDate()
+
+    const deferred = (
+        invocation: CyclotronJobInvocation
+    ): { invocation: CyclotronJobInvocation; scheduledAt: Date } => ({
+        invocation,
+        scheduledAt: inAnHour(),
+    })
+
+    async function lateness(queue: string, wait: 'deferred' | 'scheduled'): Promise<{ count: number; sum: number }> {
+        const metric = register.getSingleMetric('cdp_cyclotron_job_lateness_seconds')
+        const samples = metric ? (await metric.get()).values : []
+        const series = (name: 'count' | 'sum'): number =>
+            samples.find(
+                (sample) =>
+                    'metricName' in sample &&
+                    sample.metricName === `cdp_cyclotron_job_lateness_seconds_${name}` &&
+                    sample.labels.queue === queue &&
+                    sample.labels.wait === wait
+            )?.value ?? 0
+        return { count: series('count'), sum: series('sum') }
     }
 
     async function leaseOf(id: string): Promise<bigint> {
@@ -309,27 +350,191 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         }
     )
 
-    it('settles once every write of the batch settled, then reports the one that failed', async () => {
+    it.each([
+        {
+            write: 'result',
+            from: 'another queue',
+            writeAll: (
+                queue: CyclotronJobQueuePostgresV2,
+                failing: CyclotronJobInvocation,
+                held: CyclotronJobInvocation
+            ) => queue.queueInvocationResults([finished(failing), movedToEmail(held)]),
+            heldRow: { queue_name: 'email', status: 'available' },
+        },
+        {
+            write: 'deferral',
+            from: 'email',
+            writeAll: (
+                queue: CyclotronJobQueuePostgresV2,
+                failing: CyclotronJobInvocation,
+                held: CyclotronJobInvocation
+            ) => queue.deferInvocations([failing, held].map(deferred)),
+            heldRow: { queue_name: 'email', status: 'available' },
+        },
+    ])(
+        'settles once every $write write of the batch settled, then reports the one that failed',
+        async ({ from, writeAll, heldRow }) => {
+            const on = (from === 'email' ? 'email' : queueName) as CyclotronJobQueueKind
+            const queue = await startQueue()
+            const failingId = await enqueue(queue, { queue: on, teamId: otherTeamId() })
+            const heldId = await enqueue(queue, { queue: on })
+            const claims = await (await consume(queue, on)).claimed(2)
+            const failingRow = await lockJobRow(failingId)
+            const emailSequence = await lockEmailSequence()
+
+            const written = writeAll(
+                queue,
+                claims.find(({ id }) => id === failingId)!,
+                claims.find(({ id }) => id === heldId)!
+            )
+            await dropConnectionOfWriteWaitingOn(failingRow)
+            await writeWaitingOn(emailSequence)
+            expect(await stillPending(written)).toBe(true)
+            await unlock(emailSequence)
+
+            await expect(written).rejects.toThrow('terminating connection')
+            expect(await jobRow(heldId)).toMatchObject(heldRow)
+            expect(await jobRow(failingId)).toMatchObject({ status: 'running' })
+        }
+    )
+
+    it('hands a job back with its deferral state, and counts its next dequeue as late from its first due time', async () => {
         const queue = await startQueue()
-        const failingId = await enqueue(queue)
-        const heldId = await enqueue(queue)
-        const claims = await (await consume(queue, queueName)).claimed(2)
-        const failingRow = await lockJobRow(failingId)
-        const emailSequence = await lockEmailSequence()
+        const id = await enqueue(queue)
+        const consumer = await consume(queue, queueName)
+        const [first] = await consumer.claimed()
+        const firstDueAt = Date.now() - 60_000
+        const scheduledAt = new Date(Date.now() + 500)
 
-        const written = queue.queueInvocationResults([
-            finished(claims.find(({ id }) => id === failingId)!),
-            movedToEmail(claims.find(({ id }) => id === heldId)!),
+        await queue.deferInvocations([
+            {
+                invocation: { ...first, queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: firstDueAt } },
+                scheduledAt,
+            },
         ])
-        await dropConnectionOfWriteWaitingOn(failingRow)
-        await writeWaitingOn(emailSequence)
-        expect(await stillPending(written)).toBe(true)
-        await unlock(emailSequence)
+        const [, again] = await consumer.claimed(2)
 
-        await expect(written).rejects.toThrow('terminating connection')
-        expect(await jobRow(heldId)).toMatchObject({ queue_name: 'email', status: 'available' })
-        expect(await jobRow(failingId)).toMatchObject({ status: 'running' })
+        expect(again).toMatchObject({ id, queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: firstDueAt } })
+        expect(new Date((await jobRow(id)).scheduled)).toEqual(scheduledAt)
+        expect(await lateness(queueName, 'scheduled')).toMatchObject({ count: 1 })
+        const late = await lateness(queueName, 'deferred')
+        expect(late.count).toBe(1)
+        expect(late.sum).toBeGreaterThanOrEqual(60)
     })
+
+    it.each([
+        ['on', true],
+        ['off', false],
+    ])(
+        'hands a deferred send with files back with its files, its queue metadata and integration inputs that still resolve, with integration refs %s',
+        async (_name, integrationRefsOn) => {
+            jest.spyOn(posthogUtils, 'isFeatureFlagEnabled').mockResolvedValue(integrationRefsOn)
+            const queue = await startQueue()
+            await enqueue(queue, { queue: `${queueName}-flag-read` as CyclotronJobQueueKind })
+            await new Promise((resolve) => setImmediate(resolve))
+            const accessToken = `fake-access-token-${uuidv4()}`
+            const files = {
+                type: 'email' as const,
+                to: { email: 'test@example.com', name: 'Test User' },
+                from: { integrationId: 1 },
+                subject: 'Your invoice',
+                text: 'Attached',
+                html: '<p>Attached</p>',
+                attachments: [
+                    { filename: 'invoice.pdf', contentType: 'application/pdf', sizeBytes: 7, sha256: 'a'.repeat(64) },
+                ],
+            }
+            const id = await enqueue(queue, {
+                queueParameters: files,
+                queueMetadata: { attachmentLoadRetries: 2, teamBudgetClaimed: true },
+                state: {
+                    actionStepCount: 1,
+                    currentAction: {
+                        id: 'send-email',
+                        startedAtTimestamp: 0,
+                        hogFunctionState: {
+                            globals: {
+                                inputs: {
+                                    oauth: markServerResolvedIntegration({
+                                        $integration_id: 11,
+                                        access_token_raw: accessToken,
+                                    }),
+                                },
+                            },
+                            timings: [],
+                            attempts: 0,
+                        },
+                    },
+                },
+            })
+            const consumer = await consume(queue, queueName)
+            const [first] = await consumer.claimed()
+            const firstDueAt = Date.now()
+
+            await queue.deferInvocations([
+                {
+                    invocation: {
+                        ...first,
+                        queueMetadata: { ...first.queueMetadata, attachmentDeferrals: 1, attachmentDueAt: firstDueAt },
+                    },
+                    scheduledAt: new Date(Date.now() + 200),
+                },
+            ])
+            const [, again] = await consumer.claimed(2)
+            const { rows } = await db.query('SELECT state FROM cyclotron_jobs WHERE id = $1', [id])
+
+            expect(again).toMatchObject({
+                id,
+                queueParameters: files,
+                queueMetadata: {
+                    attachmentLoadRetries: 2,
+                    teamBudgetClaimed: true,
+                    attachmentDeferrals: 1,
+                    attachmentDueAt: firstDueAt,
+                },
+            })
+            const integrationStore: IntegrationSource = {
+                name: 'test',
+                load: (references) =>
+                    Promise.resolve(
+                        Object.fromEntries(
+                            references
+                                .filter((reference) => reference === '11')
+                                .map((reference) => [
+                                    reference,
+                                    {
+                                        reference,
+                                        integration: createIntegration({
+                                            id: 11,
+                                            team_id: teamId,
+                                            kind: 'oauth',
+                                            sensitive_config: { access_token: accessToken },
+                                        }),
+                                        decryptFailures: [],
+                                    },
+                                ])
+                        )
+                    ),
+            }
+            const worker = new HogInputsService(
+                new IntegrationManagerService({ on: () => undefined } as unknown as PubSub, integrationStore),
+                undefined,
+                new EncryptedFields(ENCRYPTION_SALT_KEYS)
+            )
+            const sendStep = createHogFunction({
+                team_id: teamId,
+                inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
+                inputs: { oauth: { value: 11 } },
+            })
+            const resolved = await worker.resolveIntegrationRefs(
+                sendStep,
+                again.state!.currentAction.hogFunctionState.globals.inputs
+            )
+
+            expect(resolved.oauth).toMatchObject({ $integration_id: 11, access_token_raw: accessToken })
+            expect(rows[0].state.toString('utf-8').includes(accessToken)).toBe(!integrationRefsOn)
+        }
+    )
 
     it('stops dequeuing, then returns once the batch in progress has written its results', async () => {
         const queue = await startQueue()
@@ -432,12 +637,28 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         await stopped
     })
 
-    it('renews the lease of a job while its result write runs', async () => {
+    const leaseRows = [
+        {
+            write: 'result',
+            from: 'another queue',
+            release: (queue: CyclotronJobQueuePostgresV2, claim: CyclotronJobInvocation) =>
+                queue.queueInvocationResults([movedToEmail(claim)]),
+        },
+        {
+            write: 'deferral',
+            from: 'email',
+            release: (queue: CyclotronJobQueuePostgresV2, claim: CyclotronJobInvocation) =>
+                queue.deferInvocations([deferred(claim)]),
+        },
+    ]
+
+    it.each(leaseRows)('renews the lease of a job while its $write write runs', async ({ from, release }) => {
+        const on = (from === 'email' ? 'email' : queueName) as CyclotronJobQueueKind
         const queue = await startQueue()
-        const id = await enqueue(queue)
-        const [claimed] = await (await consume(queue, queueName)).claimed()
+        const id = await enqueue(queue, { queue: on })
+        const [claimed] = await (await consume(queue, on)).claimed()
         const emailSequence = await lockEmailSequence()
-        const written = queue.queueInvocationResults([movedToEmail(claimed)])
+        const written = release(queue, claimed)
         await writeWaitingOn(emailSequence)
         const leaseBefore = await leaseOf(id)
 
@@ -448,22 +669,26 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         await written
     })
 
-    it('keeps heartbeating a new claim of the same job once the earlier claim finishes writing', async () => {
-        const queue = await startQueue()
-        const id = await enqueue(queue)
-        const consumer = await consume(queue, queueName)
-        const [earlier] = await consumer.claimed()
-        const emailSequence = await lockEmailSequence()
-        const written = queue.queueInvocationResults([movedToEmail(earlier)])
-        await writeWaitingOn(emailSequence)
-        await releaseStaleClaimAsTheJanitorDoes(id)
-        const [, later] = await consumer.claimed(2)
-        await unlock(emailSequence)
-        await written
-        const leaseBefore = await leaseOf(id)
+    it.each(leaseRows)(
+        'keeps heartbeating a new claim of the same job once the earlier claim finishes its $write write',
+        async ({ from, release }) => {
+            const on = (from === 'email' ? 'email' : queueName) as CyclotronJobQueueKind
+            const queue = await startQueue()
+            const id = await enqueue(queue, { queue: on })
+            const consumer = await consume(queue, on)
+            const [earlier] = await consumer.claimed()
+            const emailSequence = await lockEmailSequence()
+            const written = release(queue, earlier)
+            await writeWaitingOn(emailSequence)
+            await releaseStaleClaimAsTheJanitorDoes(id)
+            const [, later] = await consumer.claimed(2)
+            await unlock(emailSequence)
+            await written
+            const leaseBefore = await leaseOf(id)
 
-        await queue.heartbeatInvocations([later])
+            await queue.heartbeatInvocations([later])
 
-        expect(await leaseOf(id)).toBeGreaterThan(leaseBefore)
-    })
+            expect(await leaseOf(id)).toBeGreaterThan(leaseBefore)
+        }
+    )
 })

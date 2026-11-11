@@ -100,7 +100,7 @@ export interface CyclotronV2DequeuedJob {
     ack(): Promise<void>
     fail(): Promise<void>
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
-    defer(options: { scheduledAt: Date }): Promise<void>
+    defer(options: { scheduledAt: Date; state?: Buffer }): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
     // `cancelRequested: true` means the check-in was refused: a cancel flag landed on this

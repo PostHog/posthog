@@ -218,6 +218,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: string
     CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: string
     CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: number
+    CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
+    CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: number
     CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
 
     // Destination migration diffing
@@ -472,6 +474,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: isDevEnv() || isTestEnv() ? 'object_storage_root_user' : '',
         CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: isDevEnv() || isTestEnv() ? 'object_storage_root_password' : '',
         CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 10_000,
+        CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: 4,
+        CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: 0.5,
         CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
 
         // Destination migration diffing
