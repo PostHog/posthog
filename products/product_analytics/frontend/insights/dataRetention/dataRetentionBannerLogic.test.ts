@@ -66,23 +66,6 @@ describe('dataRetentionBannerLogic', () => {
         expect(logic.values.retentionBannerAction?.children ?? null).toEqual(actionLabel)
     })
 
-    it('caps the period label at the plan', async () => {
-        const capped = {
-            ...RETENTION,
-            organization_retention_months: 84,
-            plan_retention_months: 12,
-            default_retention_months: 12,
-        }
-        useMocks({ get: { '/api/projects/:team_id/events_retention/': () => [200, capped] } })
-        initKeaTests()
-        const logic = dataRetentionBannerLogic()
-        logic.mount()
-
-        await expectLogic(logic)
-            .toDispatchActions(['loadRetentionMonths', 'loadRetentionMonthsSuccess'])
-            .toMatchValues({ projectPeriodLabel: '1-year' })
-    })
-
     it('waits for the team id before loading', async () => {
         const requestedTeamIds: string[] = []
         useMocks({

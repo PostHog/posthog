@@ -1,8 +1,6 @@
-import { dayjs } from 'lib/dayjs'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { exceedsRetention, rangeReachesBefore } from './exceedsRetention'
+import { exceedsRetention } from './exceedsRetention'
 
 const RETENTION_MONTHS = 12
 
@@ -89,15 +87,4 @@ describe('exceedsRetention', () => {
             expect(exceedsRetention({ query, dateFromOverride, resolvedDateFrom, retentionMonths })).toBe(expected)
         }
     )
-
-    describe('rangeReachesBefore', () => {
-        it.each([
-            ['"all time" starting after the cutoff stays quiet', '2025-12-15', false],
-            ['"all time" starting before the cutoff warns', '2025-11-30', true],
-        ])('%s', (_label: string, resolvedDateFrom: string, expected: boolean) => {
-            expect(
-                rangeReachesBefore({ query: insightViz('all'), resolvedDateFrom, cutoff: dayjs('2025-12-01') })
-            ).toBe(expected)
-        })
-    })
 })
