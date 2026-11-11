@@ -49,19 +49,41 @@ export function metricsSourceConfig(alert: PlatformAlertConfigurationApi): Metri
     return { query, condition }
 }
 
-export function buildFormDefaults(alert: PlatformAlertConfigurationApi | null): MetricsAlertFormType {
-    const config = alert ? metricsSourceConfig(alert) : null
-    const condition = config?.condition
+const NEW_ALERT_FORM: MetricsAlertFormType = {
+    name: '',
+    query: '',
+    conditionKind: MetricsPlatformAlertConditionKindEnumApi.Threshold,
+    operator: 'gt',
+    threshold: null,
+    groupByLabels: [],
+    evaluationPeriods: 1,
+    datapointsToAlarm: 1,
+    cooldownMinutes: 0,
+}
+
+function conditionFields(
+    condition: MetricsPlatformAlertConditionApi | undefined
+): Pick<MetricsAlertFormType, 'conditionKind' | 'operator' | 'threshold'> {
     return {
-        name: alert?.name ?? '',
-        query: config?.query ?? '',
-        conditionKind: condition?.kind ?? MetricsPlatformAlertConditionKindEnumApi.Threshold,
-        operator: condition?.operator ?? 'gt',
+        conditionKind: condition?.kind ?? NEW_ALERT_FORM.conditionKind,
+        operator: condition?.operator ?? NEW_ALERT_FORM.operator,
         threshold: condition?.threshold ?? null,
-        groupByLabels: alert?.grouping.mode === GroupingModeEnumApi.ByResultLabels ? (alert.grouping.keys ?? []) : [],
-        evaluationPeriods: alert?.evaluation_periods ?? 1,
-        datapointsToAlarm: alert?.datapoints_to_alarm ?? 1,
-        cooldownMinutes: alert?.cooldown_minutes ?? 0,
+    }
+}
+
+export function buildFormDefaults(alert: PlatformAlertConfigurationApi | null): MetricsAlertFormType {
+    if (!alert) {
+        return NEW_ALERT_FORM
+    }
+    const config = metricsSourceConfig(alert)
+    return {
+        name: alert.name,
+        query: config?.query ?? '',
+        ...conditionFields(config?.condition),
+        groupByLabels: alert.grouping.mode === GroupingModeEnumApi.ByResultLabels ? (alert.grouping.keys ?? []) : [],
+        evaluationPeriods: alert.evaluation_periods,
+        datapointsToAlarm: alert.datapoints_to_alarm,
+        cooldownMinutes: alert.cooldown_minutes,
     }
 }
 
