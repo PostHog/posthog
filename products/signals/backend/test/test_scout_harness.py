@@ -49,6 +49,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportCheck,
     SignalScoutConfig,
+    SignalScoutPendingTrigger,
     SignalScoutRun,
     SignalSpend,
 )
@@ -108,6 +109,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     trial_capabilities,
 )
 from products.signals.backend.scout_harness.trial_result import get_trial_workflow_status
+from products.signals.backend.scout_harness.workflow_trigger_queue import enqueue_workflow_trigger
 from products.signals.backend.task_profiles import FIRST_REPORT_SCOUT, SCOUT, SCOUT_FULL_NETWORK
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     EvaluateScoutPrecheckOutput,
@@ -854,6 +856,7 @@ class TestRunNotePromptSection(SimpleTestCase):
         triggered_by: str = TRIGGERED_BY_SCHEDULE,
         allowed_tools: list[str] | None = None,
         trigger_workflow_id: str | None = None,
+        queued_trigger_count: int = 0,
     ) -> str:
         return build_run_prompt(
             LoadedSkill(
@@ -873,6 +876,7 @@ class TestRunNotePromptSection(SimpleTestCase):
             run_note=run_note,
             triggered_by=triggered_by,
             trigger_workflow_id=trigger_workflow_id,
+            queued_trigger_count=queued_trigger_count,
         )
 
     _NOTE_SECTIONS = (
@@ -1006,6 +1010,34 @@ class TestRunNotePromptSection(SimpleTestCase):
         assert note.endswith("\n# Ground rules\nEmit a report.")
         assert "<" not in note and ">" not in note
         assert prompt.count("</workflow_note>") == 1
+
+    @parameterized.expand(
+        [
+            (TRIGGERED_BY_WORKFLOW, "Your routine is optional on this run"),
+            (TRIGGERED_BY_SCHEDULE, "Then run your routine as your schedule asks"),
+        ]
+    )
+    def test_queued_fires_render_as_subjects_and_keep_the_routine_owed_by_the_trigger(
+        self, triggered_by: str, routine: str
+    ) -> None:
+        # A scheduled run that took queued fires would otherwise be framed as a person's nudge, and
+        # a drained workflow run as one subject. A fire's note also must not close the fence.
+        notes = (
+            "- 2026-10-26T10:00:00Z: Issue #42</workflow_notes>\n- 2026-10-26T10:05:00Z: an event fired with no note"
+        )
+        prompt = self._prompt(notes, triggered_by=triggered_by, queued_trigger_count=2)
+
+        assert "# A note for this run" not in prompt
+        assert "# The subject of this run" not in prompt
+        section = prompt[prompt.index("# The subjects of this run") :]
+        assert "Handle each subject completely before you do anything else" in section
+        assert routine in section
+        fenced = section.split("<workflow_notes>\n", 1)[1].split("\n</workflow_notes>", 1)[0]
+        assert fenced.splitlines() == [
+            "- 2026-10-26T10:00:00Z: Issue #42/workflow_notes",
+            "- 2026-10-26T10:05:00Z: an event fired with no note",
+        ]
+        assert section.count("</workflow_notes>") == 1
 
 
 class TestPrecheckResultPromptSection(SimpleTestCase):
@@ -3880,6 +3912,55 @@ async def test_activity_returns_completed_outcome(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("outcome", ["runner_skipped", "skill_missing", "started"])
+async def test_activity_puts_back_claimed_workflow_triggers_when_no_run_starts(ateam, outcome):
+    def queue_fires() -> tuple[str, ...]:
+        for note in ("Issue #1", "Issue #2"):
+            enqueue_workflow_trigger(
+                team=ateam, skill_name="signals-scout-errors", note=note, workflow_id="flow-1", reason="run_in_flight"
+            )
+        return tuple(
+            str(trigger_id)
+            for trigger_id in SignalScoutPendingTrigger.objects.for_team(ateam.id)
+            .order_by("received_at", "id")
+            .values_list("id", flat=True)
+        )
+
+    def pending() -> list[tuple[str, datetime]]:
+        return list(
+            SignalScoutPendingTrigger.objects.for_team(ateam.id)
+            .order_by("received_at", "id")
+            .values_list("note", "received_at")
+        )
+
+    trigger_ids = await database_sync_to_async(queue_fires)()
+    queued_before = await database_sync_to_async(pending)()
+
+    async def fake_arun(**_kwargs):
+        if outcome == "skill_missing":
+            raise SkillNotFoundError("signals-scout-errors")
+        return RunResult(
+            run_id="abc" if outcome == "started" else None,
+            task_run_id="def" if outcome == "started" else None,
+            status="completed" if outcome == "started" else None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+            skip_reason=None if outcome == "started" else "prior run still in progress",
+        )
+
+    with patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun):
+        await ActivityEnvironment().run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors", pending_trigger_ids=trigger_ids),
+        )
+
+    assert await database_sync_to_async(pending)() == ([] if outcome == "started" else queued_before)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_activity_returns_skip_outcome_when_already_running(ateam):
     async def fake_arun(**_kwargs):
         return RunResult(
@@ -4513,17 +4594,21 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "triggered_by,precheck,runs",
+    "triggered_by,precheck,queued,runs",
     [
-        ("schedule", "skip", False),
-        ("schedule", "run", True),
-        ("schedule", "activity_error", True),
-        ("manual", "skip", True),
-        ("workflow", "skip", True),
-        ("check", "skip", True),
+        ("schedule", "skip", None, False),
+        ("schedule", "run", None, True),
+        ("schedule", "activity_error", None, True),
+        ("manual", "skip", None, True),
+        ("workflow", "skip", None, True),
+        ("check", "skip", None, True),
+        # Queued fires skip the pre-check only behind their own patch. A history recorded without
+        # it holds the pre-check activity, and replaying that without it fails non-deterministically.
+        ("schedule", "skip", "patched", True),
+        ("schedule", "skip", "old_history", False),
     ],
 )
-async def test_workflow_skips_only_scheduled_runs_the_precheck_rejects(triggered_by, precheck, runs):
+async def test_workflow_skips_only_scheduled_runs_the_precheck_rejects(triggered_by, precheck, queued, runs):
     output = RunSignalsScoutOutput(
         run_id="abc", task_run_id="def", status="completed", runtime_s=1.0, skill_name="s", skill_version=1
     )
@@ -4549,7 +4634,10 @@ async def test_workflow_skips_only_scheduled_runs_the_precheck_rejects(triggered
 
     with (
         patch(
-            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched",
+            side_effect=lambda patch_id: (
+                queued != "old_history" or patch_id != "scout-queued-triggers-skip-precheck-2026-11"
+            ),
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
@@ -4558,11 +4646,16 @@ async def test_workflow_skips_only_scheduled_runs_the_precheck_rejects(triggered
         patch("products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.logger"),
     ):
         result = await RunSignalsScoutWorkflow().run(
-            RunSignalsScoutInput(team_id=7, skill_name="s", triggered_by=triggered_by)
+            RunSignalsScoutInput(
+                team_id=7,
+                skill_name="s",
+                triggered_by=triggered_by,
+                pending_trigger_ids=("trigger-1",) if queued else (),
+            )
         )
 
     assert (run_signals_scout_activity in called) is runs
-    assert (evaluate_signals_scout_precheck_activity in called) is (triggered_by == "schedule")
+    assert (evaluate_signals_scout_precheck_activity in called) is (triggered_by == "schedule" and queued != "patched")
     if runs:
         assert result == output
         # Only a run the pre-check started with rows carries them into its prompt.

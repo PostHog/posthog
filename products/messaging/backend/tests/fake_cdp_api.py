@@ -1,9 +1,12 @@
 import re
 import json
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
+
+from unittest.mock import MagicMock
 
 import requests
 
@@ -109,8 +112,9 @@ def _clicks_need_opens(tracking: dict[str, Any], path: list[Any]) -> Issues:
     return [_issue("custom", path)] if tracking.get("opens") is False and tracking.get("clicks") is True else []
 
 
-def _accepted_send(tracking: Check) -> Check:
+def _accepted_send(tracking: Check, *, takes_sensitive: bool) -> Check:
     copies = _Key(_array(_email, max_items=10), optional=True)
+    sensitive = {"sensitive": _Key(_boolean, optional=True)} if takes_sensitive else {}
     return _object(
         {
             "content": _Key(
@@ -139,19 +143,19 @@ def _accepted_send(tracking: Check) -> Check:
             "replyTo": _Key(_array(_string()), optional=True),
             "cc": copies,
             "bcc": copies,
+            **sensitive,
             "tracking": _Key(tracking),
         },
         strict=True,
     )
 
 
-# The pipeline before the code-send tracking contract: it takes only `captureEngagement`.
 TRACKING_BEFORE_THE_CONTRACT = _object({"captureEngagement": _Key(_boolean)}, strict=True)
 TRACKING = _object(
     {
         "captureEngagement": _Key(_boolean),
         "opens": _Key(_literal(False), optional=True),
-        "clicks": _Key(_literal(True), optional=True),
+        "clicks": _Key(_boolean, optional=True),
     },
     strict=True,
     refine=_clicks_need_opens,
@@ -177,7 +181,8 @@ class FakeCdpApi:
     """Stands in for cdp-api's transactional email routes: it validates a request as those routes do and
     queues what it accepts."""
 
-    tracking: Check = TRACKING
+    before_the_contract: bool = False
+    received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
 
     @property
@@ -186,8 +191,13 @@ class FakeCdpApi:
 
     def post(self, url: str, *, data: Any = None, json: Any = None, **_kwargs: Any) -> requests.Response:
         request = json if json is not None else _json_loads(data)
+        self.received.append(request)
         is_code_send = url.endswith("/transactional_email/send")
-        keys = {**_TEMPLATE_REQUEST_KEYS, **({"send": _Key(_accepted_send(self.tracking))} if is_code_send else {})}
+        send = _accepted_send(
+            TRACKING_BEFORE_THE_CONTRACT if self.before_the_contract else TRACKING,
+            takes_sensitive=not self.before_the_contract,
+        )
+        keys = {**_TEMPLATE_REQUEST_KEYS, **({"send": _Key(send)} if is_code_send else {})}
         issues = _object(keys, strict=False)(request, [])
         if issues and all(_is_recipient_format_issue(issue) for issue in issues):
             return _response(422, {"error": "recipient_unreachable"})
@@ -195,6 +205,30 @@ class FakeCdpApi:
             return _response(400, {"error": _json_dumps(issues)})
         self.queued.append({name: value for name, value in request.items() if name in keys})
         return _response(202, {"invocation_id": str(uuid.uuid4())})
+
+    @contextmanager
+    def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
+        client_post.side_effect = self.post
+        yield self
+
+    def emails(self) -> list[dict[str, Any]]:
+        return [
+            {
+                **send["content"],
+                "captureEngagement": send["tracking"]["captureEngagement"],
+                **{name: send[name] for name in ("from", "replyTo", "cc", "bcc") if name in send},
+            }
+            for send in self.queued_sends
+        ]
+
+    def deliver(self) -> list[tuple[str, str]]:
+        delivered = [request for request in self.queued if "send" in request]
+        self.queued[:] = [request for request in self.queued if "send" not in request]
+        return [
+            ("$workflows_email_sent", request["distinct_id"])
+            for request in delivered
+            if request["send"]["tracking"]["captureEngagement"] is not False
+        ]
 
 
 @frozen

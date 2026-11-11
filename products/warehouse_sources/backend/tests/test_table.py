@@ -247,6 +247,15 @@ class TestWarehouseReadErrorClassification:
             ),
             (
                 ServerException(
+                    "DB::Exception: The table structure cannot be extracted from a Parquet format file. Error:\n"
+                    "Code: 117. DB::Exception: Failed to parse Parquet Thrift metadata from 40 bytes: "
+                    "TProtocolException: Exceeded size limit. (INCORRECT_DATA).",
+                    code=636,
+                ),
+                "corrupted or oversized metadata",
+            ),
+            (
+                ServerException(
                     "DB::Exception: Received DeltaLake kernel error ObjectStoreError: The operation lacked "
                     "the necessary privileges to complete for path team_0_source_0/table_0/_delta_log",
                     code=742,

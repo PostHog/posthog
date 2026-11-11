@@ -38,8 +38,8 @@ export interface TimeSeriesComboChartConfig {
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
      *  `'stacked'`. */
     barLayout?: ComboChartConfig['barLayout']
-    /** Stacked layout only — stack negative bar values below the zero baseline instead of
-     *  clamping them to 0. See {@link ComboChartConfig.divergingStack}. */
+    /** Stacked layout only — stack negative bar values below the zero baseline.
+     *  See {@link ComboChartConfig.divergingStack}. */
     divergingStack?: boolean
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
