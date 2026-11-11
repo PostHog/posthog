@@ -2797,21 +2797,23 @@ export const experimentLogic = kea<experimentLogicType>([
                     })
                     // Show the cached exposures immediately when the backend is recomputing in the
                     // background, instead of hanging on the spinner until the recompute finishes.
-                    const response = await performQuery(
-                        query,
-                        undefined,
-                        getExperimentRefreshMode(values.featureFlags, refresh),
-                        undefined, // queryId
-                        undefined, // setPollResponse
-                        undefined, // filtersOverride
-                        undefined, // variablesOverride
-                        false, // pollOnly
-                        undefined, // limitContext
-                        true // acceptStaleCache
-                    )
-                    /** A newer load can target a later window, so a slower older response must not replace it. */
-                    breakpoint()
-                    return response
+                    try {
+                        return await performQuery(
+                            query,
+                            undefined,
+                            getExperimentRefreshMode(values.featureFlags, refresh),
+                            undefined, // queryId
+                            undefined, // setPollResponse
+                            undefined, // filtersOverride
+                            undefined, // variablesOverride
+                            false, // pollOnly
+                            undefined, // limitContext
+                            true // acceptStaleCache
+                        )
+                    } finally {
+                        /** A newer load can target a later window, so an older response or error must not replace it. */
+                        breakpoint()
+                    }
                 },
             },
         ],

@@ -85,7 +85,10 @@ describe('experimentExposuresWindowLogic', () => {
         }
     })
 
-    it('keeps the newer window when an older load returns last', async () => {
+    it.each([
+        ['succeeds', 200],
+        ['fails', 500],
+    ])('keeps the newer window when an older load %s last', async (_, olderStatus) => {
         let releaseOlder: () => void = () => {}
         const olderHeld = new Promise<void>((resolve) => {
             releaseOlder = resolve
@@ -96,6 +99,7 @@ describe('experimentExposuresWindowLogic', () => {
                     const { query } = (await request.json()) as { query: { as_of: string | null } }
                     if (query.as_of === FIRST_WINDOW) {
                         await olderHeld
+                        return [olderStatus, { as_of: query.as_of }]
                     }
                     return [200, { as_of: query.as_of }]
                 },
