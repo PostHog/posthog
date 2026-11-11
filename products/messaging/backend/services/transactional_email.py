@@ -775,12 +775,15 @@ def _sandbox_sender_warning(team_id: int) -> SendWarning:
 def _sandbox_send_before_verification_warning(team_id: int) -> SendWarning:
     return SendWarning(
         code=SendWarningCode.SANDBOX_SENDER,
-        message="This email went out from PostHog's sandbox sender before this project verified its sending domain.",
+        message=(
+            "This email went out from PostHog's sandbox sender, because an earlier attempt with the same idempotency "
+            "key used it before this project verified its sending domain."
+        ),
         setup_url=sending_domain_setup(team_id).setup_url,
         agent_action=(
-            "Tell the user this email went out from PostHog's sandbox sender before their sending domain was "
-            "verified. New emails from this project go out from their own verified sender, so there is nothing to "
-            "set up."
+            "Tell the user this email went out from PostHog's sandbox sender, because an earlier attempt with the "
+            "same idempotency key used it before their sending domain was verified. New emails from this project go "
+            "out from their own verified sender, so there is nothing to set up."
         ),
     )
 
