@@ -138,11 +138,18 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         [
             ("window_in_range", "UTC", "2024-01-01T00:00:00+00:00", "2024-01-10T00:00:00+00:00", None),
             ("end_tomorrow", "UTC", "2024-01-01T00:00:00+00:00", "2024-01-16T00:00:00+00:00", None),
-            ("start_before_2015", "UTC", "2014-12-31T00:00:00+00:00", "2024-01-10T00:00:00+00:00", "before 2015"),
-            ("start_in_year_one_east_of_utc", "Asia/Tokyo", "0001-01-01T00:00:00+00:00", None, "before 2015"),
             (
-                "end_in_year_9999_west_of_utc",
-                "America/New_York",
+                "end_just_past_tomorrow",
+                "UTC",
+                "2024-01-01T00:00:00+00:00",
+                "2024-01-16T12:00:01+00:00",
+                "in the future",
+            ),
+            ("start_before_2015", "UTC", "2014-12-31T00:00:00+00:00", "2024-01-10T00:00:00+00:00", "before 2015"),
+            ("start_in_year_one_west_of_utc", "America/New_York", "0001-01-01T00:00:00+00:00", None, "before 2015"),
+            (
+                "end_in_year_9999_east_of_utc",
+                "Asia/Tokyo",
                 "2024-01-01T00:00:00+00:00",
                 "9999-12-31T23:00:00+00:00",
                 "in the future",

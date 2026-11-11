@@ -42,7 +42,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
-from posthog.utils import get_safe_cache, safe_cache_set
+from posthog.utils import ensure_utc, get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
@@ -134,10 +134,6 @@ def build_experiment_exposure_query(experiment: Experiment) -> ExperimentExposur
     )
 
 
-def _as_utc(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
 class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     query: ExperimentExposureQuery
     cached_response: CachedExperimentExposureQueryResponse
@@ -178,10 +174,14 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
         # The window comes from the request, and every day in it costs one row per variant in _fill_date_gaps and one
         # precompute window. The check runs before any timezone conversion, which raises OverflowError near year 1 or 9999.
-        if self.window_start is not None and _as_utc(self.window_start) < UNFILTERED_EARLIEST_TIMESTAMP_FLOOR:
+        if self.window_start is not None and ensure_utc(self.window_start) < UNFILTERED_EARLIEST_TIMESTAMP_FLOOR:
             raise ValidationError("The experiment start date is before 2015. Set a later start date.")
-        if self.window_end_date is not None and _as_utc(self.window_end_date) > datetime.now(UTC) + timedelta(days=1):
-            raise ValidationError("The experiment end date is in the future. Set an end date that has passed.")
+        if self.window_end_date is not None and ensure_utc(self.window_end_date) > datetime.now(UTC) + timedelta(
+            days=1
+        ):
+            raise ValidationError(
+                "Exposures can't be calculated for an end date in the future. Clear the end date to see exposures while the experiment runs."
+            )
         self.as_of = self.window_end_date or datetime.now(UTC)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
