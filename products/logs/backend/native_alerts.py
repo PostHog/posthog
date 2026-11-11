@@ -49,7 +49,12 @@ def native_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[Platf
 
 
 def create_native(
-    *, team_id: int, fields: Mapping[str, Any], grouping: Grouping | None, created_by_id: int
+    *,
+    team_id: int,
+    fields: Mapping[str, Any],
+    grouping: Grouping | None,
+    labels: dict[str, str] | None,
+    created_by_id: int,
 ) -> PlatformAlertConfigurationView:
     """Creates a logs alert on the platform alone, from the logs API's settings with their defaults applied.
 
@@ -57,7 +62,7 @@ def create_native(
     platform's logs schema rejects.
     """
     edit = platform_edit_of(
-        LogsAlertConfiguration(team_id=team_id, **fields), grouping if grouping is not None else Grouping()
+        LogsAlertConfiguration(team_id=team_id, **fields), grouping if grouping is not None else Grouping(), labels
     )
     return create_configuration(
         team_id=team_id, source_kind=SourceKind.LOGS, edit=edit, created_by_id=created_by_id, natively=True
@@ -70,6 +75,7 @@ def update_native(
     alert_id: UUID,
     changes: Mapping[str, Any],
     grouping: Grouping | None,
+    labels: dict[str, str] | None,
     snooze_until: datetime | None,
     snooze_changed: bool,
 ) -> PlatformAlertConfigurationView | None:
@@ -88,7 +94,7 @@ def update_native(
         team_id=team_id,
         source_kinds=_LOGS,
         configuration_id=alert_id,
-        change=platform_change_of(alert, grouping),
+        change=platform_change_of(alert, grouping, labels),
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
     )

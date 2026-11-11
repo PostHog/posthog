@@ -9,7 +9,10 @@
                 "backend/tasks/**",
                 "backend/models.py",
                 "backend/migrations/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/apps.py",
+                "backend/warehouse_view_provider.py",
+                "backend/warehouse_view_sync.py"
             ],
             "outputs": [],
             "cache": true
