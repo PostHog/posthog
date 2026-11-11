@@ -83,11 +83,24 @@ export function planCleanup(entries: ProcEntry[], selfPid: number, nodejsDir: st
     }
 }
 
+const runnerOf = (entry: ProcEntry): string | undefined =>
+    entry.environ?.find((variable) => variable.startsWith(`${MARKER_KEY}=`))?.slice(MARKER_KEY.length + 1)
+
+const listed = (entries: ProcEntry[]): string => entries.map((entry) => `${entry.pid} (${entry.cmdline})`).join(', ')
+
 export function strangerConflict(strangers: ProcEntry[]): StackConflictError {
-    const listed = strangers.map((entry) => `${entry.pid} (${entry.cmdline})`).join(', ')
-    return new StackConflictError(
-        `CDP processes the scenario runner did not start are running: ${listed}. Use \`hogli down\` if hogli started them. Run \`kill ${strangers.map((entry) => entry.pid).join(' ')}\`, then run the scenario again.`
-    )
+    const runners = [...new Set(strangers.flatMap((entry) => runnerOf(entry) ?? []))]
+    const unmarked = strangers.filter((entry) => runnerOf(entry) === undefined)
+    const sentences = runners.map((runner) => {
+        const roles = strangers.filter((entry) => runnerOf(entry) === runner)
+        return `Roles of the scenario runner that uses ${runner} are running: ${listed(roles)}. That runner restarts roles that are killed, so stop it`
+    })
+    if (unmarked.length > 0) {
+        sentences.push(
+            `CDP processes the scenario runner did not start are running: ${listed(unmarked)}. Use \`hogli down\` if hogli started them. Run \`kill ${unmarked.map((entry) => entry.pid).join(' ')}\``
+        )
+    }
+    return new StackConflictError(`${sentences.join('. ')}, then run the scenario again.`)
 }
 
 function readOptional(file: string): string | null {

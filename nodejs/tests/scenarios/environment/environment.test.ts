@@ -208,6 +208,18 @@ describe('scenario environment', () => {
         expect(error.message).toContain('Run `kill 41 42`, then run the scenario again.')
     })
 
+    it('names the runner to stop, not its roles, when another runner marked them', () => {
+        const error = strangerConflict([
+            proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
+            proc(211, 210, 'node src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
+        ])
+
+        expect(error).toMatchObject({ exitCode: 2 })
+        expect(error.message).toBe(
+            'Roles of the scenario runner that uses /home/other/.cache/posthog-scenarios are running: 210 (sh node_modules/.bin/tsx src/index.ts), 211 (node src/index.ts). That runner restarts roles that are killed, so stop it, then run the scenario again.'
+        )
+    })
+
     describe('roleSpecs', () => {
         const base = { PATH: '/usr/bin', AWS_PROFILE: 'prod-admin', HTTP_SERVER_PORT: '6738' }
         const specs = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
