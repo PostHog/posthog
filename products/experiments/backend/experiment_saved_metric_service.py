@@ -31,6 +31,8 @@ class SharedMetricType(models.TextChoices):
     FUNNEL = "funnel", "Funnel"
     RATIO = "ratio", "Ratio"
     RETENTION = "retention", "Retention"
+    QUANTILE = "quantile", "Percentile"
+    TREND = "trend", "Trend"
 
 
 class ExperimentSavedMetricService:
@@ -63,7 +65,11 @@ class ExperimentSavedMetricService:
         if metric_type:
             if metric_type not in SharedMetricType.values:
                 raise ValidationError({"metric_type": f"Must be one of: {', '.join(SharedMetricType.values)}."})
-            type_filter = Q(query__kind="ExperimentMetric", query__metric_type=metric_type)
+            if metric_type == SharedMetricType.TREND:
+                # Only legacy trend metrics carry the "Trend" type label. The new engine has no trend type.
+                type_filter = Q(query__kind="ExperimentTrendsQuery")
+            else:
+                type_filter = Q(query__kind="ExperimentMetric", query__metric_type=metric_type)
             if metric_type == SharedMetricType.FUNNEL:
                 # The list shows legacy funnel metrics with the same "Funnel" type label.
                 type_filter |= Q(query__kind="ExperimentFunnelsQuery")

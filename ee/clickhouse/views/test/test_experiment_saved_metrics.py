@@ -1068,6 +1068,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             ("Mine funnel checkout", self.user, [checkout], {"metric_type": "funnel"}),
             ("Other ratio both tags", other_user, [growth, checkout], {"metric_type": "ratio"}),
             ("Other legacy funnel", other_user, [], {"kind": "ExperimentFunnelsQuery"}),
+            ("Other legacy trend", other_user, [], {"kind": "ExperimentTrendsQuery"}),
+            ("Other percentile", other_user, [], {"metric_type": "quantile"}),
         ]:
             metric = ExperimentSavedMetric.objects.create(
                 team=self.team,
@@ -1096,6 +1098,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 {"Mine funnel checkout", "Other legacy funnel"},
             ),
             ("ratio", lambda t: {"metric_type": "ratio"}, {"Other ratio both tags"}),
+            # Legacy trend metrics have no `metric_type`, so the "Trend" label matches on `kind` alone.
+            ("trend_matches_legacy", lambda t: {"metric_type": "trend"}, {"Other legacy trend"}),
+            ("quantile", lambda t: {"metric_type": "quantile"}, {"Other percentile"}),
             (
                 "combined",
                 lambda t: {"created_by_id": str(t.other_user_id), "tags": '["checkout"]', "metric_type": "ratio"},
@@ -1117,7 +1122,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(body["count"], len(expected_names))
 
     def test_list_rejects_unknown_metric_type(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?metric_type=trend")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?metric_type=median")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 

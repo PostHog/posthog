@@ -671,9 +671,11 @@ export const ExperimentSavedMetricsListQueryParams = () => zod.object({
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     metric_type: zod
-        .enum(['funnel', 'mean', 'ratio', 'retention'])
+        .enum(['funnel', 'mean', 'quantile', 'ratio', 'retention', 'trend'])
         .optional()
-        .describe("Filter by metric type. 'funnel' also matches legacy funnel metrics."),
+        .describe(
+            "Filter by metric type. 'funnel' also matches legacy funnel metrics, and 'trend' matches legacy trend metrics."
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
     tags: zod

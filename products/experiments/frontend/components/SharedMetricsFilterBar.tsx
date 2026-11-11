@@ -14,6 +14,8 @@ const METRIC_TYPE_OPTIONS: { label: string; value: ExperimentSavedMetricsListMet
     { label: 'Funnel', value: ExperimentSavedMetricsListMetricType.Funnel },
     { label: 'Ratio', value: ExperimentSavedMetricsListMetricType.Ratio },
     { label: 'Retention', value: ExperimentSavedMetricsListMetricType.Retention },
+    { label: 'Percentile', value: ExperimentSavedMetricsListMetricType.Quantile },
+    { label: 'Trend', value: ExperimentSavedMetricsListMetricType.Trend },
 ]
 
 export function SharedMetricsFilterBar(): JSX.Element {

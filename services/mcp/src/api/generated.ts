@@ -133263,7 +133263,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Filter by metric type. 'funnel' also matches legacy funnel metrics.
+     * Filter by metric type. 'funnel' also matches legacy funnel metrics, and 'trend' matches legacy trend metrics.
      */
     metric_type?: ExperimentSavedMetricsListMetricType;
     /**
@@ -133286,8 +133286,10 @@ export namespace Schemas {
     export const ExperimentSavedMetricsListMetricType = {
       Funnel: 'funnel',
       Mean: 'mean',
+      Quantile: 'quantile',
       Ratio: 'ratio',
       Retention: 'retention',
+      Trend: 'trend',
     } as const;
 
     export type ExperimentsListParams = {

@@ -14,8 +14,8 @@
             "type": "number"
         },
         "metric_type": {
-            "description": "Filter by metric type. 'funnel' also matches legacy funnel metrics.",
-            "enum": ["funnel", "mean", "ratio", "retention"],
+            "description": "Filter by metric type. 'funnel' also matches legacy funnel metrics, and 'trend' matches legacy trend metrics.",
+            "enum": ["funnel", "mean", "quantile", "ratio", "retention", "trend"],
             "type": "string"
         },
         "offset": {

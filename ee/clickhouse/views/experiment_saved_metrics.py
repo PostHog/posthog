@@ -208,7 +208,8 @@ class ExperimentSavedMetricSerializer(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=SharedMetricType.values,
-                description="Filter by metric type. 'funnel' also matches legacy funnel metrics.",
+                description="Filter by metric type. 'funnel' also matches legacy funnel metrics, and 'trend' matches "
+                "legacy trend metrics.",
             ),
         ],
     ),
