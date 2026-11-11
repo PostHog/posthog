@@ -95,11 +95,9 @@ def subscribers_with_insight_access(*, team_id: int, configuration_id: UUID, use
     insight = insight_of(team_id, configuration.source_config) if configuration is not None else None
     if insight is None:
         return []
-    team = Team.objects.get(id=team_id)
+    controls = UserAccessControl.for_user_ids(user_ids=user_ids, team=Team.objects.get(id=team_id))
     return [
-        user.id
-        for user in User.objects.filter(id__in=user_ids)
-        if UserAccessControl(user, team=team).check_access_level_for_object(insight, "viewer")
+        user_id for user_id, control in controls.items() if control.check_access_level_for_object(insight, "viewer")
     ]
 
 

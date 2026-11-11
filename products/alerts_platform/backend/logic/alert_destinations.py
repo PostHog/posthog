@@ -195,6 +195,41 @@ def subscriber_user_ids_by_public_id(*, team_id: int, public_ids: Collection[UUI
     }
 
 
+def remove_subscriber(*, team_ids: Collection[int], user_id: int) -> int:
+    """Takes a user out of every subscriber destination of these teams' alerts, and returns how many
+    alerts named them. A destination left naming nobody is deleted.
+
+    One alert per transaction, in id order, so this never holds two alerts' locks at once.
+    """
+    removed = 0
+    for team_id in team_ids:
+        rows = AlertDestination.objects.for_team(team_id).filter(
+            type__in=[DestinationType.EMAIL, DestinationType.IN_APP]
+        )
+        naming = sorted({row.configuration_id for row in rows if user_id in _subscriber_user_ids(row)})
+        for configuration_id in naming:
+            with transaction.atomic():
+                PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().filter(
+                    id=configuration_id
+                ).first()
+                for row in _subscriber_rows(team_id, [configuration_id]):
+                    remaining = [named for named in _subscriber_user_ids(row) if named != user_id]
+                    if not remaining:
+                        row.delete()
+                        continue
+                    key = "email_user_ids" if row.type == DestinationType.EMAIL else "in_app_user_ids"
+                    row.config = {**row.config, key: remaining}
+                    row.save(update_fields=["config", "updated_at"])
+            removed += 1
+    return removed
+
+
+def _subscriber_user_ids(row: AlertDestination) -> list[int]:
+    if row.type == DestinationType.EMAIL:
+        return list(row.config.get("email_user_ids", []))
+    return list(row.config.get("in_app_user_ids", []))
+
+
 def _subscriber_rows(team_id: int, configuration_ids: Collection[UUID]) -> list[AlertDestination]:
     """Destinations that name users who subscribed, rather than a channel or addresses a person typed.
 

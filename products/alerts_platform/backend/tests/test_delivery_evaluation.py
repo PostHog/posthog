@@ -16,6 +16,7 @@ from posthog.utils import absolute_uri
 from products.alerts_platform.backend.delivery import (
     delivery_paths,
     describers,
+    destinations as destinations_registry,
     legacy_webhook,
     recipients,
     subscribers,
@@ -751,7 +752,10 @@ class TestDeliverEvaluation(APIBaseTest):
 
             assert recipients._recipients == {SourceKind.LOGS: first}
 
-    def test_email_and_in_app_rows_reach_each_user_who_can_still_see_the_alert_at_their_current_address(self) -> None:
+    @parameterized.expand([("with_the_sources_access_rule", True), ("without_an_access_rule", False)])
+    def test_email_and_in_app_rows_reach_each_user_who_can_still_see_the_alert_at_their_current_address(
+        self, _name: str, source_has_rule: bool
+    ) -> None:
         configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
             id=CONFIGURATION_ID,
             team=self.team,
@@ -782,14 +786,16 @@ class TestDeliverEvaluation(APIBaseTest):
         def source_access(*, team_id: int, configuration_id: UUID, user_ids: list[int]) -> list[int]:
             return [user_id for user_id in user_ids if user_id != denied.id]
 
-        with patch.dict(subscribers._access, {SourceKind.LOGS: source_access}):
+        with patch.dict(subscribers._access, {SourceKind.LOGS: source_access} if source_has_rule else {}, clear=True):
             self._run(
                 _announcement(_transition(AlertEventKind.FIRING)),
                 {},
                 transports={DestinationType.EMAIL: EmailingTransport, DestinationType.IN_APP: NotifyingTransport},
             )
 
-        assert sorted(channel for channel, _ in RecordingTransport.sends) == [str(self.user.id), "renamed@example.com"]
+        assert sorted(channel for channel, _ in RecordingTransport.sends) == (
+            [str(self.user.id), "renamed@example.com"] if source_has_rule else []
+        )
 
 
 class TestDeliveryPath(APIBaseTest):
@@ -887,10 +893,12 @@ class TestDeliveryPath(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_row_beside_a_customized_hog_function", (), DeliveryPath.HOG_FUNCTION, 1, ["C-native"]),
+            ("a_row_beside_a_customized_hog_function", (), True, True, DeliveryPath.HOG_FUNCTION, 1, ["C-native"]),
             (
                 "a_row_copying_a_live_hog_function",
                 HOG_FUNCTION_SLACK.hog_function_ids,
+                True,
+                True,
                 DeliveryPath.HOG_FUNCTION,
                 1,
                 [],
@@ -898,9 +906,29 @@ class TestDeliveryPath(APIBaseTest):
             (
                 "a_row_copying_a_stock_hog_function",
                 HOG_FUNCTION_SLACK.hog_function_ids,
+                True,
+                True,
                 DeliveryPath.NATIVE,
                 0,
                 ["C-1"],
+            ),
+            (
+                "a_row_copying_one_without_its_alert_filter",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                False,
+                True,
+                DeliveryPath.HOG_FUNCTION,
+                1,
+                ["C-2"],
+            ),
+            (
+                "a_row_copying_a_deleted_hog_function",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                False,
+                False,
+                DeliveryPath.HOG_FUNCTION,
+                1,
+                ["C-2", "C-native"],
             ),
         ]
     )
@@ -908,6 +936,8 @@ class TestDeliveryPath(APIBaseTest):
         self,
         _name: str,
         legacy_hog_function_ids: tuple[UUID, ...],
+        listed: bool,
+        live: bool,
         path: DeliveryPath,
         emitted: int,
         native_channels: list[str],
@@ -924,7 +954,15 @@ class TestDeliveryPath(APIBaseTest):
             ),
         )
 
-        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._chooses(path))
+        def live_ids(*, team_id: int, hog_function_ids: Any) -> frozenset[UUID]:
+            return frozenset(hog_function_ids) if live else frozenset()
+
+        with patch.object(destinations_registry, "_live_lookup", live_ids):
+            self._run(
+                _announcement(_transition(AlertEventKind.FIRING)),
+                self._chooses(path),
+                groups=None if listed else [SUBSCRIBER],
+            )
 
         assert len(self.emitted) == emitted
         assert [channel for channel, _ in RecordingTransport.sends] == native_channels
