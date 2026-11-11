@@ -4,6 +4,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { isProductionEnv } from '../db/role-guard'
+
 /** Where the pod's service account credentials are projected. */
 export const SERVICE_ACCOUNT_DIR = '/var/run/secrets/kubernetes.io/serviceaccount'
 
@@ -56,19 +58,6 @@ export interface DatabaseConfig {
     migrateUser?: string
 }
 
-/** Where audit rows are sent as `$credentials_access` events. */
-export interface AuditExportConfig {
-    /** Base URL of the capture host. The service posts to `/batch/` on it. */
-    host: string
-    /** The project API key of the receiving project. */
-    apiKey: string
-    batchSize: number
-    intervalSeconds: number
-    timeoutMs: number
-}
-
-export const MAX_AUDIT_RETENTION_DAYS = 60
-
 export interface Config {
     port: number
     host: string
@@ -97,17 +86,14 @@ export interface Config {
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
 
+    /** Set when CREDENTIALS_SERVICE_KMS_PROVIDER is set. The integration routes need it. */
+    kms?: KmsConfig
+
     /**
      * Set when CREDENTIALS_SERVICE_DATABASE_URL is set. Without it the service serves platform
      * secrets only, and the integration features are off.
      */
     database?: DatabaseConfig
-
-    /** Set when CREDENTIALS_SERVICE_KMS_PROVIDER is set. The integration routes need it. */
-    kms?: KmsConfig
-
-    /** Set when CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED is `true`. Without it no audit row leaves the database. */
-    auditExport?: AuditExportConfig
 
     /**
      * Directory of Ed25519 public keys for the integrations audience, one `<deployment>.pub`
@@ -209,24 +195,27 @@ export function loadDatabaseConfig(): DatabaseConfig | undefined {
     return database
 }
 
-function auditExportFromEnv(): AuditExportConfig | undefined {
-    if (process.env.CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED !== 'true') {
+/**
+ * What the migrate entry point needs. The migrate role owns the tables. The runtime role is the
+ * one the service connects as, and gets grants from the migrations.
+ */
+export interface MigrateConfig {
+    url: string
+    /** Empty in single-role local development: the grants are then skipped. */
+    runtimeRole: string
+}
+
+/** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
+export function loadMigrateConfig(): MigrateConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL || process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
         return undefined
     }
-    const host = process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST
-    const apiKey = process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY
-    if (!host || !apiKey) {
-        throw new Error(
-            'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED=true needs CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST and CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY'
-        )
+    const runtimeRole = process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE ?? ''
+    if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
+        throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
     }
-    return {
-        host: httpUrlFromEnv('CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST', host),
-        apiKey,
-        batchSize: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_BATCH_SIZE', 500, 1),
-        intervalSeconds: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_INTERVAL_SECONDS', 10, 1),
-        timeoutMs: intFromEnv('CREDENTIALS_SERVICE_AUDIT_EXPORT_TIMEOUT_MS', 10_000, 1),
-    }
+    return { url, runtimeRole }
 }
 
 function kmsFromEnv(env: string): KmsConfig | undefined {
@@ -243,7 +232,7 @@ function kmsFromEnv(env: string): KmsConfig | undefined {
 
     if (provider === 'local') {
         // The local keys sit in plain config, so they must never protect cloud customer data.
-        if (env.startsWith('prod')) {
+        if (isProductionEnv(env)) {
             throw new Error(`CREDENTIALS_SERVICE_KMS_PROVIDER=local is not allowed in ${env}`)
         }
         return { provider, keys: localKmsKeysFromEnv() }
@@ -295,54 +284,6 @@ function httpUrlFromEnv(key: string, raw: string): string {
     return raw
 }
 
-/**
- * What the migrate entry point needs. The migrate role owns the tables. The runtime role is the
- * one the service connects as, and gets grants from the migrations.
- */
-export interface MigrateConfig {
-    url: string
-    /** Empty in single-role local development: the grants are then skipped. */
-    runtimeRole: string
-}
-
-/** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
-export function loadMigrateConfig(): MigrateConfig | undefined {
-    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL || process.env.CREDENTIALS_SERVICE_DATABASE_URL
-    if (!url) {
-        return undefined
-    }
-    const runtimeRole = process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE ?? ''
-    if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
-        throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
-    }
-    return { url, runtimeRole }
-}
-
-/** What the maintenance command needs. It connects as the migrate role, never as the runtime role. */
-export interface MaintenanceConfig {
-    url: string
-    retentionDays: number
-    /** Delete rows that were never exported. Off by default, so an export that is off keeps its rows. */
-    deleteUnexported: boolean
-}
-
-/** Undefined without a migrate URL. The command does not fall back to the runtime URL. */
-export function loadMaintenanceConfig(): MaintenanceConfig | undefined {
-    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
-    if (!url) {
-        return undefined
-    }
-    const retentionDays = intFromEnv('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS', 30, 1)
-    if (retentionDays > MAX_AUDIT_RETENTION_DAYS) {
-        throw new Error(`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS must be at most ${MAX_AUDIT_RETENTION_DAYS}`)
-    }
-    return {
-        url,
-        retentionDays,
-        deleteUnexported: process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED === 'true',
-    }
-}
-
 export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
     const config: Config = {
         port: intFromEnv('PORT', 8004),
@@ -359,11 +300,6 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
         reloadSeconds: intFromEnv('CREDENTIALS_SERVICE_RELOAD_SECONDS', 30, 1),
 
         metricsPort: intFromEnv('CREDENTIALS_SERVICE_METRICS_PORT', 9090),
-    }
-
-    const auditExport = auditExportFromEnv()
-    if (auditExport) {
-        config.auditExport = auditExport
     }
 
     const database = loadDatabaseConfig()

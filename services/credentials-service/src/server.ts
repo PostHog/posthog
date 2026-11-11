@@ -10,7 +10,6 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Pool } from 'pg'
 
-import { AuditExporter, captureSender } from './audit/exporter'
 import { IntegrationKeyLoader } from './auth/integration-keys'
 import { IntegrationVerifier } from './auth/integrations'
 import { JwtVerifier } from './auth/jwt'
@@ -86,6 +85,9 @@ export class CredentialsServer {
     private secretsReady = false
     private databaseReady = false
     private databaseRefused = false
+    // Set once enableIntegrations has run to the end, so a database that answers late does not
+    // turn the pod ready while the integration routes are still missing.
+    private integrationsSettled = false
     private cancelTimers: (() => void)[] = []
     private processListeners = new Map<string, (...args: unknown[]) => void>()
     private stopping = false
@@ -145,7 +147,8 @@ export class CredentialsServer {
     // take the platform secrets down with it: those do not need the database.
     private updateReadiness(): void {
         this.lifecycle.ready =
-            this.secretsReady && (!this.config.database || this.databaseReady || this.databaseRefused)
+            this.secretsReady &&
+            (!this.config.database || (this.databaseReady && this.integrationsSettled) || this.databaseRefused)
     }
 
     /** The pool, once the database answered and the runtime role passed the production check. */
@@ -236,6 +239,10 @@ export class CredentialsServer {
                 keys: Boolean(config.integrationCallerPublicKeysDir),
             })
         }
+        if (poolAdmitted || !pool) {
+            this.integrationsSettled = true
+            this.updateReadiness()
+        }
     }
 
     async start(): Promise<void> {
@@ -268,9 +275,6 @@ export class CredentialsServer {
             lifecycle: this.lifecycle,
             secrets: () => mount.current(),
             integrations: () => this.integrations,
-        }
-        if (this.pool) {
-            this.startAuditMaintenance(this.pool)
         }
         const app = createApp(appOptions)
 
@@ -311,15 +315,6 @@ export class CredentialsServer {
         this.cancelTimers.push(every(config.reloadSeconds * 1000, () => this.reload()))
 
         this.setupProcessListeners()
-    }
-
-    private startAuditMaintenance(pool: Pool): void {
-        const { auditExport } = this.config
-        if (auditExport) {
-            const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize)
-            this.cancelTimers.push(every(auditExport.intervalSeconds * 1000, async () => void (await exporter.tick())))
-            this.cancelTimers.push(() => exporter.stop())
-        }
     }
 
     async stop(signal: string, error?: Error): Promise<void> {

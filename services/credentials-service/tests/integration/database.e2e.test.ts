@@ -29,7 +29,6 @@ const MIGRATIONS = [
     '1794323815130_initial-schema',
     '1794323815131_runtime-role-grants',
     '1794323815132_idempotency-deployment',
-    '1794323815133_audit-exported-at',
 ]
 const TABLES = ['audit_log', 'audit_log_default', 'auth_jti', 'idempotency_keys', 'integration_secrets', 'integrations']
 const TEAM: IntegrationOwner = { type: 'team', id: 1 }
@@ -508,9 +507,15 @@ describe('server readiness with a database', () => {
         )
 
         it.each([
-            ['DELETE on the default partition', 'GRANT DELETE ON audit_log_default TO'],
-            ['TRUNCATE on the default partition', 'GRANT TRUNCATE ON audit_log_default TO'],
-            ['column UPDATE on the audit log', 'GRANT UPDATE (outcome) ON audit_log TO'],
+            ['DELETE on the default partition', (role: string) => `GRANT DELETE ON audit_log_default TO ${role}`],
+            ['TRUNCATE on the default partition', (role: string) => `GRANT TRUNCATE ON audit_log_default TO ${role}`],
+            ['column UPDATE on the audit log', (role: string) => `GRANT UPDATE (outcome) ON audit_log TO ${role}`],
+            [
+                'NOINHERIT membership in the audit log owner',
+                (role: string) =>
+                    `DO $$ BEGIN EXECUTE format('GRANT %I TO ${role} WITH INHERIT FALSE', ` +
+                    `(SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'audit_log'::regclass)); END $$`,
+            ],
         ])('refuses a runtime role with %s', async (_label, grant) => {
             const role = `credentials_guard_${Math.random().toString(36).slice(2, 10)}`
             await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${PASSWORD}'`)
@@ -520,7 +525,7 @@ describe('server readiness with a database', () => {
             const db = new Pool({ connectionString: migratedUrl })
             try {
                 await db.query(`GRANT SELECT, INSERT ON audit_log TO ${role}`)
-                await db.query(`${grant} ${role}`)
+                await db.query(grant(role))
             } finally {
                 await db.end()
             }
@@ -528,6 +533,36 @@ describe('server readiness with a database', () => {
             await boot({ url: url.toString(), poolSize: 2 }, undefined, false, 'prod-us')
 
             expect(bootedServer().integrationsPool()).toBeUndefined()
+        })
+
+        it('refuses a runtime role that owns the schema of the audit log', async () => {
+            const role = `credentials_guard_${Math.random().toString(36).slice(2, 10)}`
+            await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${PASSWORD}'`)
+            const url = new URL(migratedUrl)
+            url.username = role
+            url.password = PASSWORD
+            const db = new Pool({ connectionString: migratedUrl })
+            const schema = await db.query<{ nspname: string; owner: string }>(
+                `SELECT n.nspname, pg_get_userbyid(n.nspowner) AS owner
+                 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE c.oid = 'audit_log'::regclass`
+            )
+            const row = schema.rows[0]
+            if (!row) {
+                throw new Error('audit_log has no schema')
+            }
+            const { nspname, owner } = row
+            try {
+                await db.query(`GRANT SELECT, INSERT ON audit_log TO ${role}`)
+                await db.query(`ALTER SCHEMA "${nspname}" OWNER TO ${role}`)
+
+                await boot({ url: url.toString(), poolSize: 2 }, undefined, false, 'prod-us')
+
+                expect(bootedServer().integrationsPool()).toBeUndefined()
+            } finally {
+                await db.query(`ALTER SCHEMA "${nspname}" OWNER TO "${owner}"`)
+                await db.end()
+            }
         })
 
         it.each(['Prod-us', 'prod_us', 'PRODUCTION'])('treats the typo %s as production', async (env) => {

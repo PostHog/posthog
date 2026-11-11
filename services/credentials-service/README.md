@@ -301,8 +301,6 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_http_request_duration_seconds{method,route,status}` | request latency                                               |
 | `credentials_service_audit_dropped_total{reason}`                        | read audit rows lost: `queue_full` or `write_failed`          |
 | `credentials_service_audit_written_total`                                | read audit rows written by the async queue                    |
-| `credentials_service_audit_exported_total{outcome}`                      | audit rows sent to capture: `sent` or `failed` (retried)      |
-| `credentials_service_audit_export_lag_seconds`                           | age of the oldest audit row not exported yet, 0 when none     |
 | `credentials_service_shutting_down`                                      | 1 while draining                                              |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
@@ -380,38 +378,6 @@ Infra runs pg_partman for the daily partitions: `create_parent('public.audit_log
 Set pg_partman up before the service writes audit rows.
 Rows that land in the default partition stop pg_partman from making a partition for that day, until they are moved with `partition_data_proc`.
 
-### Audit export and retention
-
-When `CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED=true`, every pod runs an export loop.
-It needs `CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST` and `CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY`.
-Optional: `..._AUDIT_EXPORT_BATCH_SIZE` (500), `..._AUDIT_EXPORT_INTERVAL_SECONDS` (10), `..._AUDIT_EXPORT_TIMEOUT_MS` (10000).
-The loop posts rows that have no `exported_at` to `/batch/` as `$credentials_access` events, and then sets `exported_at`.
-One pod at a time exports: it holds `pg_try_advisory_lock`, and it selects batches with `FOR UPDATE SKIP LOCKED`.
-A failed send keeps the rows for the next pass. The row id is the event `uuid`, so a repeat send does not create a second event.
-The distinct id is always `credentials-service`, with `$process_person_profile` off. The user id is an event property.
-An event carries key names in `fields`, never values. It carries no `details` and no `jti`.
-The request uses plain `fetch`, so it goes direct unless Node itself is set to use the proxy environment.
-
-The runtime role has `UPDATE (exported_at)` on `audit_log` and no other update right. The exporter marks rows by primary key `(id, occurred_at)`, with the values it read in its select.
-
-**Retention** does not run in the service, because the runtime role cannot delete audit rows.
-It runs as a separate command under the migrate (maintenance) role, from the same image, as a Kubernetes CronJob:
-
-```bash
-node credentials-service-maintenance.mjs audit-retention
-pnpm --filter @posthog/credentials-service maintenance audit-retention   # from source
-```
-
-It reads `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` (it does not fall back to the runtime URL) and `CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS` (default 30, maximum 60).
-It deletes only rows that the export already marked with `exported_at`, so an export that is off or behind keeps its rows.
-Set `CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED=true` to delete old rows without an export. The stdout audit lines in Loki are then the only copy.
-It deletes older rows in batches under an advisory lock, and logs `maintenance:complete`.
-Run it hourly. When infra runs pg_partman retention on `audit_log`, drop the CronJob.
-
-**Alerts.** Alert on service metrics and on the stdout audit lines (`integrations:audited`) in Loki.
-Never alert on `$credentials_access` events: anyone with the project key can forge them, so the events are for analysis only.
-Alert on `credentials_service_audit_dropped_total` above 0, and on export lag (`credentials_service_audit_export_lag_seconds`).
-
 ## Integrations API
 
 The routes exist only when `CREDENTIALS_SERVICE_DATABASE_URL`, `CREDENTIALS_SERVICE_KMS_PROVIDER`, and `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` are set.
@@ -483,6 +449,37 @@ npm dependency, so those still rest on review of `package.json` and the lockfile
 Installs run `--ignore-scripts`; nothing in the tree needs an install-time script, and that is
 the npm-specific supply-chain path worth closing here.
 
+## Provider registry
+
+`src/providers/` holds one spec per integration kind: authorize and token URLs, scopes, PKCE, client secret names with fallbacks for rotated apps, token info paths, refresh policy, minter, and the secret fields that `/resolve` may return.
+The service checks every spec with zod at boot and exits if one is invalid.
+The registry is the source of truth for `posthog/integrations/catalogue_generated.json`, which Django reads to build authorize URLs.
+
+To add a kind, write `src/providers/<kind>.ts`, add it to `src/providers/index.ts`, and run `hogli build:projections --only credentials-catalogue`.
+`src/catalogue.ts` and everything it imports must not import an npm package, because the projection check bundles it in a CI job with no `node_modules`.
+
+### Safety rules in the spec
+
+The service enforces these rules on every exchange and refresh. A config write or a stray row cannot turn them off.
+
+- `token.tokenHost` names a config field and a list of allowed host suffixes. The service sends the client secret to that host only when the value is a plain https URL with no port, no credentials and an allowed host. Otherwise it uses the fixed `token.url`. Salesforce uses it with `instance_url` and `.salesforce.com`, the same check as `_salesforce_instance_host`.
+- `regions.<region>.allowedIn` lists the service environments where a row region may exist. The `posthog` kind will use it so that the `dev` region never runs in `prod-us` or `prod-eu`.
+- `identityConfigKeys` lists the config keys that name the account, installation or region of a row. Create and exchange set them. The `PATCH` route refuses them, because the AAD does not cover config. Use `identityConfigKeys(kind)` from `src/providers`.
+
+### Provider secret names
+
+Client secrets and minter keys use the reserved prefix `__PROVIDER_`. The secrets route never serves this prefix. Only the registry reads these names.
+After the prefix comes the name that Django settings and the platform secret mount use today.
+For example, `SLACK_APP_CLIENT_SECRET` becomes `__PROVIDER_SLACK_APP_CLIENT_SECRET`, and `GITHUB_APP_PRIVATE_KEY` becomes `__PROVIDER_GITHUB_APP_PRIVATE_KEY`.
+The Python catalogue keeps the old names, and Django settings do not change.
+The mount must keep `__PROVIDER_` entries for the registry in the exchange and refresh PR. Today it skips every `__` name.
+
+### Egress
+
+Every provider HTTP call goes through smokescreen. The chart sets `NODE_USE_ENV_PROXY=1` and an egress NetworkPolicy.
+The exchange and refresh PR must use the proxy-aware `fetch`, and must not open its own connection.
+KMS and the internal capture host are the only direct egress.
+
 ## Local development
 
 ```bash
@@ -515,8 +512,10 @@ mount.
 
 The `aws` provider makes one attempt and two retries, each limited to 2s.
 It connects to KMS directly and ignores `HTTP_PROXY` and `HTTPS_PROXY`, unless `CREDENTIALS_SERVICE_KMS_PROXY_URL` is set.
+KMS traffic uses the AWS KMS VPC endpoint (`CREDENTIALS_SERVICE_KMS_ENDPOINT`) and does not use the HTTP proxy.
+This is the only direct egress of the service, besides the internal capture host.
 The `local` provider wraps data keys with AES-256-GCM under keys from config, for dev, CI and hobby.
-Its wrapped keys go into the same columns. The service refuses it when `CREDENTIALS_SERVICE_ENV` starts with `prod`.
+Its wrapped keys go into the same columns. The service refuses it when `CREDENTIALS_SERVICE_ENV` contains `prod`, in any case.
 
 | Variable                             | Default | Notes                                                                      |
 | ------------------------------------ | ------- | -------------------------------------------------------------------------- |
