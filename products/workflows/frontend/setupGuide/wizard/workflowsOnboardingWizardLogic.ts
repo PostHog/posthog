@@ -111,6 +111,7 @@ export interface workflowsOnboardingWizardLogicValues {
     savedFrequencyCap: FrequencyCap
     selectedTemplate: HogFlowTemplate | null
     selectedTemplateId: string | null
+    sendingRulesDisabledReason: string | null
     setupCheckFailed: boolean
     shownCustomFrequencyCap: FrequencyCap
     shownEngagementEvents: boolean
@@ -278,6 +279,7 @@ export interface workflowsOnboardingWizardLogicMeta {
             canEditSendingRules: boolean
         ) => boolean
         canEditSendingRules: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        sendingRulesDisabledReason: (canEditSendingRules: boolean, currentTeamLoading: boolean) => string | null
         reachChannels: (
             chosenReachChannels: ('email' | 'push')[] | null,
             integrations: IntegrationType[] | null
@@ -555,6 +557,15 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
             (currentTeam: TeamType | null): boolean =>
                 (currentTeam?.effective_membership_level ?? -1) >= TeamMembershipLevel.Admin,
         ],
+        sendingRulesDisabledReason: [
+            (s) => [s.canEditSendingRules, s.currentTeamLoading],
+            (canEditSendingRules: boolean, currentTeamLoading: boolean): string | null => {
+                if (!canEditSendingRules) {
+                    return 'Only project admins can change sending rules'
+                }
+                return currentTeamLoading ? 'Saving your sending rules' : null
+            },
+        ],
         reachChannels: [
             (s) => [s.chosenReachChannels, s.integrations],
             (
@@ -786,7 +797,10 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                     )
                 }
             },
-            setStepIndex: captureStepViewed,
+            setStepIndex: () => {
+                cache.finishAfterSave = false
+                captureStepViewed()
+            },
             positionAtFirstOpenStep: captureStepViewed,
             next: () => {
                 const step = values.currentStep

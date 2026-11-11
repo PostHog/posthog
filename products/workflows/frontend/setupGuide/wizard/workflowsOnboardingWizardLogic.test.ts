@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import type { MockResolverInfo, Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
 import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
@@ -225,6 +226,64 @@ describe('workflowsOnboardingWizardLogic', () => {
         await expectLogic(teamLogic).toFinishAllListeners()
 
         expect(logic.values.currentStep).toBe('sending-rules')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.workflows('onboarding'))
+    })
+
+    function heldTeamSave(): { mocks: Mocks; releaseSave: () => void } {
+        let releaseSave: () => void = () => {}
+        const saveHeld = new Promise<void>((resolve) => {
+            releaseSave = resolve
+        })
+        const mocks: Mocks = {
+            patch: {
+                '/api/environments/:team_id/': async ({ request }: MockResolverInfo) => {
+                    const body = (await request.json()) as object
+                    await saveHeld
+                    return [200, { ...MOCK_DEFAULT_TEAM, ...body }]
+                },
+            },
+        }
+        return { mocks, releaseSave }
+    }
+
+    async function reachSendingRules(): Promise<void> {
+        setJourneyFirstVariant('test')
+        logic = workflowsOnboardingWizardLogic()
+        logic.mount()
+        await enterWizard('messaging')
+        logic.actions.selectTemplate(WELCOME_TEMPLATE.id)
+        while (logic.values.currentStep !== 'sending-rules') {
+            await expectLogic(logic, () => logic.actions.next()).toFinishAllListeners()
+        }
+    }
+
+    it('locks the sending rules while they save at the end of the test arm', async () => {
+        const { mocks, releaseSave } = heldTeamSave()
+        useMocks(mocks)
+        await reachSendingRules()
+
+        logic.actions.next()
+        expect(logic.values.sendingRulesDisabledReason).toBe('Saving your sending rules')
+        releaseSave()
+        await expectLogic(teamLogic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sendingRulesDisabledReason).toBeNull()
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.workflowNew())
+    })
+
+    it('stays on the step a person goes back to while the sending rules save', async () => {
+        const { mocks, releaseSave } = heldTeamSave()
+        useMocks(mocks)
+        await reachSendingRules()
+
+        logic.actions.next()
+        logic.actions.back()
+        releaseSave()
+        await expectLogic(teamLogic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentStep).toBe('opt-outs')
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.workflows('onboarding'))
     })
 
