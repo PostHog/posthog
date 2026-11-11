@@ -25,19 +25,6 @@ function trafficKind(name: string): TrafficKind {
     return kind
 }
 
-async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promise<void> {
-    if (signal.aborted) {
-        work.catch(() => undefined)
-        return
-    }
-    const settled = new AbortController()
-    try {
-        await Promise.race([work, once(signal, 'abort', { signal: settled.signal })])
-    } finally {
-        settled.abort()
-    }
-}
-
 const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 export async function seed({ card }: LoadedCard, postgres: PostgresRouter): Promise<SeedState> {
@@ -79,10 +66,11 @@ export async function drive(
     const offers: Promise<void>[] = []
     const failed = new AbortController()
     const stop = AbortSignal.any([signal, failed.signal])
+    const stopped = once(stop, 'abort')
     for (const [n, { kind, atMs }] of schedule.entries()) {
         const waitMs = start + atMs - Date.now()
         if (waitMs > 0) {
-            await untilAborted(elapse(waitMs), stop)
+            await Promise.race([elapse(waitMs), stopped])
         }
         if (stop.aborted || Date.now() > end) {
             break
@@ -109,7 +97,7 @@ export async function drive(
         offer.catch((error: unknown) => failed.abort(error))
         offers.push(offer)
     }
-    await untilAborted(Promise.all(offers), stop)
+    await Promise.race([Promise.all(offers), stopped])
     if (failed.signal.aborted) {
         throw failed.signal.reason
     }

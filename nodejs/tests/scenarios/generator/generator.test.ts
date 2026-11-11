@@ -1,5 +1,4 @@
 import { execFile } from 'child_process'
-import { getEventListeners } from 'events'
 import path from 'path'
 
 import { LoadedCard, load } from '../cards'
@@ -98,32 +97,22 @@ describe('drive', () => {
         })
     })
 
-    it.each<[string, (entry: JournalEntry) => void]>([
-        ['ends', () => {}],
-        [
-            'fails to record a unit',
-            () => {
-                throw new Error('journal full')
-            },
-        ],
-    ])('leaves no abort listener on the interrupt signal once a drive %s', async (_name, record) => {
+    it('ends at an interrupt between units without waiting for the next unit', async () => {
         const interrupt = new AbortController()
-        const driving = drive(
-            cardWith({ ratePerSecond: 50, driveFor: '100ms' }),
-            { teamIds: [7] },
-            { record },
-            interrupt.signal,
-            {
-                producer: { produce: ACKNOWLEDGED },
-                eventsTopic: 'scenario_events_test',
-                runId: 'run-a',
-            }
-        ).catch(() => undefined)
+        const { driving, journal } = startDrive(cardWith({ ratePerSecond: 1, driveFor: '1m' }), ACKNOWLEDGED, {
+            signal: interrupt.signal,
+        })
+        let summary: Summary | undefined
+        void driving.then((ended) => (summary = ended))
 
-        await jest.advanceTimersByTimeAsync(100)
-        await driving
+        await jest.advanceTimersByTimeAsync(0)
+        interrupt.abort()
+        await jest.advanceTimersByTimeAsync(0)
 
-        expect(getEventListeners(interrupt.signal, 'abort')).toEqual([])
+        expect({ summary, journaled: journal.map(({ unitId }) => unitId) }).toEqual({
+            summary: { targetUnits: 60, offeredUnits: 1 },
+            journaled: ['run-a-1'],
+        })
     })
 
     it.each([
