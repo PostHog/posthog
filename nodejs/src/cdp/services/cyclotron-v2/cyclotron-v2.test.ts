@@ -2637,6 +2637,8 @@ describe('Cyclotron V2', () => {
                     { teamId: lockedTeam, queueName: EMAIL_QUEUE },
                     { teamId: freeTeam, queueName: EMAIL_QUEUE },
                 ])
+                const earlierEmails = await dequeueOneBatch(createFairWorker())
+                await Promise.all(earlierEmails.map((job) => job.ack()))
                 await manager.bulkCreateJobs([
                     { teamId: lockedTeam, queueName: 'hogflow' },
                     { teamId: freeTeam, queueName: 'hogflow' },
@@ -2659,8 +2661,9 @@ describe('Cyclotron V2', () => {
                     ])
 
                     expect(freeTeamReroute.status).toBe('fulfilled')
-                    expect(await readDequeueSeq(freeTeamJob.id)).toBe(BigInt(2 * 16_777_216) + BigInt(freeTeam))
                     expect(lockedTeamReroute.status).toBe('rejected')
+                    const emailJobs = await dequeueOneBatch(createFairWorker())
+                    expect(emailJobs.map((job) => job.id)).toEqual([freeTeamJob.id])
                 } finally {
                     await holder.query('ROLLBACK')
                     holder.release()
