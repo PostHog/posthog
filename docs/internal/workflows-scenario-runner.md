@@ -93,7 +93,7 @@ flowchart TB
     Runner -->|up, reset, health| Environment["Environment: up, reset, role, actuate, health, exits, down"]
     Runner -->|seed, drive| Generator["Generator: seed, drive"]
     Runner -->|start, releaseAll| Valves["Valves: start, releaseAll, timeline"]
-    Runner -->|open, converge, check, measure, evidence| Judge["Judge: open, record, converge, check, measure, evidence"]
+    Runner -->|open, converge, check, evidence, measure()| Judge["Judge: open, record, converge, check, evidence; measure()"]
     Runner -->|scorecard properties| Scorecard["Scorecard: publish"]
     Generator -->|record| Judge
     Generator -->|events, intake calls| Roles["Node roles: one process group per CDP mode"]
@@ -120,7 +120,7 @@ The Environment holds everything that differs between a local box and a cloud sl
 | **Provider edge**   | `startProviderEdge`, and HTTP: SES v2, CONNECT proxy, `/_faults`, `/_truth`, `/_health` | Faking providers, applying dosed faults, emitting signed SNS feedback, and the append-only truth.                                                                                       |
 | **Valves**          | `start`, `releaseAll`, `timeline`                                                       | The valve definitions, scheduling by `at` or `when`, translating each valve into an Environment action or an edge fault, and the timeline of requested, applied, observed and released. |
 | **Generator**       | `seed`, `drive`                                                                         | The traffic kinds: seeding teams, email integrations and flows, sampling the profile, offering units, and recording each unit with the Judge.                                           |
-| **Judge**           | `open`, `record`, `converge`, `check`, `measure`, `evidence`                            | The journal, convergence, and the invariant and measurement definitions.                                                                                                                |
+| **Judge**           | `open`, `record`, `converge`, `check`, `evidence`, and the `measure()` function         | The journal, convergence, and the invariant and measurement definitions.                                                                                                                |
 | **Cyclotron probe** | `unfinishedJobs`                                                                        | One SQL query against `cyclotron_jobs`. It reaches past Cyclotron's seam on purpose and is the only place that does.                                                                    |
 | **Scorecard**       | `scorecardOf`, `publish`                                                                | The scorecard properties, the provenance they carry, and capturing the event and reading it back.                                                                                       |
 
@@ -245,7 +245,7 @@ sequenceDiagram
         J->>P: /_truth?after=seq
         J->>N: unfinished jobs, through the probe
     end
-    R->>J: check, measure
+    R->>J: check, then measure() over the evidence
     R->>R: write the evidence
     R->>S: publish the scorecard event
     S-->>R: recorded or not
@@ -351,7 +351,7 @@ sequenceDiagram
     end
     R->>R: write the evidence first
     R->>S: publish
-    alt variables set, not read back, not interrupted after the capture
+    alt variables set and not read back (no interrupt after the capture), or scorecard files not written
         S-->>R: problem
         Note over R: exit 3, evidence kept
     end
@@ -384,6 +384,7 @@ These contracts cover the whole first slice, so some members are not in the code
 
 The schema is `Card` in `cards/schema.ts`.
 A card names its profile, its seed, the number of teams to seed, its traffic kinds and their duration, its valve entries, `convergeWithin`, its invariants and measurements, and its gates.
+`drive.minOffered` is the share of target units that must count as offered for the run to judge, 0.9 by default.
 
 ```yaml
 id: email-worker-killed
@@ -621,7 +622,7 @@ export type InvariantResult = {
 
 - **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. Past the bound the Judge still runs the invariants. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
 - **Invariants.**
-  - `at_least_once`: every expected delivery has a 2xx in the truth, unless a valve ended it on purpose: a terminal fault answered its last attempt, or a retried `dest.status` code answered every attempt the fetch path makes. The retried codes are read from `isFetchResponseRetriable`, so the two never drift.
+  - `at_least_once`: every expected delivery has a 2xx in the truth, unless a fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx other than 429. A retried code that answers every attempt still counts as missed.
   - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
   - `bounced_suppressed`: the follow-up to a bounced address is refused with `recipient_suppressed`, and the truth has no 2xx send to that address after the feedback.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
@@ -722,15 +723,16 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:
 
-| Property               | Type           | Meaning                                                |
-| ---------------------- | -------------- | ------------------------------------------------------ |
-| `inv_<name>_passed`    | boolean        | Whether the invariant held                             |
-| `inv_<name>_observed`  | number         | The count it checked, such as missed deliveries        |
-| `inv_<name>_gate`      | number or null | The card's gate for it, `null` when the card sets none |
-| `inv_<name>_violation` | string or null | The first violation, `null` when it held               |
-| `inv_<name>_ids`       | string[]       | Up to 5 unit ids that violated it                      |
+| Property               | Type           | Meaning                                                                                                                        |
+| ---------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `inv_<name>_passed`    | boolean        | Whether the invariant held                                                                                                     |
+| `inv_<name>_observed`  | number         | The count it checked, such as missed deliveries                                                                                |
+| `inv_<name>_gate`      | number or null | The card's gate for it, `null` when the card sets none                                                                         |
+| `inv_<name>_violation` | string or null | The first violation seen, even when the count stays within the gate; `null` when none was seen. Read `_passed` for the verdict |
+| `inv_<name>_ids`       | string[]       | Up to 5 unit ids that violated it                                                                                              |
 
 **Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, and `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`.
+Hyphens in names and roles become underscores, so the CPU time of `cdp-api` is `m_role_cpu_seconds_cdp_api`.
 The unit is in the measurement's definition and in the evidence.
 
 ## Provisioning the scorecard project
