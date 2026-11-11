@@ -18,8 +18,8 @@ import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { toBackLink } from './adapter/toBackLink'
 import { rawSearchParam } from './rawSearchParam'
+import { toBackLink } from './traceBackLink'
 import { traceViewHostLogic } from './traceViewHostLogic'
 import type { LabeledLink } from './types'
 

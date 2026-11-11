@@ -235,6 +235,7 @@ export interface PaginatedIntegrationConfigListApi {
  * * `customerio-webhook` - Customerio Webhook
  * * `databricks` - Databricks
  * * `email` - Email
+ * * `email_sandbox` - Email Sandbox
  * * `firebase` - Firebase
  * * `github` - Github
  * * `gitlab` - Gitlab
@@ -290,6 +291,7 @@ export const IntegrationKindEnumApi = {
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
     Email: 'email',
+    EmailSandbox: 'email_sandbox',
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
@@ -350,6 +352,7 @@ export interface IntegrationConfigCreateApi {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -1121,6 +1124,7 @@ export interface IntegrationAccessRequestApi {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -1288,6 +1292,7 @@ export type IntegrationsListParams = {
      * * `customerio-webhook` - Customerio Webhook
      * * `databricks` - Databricks
      * * `email` - Email
+     * * `email_sandbox` - Email Sandbox
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
@@ -1354,6 +1359,7 @@ export const IntegrationsListKind = {
     CustomerioWebhook: 'customerio-webhook',
     Databricks: 'databricks',
     Email: 'email',
+    EmailSandbox: 'email_sandbox',
     Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',

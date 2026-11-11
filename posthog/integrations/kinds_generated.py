@@ -31,6 +31,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     DATABRICKS = "databricks"
     EMAIL = "email"
+    EMAIL_SANDBOX = "email_sandbox"
     FIREBASE = "firebase"
     GITHUB = "github"
     GITLAB = "gitlab"
@@ -156,6 +157,12 @@ class EmailKind(KindAccessor):
     kind = "email"
     credentials = AuthAccessor(kind="email", auth_type=AuthType.CREDENTIALS)  # the default
     any = IntegrationReader(kinds=frozenset({"email"}))
+
+
+class Email_sandboxKind(KindAccessor):
+    kind = "email_sandbox"
+    credentials = AuthAccessor(kind="email_sandbox", auth_type=AuthType.CREDENTIALS)  # the default
+    any = IntegrationReader(kinds=frozenset({"email_sandbox"}))
 
 
 class FirebaseKind(KindAccessor):
@@ -408,6 +415,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     customerio_webhook = CustomerioWebhookKind()
     databricks = DatabricksKind()
     email = EmailKind()
+    email_sandbox = Email_sandboxKind()
     firebase = FirebaseKind()
     github = GithubKind()
     gitlab = GitlabKind()
