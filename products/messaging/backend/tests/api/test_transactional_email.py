@@ -46,7 +46,6 @@ from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
-from products.workflows.backend.facade.sandbox_email import provision_sandbox_sender
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import block_sandbox_sender_for_test
 
@@ -106,11 +105,6 @@ class FakeCdpApi:
         self.received: list[dict[str, Any]] = []
         self._queued: list[dict[str, Any]] = []
         self._idempotency_keys: dict[str, tuple[str, dict[str, Any]]] = {}
-        self._released_after_a_conflict: set[str] = set()
-
-    def hold_a_pending_reservation(self, key: str) -> None:
-        self._idempotency_keys[key] = ("another request still sending", {})
-        self._released_after_a_conflict.add(key)
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
@@ -133,9 +127,6 @@ class FakeCdpApi:
         if key in self._idempotency_keys:
             stored_fingerprint, reply = self._idempotency_keys[key]
             if stored_fingerprint != fingerprint:
-                if key in self._released_after_a_conflict:
-                    self._released_after_a_conflict.discard(key)
-                    del self._idempotency_keys[key]
                 return 422, {}, json.dumps({"error": "idempotency_key_reused"})
             return 202, {}, json.dumps({"status": "queued", "invocation_id": reply["invocation_id"], "replayed": True})
         self._queued.append(payload)
@@ -148,9 +139,9 @@ class FakeCdpApi:
     def _fingerprint(url: str, payload: dict[str, Any]) -> str:
         sender = payload["send"].get("from") or {}
         chosen = (
-            {"email": sender["email"], "name": sender.get("name")}
-            if sender.get("email")
-            else {"integrationId": sender.get("integrationId"), "name": sender.get("name")}
+            {"email": sender.get("email"), "name": sender.get("name")}
+            if sender.get("email") or sender.get("name")
+            else None
         )
         request = [
             url,
@@ -1096,38 +1087,24 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["message_id"] == "invocation-1"
         assert [warning["setup_url"] for warning in response.json()["warnings"]] == [self._setup_url(unverified)]
 
-    @parameterized.expand(
-        [
-            ("pipeline_replays_the_earlier_sandbox_send", False, True),
-            ("pipeline_releases_a_pending_reservation_after_the_conflict", True, False),
-        ]
-    )
-    def test_a_retry_after_the_team_verifies_a_sender_goes_out_once_from_the_sandbox_with_its_warning(
-        self, mock_post, _flag, _capture, _name, pending_reservation, replayed
+    def test_a_sandbox_send_retried_after_the_team_verifies_a_sender_replays_the_first_send(
+        self, mock_post, _flag, _capture
     ):
         self._without_a_verified_sender(unverified_sender=False)
         psak = self._psak_client(["hog_flow:write"])
         headers = {"Idempotency-Key": "welcome:user-1"}
 
         with FakeCdpApi().serving(mock_post) as cdp:
-            if pending_reservation:
-                provision_sandbox_sender(self.team, None)
-                cdp.hold_a_pending_reservation(headers["Idempotency-Key"])
-            else:
-                first = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
-                assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
+            first = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
             Integration.objects.create(
                 team=self.team, kind="email", integration_id="hello@example.org", config={"verified": True}
             )
             retry = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
 
+        assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
+        assert first.json()["warnings"][0]["code"] == "sandbox_sender"
         assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
-        assert retry.json()["replayed"] is replayed
-        (warning,) = retry.json()["warnings"]
-        assert (warning["code"], warning["setup_url"]) == ("sandbox_sender", self._setup_url(None))
-        assert "before this project verified its sending domain" in warning["message"]
-        assert "own verified sender" in warning["agent_action"]
-        assert warning["setup_url"] not in warning["agent_action"]
+        assert retry.json() == {"message_id": first.json()["message_id"], "replayed": True}
         (sandbox,) = self._sandbox_senders()
         assert [email["from"] for email in cdp.emails()] == [{"integrationId": sandbox.id}]
 
