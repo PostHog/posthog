@@ -30,10 +30,11 @@ const propertyDenyList = [
     '$web_vitals_data',
 ]
 
-// posthog-js sends one `$web_vitals_<METRIC>_event` object per metric. Its attribution holds DOM
-// elements with keys that change on every page load, such as jQuery expando names, so a flattened
-// copy creates new property names on each page load. The scalar `$web_vitals_<METRIC>_value` keys
-// do not match and keep their behavior.
+// posthog-js sends one `$web_vitals_<METRIC>_event` object per metric. Before posthog-js 1.174.1,
+// the INP object also held the interaction target DOM element, which carries keys that change on
+// every page load, such as jQuery expando names. A flattened copy of it creates new property names
+// on each page load. The metric name is part of the key, so a pattern skips these objects instead
+// of an entry in the deny list above. The scalar `$web_vitals_<METRIC>_value` keys do not match.
 const isWebVitalsEventObject = (key: string): boolean => key.startsWith('$web_vitals_') && key.endsWith('_event')
 
 const flattenProperties = (props: Record<string, any>, sep: string, nestedChain: string[] = []) => {
