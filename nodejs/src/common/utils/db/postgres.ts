@@ -244,7 +244,14 @@ export class PostgresRouter {
         return withSpan('postgres', 'query.postgres_transaction', { tag: wrappedTag }, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
             const acquireStart = performance.now()
-            const client = await this.pools.get(usage)!.connect()
+            let client: PoolClient
+            try {
+                client = await this.pools.get(usage)!.connect()
+            } catch (error) {
+                clearTimeout(timeout)
+                handlePostgresError(error, usage)
+                throw error
+            }
             postgresPoolAcquireDurationHistogram.observe({ pool: poolLabel }, (performance.now() - acquireStart) / 1000)
 
             // pg removes the pool's error listener from a checked-out client, so a lost
