@@ -58,7 +58,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.integrations import IntegrationManager
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
@@ -333,6 +333,15 @@ def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any, *
         raise LLMDetectorUnavailable(str(unavailable_error)) from unavailable_error
     if error:
         raise ValidationError(error)
+
+
+def _validate_transfer_query_access(user: User, team: Team, query: dict[str, Any] | None, requirement: str) -> None:
+    if query is None:
+        return
+    denied = denied_query_resources(user, team, [query])
+    if denied:
+        denied_names = ", ".join(f"`{name}`" for name in denied)
+        raise ValidationError(f"{requirement} access to {denied_names} to transfer this alert.")
 
 
 def _normalize_llm_detector_config(detector_config: Any) -> Any:
@@ -2501,15 +2510,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert.insight.refresh_from_db()
             with upgrade_insight(alert.insight):
                 query = alert.insight.query
-            if query is not None:
-                principals = [(request.user, "You need")]
-                if user.pk != request.user.pk:
-                    principals.append((user, "The new owner needs"))
-                for principal, requirement in principals:
-                    denied = denied_query_resources(principal, alert.team, [query])
-                    if denied:
-                        denied_names = ", ".join(f"`{name}`" for name in denied)
-                        raise ValidationError(f"{requirement} access to {denied_names} to transfer this alert.")
+            _validate_transfer_query_access(request.user, alert.team, query, requirement="You need")
+            if user.pk != request.user.pk:
+                _validate_transfer_query_access(user, alert.team, query, requirement="The new owner needs")
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,
