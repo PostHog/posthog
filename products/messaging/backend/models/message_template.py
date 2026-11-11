@@ -70,7 +70,7 @@ class MessageTemplate(FileSystemSyncMixin, Taggable, UUIDTModel):
 
     def files_new_rows(self) -> bool:
         return self.created_by is not None and workflows_list_v2_enabled(
-            self.team, self.created_by, only_evaluate_locally=self._create_in_folder is None
+            self.team, self.created_by, allow_remote_evaluation=self._create_in_folder is not None
         )
 
     def get_file_system_representation(self) -> FileSystemRepresentation:

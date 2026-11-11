@@ -1,5 +1,6 @@
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
+from weakref import WeakKeyDictionary
 
 from django.db import OperationalError, transaction
 from django.db.models import Model
@@ -23,6 +24,22 @@ class LinkedTemplate(Protocol):
     transactional_hog_flow_id: UUID | None
 
 
+# A UserAccessControl loads the team's access rules once and caches them on the instance. A folder
+# delete runs this guard once per template while it holds row locks, so each request keeps one
+# instance per user and team. The weak keys drop the instances together with the request.
+_access_controls_by_request: "WeakKeyDictionary[Any, dict[tuple[Any, int], UserAccessControl]]" = WeakKeyDictionary()
+
+
+def _access_control_for(context: "DeletionContext | RestoreContext", template: LinkedTemplate) -> UserAccessControl:
+    if context.request is None:
+        return UserAccessControl(user=context.user, team=template.team)
+    access_controls = _access_controls_by_request.setdefault(context.request, {})
+    key = (context.user.pk, template.team_id)
+    if key not in access_controls:
+        access_controls[key] = UserAccessControl(user=context.user, team=template.team)
+    return access_controls[key]
+
+
 def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", template: LinkedTemplate) -> None:
     if template.transactional_hog_flow_id is None:
         return
@@ -33,7 +50,7 @@ def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", 
         get_workflow_ref(
             team_id=template.team_id,
             workflow_id=str(template.transactional_hog_flow_id),
-            user_access_control=UserAccessControl(user=context.user, team=template.team),
+            user_access_control=_access_control_for(context, template),
             required_level="editor",
         )
     except WorkflowAccessDenied:

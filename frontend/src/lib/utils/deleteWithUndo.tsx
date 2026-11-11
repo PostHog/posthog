@@ -20,6 +20,8 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     /** The request body besides `deleted`. Defaults to the whole `object`. */
     payload?: Record<string, any>
     undoable?: boolean
+    /** Runs on undo in place of the request that clears `deleted`, for objects restored through another endpoint. */
+    restore?: () => Promise<unknown>
     /** Runs before the error toast. Return true when it handled the error, which skips the toast. */
     handleError?: (error: any) => boolean
     callback?: (undo: boolean, object: T) => void
@@ -28,11 +30,15 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     onError?: (undo: boolean, object: T) => void
 }): Promise<void> {
     try {
-        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-        await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
-            ...(props.payload ?? props.object),
-            deleted: !undo,
-        })
+        if (undo && props.restore) {
+            await props.restore()
+        } else {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+            await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
+                ...(props.payload ?? props.object),
+                deleted: !undo,
+            })
+        }
         props.callback?.(undo, props.object)
         lemonToast[undo ? 'success' : 'info'](
             <>

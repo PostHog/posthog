@@ -1787,6 +1787,35 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
 
+    def test_a_folder_delete_loads_access_rules_once_however_many_linked_templates_it_holds(self, mock_post, _flag):
+        self._login_member("editor@example.com", {None: "editor"})
+
+        def access_rule_reads_deleting_a_folder_of(count: int, folder: str) -> int:
+            for index in range(count):
+                template = MessageTemplate.objects.create(
+                    team=self.team,
+                    name=f"{folder} email {index}",
+                    content={"email": {"subject": "Hi", "html": "<p>Hi</p>"}},
+                    type="email",
+                    created_by=self.user,
+                )
+                make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
+                template.refresh_from_db()
+                template.save()
+                FileSystem.objects.filter(team=self.team, type="message_template", ref=str(template.id)).update(
+                    path=f"{folder}/{template.name}", depth=2
+                )
+            entry = FileSystem.objects.create(team=self.team, path=folder, depth=1, type="folder")
+
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
+            assert not MessageTemplate.objects.filter(team=self.team, name__startswith=folder, deleted=False).exists()
+            return sum("accesscontrol" in query["sql"] for query in queries.captured_queries)
+
+        assert access_rule_reads_deleting_a_folder_of(1, "One") == access_rule_reads_deleting_a_folder_of(3, "Three")
+
     def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_the_project_tree(self, mock_post, _flag):
         self.template.refresh_from_db()
         self.template.save()
