@@ -26,6 +26,7 @@ from celery import Task, shared_task
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
 from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
@@ -51,9 +52,11 @@ from products.stamphog.backend.logic.approval_retention import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
+from products.stamphog.backend.logic.decision_fingerprint import WITHHELD_RUN_OUTPUT_KEY
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
-from products.stamphog.backend.logic.review_trigger import derive_review_trigger
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger, is_silent_output
+from products.stamphog.backend.logic.reviewer import parse_reviewer_output
 from products.stamphog.backend.logic.routing.service import RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
     ReviewPath,
@@ -1375,6 +1378,10 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # against the wrong connection.
     write_db = router.db_for_write(ReviewRun)
     try:
+        # Looked up before the transaction, so the PR-row lock is not held for it.
+        withheld_output: dict[str, Any] = {}
+        if action == "labeled" and (payload.get("label") or {}).get("name") == repo_config.trigger_label:
+            withheld_output = _withheld_run_output(repo_config, pr)
         with transaction.atomic(using=write_db):
             pr_obj = _upsert_pull_request(repo_config, pr)
             # Race-safe recheck of the stale-payload guard. The check above runs before this
@@ -1409,6 +1416,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 # review_mode an admin may have changed since this delivery was admitted.
                 output={
                     **({"inbox_review": inbox_review} if inbox_review is not None else {}),
+                    **withheld_output,
                     "review_trigger": derive_review_trigger(
                         has_inbox_review=inbox_review is not None, review_mode=repo_config.review_mode
                     ).value,
@@ -1498,6 +1506,53 @@ def _reviewed_base_ref(run: ReviewRun) -> str:
     return (reviewed_pr.get("base") or {}).get("ref") or ""
 
 
+# A WAIT is never reused: it can end with time alone (a reviewer bot's 👀 ages out), and nothing
+# stored shows that.
+_REUSABLE_WITHHELD_VERDICTS = frozenset({ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE})
+
+
+def _latest_run(repo_config: StamphogRepoConfig, pr_number: int) -> ReviewRun | None:
+    """The PR's newest run. Writer-pinned, because every caller decides on it whether to start a run."""
+    return (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .select_related("pull_request__repo_config")
+        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr_number)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _reusable_withheld_run(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> ReviewRun | None:
+    """The PR's latest run, when it is a silent run that withheld a refusal or an escalation of the
+    PR's current head and base branch."""
+    pr_number = pr.get("number")
+    if not isinstance(pr_number, int):
+        return None
+    latest = _latest_run(repo_config, pr_number)
+    if latest is None or not latest.verdict_withheld or latest.verdict == ReviewVerdict.APPROVED:
+        return None
+    if latest.head_sha != ((pr.get("head") or {}).get("sha") or ""):
+        return None
+    if _reviewed_base_ref(latest) != ((pr.get("base") or {}).get("ref") or ""):
+        return None
+    parsed = parse_reviewer_output((latest.output or {}).get("reviewer_raw", ""))
+    if parsed.verdict not in _REUSABLE_WITHHELD_VERDICTS:
+        return None
+    return latest
+
+
+def _withheld_run_output(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> dict[str, Any]:
+    """Point a visible request's new run at the withheld silent verdict it may publish, if there is one."""
+    withheld = _reusable_withheld_run(repo_config, pr)
+    return {WITHHELD_RUN_OUTPUT_KEY: str(withheld.id)} if withheld is not None else {}
+
+
+_UNPUBLISHED_SILENT_RUN = Q(
+    output__contains={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value}, verdict_posted_at__isnull=True
+)
+
+
 @frozen
 class _HeadQueueResult:
     """What ``_queue_review_at_head`` did for one PR head."""
@@ -1526,8 +1581,15 @@ def _queue_review_at_head(
     ``revisit_wait`` stops a delivered WAIT at this head from counting as covering it, because
     the caller wants that verdict revisited. A live run at this head still counts, so repeated
     requests collapse into one run.
+
+    The request's stamped trigger decides how a silent run counts. A silent run covers only another
+    silent request until its verdict is posted. A visible request's new run is pointed at a verdict
+    that a silent run withheld for this head, which its workflow publishes when nothing changed.
     """
     team_id = repo_config.team_id
+    visible = not is_silent_output(output)
+    if visible:
+        output = {**output, **_withheld_run_output(repo_config, pr)}
     run_write_db = router.db_for_write(ReviewRun)
     with transaction.atomic(using=run_write_db):
         pr_obj = _upsert_pull_request(repo_config, pr)
@@ -1550,6 +1612,8 @@ def _queue_review_at_head(
         )
         if revisit_wait:
             covering_runs = covering_runs.exclude(status=ReviewRunStatus.COMPLETED, verdict=ReviewVerdict.WAIT)
+        if visible:
+            covering_runs = covering_runs.exclude(_UNPUBLISHED_SILENT_RUN)
         existing = covering_runs.order_by("-created_at").first()
         # A retarget changes the diff without moving the head, and in label mode no webhook run
         # replaces the old verdict. A run that reviewed another base branch does not cover this one.
@@ -1818,16 +1882,36 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     return QueuedReview(run=queued.run, created=queued.created)
 
 
+@frozen
+class _CurrentPr:
+    """The PR as GitHub reports it now, and why a review of it is refused, if it is."""
+
+    pr: dict[str, Any]
+    refusal: str | None
+
+
+def _check_current_pr(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> _CurrentPr:
+    """Fetch the PR and run the webhook gates that do not depend on the delivery: open, ``head_sha``
+    still the head, the payload pre-filters, and the author's write access. The review mode is the
+    caller's own decision."""
+    repo = repo_config.repository
+    pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
+    if (pr.get("state") or "") != "open":
+        return _CurrentPr(pr=pr, refusal="not_open")
+    if ((pr.get("head") or {}).get("sha") or "") != head_sha:
+        return _CurrentPr(pr=pr, refusal="head_moved")
+    skip_reason = _review_skip_reason(pr)
+    if skip_reason is not None:
+        return _CurrentPr(pr=pr, refusal=skip_reason)
+    if _author_lacks_write_permission(repo_config, repo, pr):
+        return _CurrentPr(pr=pr, refusal="author_below_write")
+    return _CurrentPr(pr=pr, refusal=None)
+
+
 def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> None:
     """Queue a new review when this PR's latest verdict is a WAIT at ``head_sha`` that is still the PR head."""
     team_id = repo_config.team_id
-    latest = (
-        ReviewRun.objects.for_team(team_id)
-        .using(router.db_for_write(ReviewRun))
-        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr_number)
-        .order_by("-created_at")
-        .first()
-    )
+    latest = _latest_run(repo_config, pr_number)
     if latest is None or latest.head_sha != head_sha:
         return
     previous_output = latest.output or {}
@@ -1841,17 +1925,15 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
     # Inbox runs carry the self-driving carve-out, which only the inbox trigger paths may grant.
     if previous_output.get("inbox_review"):
         return
-    repo = repo_config.repository
-    pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
-    if (pr.get("state") or "") != "open" or (pr.get("head") or {}).get("sha") != head_sha:
+    if is_silent_output(previous_output):
         return
-    if _review_skip_reason(pr) is not None:
+    current = _check_current_pr(repo_config, pr_number, head_sha)
+    if current.refusal is not None:
         return
+    pr = current.pr
     is_manual = bool(previous_output.get("manual_review"))
     label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
     if repo_config.review_mode == ReviewMode.LABEL and not is_manual and repo_config.trigger_label not in label_names:
-        return
-    if _author_lacks_write_permission(repo_config, repo, pr):
         return
     output: dict[str, Any] = {"rereview_after_external_review": True}
     for key in ("manual_review", "review_trigger"):
@@ -1860,7 +1942,7 @@ def _rereview_waiting_run(repo_config: StamphogRepoConfig, pr_number: int, head_
     queued = _queue_review_at_head(repo_config, pr, head_sha, output=output, revisit_wait=True)
     logger.info(
         "stamphog_rereview_after_external_review",
-        repository=repo,
+        repository=repo_config.repository,
         pr_number=pr_number,
         review_run_id=str(queued.run.id) if queued.run is not None else None,
         created=queued.created,
@@ -1904,12 +1986,79 @@ def request_rereview_after_external_review(*, repository: str, pr_number: int, h
     rereview_after_external_review.delay(repository=repository, pr_number=pr_number, head_sha=head_sha)
 
 
+def _queue_silent_review_at_head(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> str:
+    """Queue a silent review of ``head_sha``, or return why not. The returned outcome is for the log.
+
+    Every webhook gate but the review mode runs again here, against the PR as GitHub reports it
+    now. A refusal writes nothing to GitHub: no review starts, so no approval is left or removed.
+    """
+    if not repo_config.review_on_clean_external_review:
+        return "switch_off"
+    current = _check_current_pr(repo_config, pr_number, head_sha)
+    if current.refusal is not None:
+        return current.refusal
+    queued = _queue_review_at_head(
+        repo_config, current.pr, head_sha, output={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value}
+    )
+    if queued.run is None:
+        return "stale_snapshot"
+    return "queued" if queued.created else "already_covered"
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_REREVIEW_MAX_RETRIES)
+def silent_review_after_clean_external_review(
+    self: Task, team_id: int, repository: str, pr_number: int, head_sha: str
+) -> None:
+    """Start a silent review of ``head_sha`` because an external reviewer found nothing on it.
+
+    The repo config is read from the writer, because it gates run creation. A GitHub or Temporal
+    error retries with backoff, because no webhook redelivery stands behind this call. A retry is
+    safe: every check runs again, and the head dedupe collapses repeats into one run.
+    """
+    try:
+        repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+        if repo_config is None:
+            logger.info(
+                "stamphog_silent_review_skipped", repository=repository, pr_number=pr_number, outcome="no_config"
+            )
+            return
+        outcome = _queue_silent_review_at_head(repo_config, pr_number, head_sha)
+    except GitHubRateLimitError as e:
+        logger.warning("stamphog_silent_review_rate_limited", repository=repository, pr_number=pr_number)
+        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
+    except Exception as e:
+        logger.exception("stamphog_silent_review_failed", repository=repository, pr_number=pr_number, error=str(e))
+        raise self.retry(exc=e, countdown=_REREVIEW_RETRY_BASE_SECONDS * 2**self.request.retries)
+    logger.info(
+        "stamphog_silent_review_requested",
+        repository=repository,
+        pr_number=pr_number,
+        head_sha=head_sha,
+        outcome=outcome,
+        team_id=team_id,
+    )
+
+
 _ROUTING_MAX_RETRIES = 4
 _ROUTING_RETRY_BASE_SECONDS = 30
 # Another task holds the routing claim. It finishes within seconds, so the retry comes soon.
 ROUTING_BUSY_RETRY_SECONDS = 60
 # FALLBACK mode routes in full when no verdict arrived for a waiting head after this long.
 ROUTING_SAFETY_NET_SECONDS = 30 * 60
+
+
+def queue_silent_review(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> None:
+    """Queue a silent stamphog review of ``head_sha``, without waiting for it.
+
+    For review_hog, when a Standard review of a PR that opened or was marked ready finished clean.
+    Stamphog decides whether anything happens: the repo's ``review_on_clean_external_review`` switch
+    must be on, and every webhook gate except the review mode must pass for the PR as it is now,
+    with ``head_sha`` still its head. A head that already has a review is left alone. The review posts
+    an approval as usual and keeps every other verdict off the PR. ``team_id`` may be an environment.
+    """
+    silent_review_after_clean_external_review.delay(
+        team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha
+    )
 
 
 def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:

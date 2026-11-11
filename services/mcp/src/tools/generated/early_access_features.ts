@@ -82,6 +82,7 @@ const earlyAccessFeatureList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/`,
             query: {
+                ids: params.ids,
                 limit: params.limit,
                 offset: params.offset,
             },

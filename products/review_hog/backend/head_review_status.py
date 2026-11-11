@@ -9,17 +9,10 @@ workflow, so the workflow's `requested_heads` query answers for it.
 
 from datetime import datetime, timedelta
 
-from posthog.dataclasses import frozen
-
 from products.review_hog.backend.facade.review_status_types import HeadReviewState, HeadReviewStatus
-from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
-from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact
+from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
-from products.review_hog.backend.reviewer.persistence import (
-    load_chunk_set,
-    load_turn_findings,
-    reviewed_pipeline_chunk_ids,
-)
+from products.review_hog.backend.reviewer.persistence import load_turn_findings
 from products.review_hog.backend.reviewer.progress import (
     RUN_OUTCOME_FAILED,
     RUN_STAGE_REVIEW,
@@ -27,21 +20,14 @@ from products.review_hog.backend.reviewer.progress import (
     in_progress_report_ids,
     run_outcome_markers,
 )
-from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import turn_review_mode
 from products.review_hog.backend.temporal.client import queued_review_heads
 from products.review_hog.backend.temporal.types import review_pr_workflow_id
+from products.review_hog.backend.turn_coverage import TurnMarkerRow, turn_marker_rows, unread_paths
 
 _KIND_NAMES = {REVIEW_MODE_FLASH: "Standard", REVIEW_MODE_FULL: "Deep"}
 # Callers poll, for example stamphog every 30 seconds, so a slow queue answer must not hold them.
 _QUERY_RPC_TIMEOUT = timedelta(seconds=2)
-
-
-@frozen
-class _Turn:
-    marker: TurnMarkerArtefact
-    # When the newest marker row of the turn was written, which is when its last attempt started.
-    started_at: datetime
 
 
 class HeadReviewStatusLookup:
@@ -97,47 +83,13 @@ class HeadReviewStatusLookup:
         # started yet. The active one is the running turn when a turn runs on another head.
         return None in heads.pending or (None in heads.active and running_head is None)
 
-    def _turns_on_head(self) -> dict[int, _Turn]:
-        """Each turn on this head by run index, from its marker. The newest row of a retried turn wins."""
-        rows = (
-            ReviewReportArtefact.objects.for_team(self.team_id)
-            .filter(
-                report_id=self.report_id,
-                type=ReviewReportArtefact.ArtefactType.TURN_MARKER,
-                head_sha=self.head_sha,
-            )
-            .order_by("created_at", "id")
-            .values("content", "created_at")
-        )
-        turns: dict[int, _Turn] = {}
-        for row in rows:
-            marker = TurnMarkerArtefact.model_validate_json(row["content"])
-            turns[marker.run_index] = _Turn(marker=marker, started_at=row["created_at"])
-        return turns
+    def _turns_on_head(self) -> dict[int, TurnMarkerRow]:
+        return turn_marker_rows(team_id=self.team_id, report_id=self.report_id, head_sha=self.head_sha)
 
-    def _skipped_paths(self, turn: _Turn | None) -> tuple[str, ...]:
-        """The files the turn left out, plus the files of every pipeline chunk that no review unit finished.
-
-        The fan-out fails a turn only when most of its units fail, so a turn can complete with a chunk unread.
-        """
+    def _skipped_paths(self, turn: TurnMarkerRow | None) -> tuple[str, ...]:
         if turn is None:
             return ()
-        skipped = list(turn.marker.skipped_paths or ())
-        # A single-agent turn fails when its main session fails, and that session reviews the whole diff.
-        if turn.marker.fingerprint_inputs.get("review_design") == REVIEW_DESIGN_SINGLE_AGENT:
-            return tuple(skipped)
-        chunks = load_chunk_set(team_id=self.team_id, report_id=self.report_id, head_sha=self.head_sha)
-        # Without the chunking the gaps are unknown, so the turn keeps only the files it left out.
-        if chunks is None:
-            return tuple(skipped)
-        reviewed = reviewed_pipeline_chunk_ids(team_id=self.team_id, report_id=self.report_id, head_sha=self.head_sha)
-        for chunk in chunks.chunks:
-            if chunk.chunk_id in reviewed:
-                continue
-            for file in chunk.files:
-                if file.filename not in skipped:
-                    skipped.append(file.filename)
-        return tuple(skipped)
+        return unread_paths(team_id=self.team_id, report_id=self.report_id, head_sha=self.head_sha, marker=turn.marker)
 
     def _finished(self) -> HeadReviewStatus | None:
         report = self.report

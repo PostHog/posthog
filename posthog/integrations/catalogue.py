@@ -34,6 +34,7 @@ KINDS: Mapping[str, KindSpec] = {
     "customerio-webhook": KindSpec(label="Customer.io webhook", default=_TOKEN),
     "databricks": KindSpec(label="Databricks", default=_CREDENTIALS, others=frozenset({_TOKEN})),
     "email": KindSpec(label="Email", default=_CREDENTIALS),
+    "email_sandbox": KindSpec(label="Email sandbox", default=_CREDENTIALS),
     "firebase": KindSpec(label="Firebase", default=_CREDENTIALS),
     "github": KindSpec(label="GitHub", default=_OAUTH, others=frozenset({_TOKEN})),
     "gitlab": KindSpec(label="GitLab", default=_TOKEN, others=frozenset({_CREDENTIALS})),

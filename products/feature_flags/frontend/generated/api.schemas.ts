@@ -2725,6 +2725,10 @@ export type FeatureFlagsListParams = {
      */
     has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts
     /**
+     * Comma-separated flag IDs, at most 200. Returns exactly those flags, including archived flags and flags that surveys or product tours own. Other filters are ignored, and soft-deleted flags are left out unless deleted=true.
+     */
+    ids?: string
+    /**
      * Filter by exact feature flag key match. Case insensitive.
      */
     key?: string
@@ -2887,4 +2891,8 @@ export type ScheduledChangesListParams = {
      * Filter by the ID of a specific feature flag.
      */
     record_id?: string
+    /**
+     * Comma-separated feature flag IDs. Returns the schedules of any of them, at most 200 IDs.
+     */
+    record_ids?: string
 }
