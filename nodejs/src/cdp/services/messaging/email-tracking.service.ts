@@ -363,6 +363,7 @@ export class EmailTrackingService {
         metricName,
         source,
         properties,
+        templateFromStepConfig = false,
         timestamp,
         instanceIdOverride,
         deferFlush = false,
@@ -377,6 +378,7 @@ export class EmailTrackingService {
         metricName: MinimalAppMetric['metric_name']
         source: 'direct' | 'ses'
         properties?: Record<string, unknown>
+        templateFromStepConfig?: boolean
         timestamp?: string
         instanceIdOverride?: string
         // Skips the per-call Kafka flush so a caller handling several metrics can queue them all
@@ -449,9 +451,9 @@ export class EmailTrackingService {
                 distinctId,
                 metricName,
                 properties:
-                    properties?.$email_transactional === true &&
-                    properties.$email_template_id === undefined &&
-                    properties.$email_template_key === undefined
+                    templateFromStepConfig &&
+                    properties?.$email_template_id === undefined &&
+                    properties?.$email_template_key === undefined
                         ? {
                               ...properties,
                               ...transactionalEmailIdentity(
@@ -716,6 +718,7 @@ export class EmailTrackingService {
                     metricName: metric.metricName,
                     source: 'ses',
                     properties: metric.properties,
+                    templateFromStepConfig: metric.templateFromStepConfig,
                     timestamp: metric.timestamp,
                     instanceIdOverride: metric.instanceIdOverride,
                     deferFlush: true,

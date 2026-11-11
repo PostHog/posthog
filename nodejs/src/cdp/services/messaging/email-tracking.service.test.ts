@@ -932,6 +932,13 @@ describe('EmailTrackingService', () => {
                     { $email_template_key: 'welcome' },
                 ],
                 [
+                    'a code send whose key SES could not carry, after its step moved to another key',
+                    { template_key: 'another_key' },
+                    { ph_template_tags: ['true'] },
+                    true,
+                    {},
+                ],
+                [
                     'a template send from a version that did not tag it',
                     { template_uuid: 'template-1' },
                     {},
