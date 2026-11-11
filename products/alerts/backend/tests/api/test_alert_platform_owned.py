@@ -63,6 +63,7 @@ from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     assign_native_creator,
     get_configuration,
+    list_alert_destinations,
     record_verdict_change,
     set_subscriber_destinations,
     subscriber_user_ids_by_public_id,
@@ -70,6 +71,7 @@ from products.alerts_platform.backend.facade.api import (
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDelivery,
+    DestinationType,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
@@ -82,6 +84,7 @@ from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.notebooks.backend.facade.api import create_notebook
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _iso(moment: datetime) -> str:
@@ -732,14 +735,6 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                 lambda copy: copy.source_config["investigation_gates_notifications"],
                 False,
             ),
-            # Its subscribers become destinations later; until then a subscriber would never hear from it.
-            (
-                "subscriber",
-                {"subscribed_users": ["{user}"]},
-                status.HTTP_400_BAD_REQUEST,
-                lambda copy: copy.name,
-                "native",
-            ),
         ]
     )
     def test_the_insight_api_edits_an_alert_insight_keeps_no_row_for_with_its_checks(
@@ -752,14 +747,45 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
     ) -> None:
         self._forget_the_insight_row()
         self._edit_on_the_platform(lambda stored: replace(stored, name="native"))
-        if payload.get("subscribed_users"):
-            payload = {"subscribed_users": [self.user.id]}
 
         response = self.client.patch(f"{self.url}/{self.copy_id}/", payload, format="json")
 
         assert response.status_code == expected_status, response.json()
         assert read(self._copy()) == expected
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
+
+    def test_subscribers_of_an_alert_insight_keeps_no_row_for_are_its_destinations(self) -> None:
+        self._forget_the_insight_row()
+        other_insight = Insight.objects.create(
+            team=self.team, name="Signups", short_id="signups", query=self.alert.insight.query
+        )
+        with team_scope(self.team.id):
+            assign_native_creator(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.INSIGHT.value],
+                configuration_id=self.copy_id,
+                created_by_id=User.objects.create_and_join(self.organization, "creator@example.com", None).id,
+            )
+
+        subscribed = self.client.patch(
+            f"{self.url}/{self.copy_id}/", {"subscribed_users": [self.user.id]}, format="json"
+        )
+        moved = self.client.patch(f"{self.url}/{self.copy_id}/", {"insight": other_insight.id}, format="json")
+
+        assert subscribed.status_code == status.HTTP_200_OK, subscribed.json()
+        assert [user["id"] for user in subscribed.json()["subscribed_users"]] == [self.user.id]
+        assert moved.status_code == status.HTTP_200_OK, moved.json()
+        assert [user["id"] for user in moved.json()["subscribed_users"]] == [self.user.id]
+        with team_scope(self.team.id):
+            in_app = [
+                destination.data
+                for destination in list_alert_destinations(team_id=self.team.id, configuration_id=self.copy_id)
+                if destination.data["type"] == DestinationType.IN_APP
+            ]
+        assert [(data["in_app_user_ids"], data["in_app_resource_id"]) for data in in_app] == [
+            ([self.user.id], "signups")
+        ]
+        assert insight_short_ids_watched_by(team_id=self.team.id, user_id=self.user.id, limit=10) == ["signups"]
 
     def test_enabling_an_alert_insight_keeps_no_row_for_keeps_its_requested_start_time(self) -> None:
         self._forget_the_insight_row()

@@ -45,6 +45,19 @@ def sync_subscriber_destinations(alert: AlertConfiguration) -> bool:
         )
 
 
+def set_native_subscribers(*, team_id: int, alert_id: UUID, user_ids: Collection[int], insight_short_id: str) -> bool:
+    """Writes the subscribers of an insight alert with no insight row, which keeps them only as
+    destinations. Call it with the alert locked. False when the alert is gone."""
+    return set_subscriber_destinations(
+        team_id=team_id,
+        public_id=alert_id,
+        user_ids=user_ids,
+        event_kinds=SUBSCRIBER_EVENT_KINDS,
+        in_app_resource_type="insight",
+        in_app_resource_id=insight_short_id,
+    )
+
+
 def sync_alert_subscriber_destinations(*, team_id: int, alert_id: UUID) -> bool:
     """`sync_subscriber_destinations` for an alert named by id. False when the alert or its copy is gone."""
     alert = AlertConfiguration.objects.select_related("insight").filter(team_id=team_id, id=alert_id).first()
