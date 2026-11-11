@@ -253,6 +253,10 @@ Available write scopes: `action:write`, `cohort:write`, `dashboard:write`,
 
 Internal scopes (`task:write`, `inbox:write`, `llm_gateway:read`) are always added automatically.
 
+Pre-warming through `warm_task_run` uses the task profile's MCP scopes. Pass `posthog_mcp_scopes` to narrow them for a run; warming refuses scopes beyond the profile. Tasks without a profile retain the `full` default. The selected scopes are saved before dispatch so the sandbox environment and MCP session receive the same permissions. Rewarming a completed run preserves its scopes, and a warm session cannot be reused for a different scope selection.
+
+Direct starts also use the task profile's MCP scopes, subject to the read-only limit for agent-started runs. Resumes keep their saved scopes and are rejected if those exceed the current profile or run-source limit.
+
 An empty list (`posthog_mcp_scopes=[]`) omits the built-in PostHog MCP connection.
 Internal credentials for task lifecycle and model calls remain available, including the local `task_summary_update` tool.
 
