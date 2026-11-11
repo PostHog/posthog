@@ -21,6 +21,7 @@ Repository-backed report discussions also require Desktop access.
 PostHog Desktop makes at most one speculative warm request per composer draft, scoped to the account and project.
 Selection changes before provisioning starts debounce into that request. Once provisioning starts, an incompatible selection change or abandoning the composer releases the unused run; the draft submits cold instead of warming again.
 Submission takes ownership before navigation and only enables warm activation when it holds a matching lease. A late warm response is released, and releasing an unused run cannot cancel a run whose activation has already started.
+When the warm response advertises `permission_mode_mutable`, permission-only changes retain the draft’s warm run. Submission targets that run by ID and the server must acknowledge the final mode before delivering the prompt; other selection changes still release the run. Older servers keep the strict matching behavior.
 A successful submission gives the next draft a fresh warm-up budget. Remounting or retrying a failed submission does not.
 
 Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.

@@ -19103,6 +19103,23 @@ export namespace Schemas {
          */
         github_login: string | null;
     };
+    /**
+     * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+     */
+    export type WarmTaskResponse = {
+        /**
+         * Id of the draft Task birthed for the warm Run.
+         */
+        task_id: string;
+        /**
+         * Id of the idling warm Run. The normal create+run path reuses and activates it on submit.
+         */
+        run_id: string;
+        /**
+         * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+         */
+        permission_mode_mutable?: boolean | undefined;
+    };
     export type _DateRange = Partial<{
         date_from: string | null;
         date_to: string | null;

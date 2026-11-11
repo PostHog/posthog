@@ -33,8 +33,10 @@ const mockHost = vi.hoisted(() => ({
   linkTaskBranch: vi.fn(),
 }));
 
+import type { WarmTaskSubmission } from "./warmTaskService";
+
 const warmSubmission = {
-  take: vi.fn<() => { taskId: string; runId: string } | null>(() => null),
+  take: vi.fn<WarmTaskSubmission["take"]>(() => null),
   finish: vi.fn(),
 };
 
@@ -1047,39 +1049,44 @@ describe("TaskCreationSaga", () => {
     },
   );
 
-  it("reuses a warm run built from the selected custom image", async () => {
-    warmSubmission.take.mockReturnValue({
-      taskId: "warm-task",
-      runId: "warm-run",
-    });
-    const warmActivatedTask = createTask({
-      id: "warm-task",
-      latest_run: createRun({ id: "warm-run", task: "warm-task" }),
-    });
-    const createTaskMock = vi.fn().mockResolvedValue(warmActivatedTask);
-    const createTaskRunMock = vi.fn();
-    const saga = makeSaga({
-      createTask: createTaskMock,
-      createTaskRun: createTaskRunMock,
-    });
+  it.each([false, true])(
+    "targets a warm run only when the server supports mode negotiation (%s)",
+    async (mutable) => {
+      warmSubmission.take.mockReturnValue({
+        taskId: "warm-task",
+        runId: "warm-run",
+        permissionModeMutable: mutable,
+      });
+      const warmActivatedTask = createTask({
+        id: "warm-task",
+        latest_run: createRun({ id: "warm-run", task: "warm-task" }),
+      });
+      const createTaskMock = vi.fn().mockResolvedValue(warmActivatedTask);
+      const createTaskRunMock = vi.fn();
+      const saga = makeSaga({
+        createTask: createTaskMock,
+        createTaskRun: createTaskRunMock,
+      });
 
-    const result = await saga.run({
-      content: "Ship the fix",
-      repository: "posthog/posthog",
-      workspaceMode: "cloud",
-      branch: "main",
-      customImageId: "image-123",
-    });
-
-    expect(result.success).toBe(true);
-    expect(createTaskMock).toHaveBeenCalledWith(
-      expect.objectContaining({
+      const result = await saga.run({
+        content: "Ship the fix",
+        repository: "posthog/posthog",
+        workspaceMode: "cloud",
         branch: "main",
-        custom_image_id: "image-123",
-      }),
-    );
-    expect(createTaskRunMock).not.toHaveBeenCalled();
-  });
+        customImageId: "image-123",
+      });
+
+      expect(result.success).toBe(true);
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          branch: "main",
+          custom_image_id: "image-123",
+          warm_run_id: mutable ? "warm-run" : undefined,
+        }),
+      );
+      expect(createTaskRunMock).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([{ contextWindow: "1m" as const }, { fastMode: true }])(
     "preserves cold-only settings even before the warm hook updates: %j",
@@ -1193,6 +1200,11 @@ describe("TaskCreationSaga", () => {
   });
 
   it("uses user authorship for signal report cloud task creation", async () => {
+    warmSubmission.take.mockReturnValue({
+      taskId: "warm-task",
+      runId: "warm-run",
+      permissionModeMutable: true,
+    });
     const createdTask = createTask({ origin_product: "signal_report" });
     const startedTask = createTask({
       origin_product: "signal_report",
@@ -1234,8 +1246,10 @@ describe("TaskCreationSaga", () => {
         signal_report: "report-123",
         signal_report_task_relationship: "discussion",
         signal_report_discussion_question: "why?",
+        warm_run_id: undefined,
       }),
     );
+    expect(warmSubmission.take).not.toHaveBeenCalled();
     expect(createTaskRunMock).toHaveBeenCalledWith(
       "task-123",
       expect.objectContaining({

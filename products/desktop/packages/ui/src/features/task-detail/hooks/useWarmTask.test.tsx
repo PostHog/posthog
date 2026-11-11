@@ -68,6 +68,7 @@ describe("useWarmTask", () => {
     { agentRuntime: "pi" },
     { contextWindow: "1m" },
     { fastMode: true },
+    { signalReportId: "report-123" },
     { claudeModelAccess: "own-subscription" },
     { codexModelAccess: "own-subscription" },
   ])("does not speculate for an ineligible composer %j", async (selection) => {
