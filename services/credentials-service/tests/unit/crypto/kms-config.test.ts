@@ -91,13 +91,40 @@ describe('loadConfig kms', () => {
             'entry 0 is not a base64 32-byte key',
         ],
         [
-            'the local provider in a production region',
+            'the local provider in prod-us',
+            {
+                CREDENTIALS_SERVICE_ENV: 'prod-us',
+                CREDENTIALS_SERVICE_KMS_PROVIDER: 'local',
+                CREDENTIALS_SERVICE_KMS_LOCAL_KEYS: KEY_A,
+            },
+            'not allowed in prod-us',
+        ],
+        [
+            'the local provider in prod-eu',
             {
                 CREDENTIALS_SERVICE_ENV: 'prod-eu',
                 CREDENTIALS_SERVICE_KMS_PROVIDER: 'local',
                 CREDENTIALS_SERVICE_KMS_LOCAL_KEYS: KEY_A,
             },
             'not allowed in prod-eu',
+        ],
+        [
+            'the local provider in prod-staging',
+            {
+                CREDENTIALS_SERVICE_ENV: 'prod-staging',
+                CREDENTIALS_SERVICE_KMS_PROVIDER: 'local',
+                CREDENTIALS_SERVICE_KMS_LOCAL_KEYS: KEY_A,
+            },
+            'not allowed in prod-staging',
+        ],
+        [
+            'the local provider in a production env with a typo in its case',
+            {
+                CREDENTIALS_SERVICE_ENV: 'PRODUCTION',
+                CREDENTIALS_SERVICE_KMS_PROVIDER: 'local',
+                CREDENTIALS_SERVICE_KMS_LOCAL_KEYS: KEY_A,
+            },
+            'not allowed in PRODUCTION',
         ],
     ])('refuses to boot with %s', (_label, env, message) => {
         withEnv(env)

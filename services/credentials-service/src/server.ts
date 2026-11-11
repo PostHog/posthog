@@ -85,6 +85,9 @@ export class CredentialsServer {
     private secretsReady = false
     private databaseReady = false
     private databaseRefused = false
+    // Set once enableIntegrations has run to the end, so a database that answers late does not
+    // turn the pod ready while the integration routes are still missing.
+    private integrationsSettled = false
     private cancelTimers: (() => void)[] = []
     private processListeners = new Map<string, (...args: unknown[]) => void>()
     private stopping = false
@@ -144,7 +147,8 @@ export class CredentialsServer {
     // take the platform secrets down with it: those do not need the database.
     private updateReadiness(): void {
         this.lifecycle.ready =
-            this.secretsReady && (!this.config.database || this.databaseReady || this.databaseRefused)
+            this.secretsReady &&
+            (!this.config.database || (this.databaseReady && this.integrationsSettled) || this.databaseRefused)
     }
 
     /** The pool, once the database answered and the runtime role passed the production check. */
@@ -234,6 +238,10 @@ export class CredentialsServer {
                 kms: Boolean(config.kms),
                 keys: Boolean(config.integrationCallerPublicKeysDir),
             })
+        }
+        if (poolAdmitted || !pool) {
+            this.integrationsSettled = true
+            this.updateReadiness()
         }
     }
 
