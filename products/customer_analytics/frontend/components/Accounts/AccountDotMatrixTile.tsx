@@ -71,6 +71,7 @@ export function AccountDotMatrixTile({
                             ) : displayResult?.kind === 'product_usage' ? (
                                 <AccountProductUsage
                                     result={displayResult.result}
+                                    emptyState={presentation.empty}
                                     accountId={accountId}
                                     instanceId={`${instanceId ?? 'tile'}:${generatedId}:products`}
                                     includeFirstUse={includeFirstUse}

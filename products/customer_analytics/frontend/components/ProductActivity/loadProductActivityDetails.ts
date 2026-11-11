@@ -26,6 +26,7 @@ export async function loadProductActivityDetails(
         includePeople: boolean
         includeFirstUse: boolean
         previousPeople?: BookActivityPeopleResult | null
+        onFirstUseError?: (error: unknown) => void
         rowLimit?: number
     }
 ): Promise<ProductActivityDetails> {
@@ -52,6 +53,14 @@ export async function loadProductActivityDetails(
             ? request
                   .perform<BookActivityFirstsQuery>({ ...common, kind: NodeKind.BookActivityFirstsQuery })
                   .then((response) => response.results)
+                  .catch((error: unknown) => {
+                      request.throwIfAborted()
+                      if (!options.onFirstUseError) {
+                          throw error
+                      }
+                      options.onFirstUseError(error)
+                      return null
+                  })
             : Promise.resolve(null),
     ])
     return { people, firsts }

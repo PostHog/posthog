@@ -176,7 +176,7 @@ describe('AccountDotMatrixTile', () => {
         expect(screen.getByTestId('matrix-selection').textContent).toBe('replay')
     })
 
-    it.each<{ name: string; response: () => Promise<unknown>; text: string }>([
+    it.each<{ name: string; response: () => Promise<unknown>; text: string; source?: 'product_usage' }>([
         {
             name: 'no usage metrics',
             response: () => Promise.resolve({ results: { ...WITH_SERIES, emptyReason: 'no_metrics' } }),
@@ -193,6 +193,24 @@ describe('AccountDotMatrixTile', () => {
             text: "This account isn't linked to any activity yet.",
         },
         {
+            name: 'product usage without an account group type',
+            response: () =>
+                Promise.resolve({
+                    results: { ...BOOK_ACTIVITY_MATRIX_MOCK, rows: [], data: [], emptyReason: 'no_group_type' },
+                }),
+            source: 'product_usage',
+            text: 'Choose an account group type in Customer analytics settings to see activity here.',
+        },
+        {
+            name: 'product usage without a linked account',
+            response: () =>
+                Promise.resolve({
+                    results: { ...BOOK_ACTIVITY_MATRIX_MOCK, rows: [], data: [], emptyReason: 'empty_book' },
+                }),
+            source: 'product_usage',
+            text: 'No linked account is available. Check the account link and your access.',
+        },
+        {
             name: 'no activity in the window',
             response: () => Promise.resolve({ results: WITH_SERIES }),
             text: 'No activity for this account in the last 8 weeks.',
@@ -202,9 +220,15 @@ describe('AccountDotMatrixTile', () => {
             response: () => Promise.reject(Object.assign(new Error('boom'), { status: 500 })),
             text: "Couldn't load activity for this account.",
         },
-    ])('tells the viewer what to do next for $name', async ({ response, text }) => {
+    ])('tells the viewer what to do next for $name', async ({ response, text, source }) => {
         mockPerformQuery.mockImplementation(response)
-        render(<AccountDotMatrixTile accountId="account-1" instanceId="state-tile" />)
+        render(
+            <AccountDotMatrixTile
+                accountId="account-1"
+                instanceId="state-tile"
+                initialConfig={source ? { source: { kind: source } } : undefined}
+            />
+        )
         expect(await screen.findByText(text)).toBeTruthy()
     })
 

@@ -15,6 +15,7 @@ import { accountProductUsageLogic } from './accountProductUsageLogic'
 
 export function AccountProductUsageTable({
     result,
+    emptyState = 'No product activity in this date range. Change the range or check the data source.',
     accountId,
     instanceId,
     includeFirstUse,
@@ -25,6 +26,7 @@ export function AccountProductUsageTable({
     renderUserDetails,
 }: {
     result: BookActivityMatrixResult
+    emptyState?: string
     accountId: string
     instanceId: string
     includeFirstUse: boolean
@@ -61,7 +63,7 @@ export function AccountProductUsageTable({
             </div>
             <DotMatrix
                 {...presentation}
-                emptyState="No product activity in this date range. Change the range or check the data source."
+                emptyState={emptyState}
                 loading={loading}
                 rowClassName={(row) => `AccountProductUsageTable__${rowByKey.get(row.key)?.kind}`}
                 rowHeader={{

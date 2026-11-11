@@ -13,6 +13,7 @@ import { AccountProductUsageTable } from './AccountProductUsageTable'
 
 export function AccountProductUsage({
     result,
+    emptyState,
     accountId,
     instanceId,
     includeFirstUse,
@@ -20,6 +21,7 @@ export function AccountProductUsage({
     loading,
 }: {
     result: BookActivityMatrixResult
+    emptyState?: string
     accountId: string
     instanceId: string
     includeFirstUse: boolean
@@ -80,6 +82,7 @@ export function AccountProductUsage({
                     action={{
                         children: 'Try again',
                         onClick: () => loadDetails(),
+                        loading: detailsLoading,
                         'data-attr': 'account-product-usage-people-retry',
                     }}
                 >
@@ -89,6 +92,19 @@ export function AccountProductUsage({
             {(details?.people.truncated || details?.firsts?.truncated) && (
                 <LemonBanner type="warning">
                     Some user details are missing because the result reached its limit.
+                </LemonBanner>
+            )}
+            {includeFirstUse && details?.matrix === result && details.firstsError && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadDetails(),
+                        loading: detailsLoading,
+                        'data-attr': 'account-product-usage-first-use-retry',
+                    }}
+                >
+                    Could not load first-use history. Try again.
                 </LemonBanner>
             )}
             {inspected && inspectedCell && (
@@ -115,6 +131,7 @@ export function AccountProductUsage({
             )}
             <AccountProductUsageTable
                 result={result}
+                emptyState={emptyState}
                 accountId={accountId}
                 instanceId={instanceId}
                 includeFirstUse={includeFirstUse}

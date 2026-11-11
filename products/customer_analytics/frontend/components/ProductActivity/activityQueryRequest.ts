@@ -3,7 +3,7 @@ import type { DisposablesManager } from 'kea-disposables'
 import { uuid } from 'lib/utils/dom'
 import { shouldCancelQuery } from 'lib/utils/requests'
 
-import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { cancelQueryOnServer, concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import type { DataNode, RefreshType } from '~/queries/schema/schema-general'
 
@@ -38,17 +38,23 @@ export class ActivityQueryRequest {
 
     async run<T>(execute: (signal: AbortSignal, queryId: string) => Promise<T>, queryId = uuid()): Promise<T> {
         this.throwIfAborted()
-        this.pending.add(queryId)
-        try {
-            return await execute(this.signal, queryId)
-        } catch (error) {
-            if (shouldCancelQuery(error) && !this.signal.aborted) {
-                void cancelQueryOnServer(this.teamId, queryId)
-            }
-            throw error
-        } finally {
-            this.pending.delete(queryId)
-        }
+        return concurrencyController.run({
+            abortController: this.controller,
+            fn: async () => {
+                this.throwIfAborted()
+                this.pending.add(queryId)
+                try {
+                    return await execute(this.signal, queryId)
+                } catch (error) {
+                    if (shouldCancelQuery(error) && !this.signal.aborted) {
+                        void cancelQueryOnServer(this.teamId, queryId)
+                    }
+                    throw error
+                } finally {
+                    this.pending.delete(queryId)
+                }
+            },
+        })
     }
 
     perform<N extends DataNode>(query: N, refresh?: RefreshType): Promise<NonNullable<N['response']>> {

@@ -9,7 +9,10 @@ import { BOOK_ACTIVITY_MATRIX_MOCK } from '../../__mocks__/bookActivityMatrixMoc
 import { accountProductUsagePeopleLogic } from './accountProductUsagePeopleLogic'
 
 jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
-jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({ cancelQueryOnServer: jest.fn() }))
+jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({
+    ...jest.requireActual('~/queries/nodes/DataNode/dataNodeLogic'),
+    cancelQueryOnServer: jest.fn(),
+}))
 const query = performQuery as jest.Mock
 const result = {
     ...BOOK_ACTIVITY_MATRIX_MOCK,

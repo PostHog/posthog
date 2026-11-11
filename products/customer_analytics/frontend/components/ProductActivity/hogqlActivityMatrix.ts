@@ -67,6 +67,7 @@ export const DOT_MATRIX_MAX_ROWS = 500
 export const DOT_MATRIX_MAX_COLUMNS = 104
 // The saved selection accepts up to 64 series keys.
 export const DOT_MATRIX_MAX_SERIES = 64
+export const DOT_MATRIX_MAX_GLYPHS_PER_ROW = 512
 
 export function getHogQLMappingError(response: HogQLQueryResponse, mapping: DotMatrixSourceMapping): string | null {
     const columns = response.columns ?? []
@@ -276,11 +277,13 @@ export function getHogQLActivityMatrix(
         }
     }
     const rows = [...rowKeys].slice(0, DOT_MATRIX_MAX_ROWS)
-    const sortedColumns = getSortedColumns([...columnKeys])
-    const columns = sortedColumns
-        ? sortedColumns.slice(-DOT_MATRIX_MAX_COLUMNS)
-        : [...columnKeys].slice(0, DOT_MATRIX_MAX_COLUMNS)
     const series = [...seriesItems.values()].slice(0, DOT_MATRIX_MAX_SERIES)
+    const columnLimit = Math.min(
+        DOT_MATRIX_MAX_COLUMNS,
+        Math.floor(DOT_MATRIX_MAX_GLYPHS_PER_ROW / Math.max(1, series.length))
+    )
+    const sortedColumns = getSortedColumns([...columnKeys])
+    const columns = sortedColumns ? sortedColumns.slice(-columnLimit) : [...columnKeys].slice(0, columnLimit)
     const shownRows = new Set(rows)
     const shownColumns = new Set(columns)
     const shownSeries = new Set(series.map(({ key }) => key))

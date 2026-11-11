@@ -67,6 +67,32 @@ describe('AccountProductUsage history', () => {
         }
     )
 
+    it('retains user details when optional history fails and retries history without reloading people', async () => {
+        query.mockImplementation((request) =>
+            request.kind === NodeKind.BookActivityPeopleQuery
+                ? Promise.resolve({ results: { rows: [], columns: [], people: [person], truncated: false } })
+                : Promise.reject(new Error('history unavailable'))
+        )
+        const { rerender } = render(<AccountProductUsage {...props} includeFirstUse={false} />)
+        expect(await screen.findByText('Alice +4')).toBeTruthy()
+        rerender(<AccountProductUsage {...props} />)
+        expect(await screen.findByText('Could not load first-use history. Try again.')).toBeTruthy()
+        expect(screen.getByText('Alice +4')).toBeTruthy()
+        expect(screen.queryByText('Could not load user details. Try again.')).toBeNull()
+        fireEvent.focus(screen.getByText('Alice +4'))
+        fireEvent.click(await screen.findByText('Qualification details'))
+        const modal = await screen.findByRole('dialog')
+        expect(within(modal).getByText('insight viewed: 4')).toBeTruthy()
+        fireEvent.click(within(modal).getByLabelText('close'))
+        query.mockResolvedValue({ results: { rows: [], people: [], accounts: [], truncated: false } })
+        fireEvent.click(screen.getByTestId('account-product-usage-first-use-retry'))
+        await waitFor(() => expect(screen.queryByText('Could not load first-use history. Try again.')).toBeNull())
+        expect(query.mock.calls.filter(([request]) => request.kind === NodeKind.BookActivityPeopleQuery)).toHaveLength(
+            1
+        )
+        expect(screen.getByText('Alice +4')).toBeTruthy()
+    })
+
     it('trusts all-history account dates instead of a false current-period matrix first use', async () => {
         query.mockImplementation((request) =>
             Promise.resolve({
