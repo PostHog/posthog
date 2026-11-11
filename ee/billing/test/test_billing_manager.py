@@ -548,7 +548,7 @@ class TestBillingManager(BaseTest):
     @parameterized.expand(
         [
             ("limit_lowered", 60, [_refresh_interval(15)], True),
-            ("feature_granted", None, [_refresh_interval(30)], True),
+            ("first_limit_queues_nothing", None, [_refresh_interval(30)], False),
             ("feature_revoked", 30, [{"key": "alerts", "name": "Alerts"}], True),
             ("other_feature_changed", 30, [_refresh_interval(30), {"key": "alerts", "name": "Alerts"}], False),
             ("partial_response_keeps_the_features", 30, [], False),

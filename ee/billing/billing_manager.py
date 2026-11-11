@@ -875,7 +875,9 @@ class BillingManager:
             previous_standard_retention = has_standard_retention(organization)
             previous_refresh_interval = _refresh_interval_limit(organization)
             organization.available_product_features = data["available_product_features"]
-            refresh_interval_changed = _refresh_interval_limit(organization) != previous_refresh_interval
+            refresh_interval_changed = previous_refresh_interval is not None and (
+                _refresh_interval_limit(organization) != previous_refresh_interval
+            )
             events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
             org_modified = True
 
