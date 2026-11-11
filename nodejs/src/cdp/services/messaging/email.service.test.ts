@@ -1957,26 +1957,33 @@ describe('EmailService', () => {
                 }
             )
 
-            it('sends a send with files at the retry cap when its ownership check stops answering, within the send deadline', async () => {
-                const emailService = sender({ attachmentSendDeadlineMs: 3_000, ownershipCheckTimeoutMs: 200 })
-                let checkAnswers = true
-                emailService.checkJobOwnershipBeforeSend(() =>
-                    checkAnswers
-                        ? Promise.reject(new Error('Connection terminated unexpectedly'))
-                        : new Promise<boolean>(() => undefined)
-                )
-                send([pdf])
-                let result = await emailService.executeSendEmail(invocation)
-                for (let retry = 1; retry < 5; retry++) {
+            it.each([
+                ['fast', 0],
+                ['slow', 2_000],
+            ])(
+                'sends a send with %s downloads at the retry cap when its ownership check stops answering, within the send deadline',
+                async (_speed, downloadDelayMs) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 3_000, ownershipCheckTimeoutMs: 2_000 })
+                    let checkAnswers = true
+                    emailService.checkJobOwnershipBeforeSend(() =>
+                        checkAnswers
+                            ? Promise.reject(new Error('Connection terminated unexpectedly'))
+                            : new Promise<boolean>(() => undefined)
+                    )
+                    send([pdf])
+                    let result = await emailService.executeSendEmail(invocation)
+                    for (let retry = 1; retry < 5; retry++) {
+                        result = await emailService.executeSendEmail(result.invocation)
+                    }
+                    checkAnswers = false
+                    bucket.downloadDelayMs = downloadDelayMs
+
                     result = await emailService.executeSendEmail(result.invocation)
+
+                    expect(outcomeOf(result)).toEqual(sent)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
                 }
-                checkAnswers = false
-
-                result = await emailService.executeSendEmail(result.invocation)
-
-                expect(outcomeOf(result)).toEqual(sent)
-                expect(deliveredTo(ses, recipient)).toHaveLength(1)
-            })
+            )
 
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
