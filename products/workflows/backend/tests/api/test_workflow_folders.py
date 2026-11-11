@@ -29,13 +29,19 @@ class TestWorkflowFolders(APIBaseTest):
         flag.start()
         self.addCleanup(flag.stop)
 
-    def _local_flag_answer(self, local: bool | None) -> None:
-        flag = patch(
-            "posthoganalytics.feature_enabled",
-            side_effect=lambda *args, only_evaluate_locally=False, **kwargs: local if only_evaluate_locally else True,
-        )
+    def _local_flag_answer(self, local: bool | None) -> list[str]:
+        remote_requests: list[str] = []
+
+        def answer(key: str, *args: Any, only_evaluate_locally: bool = False, **kwargs: Any) -> bool | None:
+            if only_evaluate_locally:
+                return local
+            remote_requests.append(key)
+            return True
+
+        flag = patch("posthoganalytics.feature_enabled", side_effect=answer)
         flag.start()
         self.addCleanup(flag.stop)
+        return remote_requests
 
     def test_template_tree_permissions_follow_workflow_access(self) -> None:
         self.organization.available_product_features = [
@@ -533,6 +539,7 @@ class TestWorkflowFolders(APIBaseTest):
             format="json",
         )
         self.assertEqual(created.status_code, 201, created.content)
+        self._local_flag_answer(True)
         files_url = f"/api/projects/{self.team.id}/file_system/"
         files = self.client.get(files_url, {"type": "message_template", "ref": created.json()["id"]}).json()["results"]
         self.assertEqual([file["path"] for file in files], ["Campaigns/Welcome email"])
@@ -558,10 +565,39 @@ class TestWorkflowFolders(APIBaseTest):
             format="json",
         )
         self.assertEqual(created.status_code, 201, created.content)
+        self._local_flag_answer(True)
         files = self.client.get(
             f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": created.json()["id"]}
         ).json()["results"]
         self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+
+    @parameterized.expand(
+        [
+            ("tree", "file_system/", {}),
+            ("search", "file_system/", {"search": "Synthetic"}),
+            ("recents", "file_system/", {"order_by": "-last_viewed_at"}),
+            ("frequent", "file_system/frequent/", {}),
+            ("unfiled", "file_system/unfiled/", {}),
+            ("shortcuts", "file_system_shortcut/", {}),
+        ]
+    )
+    def test_file_reads_never_wait_on_remote_flag_evaluation(self, _name: str, path: str, params: dict) -> None:
+        filed = HogFlow.objects.create(team=self.team, name="Synthetic filed", created_by=self.user)
+        unfiled = HogFlow.objects.create(team=self.team, name="Synthetic unfiled", created_by=self.user)
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=str(unfiled.id)).delete()
+        FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Synthetic filed", type="hog_flow", ref=str(filed.id)
+        )
+        remote_requests = self._local_flag_answer(None)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/{path}", params)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        rows = body.get("results", []) if isinstance(body, dict) else body
+        self.assertFalse({str(filed.id), str(unfiled.id)} & {row.get("ref") for row in rows})
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type="hog_flow", ref=str(unfiled.id)).exists())
+        self.assertNotIn("workflows-list-v2", remote_requests)
 
     def test_workflow_move_survives_reload_and_rename(self) -> None:
         created = self.client.post(

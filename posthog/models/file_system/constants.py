@@ -11,13 +11,16 @@ if TYPE_CHECKING:
 WORKFLOW_FILE_SYSTEM_TYPES = frozenset({"hog_flow", "message_template"})
 
 
-def workflows_list_v2_enabled(team: "Team", user: "User", *, only_evaluate_locally: bool = False) -> bool:
+# File reads evaluate the flag locally only, so that file navigation never waits on the flag service.
+# Only a create or restore into a requested folder may ask the service, so that its placement survives
+# when local evaluation cannot decide.
+def workflows_list_v2_enabled(team: "Team", user: "User", *, allow_remote_evaluation: bool = False) -> bool:
     return feature_enabled_or_false(
         "workflows-list-v2",
         user.distinct_id or str(user.pk),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
         person_properties={"email": user.email},
-        only_evaluate_locally=only_evaluate_locally,
+        only_evaluate_locally=not allow_remote_evaluation,
         send_feature_flag_events=False,
     )
 
