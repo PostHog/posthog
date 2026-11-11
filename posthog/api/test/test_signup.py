@@ -831,7 +831,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(dashboard.team, user.team)
         self.assertEqual(dashboard.tiles.count(), 17)
         self.assertEqual(dashboard.name, "Your starter dashboard")
-        self.assertEqual(dashboard.description, "")
+        self.assertEqual(dashboard.description, "An overview of how people use your app.")
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")

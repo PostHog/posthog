@@ -80,7 +80,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
         """
         return DashboardTemplate(
             template_name="Product analytics",
-            dashboard_description="",
+            dashboard_description="An overview of how people use your app.",
             dashboard_filters={},
             customization={
                 "groups": {
