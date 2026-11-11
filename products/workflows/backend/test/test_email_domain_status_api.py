@@ -337,13 +337,16 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
                 "_get_identity_mail_from_domain_attributes",
                 ses_throttles_mail_from_reads_once_verify_has_read_its_state,
             ),
-            patch("posthog.models.integration.email.capture_exception") as capture_exception,
+            patch("posthoganalytics.api_key", "phc_test"),
+            patch("posthoganalytics.capture_exception", return_value="event-id") as error_tracking,
         ):
             assert self.verify(sender).status_code == status.HTTP_200_OK
 
         assert self.is_verified(sender)
         assert Integration.objects.get(id=sender).config["mail_from_subdomain"] == "feedback"
-        capture_exception.assert_called_once_with(ANY, {"team_id": self.team.id, "domain": DOMAIN})
+        [(reported_error,), reported] = error_tracking.call_args
+        assert reported_error.response["Error"]["Code"] == "Throttling"
+        assert {"team_id": self.team.id, "domain": DOMAIN}.items() <= reported["properties"].items()
 
     def test_a_mail_from_change_that_lands_during_a_verify_is_kept(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
