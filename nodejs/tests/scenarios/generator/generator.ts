@@ -1,5 +1,5 @@
 import Chance from 'chance'
-import { once } from 'events'
+import { aborted } from 'node:util'
 
 import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
@@ -29,9 +29,7 @@ async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promis
     if (signal.aborted) {
         return
     }
-    const settled = new AbortController()
-    await Promise.race([work, once(signal, 'abort', { signal: settled.signal })])
-    settled.abort()
+    await Promise.race([work, aborted(signal, work)])
 }
 
 const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))

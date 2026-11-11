@@ -1,5 +1,5 @@
 export { DEFINITIONS } from './definitions'
 export type { Definition, Definitions, TrafficDefinition } from './definitions'
-export { CardError, PRODUCER_SETTING, PROFILES_DIR, ROLE_RESTART_BACKOFF_MS, load } from './load'
+export { CardError, LOAD_PRODUCER_SETTING, PROFILES_DIR, ROLE_RESTART_BACKOFF_MS, load } from './load'
 export type { LoadOptions, LoadedCard } from './load'
 export { Card, CdpRole, Named, Profile, RunningOnQueue, ValveEntry } from './schema'

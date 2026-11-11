@@ -226,13 +226,13 @@ describe('load', () => {
             'a profile setting no role reads',
             card,
             { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMOUT_MS: '60000' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMOUT_MS: not a setting the roles read',
+            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMOUT_MS: not a setting the roles or the load producer read',
         ],
         [
             'a profile setting only the object prototype has',
             card,
             { ...profile, settings: { toString: 'false' } },
-            'profile.settings.toString: not a setting the roles read',
+            'profile.settings.toString: not a setting the roles or the load producer read',
         ],
         [
             'a profile that uses a YAML alias',
@@ -273,13 +273,13 @@ describe('load', () => {
         expect(loadCard({ ...card, valves, convergeWithin: '48s' }).card.valves).toHaveLength(valves.length)
     })
 
-    it('accepts the settings a role reads straight from the process environment', () => {
-        const settings = {
-            HOG_BYTECODE_CACHE_REQUIRED: 'false',
-            HOG_BYTECODE_CACHE_REWRITE: 'false',
-            KAFKA_PRODUCER_LINGER_MS: '100',
-        }
-
+    it.each<[string, Record<string, string>]>([
+        [
+            'the settings a role reads straight from the process environment',
+            { HOG_BYTECODE_CACHE_REQUIRED: 'false', HOG_BYTECODE_CACHE_REWRITE: 'false' },
+        ],
+        ["settings for the runner's load producer", { KAFKA_PRODUCER_LINGER_MS: '100' }],
+    ])('accepts %s', (_name, settings) => {
         expect(loadCard(card, { ...profile, settings }).profile.settings).toEqual(settings)
     })
 

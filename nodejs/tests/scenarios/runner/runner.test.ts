@@ -3,6 +3,9 @@ import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
 
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { LoadedCard, load } from '../cards'
 import { Environment } from '../environment/environment'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
@@ -49,6 +52,7 @@ describe('runner', () => {
     })
 
     afterEach(async () => {
+        jest.restoreAllMocks()
         await runner.down()
         rmSync(cacheHome, { recursive: true, force: true })
         await api.close()
@@ -106,6 +110,27 @@ describe('runner', () => {
         expect(result).toMatchObject({
             status: 'invalid',
             statusReason: expect.stringMatching(/^the run stopped: .*scenario\.unknown/),
+        })
+    })
+
+    it('keeps the result and its evidence when the load producer cannot flush on disconnect', async () => {
+        const disconnect = KafkaProducerWrapper.prototype.disconnect
+        jest.spyOn(KafkaProducerWrapper.prototype, 'disconnect').mockImplementationOnce(async function (
+            this: KafkaProducerWrapper
+        ) {
+            await disconnect.call(this)
+            throw new Error('Local: Timed out')
+        })
+
+        const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        const statusReason = expect.stringMatching(
+            /^the run stopped: .*127\.0\.0\.1:1\b.*; the load producer did not disconnect: Local: Timed out$/
+        )
+        expect(result).toMatchObject({ status: 'invalid', statusReason })
+        expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toMatchObject({
+            status: 'invalid',
+            statusReason,
         })
     })
 

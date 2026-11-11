@@ -8,7 +8,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
-import { CdpRole, LoadedCard, PRODUCER_SETTING } from '../cards'
+import { CdpRole, LOAD_PRODUCER_SETTING, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { EDGE_URL, Environment, defaultStateDir } from '../environment/environment'
 import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
@@ -54,8 +54,8 @@ type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergenc
 
 function producerConfigOf(env: NodeJS.ProcessEnv): ProducerGlobalConfig {
     const settings = Object.entries(env).flatMap(([key, value]) =>
-        key.startsWith(PRODUCER_SETTING) && value
-            ? [[key.slice(PRODUCER_SETTING.length).replace(/_/g, '.').toLowerCase(), value]]
+        key.startsWith(LOAD_PRODUCER_SETTING) && value
+            ? [[key.slice(LOAD_PRODUCER_SETTING.length).replace(/_/g, '.').toLowerCase(), value]]
             : []
     )
     return { 'message.timeout.ms': DELIVERY_TIMEOUT_MS, ...Object.fromEntries(settings) }
@@ -177,6 +177,13 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 await stopHealth?.()
                 try {
                     await producer?.disconnect()
+                } catch (error) {
+                    const failed = `the load producer did not disconnect: ${(error as Error).message}`
+                    outcome = {
+                        ...outcome,
+                        status: 'invalid',
+                        statusReason: outcome.status === 'invalid' ? `${outcome.statusReason}; ${failed}` : failed,
+                    }
                 } finally {
                     await postgres.end()
                 }
