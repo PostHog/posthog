@@ -17,7 +17,6 @@ import type {
     TraceStepFeedbackApi,
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
-import { toDatasetItemSource } from './adapter/toDatasetItemSource'
 import type { TraceSearchBoxData } from './components/TraceSearchBox'
 import { traceClustersLogic } from './traceClustersLogic'
 import { traceFeedbackLogic } from './traceFeedbackLogic'
@@ -94,7 +93,6 @@ export interface traceViewModelLogicValues {
     trace: TraceApi | null // traceViewLogic
     tree: TraceNodeApi[] // traceViewLogic
     canViewInThread: boolean
-    datasetItemSource: ReturnType<typeof toDatasetItemSource>
     datasetsEnabled: boolean
     evalOutcomes: ReadonlyMap<string, EvalRollupOutcome>
     feedbackCount: number | null
@@ -243,12 +241,6 @@ export interface traceViewModelLogicMeta {
         ) => string | null
         threadNodeLoad: (threadNodeIds: string[], nodes: ReadonlyMap<string, NodeLoad>) => NodeLoad | null
         datasetsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        datasetItemSource: (
-            datasetsEnabled: boolean,
-            selectedRaw: RawLoad | undefined,
-            createdAt: string | null,
-            traceId: string
-        ) => ReturnType<typeof toDatasetItemSource>
         thread: (
             status: TraceViewStatus,
             threadNodeLoad: NodeLoad | null,
@@ -447,16 +439,6 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         datasetsEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
-        ],
-        datasetItemSource: [
-            (s, p) => [s.datasetsEnabled, s.selectedRaw, s.createdAt, p.traceId],
-            (
-                datasetsEnabled: boolean,
-                raw: RawLoad | undefined,
-                createdAt: string | null,
-                traceId: string
-            ): ReturnType<typeof toDatasetItemSource> =>
-                datasetsEnabled && createdAt ? toDatasetItemSource({ traceId, createdAt, raw }) : null,
         ],
         thread: [
             (s, p) => [s.status, s.threadNodeLoad, s.createdAt, p.traceId],
