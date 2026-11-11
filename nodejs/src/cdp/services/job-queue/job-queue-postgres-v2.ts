@@ -373,6 +373,10 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         )
     }
 
+    public async stillOwns(invocation: CyclotronJobInvocation): Promise<boolean> {
+        return (await this.pendingJobs.get(invocation.id)?.stillOwned()) ?? true
+    }
+
     public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {

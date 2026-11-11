@@ -103,6 +103,7 @@ export interface CyclotronV2DequeuedJob {
     defer(options: { scheduledAt: Date; state?: Buffer }): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
+    stillOwned(): Promise<boolean>
     // `cancelRequested: true` means the check-in was refused: a cancel flag landed on this
     // job (CyclotronV2Manager.cancelJobs) before the transaction took its row lock, so
     // nothing was inserted and the job is STILL HELD — the caller must dispose of it
@@ -243,6 +244,8 @@ export type CyclotronV2JanitorConfig = {
     // just recovered. `stallBackoffBaseMs = 0` disables it (immediate retry).
     stallBackoffBaseMs?: number
     stallBackoffMaxMs?: number
+    // Most stalled jobs one run resets. 0 or unset resets every stalled job.
+    stallResetBatchSize?: number
 }
 
 export type CyclotronV2CleanupResult = {

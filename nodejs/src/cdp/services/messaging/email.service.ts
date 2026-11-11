@@ -7,6 +7,7 @@ import { Counter, Histogram } from 'prom-client'
 import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
+    CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionType,
@@ -121,6 +122,11 @@ const sesSendResultsTotal = new Counter({
     labelNames: ['result'],
 })
 
+const emailSendsStoppedForLostJobTotal = new Counter({
+    name: 'cdp_email_sends_stopped_lost_job_total',
+    help: 'Emails a worker did not send because it lost its job right before the send, usually to a janitor reset after late heartbeats. The worker that now holds the job sends it.',
+})
+
 const sesSendDurationMs = new Histogram({
     name: 'cdp_ses_send_duration_ms',
     help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error).',
@@ -177,6 +183,15 @@ class EmailSendDeadlineError extends Error {
         this.name = 'EmailSendDeadlineError'
     }
 }
+
+class LostJobOwnershipError extends Error {
+    constructor() {
+        super('This worker no longer holds the job, so the worker that holds it sends this email')
+        this.name = 'LostJobOwnershipError'
+    }
+}
+
+export type JobOwnershipCheck = (invocation: CyclotronJobInvocation) => Promise<boolean>
 
 class MessageTooLargeError extends Error {
     constructor() {
@@ -519,6 +534,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
+    private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -546,6 +562,22 @@ export class EmailService {
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
+    }
+
+    public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
+        this.stillOwnsJob = stillOwnsJob
+    }
+
+    private async sendsAsJobOwner(invocation: CyclotronJobInvocation): Promise<boolean> {
+        try {
+            return await this.stillOwnsJob(invocation)
+        } catch (error) {
+            logger.warn('Could not check job ownership before an email send, so the email is sent', {
+                invocationId: invocation.id,
+                error: String(error),
+            })
+            return true
+        }
     }
 
     private utmTaggingFor(
@@ -882,6 +914,9 @@ export class EmailService {
                 ? AbortSignal.timeout(this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS)
                 : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
+            if (!isTest && !(await this.sendsAsJobOwner(invocation))) {
+                throw new LostJobOwnershipError()
+            }
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
@@ -916,7 +951,18 @@ export class EmailService {
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
-            if (error instanceof SESThrottleError) {
+            if (error instanceof LostJobOwnershipError) {
+                emailSendsStoppedForLostJobTotal.inc()
+                logger.warn('Stopped an email send because this worker lost its job', {
+                    invocationId: invocation.id,
+                    teamId: invocation.teamId,
+                })
+                rescheduled = true
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = invocation.queueMetadata
+                result.invocation.queueScheduledAt = DateTime.utc()
+            } else if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
                 // the job. Our local bucket is the primary throttle; this path
                 // catches the cases where SES disagrees with our estimate.

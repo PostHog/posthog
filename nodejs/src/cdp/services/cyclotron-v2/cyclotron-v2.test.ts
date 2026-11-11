@@ -246,6 +246,17 @@ async function churnCountForQueue(queue: string): Promise<number> {
     return line ? Number(line.trim().split(' ').pop()) : 0
 }
 
+async function counterValue(name: string, labels: Record<string, string> = {}): Promise<number> {
+    const samples = (await register.getSingleMetric(name)?.get())?.values ?? []
+    return samples
+        .filter((sample) => Object.entries(labels).every(([key, value]) => sample.labels[key] === value))
+        .reduce((sum, sample) => sum + sample.value, 0)
+}
+
+function staleCommitCount(operation: string): Promise<number> {
+    return counterValue('cdp_cyclotron_v2_stale_commits_total', { queue: QUEUE, operation })
+}
+
 describe('Cyclotron V2', () => {
     jest.setTimeout(3000)
     // Declared here, assigned in beforeAll
@@ -1960,6 +1971,7 @@ describe('Cyclotron V2', () => {
         it('heartbeat() skips without waiting while another client holds the job row, then renews once it is free', async () => {
             const { id, job } = await seedAndDequeue()
             await makeHeartbeatStale(id)
+            const staleHeartbeatsBefore = await staleCommitCount('heartbeat')
 
             const rowHolder = await assertPool.connect()
             try {
@@ -1978,7 +1990,37 @@ describe('Cyclotron V2', () => {
             await job.heartbeat()
             expect(await heartbeatIsFresh(id)).toBe(true)
             expect((await queryJob(id)).status).toBe('running')
+            expect(await staleCommitCount('heartbeat')).toBe(staleHeartbeatsBefore)
+            await expect(job.stillOwned()).resolves.toBe(true)
         }, 10_000)
+
+        it.each([
+            ['ack', (job: CyclotronV2DequeuedJob) => job.ack()],
+            ['fail', (job: CyclotronV2DequeuedJob) => job.fail()],
+            ['cancel', (job: CyclotronV2DequeuedJob) => job.cancel()],
+            ['reschedule', (job: CyclotronV2DequeuedJob) => job.reschedule({ scheduledAt: new Date() })],
+            ['defer', (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() })],
+            ['heartbeat', (job: CyclotronV2DequeuedJob) => job.heartbeat()],
+        ])(
+            'a worker whose job the janitor re-queued to another worker cannot %s it, and counts a stale commit',
+            async (operation, write) => {
+                const { id, job: firstClaim } = await seedAndDequeue()
+                const janitor = createJanitor({ stallTimeoutMs: 0 })
+                await janitor.runOnce()
+                await janitor.stop()
+                const [secondClaim] = await dequeueOneBatch(createWorker())
+                const secondLock = (await queryJob(id)).lock_id
+                const staleBefore = await staleCommitCount(operation)
+
+                await write(firstClaim)
+
+                const row = await queryJob(id)
+                expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status: 'running', lock_id: secondLock })
+                expect(await staleCommitCount(operation)).toBe(staleBefore + 1)
+                await expect(firstClaim.stillOwned()).resolves.toBe(false)
+                await expect(secondClaim.stillOwned()).resolves.toBe(true)
+            }
+        )
 
         it('double-release throws on second ack method call', async () => {
             const { job } = await seedAndDequeue()
@@ -2858,6 +2900,110 @@ describe('Cyclotron V2', () => {
             expect(row.status).toBe('available')
             expect(row.lock_id).toBeNull()
             expect(row.janitor_touch_count).toBe(1)
+        })
+
+        it('resetStalledJobs resets at most the batch size per run, longest stalled first, and the next run resets the rest', async () => {
+            const stalledFor = (minutes: number): Date => new Date(Date.now() - minutes * 60_000)
+            const [oldest, middle, newest] = [uuidv7(), uuidv7(), uuidv7()]
+            await insertRawJob({ id: newest, status: 'running', lock_id: uuidv7(), last_heartbeat: stalledFor(1) })
+            await insertRawJob({ id: oldest, status: 'running', lock_id: uuidv7(), last_heartbeat: stalledFor(3) })
+            await insertRawJob({ id: middle, status: 'running', lock_id: uuidv7(), last_heartbeat: stalledFor(2) })
+
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, stallResetBatchSize: 2 })
+            const first = await janitor.runOnce()
+            const statusesAfterFirstRun = await Promise.all(
+                [oldest, middle, newest].map(async (id) => (await queryJob(id)).status)
+            )
+            const second = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(first.stalled).toBe(2)
+            expect(statusesAfterFirstRun).toEqual(['available', 'available', 'running'])
+            expect(second.stalled).toBe(1)
+            expect((await queryJob(newest)).status).toBe('available')
+        })
+
+        it('a failing stage does not skip the stages after it', async () => {
+            const failingTeam = 424242
+            await insertRawJob({
+                id: uuidv7(),
+                team_id: failingTeam,
+                status: 'completed',
+                last_transition: new Date(Date.now() - 60_000),
+            })
+            const stalledId = uuidv7()
+            await insertRawJob({
+                id: stalledId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+            })
+            await assertPool.query(`
+                CREATE OR REPLACE FUNCTION refuse_janitor_stage_test_delete() RETURNS trigger AS $$
+                BEGIN
+                    IF OLD.team_id = ${failingTeam} THEN
+                        RAISE EXCEPTION 'terminal cleanup refused for the stage isolation test';
+                    END IF;
+                    RETURN OLD;
+                END
+                $$ LANGUAGE plpgsql`)
+            await assertPool.query(`
+                CREATE TRIGGER refuse_janitor_stage_test_delete BEFORE DELETE ON cyclotron_jobs
+                FOR EACH ROW EXECUTE FUNCTION refuse_janitor_stage_test_delete()`)
+            const failuresBefore = await counterValue('cdp_cyclotron_v2_janitor_stage_failures_total', {
+                stage: 'terminal_cleanup',
+            })
+            const janitor = createJanitor({ stallTimeoutMs: 1_000 })
+            try {
+                const result = await janitor.runOnce()
+
+                expect(result.stalled).toBe(1)
+                expect(result.depths.get('hogflow')).toBe(1)
+                expect((await queryJob(stalledId)).status).toBe('available')
+                expect(
+                    await counterValue('cdp_cyclotron_v2_janitor_stage_failures_total', { stage: 'terminal_cleanup' })
+                ).toBe(failuresBefore + 1)
+            } finally {
+                await janitor.stop()
+                await assertPool.query('DROP TRIGGER refuse_janitor_stage_test_delete ON cyclotron_jobs')
+                await assertPool.query('DROP FUNCTION refuse_janitor_stage_test_delete()')
+            }
+        })
+
+        it('never starts a run while the previous one is still going', async () => {
+            const applicationName = `janitor-overlap-${uuidv7()}`
+            const janitorQueriesRunning = async (): Promise<number> => {
+                const { rows } = await assertPool.query<{ n: number }>(
+                    `SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1 AND state = 'active'`,
+                    [applicationName]
+                )
+                return rows[0].n
+            }
+            const blocker = await assertPool.connect()
+            await blocker.query('BEGIN')
+            await blocker.query('LOCK TABLE conversion_watchers IN ACCESS EXCLUSIVE MODE')
+            const skippedBefore = await counterValue('cdp_cyclotron_v2_janitor_runs_skipped_total')
+            const janitor = createJanitor({
+                pool: { dbUrl: `${DB_URL}?application_name=${applicationName}` },
+                cleanupIntervalMs: 10,
+            })
+            const started = janitor.start()
+            try {
+                await waitForExpect(
+                    async () =>
+                        expect(
+                            await counterValue('cdp_cyclotron_v2_janitor_runs_skipped_total')
+                        ).toBeGreaterThanOrEqual(skippedBefore + 5),
+                    2000,
+                    10
+                )
+                expect(await janitorQueriesRunning()).toBe(1)
+            } finally {
+                await blocker.query('COMMIT')
+                blocker.release()
+                await started
+                await janitor.stop()
+            }
         })
 
         // Backoff on the reset job's next scheduled time, keyed on

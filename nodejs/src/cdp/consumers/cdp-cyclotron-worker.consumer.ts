@@ -1,5 +1,6 @@
 import { Histogram } from 'prom-client'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -45,6 +46,10 @@ export class CdpCyclotronWorker<
         }
 
         this.cyclotronJobQueue = jobQueue
+        const checksOwnershipForTeam = buildIntegerMatcher(config.CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS, true)
+        this.emailService.checkJobOwnershipBeforeSend((invocation) =>
+            checksOwnershipForTeam(invocation.teamId) ? jobQueue.stillOwns(invocation) : Promise.resolve(true)
+        )
     }
 
     @instrumented({ key: 'cdpConsumer.handleEachBatch.executeInvocations', timeoutMs: 30_000, sendException: false })

@@ -20,7 +20,7 @@ import { FakeSes, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2'
+import { CyclotronV2Janitor, CyclotronV2Manager } from '~/cdp/services/cyclotron-v2'
 import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
@@ -204,6 +204,8 @@ const completes = (request: string): boolean => request.includes("SET status = '
 const fails = (request: string): boolean => request.includes("SET status = 'failed'")
 const dequeues = (request: string): boolean => request.includes("SET status = 'running'")
 const defers = (request: string): boolean => request.includes('dequeue_seq = COALESCE')
+const checksOwnership = (request: string): boolean =>
+    request.includes('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')
 const writeOf =
     (write: (request: string) => boolean, id: string) =>
     (request: string): boolean =>
@@ -383,7 +385,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     async function startWorker(
         limits: InFlightLimits | null,
         sesClient: SESv2Client = sesClientFor(ses),
-        postgres: PostgresRouter = hub.postgres
+        postgres: PostgresRouter = hub.postgres,
+        overrides: Partial<Hub> = {}
     ): Promise<CdpCyclotronWorkerEmail> {
         const config = {
             ...hub,
@@ -393,6 +396,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
             CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
             EMAIL_STATUS_ENABLED: true,
+            ...overrides,
         }
         const worker = new CdpCyclotronWorkerEmail(
             config,
@@ -485,6 +489,38 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         )
         return latest && { status: latest.status, reason: latest.reason, sendingDomain: latest.sending_domain }
     }
+
+    it('a worker whose job the janitor re-queued to another worker does not send it, and its write is refused', async () => {
+        const ownershipChecked = { CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id) }
+        const staleReschedules = (): Promise<number> =>
+            metric('cdp_cyclotron_v2_stale_commits_total', { queue: queueName, operation: 'reschedule' })
+        const staleBefore = await staleReschedules()
+        const [id] = await enqueue(transactionalSend(null))
+        const firstWorkersCheck = cyclotron.hold(writeOf(checksOwnership, id))
+        await startWorker(null, sesClientFor(ses), hub.postgres, {
+            ...ownershipChecked,
+            CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
+        })
+        const heldCheck = await firstWorkersCheck
+
+        await db.query(`UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`, [id])
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+            stallTimeoutMs: 30_000,
+            stallBackoffBaseMs: 0,
+            cleanupGraceMs: 60_000,
+        })
+        const { stalled } = await janitor.runOnce()
+        await janitor.stop()
+        expect(stalled).toBeGreaterThanOrEqual(1)
+        await startWorker(null, sesClientFor(ses), hub.postgres, ownershipChecked)
+        expect(await ended(id)).toBe('completed')
+
+        heldCheck.release()
+        await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
+        expect(delivered()).toEqual([[]])
+        expect((await jobRow(id)).status).toBe('completed')
+    })
 
     it('writes the plain sends of a batch and dequeues the next one while a send with files waits on its download', async () => {
         bucket.answer = 'hold'

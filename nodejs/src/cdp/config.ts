@@ -210,6 +210,9 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
+    // Comma-separated team ids, or "*", whose email sends first check that the worker still holds the
+    // Cyclotron job, so a worker that lost its job to a janitor reset leaves the send to its new holder.
+    CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
     CDP_EMAIL_ATTACHMENTS_S3_REGION: string
     CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string
@@ -248,6 +251,8 @@ export type CdpConfig = ClickhouseConfig & {
     // max caps the per-strike wait.
     CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: number
     CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: number
+    // Most stalled jobs one janitor run resets; the rest wait for the next run. 0 resets them all.
+    CYCLOTRON_NODE_JANITOR_STALL_RESET_BATCH_SIZE: number
     // Timing-edit reschedule sweep (CyclotronV2Manager.rescheduleParkedJobs)
     // Scoped JWT keys authenticating Django's calls to the reschedule_parked route — comma-separated,
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
@@ -466,6 +471,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
+        CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() || isTestEnv() ? 'email-attachments' : '',
         CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
         CDP_EMAIL_ATTACHMENTS_S3_PREFIX: 'attachments',
@@ -498,6 +504,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
         CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: 60000,
         CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: 600000,
+        CYCLOTRON_NODE_JANITOR_STALL_RESET_BATCH_SIZE: 0,
         // Floor > the hog flow cache's worst-case staleness (~6 min), so swept jobs
         // always wake against post-edit config. Rate sized well under hogflow worker
         // steady-state throughput: the past incident class here is an instantaneous
