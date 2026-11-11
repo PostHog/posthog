@@ -5,6 +5,7 @@ import type {
     AEOPromptCheckApi,
     AEOPromptApi,
     AEOPromptImportResultApi,
+    BrandedSegmentEnumApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalListApi,
     PatchedAEOPromptUpdateRequestApi,
@@ -17,6 +18,7 @@ export const ENGINE_LABELS: Record<string, string> = {
     'openai-web-search': 'ChatGPT',
     'exa-answer': 'Exa',
     'gemini-google-search': 'Gemini',
+    'perplexity-web-search': 'Perplexity',
 }
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
@@ -165,3 +167,15 @@ export const draftableOpportunity = (
     const opportunity = opportunityByPromptId[prompt.id]
     return opportunity && normalizedPrompt(opportunity.title) === normalizedPrompt(prompt.prompt) ? opportunity : null
 }
+
+const SEGMENT_PROMPTS: Record<BrandedSegmentEnumApi, string> = {
+    all: 'all prompts',
+    branded: 'prompts that name your brand',
+    non_branded: "prompts that don't name your brand",
+}
+
+export const segmentPrompts = (segment: BrandedSegmentEnumApi): string => SEGMENT_PROMPTS[segment]
+
+/** How many answers the numbers on a tab come from, and which prompts they answered. */
+export const brandedAnswersNote = (segment: BrandedSegmentEnumApi, answers: number): string =>
+    `From ${pluralize(answers, 'answer')} to ${SEGMENT_PROMPTS[segment]}.`

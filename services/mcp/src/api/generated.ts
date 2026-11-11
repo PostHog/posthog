@@ -91,6 +91,32 @@ export namespace Schemas {
       updated_at: string | null;
     }
 
+    export interface AEOBrandCreateRequest {
+      /**
+         * The brand's domain or a URL on it, for example 'example.com'. Stored as its registrable domain, so citations on its subdomains count for the brand.
+         * @maxLength 253
+         */
+      domain: string;
+      /**
+         * Brand name as people say it. Guessed from the domain when empty.
+         * @maxLength 200
+         */
+      name?: string;
+      /** What the brand is to the project: 'own' (the project's site, counted as us in citations), 'competitor', 'publisher' or 'unknown'.
+       *
+       * * `own` - Own
+       * * `competitor` - Competitor
+       * * `publisher` - Publisher
+       * * `unknown` - Unknown */
+      kind: BrandKindEnum;
+      /**
+         * Other names for the brand, used to find it in answer text. Names are trimmed, and repeated names are dropped.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      aliases?: string[];
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
@@ -150,6 +176,8 @@ export namespace Schemas {
       current_version: number;
       /** How many versions the prompt has. */
       version_count: number;
+      /** Whether the current text names the brand. Computed when read, so it follows changes to the target domains. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand. */
+      branded: boolean;
     }
 
     export interface AEOPromptAuthor {
@@ -481,6 +509,20 @@ export namespace Schemas {
       engines: string[];
     }
 
+    /**
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     */
+    export type BrandedSegmentEnum = typeof BrandedSegmentEnum[keyof typeof BrandedSegmentEnum];
+
+
+    export const BrandedSegmentEnum = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
     export interface AEOPromptSetOverview {
       /** Checks across the prompt set in the last 'days' days. */
       current: AEOPromptSetCounts;
@@ -506,6 +548,16 @@ export namespace Schemas {
       target_domains: string[];
       /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
       brand_names: string[];
+      /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+       *
+       * * `all` - All
+       * * `branded` - Branded
+       * * `non_branded` - Non-branded */
+      branded: BrandedSegmentEnum;
+      /** Answered checks in the current window whose prompt named the brand, whatever 'branded' selects. The sample size behind the branded numbers. */
+      branded_answers: number;
+      /** Answered checks in the current window whose prompt did not name the brand, whatever 'branded' selects. The sample size behind the non-branded numbers. */
+      non_branded_answers: number;
     }
 
     export interface AEORankedBrand {
@@ -575,7 +627,7 @@ export namespace Schemas {
     }
 
     export interface AEOPromptSetRankings {
-      /** The project's brand and up to 10 competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count. */
+      /** The project's brand and up to 10 competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count. */
       brands: AEORankedBrand[];
       /** Visibility per brand and day in the current window, ordered by day then domain. */
       daily: AEORankedBrandDay[];
@@ -589,8 +641,16 @@ export namespace Schemas {
       window_from: string;
       /** Last day of the current window (today), in the project's timezone. */
       window_to: string;
+      /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+       *
+       * * `all` - All
+       * * `branded` - Branded
+       * * `non_branded` - Non-branded */
+      branded: BrandedSegmentEnum;
       /** Answered checks in the current window: the denominator of every share. */
       answers: number;
+      /** Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains. */
+      competitors_confirmed: boolean;
     }
 
     export interface AEOPromptStats {
@@ -756,6 +816,13 @@ export namespace Schemas {
       created_at: string;
       /** Whether this is the version the prompt runs with. */
       is_current: boolean;
+    }
+
+    export interface AEOVisibilityDashboard {
+      /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
+      id: number;
+      /** Name of the new dashboard. */
+      name: string;
     }
 
     export interface AIContextAccountProperty {
@@ -2518,6 +2585,34 @@ export namespace Schemas {
       task_run_id: string;
       /** Resolved target team ID. */
       team_id: number;
+    }
+
+    export interface AccountAutomation {
+      /** ID of the workflow the caller can read. */
+      workflow_id: string;
+      /** Name of the workflow. */
+      workflow_name: string;
+      /** ID of this execution, including repeated workflow runs. */
+      invocation_id: string;
+      /** Run status: running, succeeded, failed, or canceled. */
+      status: string;
+      /** Original trigger or scheduling time. */
+      triggered_at: string;
+      /**
+         * Last successfully completed step time, or null when evidence is unavailable.
+         * @nullable
+         */
+      last_completed_step_at: string | null;
+      /**
+         * Current name of the last completed step, or null when unavailable.
+         * @nullable
+         */
+      last_completed_step_name: string | null;
+      /**
+         * Future pause time from retained logs, or null. This does not guarantee an action.
+         * @nullable
+         */
+      expected_resume_at: string | null;
     }
 
     /**
@@ -12990,8 +13085,8 @@ export namespace Schemas {
 
     export interface MetricsTableWidgetConfig {
       dateRange?: WidgetDateRange | null;
-      /** Label that makes one row per value, e.g. `http.route`. Null until the user sets it. */
-      groupBy?: string | null;
+      /** Labels that make one row per combination of their values, e.g. `["http.route", "http.request.method"]`. A single label can also be a string. Null until the user sets it. */
+      groupBy?: string | string[] | null;
       /**
          * One metric per column. Each row shows the column's average over the date range and a sparkline.
          * @maxItems 6
@@ -14092,10 +14187,10 @@ export namespace Schemas {
      * * `notify` - Notify
      * * `suppress` - Suppress
      */
-    export type InvestigationInconclusiveActionEnum = typeof InvestigationInconclusiveActionEnum[keyof typeof InvestigationInconclusiveActionEnum];
+    export type AlertInvestigationInconclusiveActionEnum = typeof AlertInvestigationInconclusiveActionEnum[keyof typeof AlertInvestigationInconclusiveActionEnum];
 
 
-    export const InvestigationInconclusiveActionEnum = {
+    export const AlertInvestigationInconclusiveActionEnum = {
       Notify: 'notify',
       Suppress: 'suppress',
     } as const;
@@ -14193,7 +14288,7 @@ export namespace Schemas {
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
-      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
@@ -27319,6 +27414,16 @@ export namespace Schemas {
       updated_at: string | null;
     }
 
+    /**
+     * * `history_over_limit` - History over limit
+     */
+    export type CohortRealtimeUnavailableReasonEnum = typeof CohortRealtimeUnavailableReasonEnum[keyof typeof CohortRealtimeUnavailableReasonEnum];
+
+
+    export const CohortRealtimeUnavailableReasonEnum = {
+      HistoryOverLimit: 'history_over_limit',
+    } as const;
+
     export interface CohortRealtimeReadiness {
       /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
        *
@@ -27337,6 +27442,15 @@ export namespace Schemas {
       ready_at: string | null;
       /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
       build: CohortHistoryBuild | null;
+      /** A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+       *
+       * * `history_over_limit` - History over limit */
+      reason: CohortRealtimeUnavailableReasonEnum | null;
+      /**
+         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         * @nullable
+         */
+      history_limit_days: number | null;
     }
 
     export interface Cohort {
@@ -30935,12 +31049,12 @@ export namespace Schemas {
          */
       readonly attempt: number | null;
       /**
-         * Temporal workflow identifier associated with the current account sync phase.
+         * Staff-only Temporal workflow identifier of the run. Null for non-staff users.
          * @nullable
          */
       readonly workflow_id: string | null;
       /**
-         * Temporal run identifier associated with the current account sync phase.
+         * Identifier of the worker job that executed the run. Person and group runs use it to find the run's progress log lines. Null for runs recorded before it was stored.
          * @nullable
          */
       readonly workflow_run_id: string | null;
@@ -38308,6 +38422,12 @@ export namespace Schemas {
          */
       source_issues?: SourceIssueWrite[];
       /**
+         * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. The edit refuses a pull request outside the report's repository, one GitHub cannot read, and one closed without merging. At most 5 per call.
+         * @maxItems 5
+         * @items.maxLength 2048
+         */
+      pull_requests?: string[];
+      /**
          * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
          * @maxItems 10
          * @nullable
@@ -38407,6 +38527,8 @@ export namespace Schemas {
       links_appended: number;
       /** How many source issues this edit added that the report did not name yet; 0 if none. */
       source_issues_appended: number;
+      /** How many pull requests this edit linked that the report did not link yet; 0 if none. */
+      pull_requests_linked: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -46279,7 +46401,7 @@ export namespace Schemas {
       /** Whether the changes were compared with the exposures. False when not_checked_reason is set. */
       checked: boolean;
       /**
-         * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+         * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action', 'exposure_criteria', 'too_many_saves' or 'too_many_conditions'. Null when they were.
          * @nullable
          */
       not_checked_reason: string | null;
@@ -46706,9 +46828,9 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
-      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
       readonly completed_metrics: number;
-      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
       readonly failed_metrics: number;
       /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
@@ -46734,6 +46856,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `current` - Current settings
+     * * `previous` - Earlier settings
+     * * `unknown` - Settings not recorded
+     */
+    export type ExperimentResultConfigurationStatusEnum = typeof ExperimentResultConfigurationStatusEnum[keyof typeof ExperimentResultConfigurationStatusEnum];
+
+
+    export const ExperimentResultConfigurationStatusEnum = {
+      Current: 'current',
+      Previous: 'previous',
+      Unknown: 'unknown',
+    } as const;
+
+    /**
      * * `pending` - pending
      * * `completed` - completed
      * * `failed` - failed
@@ -46751,6 +46887,12 @@ export namespace Schemas {
      * One metric's recalculated result row, read back from ExperimentMetricResult.
      */
     export interface MetricRecalculationResult {
+      /** Whether this result uses current settings, earlier settings, or settings that were not recorded.
+       *
+       * * `current` - Current settings
+       * * `previous` - Earlier settings
+       * * `unknown` - Settings not recorded */
+      readonly configuration_status: ExperimentResultConfigurationStatusEnum;
       /** UUID of the metric this result belongs to */
       readonly metric_uuid: string;
       /** Status of this metric's calculation in the run
@@ -46797,9 +46939,9 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
-      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
       readonly completed_metrics: number;
-      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
       readonly failed_metrics: number;
       /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
@@ -46822,7 +46964,7 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
       readonly metric_retries: unknown;
-      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      /** Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier completed result at the same window stays here and the failure is in metric_errors */
       readonly results: readonly MetricRecalculationResult[];
       /**
          * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
@@ -46841,6 +46983,8 @@ export namespace Schemas {
        * * `recalculation` - recalculation
        * * `timeseries_fallback` - timeseries_fallback */
       readonly result_source: ResultSourceEnum;
+      /** True when the experiment started too long ago for its metrics to be recalculated. A recalculation request then returns a rejected run with the recalculation_window_too_long error, and the saved results stay as they are */
+      readonly exceeds_recalculation_age_limit: boolean;
     }
 
     /**
@@ -46882,9 +47026,9 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
-      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
       readonly completed_metrics: number;
-      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
       readonly failed_metrics: number;
       /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
@@ -46907,7 +47051,7 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
       readonly metric_retries: unknown;
-      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      /** Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier completed result at the same window stays here and the failure is in metric_errors */
       readonly results: readonly MetricRecalculationResult[];
       /**
          * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
@@ -48013,6 +48157,85 @@ export namespace Schemas {
          * @nullable
          */
       prompt_version?: string | null;
+    }
+
+    /**
+     * Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result.
+     */
+    export type ExperimentTimeseriesResultsTimeseries = {[key: string]: unknown};
+
+    /**
+     * Configuration provenance for each stored day: current, previous, or unknown.
+     */
+    export type ExperimentTimeseriesResultsConfigurationByDay = {[key: string]: 'current' | 'previous' | 'unknown'};
+
+    /**
+     * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+     * @nullable
+     */
+    export type ExperimentTimeseriesResultsErrors = {[key: string]: string} | null;
+
+    /**
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `partial` - Partial
+     * * `failed` - Failed
+     */
+    export type ExperimentTimeseriesResultsStatusEnum = typeof ExperimentTimeseriesResultsStatusEnum[keyof typeof ExperimentTimeseriesResultsStatusEnum];
+
+
+    export const ExperimentTimeseriesResultsStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Partial: 'partial',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Day-by-day results of one metric under the experiment's current settings.
+     */
+    export interface ExperimentTimeseriesResults {
+      /** Experiment id. */
+      experiment_id: number;
+      /** UUID of the metric the series belongs to. */
+      metric_uuid: string;
+      /** 'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result and some failed, 'pending' when no day was calculated yet.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `partial` - Partial
+       * * `failed` - Failed */
+      status: ExperimentTimeseriesResultsStatusEnum;
+      /** Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result. */
+      timeseries: ExperimentTimeseriesResultsTimeseries;
+      /** Configuration provenance for each stored day: current, previous, or unknown. */
+      configuration_by_day: ExperimentTimeseriesResultsConfigurationByDay;
+      /**
+         * When the most recent day's result was computed, or null.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** When the oldest stored day was written. */
+      created_at: string;
+      /** When the newest stored day was last written. */
+      updated_at: string;
+      /**
+         * 'pending' or 'in_progress' while a backfill of this series runs, otherwise null.
+         * @nullable
+         */
+      recalculation_status: string | null;
+      /**
+         * When the running backfill was requested, or null.
+         * @nullable
+         */
+      recalculation_created_at: string | null;
+      /** The series as a compact text table, one row per day, for language model consumers. */
+      formatted_results: string;
+      /**
+         * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+         * @nullable
+         */
+      errors: ExperimentTimeseriesResultsErrors;
     }
 
     export interface VariantsExperiment {
@@ -53925,6 +54148,23 @@ export namespace Schemas {
       AnyUser: 'any-user',
     } as const;
 
+    export interface HighlightExperimentResult {
+      /** Name of the primary metric of the experiment. */
+      metric_name: string;
+      /** Key of the variant the number compares with the control. */
+      variant: string;
+      /** Key of the control variant. */
+      control: string;
+      /** How many variants the experiment tests against the control. */
+      variants: number;
+      /** Whether the difference of `variant` is significant. */
+      significant: boolean;
+      /** Whether `variant` moves the metric toward its goal: up, or down for a metric that should decrease. */
+      favorable: boolean;
+      /** How many people the result counts across every variant, or groups for an experiment on groups. */
+      exposures: number;
+    }
+
     /**
      * * `failure` - Failure
      * * `struggle` - Struggle
@@ -54129,6 +54369,8 @@ export namespace Schemas {
      * * `popular` - Opened often in this project
      * * `watched` - You get updates on this
      * * `built` - You created or edited this
+     * * `experiment` - An experiment you run
+     * * `agent` - Your agents query this
      */
     export type HighlightMetricReasonEnum = typeof HighlightMetricReasonEnum[keyof typeof HighlightMetricReasonEnum];
 
@@ -54140,6 +54382,8 @@ export namespace Schemas {
       Popular: 'popular',
       Watched: 'watched',
       Built: 'built',
+      Experiment: 'experiment',
+      Agent: 'agent',
     } as const;
 
     export interface HighlightMover {
@@ -54155,7 +54399,7 @@ export namespace Schemas {
     }
 
     export interface HighlightMetric {
-      /** Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>. */
+      /** Stable key of the metric: a key metric setting such as signup_event, insight:<short_id>, or experiment:<id>. */
       key: string;
       /** Name of the key metric or of the insight, for example Sign-ups. */
       name: string;
@@ -54189,14 +54433,16 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently. Null for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created, `agent` for an insight the person's AI agents read on several days. Null for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
        * * `popular` - Opened often in this project
        * * `watched` - You get updates on this
-       * * `built` - You created or edited this */
+       * * `built` - You created or edited this
+       * * `experiment` - An experiment you run
+       * * `agent` - Your agents query this */
       reason: HighlightMetricReasonEnum | null;
       /**
          * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -54225,6 +54471,8 @@ export namespace Schemas {
       previous_value: number | null;
       /** For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise. */
       movers: HighlightMover[];
+      /** The primary metric result of an experiment. Then `value` is the change of `variant` against the control, in percent, and `series` is empty. Null for other metrics. */
+      experiment: HighlightExperimentResult | null;
     }
 
     /**
@@ -54287,7 +54535,9 @@ export namespace Schemas {
        * * `key_metric` - Project key metric
        * * `popular` - Opened often in this project
        * * `watched` - You get updates on this
-       * * `built` - You created or edited this */
+       * * `built` - You created or edited this
+       * * `experiment` - An experiment you run
+       * * `agent` - Your agents query this */
       reason?: HighlightMetricReasonEnum | null;
       /** Stable key of the selected number. */
       key: string;
@@ -61219,6 +61469,14 @@ export namespace Schemas {
      */
     export type InsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
+    export type InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum = typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum[keyof typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum];
+
+
+    export const InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum = {
+      Notify: 'notify',
+      Suppress: 'suppress',
+    } as const;
+
     /**
      * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
      */
@@ -61238,6 +61496,12 @@ export namespace Schemas {
          * @minimum 0
          */
       evaluation_delay_intervals?: number;
+      /** Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API. */
+      investigation_agent_enabled?: boolean;
+      /** Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API. */
+      investigation_gates_notifications?: boolean;
+      /** What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API. */
+      investigation_inconclusive_action?: InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum;
     }
 
     /**
@@ -63945,6 +64209,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code
+     */
+    export type LimitSourceEnum = typeof LimitSourceEnum[keyof typeof LimitSourceEnum];
+
+
+    export const LimitSourceEnum = {
+      Project: 'project',
+      Default: 'default',
+      Code: 'code',
+    } as const;
+
+    /**
      * * `burst` - burst
      * * `sustained` - sustained
      */
@@ -64308,6 +64586,11 @@ export namespace Schemas {
       timezone: string;
     }
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+     */
+    export type LogsAlertConfigurationLabels = {[key: string]: string};
+
     export interface LogsAlertFilters {
       filterGroup?: PropertyGroupFilter | null;
       serviceNames?: string[] | null;
@@ -64490,7 +64773,9 @@ export namespace Schemas {
       readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
       grouping?: LogsAlertGrouping;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+      labels?: LogsAlertConfigurationLabels;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
       readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -64506,6 +64791,11 @@ export namespace Schemas {
          */
       readonly updated_at: string | null;
     }
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+     */
+    export type LogsAlertConfigurationDetailLabels = {[key: string]: string};
 
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
@@ -64631,7 +64921,9 @@ export namespace Schemas {
       readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
       grouping?: LogsAlertGrouping;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+      labels?: LogsAlertConfigurationDetailLabels;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
       readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -65220,6 +65512,7 @@ export namespace Schemas {
      * * `log` - log
      * * `resource` - resource
      * * `column` - column
+     * * `body` - body
      */
     export type LogsGroupBySourceEnum = typeof LogsGroupBySourceEnum[keyof typeof LogsGroupBySourceEnum];
 
@@ -65228,6 +65521,7 @@ export namespace Schemas {
       Log: 'log',
       Resource: 'resource',
       Column: 'column',
+      Body: 'body',
     } as const;
 
     export type LogsListWidgetCatalogEntryOpenApiWidgetType = typeof LogsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof LogsListWidgetCatalogEntryOpenApiWidgetType];
@@ -66184,83 +66478,6 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    /**
-     * Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed.
-     */
-    export type MCPDiscoverCandidateWhy = { [key: string]: unknown };
-
-    /**
-     * Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.
-     * @nullable
-     */
-    export type MCPDiscoverCandidateMeasured = { [key: string]: unknown } | null;
-
-    export type MCPDiscoverCandidateMatchedToolsItem = {
-      name?: string;
-      description?: string;
-      source?: string;
-    };
-
-    /**
-     * Connection instructions, most-automated method first, steps typed by actor so the agent runs its own steps and narrates the human ones.
-     */
-    export type MCPDiscoverCandidateConnect = { [key: string]: unknown };
-
-    /**
-     * One ranked candidate in a discover response, with everything an agent needs to act.
-     */
-    export interface MCPDiscoverCandidate {
-      /** 1-based position under the ranking version used. */
-      rank: number;
-      /** Registry server id, for the detail endpoint. */
-      id: string;
-      /** Official registry name, empty for measured-only servers. */
-      registry_name: string;
-      /** Human-readable server name. */
-      title: string;
-      /** What the server does. */
-      description: string;
-      /** The server's own standing in [0, 1] under the ranking version used: liveness x trust, independent of the query. */
-      score: number;
-      /**
-         * How well the server's own text answered `intent`, in [0, 1]. Null when the intent held no words worth matching on.
-         * @nullable
-         */
-      relevance: number | null;
-      /**
-         * The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null in two cases. When the intent held no words worth matching on, ordering falls back to `score`. When the ranking version has no completed run, `score` is 0 for every candidate and ordering falls back to `relevance`.
-         * @nullable
-         */
-      combined_score: number | null;
-      /** Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed. */
-      why: MCPDiscoverCandidateWhy;
-      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
-      liveness: string;
-      /** Detected auth method (none, oauth, api_key, unknown). */
-      auth_method: string;
-      /**
-         * Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.
-         * @nullable
-         */
-      measured: MCPDiscoverCandidateMeasured;
-      /** Tools that matched the intent: [{name, description, source}]. Empty when only the server description matched. */
-      matched_tools: MCPDiscoverCandidateMatchedToolsItem[];
-      /** Connection instructions, most-automated method first, steps typed by actor so the agent runs its own steps and narrates the human ones. */
-      connect: MCPDiscoverCandidateConnect;
-    }
-
-    /**
-     * Everything an agent gets back from one discover call.
-     */
-    export interface MCPDiscoverResponse {
-      /** The intent the candidates were ranked against, echoed back. */
-      intent: string;
-      /** Ranking version the candidates were ordered by. */
-      ranking_version: string;
-      /** Servers most likely to do the thing, best first. */
-      candidates: MCPDiscoverCandidate[];
-    }
-
     export interface MCPFeedbackCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -66695,18 +66912,6 @@ export namespace Schemas {
       readonly themes: readonly MCPIntentTheme[];
     }
 
-    /**
-     * One project's contribution to the measured layer, for the staff fleet view.
-     */
-    export interface MCPMeasuredProject {
-      /** Project supplying the MCP Analytics signal. */
-      team_id: number;
-      /** Distinct servers this project has measured. */
-      servers: number;
-      /** Tool calls this project contributes across those servers. */
-      calls: number;
-    }
-
     export interface MCPMissingCapabilityCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -66786,129 +66991,6 @@ export namespace Schemas {
       enabled?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
-    }
-
-    /**
-     * A completed ranking run.
-     */
-    export interface MCPRankingRun {
-      /** Run id. */
-      id: string;
-      /** Servers scored in the run. */
-      server_count: number;
-      /**
-         * When the run completed.
-         * @nullable
-         */
-      computed_at: string | null;
-    }
-
-    /**
-     * A registered ranking version and its latest completed run.
-     */
-    export interface MCPRankingVersion {
-      /** Ranking version key, passed as ?version= to the list endpoint. */
-      version: string;
-      /** What this version scores on. */
-      description: string;
-      /** Whether this is the version used when ?version= is omitted. */
-      is_default: boolean;
-      /** Latest completed run; null when the version never ran. */
-      latest_run: MCPRankingRun | null;
-    }
-
-    export type MCPRegistryServerDetailRemotesItem = {
-      type?: string;
-      url?: string;
-    };
-
-    export type MCPRegistryServerDetailPackagesItem = {
-      registry_type?: string;
-      identifier?: string;
-    };
-
-    export type MCPRegistryServerDetailToolsItem = { [key: string]: unknown };
-
-    export type MCPRegistryServerDetailMeasuredStatsItem = { [key: string]: unknown };
-
-    export type MCPRegistryServerDetailScoresItem = { [key: string]: unknown };
-
-    /**
-     * Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user).
-     */
-    export type MCPRegistryServerDetailConnect = { [key: string]: unknown };
-
-    export interface MCPRegistryServerDetail {
-      /** Registry server id. */
-      id: string;
-      /** Reverse-DNS name in the official MCP registry; empty for measured-only servers. */
-      registry_name: string;
-      /** Human-readable server name. */
-      display_name: string;
-      /** Server description. */
-      description: string;
-      /** Primary hosted remote URL; empty for package-only servers. */
-      canonical_url: string;
-      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
-      liveness: string;
-      /** Detected auth method (none, oauth, api_key, unknown). */
-      auth_method: string;
-      /** Whether the server appears in the official MCP registry. */
-      listed_in_registry: boolean;
-      /** Whether real usage signal exists via MCP Analytics. */
-      is_measured: boolean;
-      /**
-         * Static score under the requested ranking version; null when the version has no completed run.
-         * @nullable
-         */
-      rank_score: number | null;
-      /** All hosted remotes: [{type, url}]. */
-      remotes: MCPRegistryServerDetailRemotesItem[];
-      /** Published packages: [{registry_type, identifier}]. */
-      packages: MCPRegistryServerDetailPackagesItem[];
-      /** Source repository URL, when published. */
-      repository_url: string;
-      /** Vendor website URL, when published. */
-      website_url: string;
-      /**
-         * When the shallow probe last ran.
-         * @nullable
-         */
-      last_probed_at: string | null;
-      /** Known tools, fused from probes and analytics. A tool known only from another project's traffic is limited to callers who may see that project's measurements. */
-      tools: MCPRegistryServerDetailToolsItem[];
-      /** Behavioral aggregates, one per measured MCP Analytics project. Limited to this project's own measurements unless the server is marked measured_public. */
-      measured_stats: MCPRegistryServerDetailMeasuredStatsItem[];
-      /** Latest score under every ranking version with a completed run. */
-      scores: MCPRegistryServerDetailScoresItem[];
-      /** Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user). */
-      connect: MCPRegistryServerDetailConnect;
-    }
-
-    export interface MCPRegistryServerList {
-      /** Registry server id. */
-      id: string;
-      /** Reverse-DNS name in the official MCP registry; empty for measured-only servers. */
-      registry_name: string;
-      /** Human-readable server name. */
-      display_name: string;
-      /** Server description. */
-      description: string;
-      /** Primary hosted remote URL; empty for package-only servers. */
-      canonical_url: string;
-      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
-      liveness: string;
-      /** Detected auth method (none, oauth, api_key, unknown). */
-      auth_method: string;
-      /** Whether the server appears in the official MCP registry. */
-      listed_in_registry: boolean;
-      /** Whether real usage signal exists via MCP Analytics. */
-      is_measured: boolean;
-      /**
-         * Static score under the requested ranking version; null when the version has no completed run.
-         * @nullable
-         */
-      rank_score: number | null;
     }
 
     /**
@@ -72091,6 +72173,7 @@ export namespace Schemas {
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
      * * `connector` - Signed up through an OAuth connector
+     * * `device_login` - Signed up through an OAuth device login
      */
     export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
 
@@ -72101,6 +72184,7 @@ export namespace Schemas {
       Other: 'other',
       Provisioned: 'provisioned',
       Connector: 'connector',
+      DeviceLogin: 'device_login',
     } as const;
 
     export interface OnlinePerformanceRow {
@@ -73258,6 +73342,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: AEOPrompt[];
+    }
+
+    export interface PaginatedAccountAutomationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountAutomation[];
     }
 
     export interface PaginatedAccountChannelSummaryList {
@@ -74517,15 +74610,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MCPOrgRule[];
-    }
-
-    export interface PaginatedMCPRegistryServerListList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: MCPRegistryServerList[];
     }
 
     export interface PaginatedMCPServerInstallationList {
@@ -77598,6 +77682,8 @@ export namespace Schemas {
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
       readonly assignee: SignalReportAssignee | null;
+      /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+      readonly implementation_in_flight: boolean;
       /** The report's PR refund, when one exists. One refund per report, ever. */
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -81649,6 +81735,22 @@ export namespace Schemas {
       PullRequest: 'pull_request',
     } as const;
 
+    /**
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     */
+    export type WizardPullRequestStateEnum = typeof WizardPullRequestStateEnum[keyof typeof WizardPullRequestStateEnum];
+
+
+    export const WizardPullRequestStateEnum = {
+      Open: 'open',
+      Draft: 'draft',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
+
     export interface WizardRunPullRequestArtifact {
       /** Unique ID of the run artifact. */
       readonly id: string;
@@ -81672,6 +81774,23 @@ export namespace Schemas {
       readonly base_branch: string;
       /** Time when the artifact was stored. */
       readonly created_at: string;
+      /** Last known state of the pull request on GitHub. Null when no state has been recorded.
+       *
+       * * `open` - open
+       * * `draft` - draft
+       * * `merged` - merged
+       * * `closed` - closed */
+      readonly state: WizardPullRequestStateEnum | null;
+      /**
+         * Time when the pull request was merged, if it was.
+         * @nullable
+         */
+      readonly merged_at: string | null;
+      /**
+         * Time when the pull request was closed or merged. Null while it is open.
+         * @nullable
+         */
+      readonly closed_at: string | null;
     }
 
     export type WizardRunArtifact = WizardRunGitDiffArtifact | WizardRunPullRequestArtifact;
@@ -82718,7 +82837,7 @@ export namespace Schemas {
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
-      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
     }
@@ -86958,6 +87077,11 @@ export namespace Schemas {
       version_description?: string;
     }
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+     */
+    export type PatchedLogsAlertConfigurationLabels = {[key: string]: string};
+
     export interface PatchedLogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id?: string;
@@ -87045,7 +87169,9 @@ export namespace Schemas {
       readonly destination_types?: readonly LogsAlertDestinationTypeEnum[];
       /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
       grouping?: LogsAlertGrouping;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+      labels?: PatchedLogsAlertConfigurationLabels;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
       readonly platform_owned?: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -96592,6 +96718,24 @@ export namespace Schemas {
       max_live_pipelines: number;
       /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
       live_pipelines: number;
+      /** Where max_training_runs_per_day comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_training_runs_per_day_source: LimitSourceEnum;
+      /** Where max_iterations_per_run comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_iterations_per_run_source: LimitSourceEnum;
+      /** Where max_live_pipelines comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_live_pipelines_source: LimitSourceEnum;
     }
 
     /**
@@ -102922,6 +103066,8 @@ export namespace Schemas {
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
       readonly assignee: SignalReportAssignee | null;
+      /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+      readonly implementation_in_flight: boolean;
       /** The report's PR refund, when one exists. One refund per report, ever. */
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -120810,6 +120956,17 @@ export namespace Schemas {
       started_at?: string | null;
     }
 
+    export interface WizardDetectedWarehouseSource {
+      /** The tool's kind in the wizard tool catalog, such as `Stripe`. */
+      kind: string;
+      /** The data warehouse source type that imports this tool's data, such as `Stripe` or `Postgres`. */
+      warehouse_source_type: string;
+      /** When a wizard scan first found the tool. */
+      first_seen_at: string;
+      /** When a wizard scan last found the tool. */
+      last_seen_at: string;
+    }
+
     export interface WizardInstallStart {
       /** ID of the setup run. Pass it to the status endpoint. */
       readonly run_id: string;
@@ -122091,7 +122248,7 @@ export namespace Schemas {
     }
 
     export interface _LogPattern {
-      /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. */
+      /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. The largest <JSON:keys> groups are split by the message their bodies carry (such as fields.message), so a key set remains only for rows with no message field. */
       pattern: string;
       /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
       count: number;
@@ -122125,10 +122282,10 @@ export namespace Schemas {
          * @nullable
          */
       match_literal: string | null;
-      /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining. */
+      /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining and for a JSON key-set group split by message, which pivots with match_regex. */
       match_patterns?: string[];
       /**
-         * Version required by match_patterns. Null for body mining.
+         * Version required by match_patterns. Null when match_patterns is empty.
          * @nullable
          */
       pattern_version?: number | null;
@@ -122301,13 +122458,14 @@ export namespace Schemas {
     }
 
     export interface _LogsGroupByDimension {
-      /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template). */
+      /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name"); when source is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template); when source is "body", a dot-separated JSON path into the log body (e.g. "fields.message"). */
       key: string;
-      /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+      /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields, "body" for a JSON path into the body.
        *
        * * `log` - log
        * * `resource` - resource
-       * * `column` - column */
+       * * `column` - column
+       * * `body` - body */
       source?: LogsGroupBySourceEnum;
     }
 
@@ -122324,11 +122482,12 @@ export namespace Schemas {
       filterGroup?: _LogPropertyFilter[];
       /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern". Ignored when groupBys is provided. */
       groupBy?: string;
-      /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.
+      /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields, "body" for a JSON path into the body. Ignored when groupBys is provided.
        *
        * * `log` - log
        * * `resource` - resource
-       * * `column` - column */
+       * * `column` - column
+       * * `body` - body */
       groupBySource?: LogsGroupBySourceEnum;
       /**
          * Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy/groupBySource; one of the two must be provided.
@@ -122390,7 +122549,8 @@ export namespace Schemas {
        *
        * * `log` - log
        * * `resource` - resource
-       * * `column` - column */
+       * * `column` - column
+       * * `body` - body */
       source: LogsGroupBySourceEnum;
       /** The attribute key that carries the ID on most matching logs. */
       key: string;
@@ -125886,6 +126046,18 @@ export namespace Schemas {
       Desc: 'desc',
     } as const;
 
+    export type AccountsAutomationsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
@@ -126689,6 +126861,11 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Only list brands whose domain or name contains this text, ignoring case.
+     * @maxLength 200
+     */
+    search?: string;
+    /**
      * Only list brands with this review status.
      *
      * * `suggested` - Suggested
@@ -126724,6 +126901,11 @@ export namespace Schemas {
      * @nullable
      */
     active?: boolean | null;
+    /**
+     * Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     * @nullable
+     */
+    branded?: boolean | null;
     /**
      * Also list archived prompts. Archived prompts are left out by default.
      */
@@ -126781,14 +126963,14 @@ export namespace Schemas {
 
     export type AeoPromptsOverviewParams = {
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
      */
-    days?: number;
-    };
-
-    export type AeoPromptsRankingsParams = {
+    branded?: AeoPromptsOverviewBranded;
     /**
      * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
      * @minimum 1
@@ -126796,6 +126978,42 @@ export namespace Schemas {
      */
     days?: number;
     };
+
+    export type AeoPromptsOverviewBranded = typeof AeoPromptsOverviewBranded[keyof typeof AeoPromptsOverviewBranded];
+
+
+    export const AeoPromptsOverviewBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
+    export type AeoPromptsRankingsParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsRankingsBranded;
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    };
+
+    export type AeoPromptsRankingsBranded = typeof AeoPromptsRankingsBranded[keyof typeof AeoPromptsRankingsBranded];
+
+
+    export const AeoPromptsRankingsBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**
@@ -136256,62 +136474,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type McpRegistryServersListParams = {
-    /**
-     * Number of results to return per page.
-     * @maximum 200
-     */
-    limit?: number;
-    /**
-     * Only servers with real MCP Analytics signal.
-     */
-    measured_only?: boolean;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Free-text query matched against server names, descriptions, and tool names.
-     */
-    search?: string;
-    /**
-     * Ranking version ordering the results; defaults to the current default version.
-     */
-    version?: string;
-    };
-
-    export type McpRegistryServersCompareRetrieveParams = {
-    /**
-     * Rows per arm (default 20, max 100).
-     */
-    limit?: number;
-    /**
-     * Optional text filter applied to every arm.
-     */
-    search?: string;
-    /**
-     * Comma-separated ranking versions to compare (2+).
-     */
-    versions: string;
-    };
-
-    export type McpRegistryServersCompareRetrieve200 = { [key: string]: unknown };
-
-    export type McpRegistryServersDiscoverRetrieveParams = {
-    /**
-     * What the agent is trying to do, in natural language.
-     */
-    intent: string;
-    /**
-     * Candidates to return (default 5, max 20).
-     */
-    limit?: number;
-    /**
-     * Ranking version to rank candidates by.
-     */
-    version?: string;
-    };
-
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -138226,7 +138388,7 @@ export namespace Schemas {
      */
     source_product?: string;
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, closed, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string;
     /**
@@ -138254,7 +138416,7 @@ export namespace Schemas {
      */
     use_priority_preference?: boolean;
     /**
-     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
+     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string;
     };
@@ -142051,6 +142213,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type WizardScansDetectedSourcesRetrieveParams = {
+    /**
+     * Only return sources a scan found at or after this time, such as the start of a wizard run.
+     */
+    seen_since?: string;
     };
 
     export type WizardSessionsListParams = {
