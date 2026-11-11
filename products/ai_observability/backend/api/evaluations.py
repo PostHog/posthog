@@ -629,6 +629,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
+        requests_reasoning_level = isinstance(data.get("evaluation_config"), dict) and (
+            "reasoning_level" in data["evaluation_config"]
+        )
         if "evaluation_config" in data:
             config = data["evaluation_config"]
             if not isinstance(config, dict):
@@ -682,7 +685,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ).get("judge_method")
         if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
-        self._validate_reasoning_level(data, uses_decision_model=uses_decision_model)
+        self._validate_reasoning_level(
+            data, uses_decision_model=uses_decision_model, requested=requests_reasoning_level
+        )
 
         should_validate_configs = (
             self.instance is None
@@ -786,7 +791,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 }
             )
 
-    def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool) -> None:
+    def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool, requested: bool) -> None:
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         if evaluation_type != EvaluationType.LLM_JUDGE.value:
             return
@@ -795,6 +800,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             return
         model_config = self._effective_model_configuration(data) or {}
         if uses_decision_model or not supports_reasoning_level(model_config.get("provider"), model_config.get("model")):
+            if self.instance is not None and not requested:
+                # A saved level must not block a model change. The create page drops it the same way.
+                data["evaluation_config"] = {k: v for k, v in evaluation_config.items() if k != "reasoning_level"}
+                return
             raise serializers.ValidationError(
                 {
                     "evaluation_config": "This judge model doesn't support a reasoning level. Choose an Anthropic or OpenAI reasoning model, or use the model default."
