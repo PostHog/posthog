@@ -23,7 +23,7 @@ import {
     buildWorkflowRow,
     paginated,
 } from './workflowsListV2Fixtures'
-import { workflowsListV2Logic } from './workflowsListV2Logic'
+import { SUMMARY_REQUEST_TIMEOUT_MS, workflowsListV2Logic } from './workflowsListV2Logic'
 
 const shownIds = (logic: ReturnType<typeof workflowsListV2Logic.build>): string[] =>
     logic.values.filteredRows.map((row) => row.id)
@@ -318,6 +318,53 @@ describe('workflowsListV2Logic', () => {
         expect(logic.values.loadFailed).toBe(true)
         expect(logic.values.listLoaded).toBe(false)
         expect(logic.values.loadErrorDetail).toEqual(detail)
+    })
+
+    const stalledSummaries = (): {
+        signals: AbortSignal[]
+        requested: Promise<void>
+        stall: ({ request }: { request: Request }) => Promise<never>
+    } => {
+        const signals: AbortSignal[] = []
+        let markRequested: () => void = () => {}
+        const requested = new Promise<void>((resolve) => (markRequested = resolve))
+        const stall = ({ request }: { request: Request }): Promise<never> => {
+            signals.push(request.signal)
+            markRequested()
+            return new Promise(() => {})
+        }
+        return { signals, requested, stall }
+    }
+
+    it('fails a stalled summary request at its deadline and aborts it', async () => {
+        const { signals, stall } = stalledSummaries()
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/summaries/': stall } })
+        router.actions.push(urls.workflows())
+        jest.useFakeTimers()
+        try {
+            logic = workflowsListV2Logic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(SUMMARY_REQUEST_TIMEOUT_MS)
+            expect(logic.values).toMatchObject({
+                workflowsLoading: false,
+                loadFailed: true,
+                loadErrorDetail: 'Workflows took too long to load. Check your connection and try again.',
+            })
+            expect(signals.map((signal) => signal.aborted)).toEqual([true])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('aborts a running summary request when the list closes', async () => {
+        const { signals, requested, stall } = stalledSummaries()
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/summaries/': stall } })
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await requested
+        logic.unmount()
+        expect(signals.map((signal) => signal.aborted)).toEqual([true])
     })
 
     it('shows the list before the metrics arrive, then fills in health', async () => {

@@ -16,6 +16,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
+import { withTimeout } from 'lib/utils/async'
 import { isUUIDLike } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -70,6 +71,8 @@ const WORKFLOWS_PAGE_TYPES = LIST_TYPES.join(',')
 const PAGE_LIMIT = 500
 const MIN_SERVER_SEARCH_LENGTH = 3
 const SERVER_SEARCH_DEBOUNCE_MS = 300
+// The generated client has no timeout, so a stalled page would leave the list loading with no way to retry.
+export const SUMMARY_REQUEST_TIMEOUT_MS = 10_000
 
 export interface ServerSearchResult {
     text: string
@@ -388,17 +391,37 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             null as HogFlowListSummaryApi[] | null,
             {
                 loadWorkflows: async (_, breakpoint) => {
+                    cache.loadAbort?.abort()
+                    const loadAbort = new AbortController()
+                    cache.loadAbort = loadAbort
                     const teamId = String(values.currentTeamId)
                     // A row action that lands while the pages load is newer than what the server sent.
                     const changes: RowChange[] = []
                     cache.rowChangesDuringLoad = changes
-                    const workflows = await loadAllPages((offset) => {
-                        // Stops paging once a newer load starts or the list closes.
+                    try {
+                        const workflows = await loadAllPages((offset) => {
+                            // Stops paging once a newer load starts or the list closes.
+                            breakpoint()
+                            return withTimeout(
+                                (deadline) => {
+                                    deadline.addEventListener('abort', () => loadAbort.abort(), { once: true })
+                                    return hogFlowsSummariesList(
+                                        teamId,
+                                        { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset },
+                                        { signal: loadAbort.signal }
+                                    )
+                                },
+                                SUMMARY_REQUEST_TIMEOUT_MS,
+                                'Workflows took too long to load. Check your connection and try again.'
+                            )
+                        })
                         breakpoint()
-                        return hogFlowsSummariesList(teamId, { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset })
-                    })
-                    breakpoint()
-                    return changes.reduce(applyRowChange, workflows)
+                        return changes.reduce(applyRowChange, workflows)
+                    } catch (error) {
+                        // A newer load aborted this one's request, so the newer load reports the outcome.
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],
@@ -789,6 +812,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         }
     }),
     beforeUnmount(({ cache }) => {
+        cache.loadAbort?.abort()
         cache.searchAbort?.abort()
     }),
 ])
