@@ -262,6 +262,22 @@ def notify_quarantine_owners(team_id: int, entry_id: str) -> None:
 
 
 @shared_task(
+    name="products.visual_review.backend.tasks.notify_auto_quarantine_limit",
+    ignore_result=True,
+)
+@with_team_scope()
+def notify_auto_quarantine_limit(team_id: int, repo_id: str, automatic_count: int) -> None:
+    """Tell the visual review maintainers that the daily limit stopped automatic quarantines."""
+    from ..logic import quarantine_notice  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        quarantine_notice.send_daily_limit_notice(UUID(repo_id), team_id, automatic_count)
+    except Exception:
+        # Nothing retries: the limit warning is also in the logs and in every capped proof event.
+        logger.warning("visual_review.auto_quarantine_limit_notice_failed", repo_id=repo_id, exc_info=True)
+
+
+@shared_task(
     name="products.visual_review.backend.tasks.reconcile_quarantine_lifts",
     bind=True,
     ignore_result=True,
@@ -291,3 +307,21 @@ def reconcile_quarantine_lifts(self, team_id: int, run_id: str) -> None:
             logger.warning("visual_review.quarantine_lift_giving_up", run_id=run_id)
             return
         raise self.retry(countdown=min(e.retry_after or 60, 600), exc=e)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.release_clean_quarantines",
+    ignore_result=True,
+)
+@with_team_scope()
+def release_clean_quarantines(team_id: int, run_id: str) -> None:
+    """Lift the quarantines that a clean week of trusted runs covers, as the repo's mode says."""
+    from posthog.egress.github.transport import GitHubRateLimitError
+
+    from ..logic import auto_lift  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        auto_lift.release_clean_quarantines(UUID(run_id))
+    except GitHubRateLimitError:
+        # Nothing retries: a later default-branch run checks the same quarantines again.
+        logger.warning("visual_review.release_clean_quarantines_rate_limited", run_id=run_id, team_id=team_id)
