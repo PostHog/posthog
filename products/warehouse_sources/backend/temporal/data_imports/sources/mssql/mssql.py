@@ -25,6 +25,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import is_resolvable_hostname
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -44,7 +45,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dea
     iterate_with_deadline,
     run_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    bracket_host,
+    host_lookup_is_skipped,
+    open_ssh_tunnel,
+    pinned_connect_host,
+    unbracket_host,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     BracketIdentifierQuoter,
@@ -92,6 +99,16 @@ _T = TypeVar("_T")
 
 # FreeTDS applies this limit to the TCP connect and to the login.
 MSSQL_LOGIN_TIMEOUT_SECONDS = 5
+
+# The Azure SQL gateway routes a login on the name FreeTDS dials, so these hosts keep it. Microsoft
+# runs these zones, so a record cannot be rebound: https://learn.microsoft.com/azure/private-link/private-endpoint-dns
+_AZURE_SQL_DNS_ZONES = (
+    "database.windows.net",
+    "database.usgovcloudapi.net",
+    "database.chinacloudapi.cn",
+    "sql.azuresynapse.net",
+    "sql.azuresynapse.usgovcloudapi.net",
+)
 
 # The longest a metadata statement waits for a lock before SQL Server ends it with error 1222. The
 # catalog views wait behind a schema modification lock, so an open DDL transaction on the server
@@ -661,6 +678,28 @@ class MSSQLTableSetup:
     keyset: MSSQLKeyset
 
 
+def _is_azure_sql_host(host: str) -> bool:
+    name = host.lower().strip().rstrip(".")
+    return any(name.endswith(f".{zone}") for zone in _AZURE_SQL_DNS_ZONES)
+
+
+def _pinned_server(host: str, port: int, team_id: int | None) -> str:
+    """Return the `server` pymssql dials for the `(host, port)` the tunnel layer yielded.
+
+    A hostname is resolved and checked here, and the approved address is dialled. Handing FreeTDS
+    the name would resolve it again, and a record with a short TTL can answer public for the check
+    and private for the connect. An address (the SSH tunnel's loopback bind) has no lookup to race,
+    and an Azure SQL host keeps its name, see `_AZURE_SQL_DNS_ZONES`; the tunnel layer has checked both.
+
+    FreeTDS reads an IPv6 address only as `[address]:port`, and pymssql appends `port` only to a
+    server without a colon, so an IPv6 address carries its port here.
+    """
+    if is_resolvable_hostname(host) and not host_lookup_is_skipped() and not _is_azure_sql_host(host):
+        host = pinned_connect_host(host, team_id).host
+    bracketed = bracket_host(unbracket_host(host))
+    return f"{bracketed}:{port}" if bracketed.startswith("[") else host
+
+
 class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Connection, pymssql.Cursor]):  # ty: ignore[invalid-type-arguments]
     """MSSQL driver implementation paired with `MSSQLSource`.
 
@@ -693,14 +732,11 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         The default suits metadata work. The connection that reads the rows passes
         `MSSQL_ROW_READ_LOCK_TIMEOUT_MS`.
 
-        The hostname goes to pymssql as is. `pymssql.connect` takes one `server`, which FreeTDS
-        uses both to dial and as the login server name, so there is no way to dial a pinned
-        address and log in as the configured host. The tunnel layer's host check is the control
-        on this path.
+        A direct connection dials the address the host check approved, see `_pinned_server`.
         """
         with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
             with pymssql.connect(
-                server=host,
+                server=_pinned_server(host, port, team_id),
                 # pymssql requires port to be str
                 port=str(port),
                 database=config.database,
