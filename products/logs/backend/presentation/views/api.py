@@ -1681,8 +1681,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         next_cursor = None
         if has_more and results:
             last_result = results[-1]
+            last_timestamp = last_result["timestamp"]
             cursor_data = {
-                "timestamp": last_result["timestamp"].isoformat(),
+                # A response served from the query cache, such as a single-flight follower's, carries ISO strings.
+                "timestamp": last_timestamp if isinstance(last_timestamp, str) else last_timestamp.isoformat(),
                 "uuid": last_result["uuid"],
             }
             next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")

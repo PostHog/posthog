@@ -6,7 +6,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import type { AccountViewComponentKind } from '../../components/Accounts/accountViewComponents'
+import {
+    getAccountViewComponentByKind,
+    type AccountViewComponentKind,
+} from '../../components/Accounts/accountViewComponents'
 import type { AccountViewTileConfig } from '../../components/Accounts/accountViewTileConfig'
 import { AccountsEvents } from '../../components/Accounts/constants'
 import {
@@ -25,7 +28,6 @@ import type {
     AccountViewVisibilityEnumApi,
     UserCustomerAnalyticsConfigApi,
 } from '../../generated/api.schemas'
-import { getAccountWidgetProperties } from './accountPropertiesWidgetConfig'
 import {
     createAccountViewContent,
     createAccountViewComponentInstance,
@@ -47,7 +49,8 @@ export interface AccountViewTileEditor {
     viewId: string
     nodeId: string
     name: string
-    propertiesConfig?: AccountViewTileConfig
+    kind?: AccountViewComponentKind
+    config?: AccountViewTileConfig
     accountId?: string
 }
 
@@ -144,15 +147,17 @@ export interface accountViewsLogicActions {
         viewId: string,
         nodeId: string,
         name: string,
-        properties?: {
+        configEditor?: {
             accountId: string
-            propertiesConfig: AccountViewTileConfig
+            config: AccountViewTileConfig
+            kind: AccountViewComponentKind
         }
     ) => {
         accountId?: string | undefined
+        config?: AccountViewTileConfig | undefined
+        kind?: AccountViewComponentKind | undefined
         name: string
         nodeId: string
-        propertiesConfig?: AccountViewTileConfig | undefined
         viewId: string
     }
     reloadEditor: () => {
@@ -237,11 +242,11 @@ export interface accountViewsLogicActions {
     setEditorVisibility: (visibility: AccountViewVisibilityEnumApi) => {
         visibility: AccountViewVisibilityEnumApi
     }
+    setTileEditorConfig: (config: AccountViewTileConfig) => {
+        config: AccountViewTileConfig
+    }
     setTileEditorName: (name: string) => {
         name: string
-    }
-    setTileEditorPropertiesConfig: (propertiesConfig: AccountViewTileConfig) => {
-        propertiesConfig: AccountViewTileConfig
     }
     updateViewComponentConfig: (
         viewId: string,
@@ -351,9 +356,9 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             viewId: string,
             nodeId: string,
             name: string,
-            properties?: { propertiesConfig: AccountViewTileConfig; accountId: string }
-        ) => ({ viewId, nodeId, name, ...properties }),
-        setTileEditorPropertiesConfig: (propertiesConfig: AccountViewTileConfig) => ({ propertiesConfig }),
+            configEditor?: { kind: AccountViewComponentKind; config: AccountViewTileConfig; accountId: string }
+        ) => ({ viewId, nodeId, name, ...configEditor }),
+        setTileEditorConfig: (config: AccountViewTileConfig) => ({ config }),
         closeTileEditor: true,
         setTileEditorName: (name: string) => ({ name }),
         saveTileEditor: true,
@@ -549,10 +554,8 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
             null as AccountViewTileEditor | null,
             {
                 openTileEditor: (_, editor: AccountViewTileEditor) => editor,
-                setTileEditorPropertiesConfig: (
-                    state,
-                    { propertiesConfig }: { propertiesConfig: AccountViewTileConfig }
-                ) => (state ? { ...state, propertiesConfig } : state),
+                setTileEditorConfig: (state, { config }: { config: AccountViewTileConfig }) =>
+                    state ? { ...state, config } : state,
                 closeTileEditor: () => null,
                 setTileEditorName: (state, { name }: { name: string }) => (state ? { ...state, name } : state),
             },
@@ -750,7 +753,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                         ? {
                               ...component,
                               title: name,
-                              ...(tileEditor.propertiesConfig ? { config: tileEditor.propertiesConfig } : {}),
+                              ...(tileEditor.config ? { config: tileEditor.config } : {}),
                           }
                         : component
                 )
@@ -758,10 +761,8 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     const updatedView = await updateAccountViewComponents(props.projectId, view, components)
                     posthog.capture(AccountsEvents.AccountViewTileRenamed, { component_count: components.length })
                     actions.saveEditorSuccess(updatedView)
-                    if (tileEditor.propertiesConfig) {
-                        posthog.capture(AccountsEvents.PropertiesWidgetConfigured, {
-                            property_count: getAccountWidgetProperties(tileEditor.propertiesConfig).length,
-                        })
+                    if (tileEditor.kind && tileEditor.config) {
+                        getAccountViewComponentByKind(tileEditor.kind)?.onConfigSaved?.(tileEditor.config)
                     }
                     actions.closeTileEditor()
                 } catch (error) {

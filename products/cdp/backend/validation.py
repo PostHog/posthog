@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
 # Matches the cap the tasks API puts on a task's repositories.
-MAX_TASK_REPOSITORIES = 10
+MAX_TASK_REPOSITORIES = 20
 
 # The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.

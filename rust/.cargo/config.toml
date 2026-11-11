@@ -14,6 +14,12 @@ rustflags = ["--cfg", "tokio_unstable"]
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))']
 rustflags = ["--cfg", "tokio_unstable", "-C", "link-arg=-fuse-ld=lld"]
 
+# The `aes` and `polyval` crates use the ARMv8 AES and PMULL instructions only under these cfgs, and run a
+# software implementation otherwise. With them, both crates still detect the CPU's support at runtime. An image that
+# sets RUSTFLAGS (see EXTRA_RUSTFLAGS in the Dockerfile) replaces this list, so it must repeat what it needs.
+[target.'cfg(all(target_os = "linux", target_arch = "aarch64"))']
+rustflags = ["--cfg", "tokio_unstable", "--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
+
 [env]
 # Force SQLX to run in offline mode for CI. Devs can change this if they want, to live code against the DB,
 # but we use it at the workspace level here to allow use of sqlx macros across all crates

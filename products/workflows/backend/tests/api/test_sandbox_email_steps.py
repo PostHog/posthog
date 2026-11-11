@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test import override_settings
 
 import responses
 from parameterized import parameterized
@@ -20,8 +21,14 @@ from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPT
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
+from common.hogvm.python.execute import execute_bytecode
+
 SANDBOX_STEP_ID = "action_email_sandbox_1"
 OWN_EMAIL_STEP_ID = "action_function_email_1"
+
+
+def _runtime(enabled: bool):
+    return override_settings(WORKFLOWS_SANDBOX_EMAIL_RUNTIME_ENABLED=enabled)
 
 
 def _flag(enabled: bool):
@@ -64,6 +71,24 @@ def _sandbox_step(subject: str = "Hello", templating: str = "liquid") -> dict[st
             },
         },
     }
+
+
+def _hog_sandbox_step(subject: str = "Hello", text: str = "Hello from our workflow.") -> dict[str, Any]:
+    step = _sandbox_step(subject)
+    email = step["config"]["inputs"]["email"]
+    email["templating"] = "hog"
+    email["value"].update(to={"email": "{person.properties.email}", "name": ""}, text=text)
+    return step
+
+
+def _stored_email(flow_id: str) -> dict[str, Any]:
+    return HogFlow.objects.get(id=flow_id).actions[1]["config"]["inputs"]["email"]
+
+
+def _render(compiled: Any, globals: dict[str, Any]) -> Any:
+    if isinstance(compiled, dict):
+        return {key: _render(field, globals) for key, field in compiled.items()}
+    return execute_bytecode(compiled, globals).result
 
 
 def _own_email_step(sender_id: int | None, step_id: str = OWN_EMAIL_STEP_ID, **value: Any) -> dict[str, Any]:
@@ -114,18 +139,89 @@ class TestSandboxEmailSteps(APIBaseTest):
     def _url(self, flow_id: str = "") -> str:
         return f"/api/projects/{self.team.id}/hog_flows" + (f"/{flow_id}" if flow_id else "")
 
-    @parameterized.expand([("flag_on", True, 201), ("flag_off", False, 400)])
-    def test_a_new_sandbox_step_needs_the_adoption_flag(self, _name: str, enabled: bool, expected: int) -> None:
-        with _flag(enabled):
-            response = self.client.post(self._url(), _flow(_sandbox_step(), status="active"), format="json")
+    @parameterized.expand(
+        [
+            ("flag_on_active", True, True, "active", 201),
+            ("flag_on_draft_while_runtime_off", True, False, "draft", 201),
+            ("flag_off", False, True, "active", 400),
+        ]
+    )
+    def test_a_new_sandbox_step_needs_the_adoption_flag(
+        self, _name: str, enabled: bool, runtime: bool, status: str, expected: int
+    ) -> None:
+        with _flag(enabled), _runtime(runtime):
+            response = self.client.post(self._url(), _flow(_sandbox_step(), status=status), format="json")
 
         assert response.status_code == expected, response.json()
         if enabled:
-            stored = HogFlow.objects.get(id=response.json()["id"]).actions[1]
-            assert stored["type"] == "email_sandbox"
-            assert "bytecode" not in stored["config"]["inputs"]["email"]
+            flow = HogFlow.objects.get(id=response.json()["id"])
+            assert flow.status == status
+            assert flow.actions[1]["type"] == "email_sandbox"
         else:
             assert "sandbox sender isn't available" in response.json()["detail"]
+
+    def test_a_saved_hog_step_sends_its_own_template_not_client_bytecode(self) -> None:
+        with _flag(True), _runtime(True):
+            forged_source = self.client.post(
+                self._url(), _flow(_hog_sandbox_step(subject="Forged", text="Forged text")), format="json"
+            )
+            forged_email = _stored_email(forged_source.json()["id"])
+            step = _hog_sandbox_step()
+            step["config"]["inputs"]["email"].update(
+                {key: forged_email[key] for key in ("bytecode", "input_deps", "bytecode_contract")}
+            )
+            response = self.client.post(self._url(), _flow(step, status="active"), format="json")
+
+        assert response.status_code == 201, response.json()
+        rendered = _render(
+            _stored_email(response.json()["id"])["bytecode"], {"person": {"properties": {"email": "ada@example.com"}}}
+        )
+        assert (rendered["subject"], rendered["text"]) == ("Hello", "Hello from our workflow.")
+
+    def _try_to_run(self, path: str):
+        if path == "create_active":
+            return self.client.post(self._url(), _flow(_sandbox_step(), status="active"), format="json")
+        if path == "test_run_new_workflow":
+            return self.client.post(
+                f"{self._url('new')}/invocations", {"configuration": _flow(_sandbox_step())}, format="json"
+            )
+        sandbox_flow = _flow(_sandbox_step())
+        staged = path == "publish_staged_draft"
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Sandbox flow",
+            status="active" if staged else "draft",
+            actions=[_trigger()] if staged else sandbox_flow["actions"],
+            edges=[] if staged else sandbox_flow["edges"],
+            draft={"actions": sandbox_flow["actions"], "edges": sandbox_flow["edges"]} if staged else None,
+        )
+        if path == "activate_draft":
+            return self.client.patch(self._url(str(flow.id)), {"status": "active"}, format="json")
+        if path == "test_run_saved_workflow":
+            return self.client.post(f"{self._url(str(flow.id))}/invocations", {"globals": {}}, format="json")
+        preview = self.client.post(f"{self._url(str(flow.id))}/publish", {}, format="json")
+        return self.client.post(
+            f"{self._url(str(flow.id))}/publish",
+            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            ("create_active",),
+            ("activate_draft",),
+            ("publish_staged_draft",),
+            ("test_run_new_workflow",),
+            ("test_run_saved_workflow",),
+        ]
+    )
+    def test_a_sandbox_step_cannot_run_until_the_runtime_is_on(self, path: str) -> None:
+        with _flag(True), _runtime(False):
+            response = self._try_to_run(path)
+
+        assert response.status_code == 400, response.json()
+        assert "The sandbox sender can't send from workflows yet" in response.json()["detail"]
+        assert not HogFlow.objects.filter(status="active", actions__contains=[{"type": "email_sandbox"}]).exists()
 
     @parameterized.expand([("live", False), ("staged_draft", True)])
     def test_a_stored_sandbox_step_stays_editable_without_the_flag(self, _name: str, in_draft: bool) -> None:
@@ -151,7 +247,6 @@ class TestSandboxEmailSteps(APIBaseTest):
         [
             ("create", None),
             ("test_run_override", {}),
-            # The saved owner decides, whatever the override claims.
             ("test_run_override_claiming_no_owner", {"origin_product": None}),
         ]
     )
@@ -179,9 +274,7 @@ class TestSandboxEmailSteps(APIBaseTest):
         [
             ("new_value_on_publish", None, "active", 400),
             ("stored_value_on_publish", "live", "active", 200),
-            # Some writes, such as an approved suggestion, store a draft without validating it.
             ("value_only_in_the_staged_draft", "draft", "active", 400),
-            # A web draft save tolerates unfinished steps, but a wrong-kind sender is never unfinished.
             ("new_value_in_a_web_draft_save", None, "draft", 400),
         ]
     )
@@ -269,22 +362,34 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain", {}, {}, None),
-            ("reply_to_kept", {"replyTo": "a@example.com"}, {}, "can't keep these settings: replyTo"),
-            ("reply_to_cleared_in_the_patch", {"replyTo": "a@example.com"}, {"email_patch": {"replyTo": None}}, None),
-            ("reply_to_dropped", {"replyTo": "a@example.com"}, {"drop_own_sender_settings": True}, None),
+            ("plain", {}, {}, {}, None),
+            ("reply_to_kept", {"replyTo": "a@example.com"}, {}, {}, "can't keep these settings: replyTo"),
+            (
+                "reply_to_cleared_in_the_patch",
+                {"replyTo": "a@example.com"},
+                {},
+                {"email_patch": {"replyTo": None}},
+                None,
+            ),
+            ("reply_to_dropped", {"replyTo": "a@example.com"}, {}, {"drop_own_sender_settings": True}, None),
             (
                 "sender_rotation_that_is_not_a_list",
+                {},
                 {},
                 {"email_patch": {"from": {"integrationIds": 42}}},
                 "can't keep these settings: from.integrationIds",
             ),
+            ("cc_kept", {"cc": "c@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
+            ("bcc_kept", {"bcc": "b@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
+            ("tracking_off_kept", {}, {"tracking_enabled": False}, {}, "can't keep these settings: tracking_enabled"),
+            ("utm_tags_kept", {}, {"utm_tags_enabled": True}, {}, "can't keep these settings: utm_tags_enabled"),
         ]
     )
     def test_the_email_patch_switches_a_step_to_the_sandbox_sender(
-        self, _name: str, own_value: dict, extra: dict, refusal: str | None
+        self, _name: str, own_value: dict, own_config: dict, extra: dict, refusal: str | None
     ) -> None:
         own_step = _own_email_step(self._verified_sender().id, **own_value)
+        own_step["config"].update(own_config)
         flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger(), own_step])
 
         with _flag(True):
