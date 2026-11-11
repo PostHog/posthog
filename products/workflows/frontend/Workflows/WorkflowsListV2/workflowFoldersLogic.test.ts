@@ -672,6 +672,16 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).toContain('Empty')
     })
 
+    it('keeps file moves open while a folder delete from the project tree stalls', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({ post: { '/api/projects/:team_id/file_system/:id/count/': () => new Promise(() => {}) } })
+        projectTreeDataLogic.actions.deleteItem({ id: 'empty', path: 'Empty', type: 'folder' }, 'project-tree')
+        await waitFor(() =>
+            expect(projectTreeDataLogic.values.pendingActions.map((action) => action.type)).toEqual(['prepare-delete'])
+        )
+        expect(logic.values.fileMoveDisabledReason).toBeUndefined()
+    })
+
     it('releases every move when counting a renamed folder stalls', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const moves: string[] = []

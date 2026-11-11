@@ -692,12 +692,17 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 },
         ],
         // The shared Move to dialog lets a person pick any folder, so a file move waits while any folder move is pending.
+        // A folder delete from the project tree has no deadline, so waiting on one could block every move indefinitely.
         fileMoveDisabledReason: [
             (s) => [s.pendingActions, s.folderActionPending],
             (pendingActions: ProjectTreeAction[], folderActionPending: boolean): string | undefined =>
                 folderActionPending
                     ? 'A folder action is in progress'
-                    : pendingActions.some((action) => action.item.type === 'folder')
+                    : pendingActions.some(
+                            (action) =>
+                                action.item.type === 'folder' &&
+                                (action.type === 'prepare-move' || action.type === 'move')
+                        )
                       ? 'Wait until the folder finishes moving'
                       : undefined,
         ],
