@@ -198,3 +198,92 @@ class TestTraceNodeRawView(ClickhouseTestMixin, APIBaseTest):
 
         assert "secret_plan" not in properties
         assert properties["$ai_provider"] == "openai"
+
+
+class TestTraceNodeDatasetItemView(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, trace_segment: str, node_segment: str) -> str:
+        return (
+            f"/api/projects/{self.team.id}/ai_observability/traces/{trace_segment}/nodes/{node_segment}/dataset_item/"
+        )
+
+    def _read(self, node_id: str) -> dict:
+        response = self.client.get(
+            self._url(encode_segment("trace-1"), encode_segment(node_id)), {"timestamp_hint": "2026-09-01T10:00:00Z"}
+        )
+        assert response.status_code == 200, response.content
+        return response.json()
+
+    def test_returns_the_generation_as_a_dataset_item(self) -> None:
+        create_node_trace(self.team, extra_properties={"plan": "pro"})
+
+        assert self._read(GENERATION) == {
+            "clientItemId": GENERATION,
+            "sourceTraceId": "trace-1",
+            "sourceEventId": GENERATION,
+            "sourceTimestamp": "2026-09-01T10:00:00Z",
+            "input": QUESTION,
+            "sourceOutput": ANSWER,
+            "metadata": {"plan": "pro"},
+        }
+
+    def test_root_with_a_trace_event_saves_its_state_without_metadata(self) -> None:
+        create_node_trace(self.team, extra_properties={"plan": "pro"})
+
+        item = self._read("trace-1")
+
+        assert item["clientItemId"] == "trace-1"
+        assert item["input"] == {"question": "Why?"}
+        assert item["sourceOutput"] is None
+        assert item["metadata"] == {}
+
+    def test_root_without_a_trace_event_saves_empty_content(self) -> None:
+        create_node_trace(self.team, with_trace_event=False)
+
+        item = self._read("trace-1")
+
+        assert (item["input"], item["sourceOutput"], item["metadata"]) == ({}, None, {})
+
+    def test_matches_what_the_raw_read_gives(self) -> None:
+        create_node_trace(self.team, extra_properties={"plan": "pro"})
+        raw = self.client.get(
+            f"/api/projects/{self.team.id}/ai_observability/traces/{encode_segment('trace-1')}/nodes/{encode_segment(GENERATION)}/raw/"
+        ).json()["event"]
+
+        item = self._read(GENERATION)
+
+        properties = raw["properties"]
+        assert item["input"] == properties[raw["ioKeys"]["input"]]
+        assert item["sourceOutput"] == properties[raw["ioKeys"]["output"]]
+        assert item["metadata"] == {key: value for key, value in properties.items() if not key.startswith("$")}
+
+    def test_hides_properties_the_viewer_may_not_read(self) -> None:
+        restrict_property(self, "secret_plan")
+        create_node_trace(self.team, extra_properties={"secret_plan": "enterprise", "plan": "pro"})
+
+        assert self._read(GENERATION)["metadata"] == {"plan": "pro"}
+
+    def test_requires_the_timestamp_hint(self) -> None:
+        create_node_trace(self.team)
+
+        response = self.client.get(self._url(encode_segment("trace-1"), encode_segment(GENERATION)))
+
+        assert response.status_code == 400
+
+    def test_node_not_found(self) -> None:
+        create_node_trace(self.team)
+
+        response = self.client.get(
+            self._url(encode_segment("trace-1"), encode_segment("00000000-0000-0000-0000-00000000ffff")),
+            {"timestamp_hint": "2026-09-01T10:00:00Z"},
+        )
+
+        assert response.status_code == 404
+
+    def test_rejects_a_malformed_segment(self) -> None:
+        create_node_trace(self.team)
+
+        response = self.client.get(
+            self._url(encode_segment("trace-1"), "A"), {"timestamp_hint": "2026-09-01T10:00:00Z"}
+        )
+
+        assert response.status_code == 400
