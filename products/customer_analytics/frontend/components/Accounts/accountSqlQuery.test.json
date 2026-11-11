@@ -1,4 +1,9 @@
 [
+    {
+        "name": "system accounts external ID",
+        "query": "SELECT * FROM system.accounts WHERE external_id = {account_external_id}",
+        "valid": true
+    },
     { "name": "equality", "query": "select * from engagements where org_id = {account_external_id}", "valid": true },
     {
         "name": "reversed equality",

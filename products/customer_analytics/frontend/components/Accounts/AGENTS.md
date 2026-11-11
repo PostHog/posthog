@@ -208,6 +208,7 @@ AND needs one scoped operand. OR needs every operand scoped. SELECT and WITH ali
 `validate_sql_query_widget_config` parses the SQL before saving, and `accountSqlQuery.ts` checks the browser parser's AST before building a query.
 Both validators use the same JSON test cases. `accountSqlQueryLogic` keys parsing state by account, external ID, and tile instance, and cancels stale parsing results.
 The widget passes the viewed account's external ID through `HogQLQuery.values`.
+The editor validates with an empty-string placeholder preview. Its `system.accounts` example uses `external_id`; warehouse queries must use the account ID column from their own schema.
 The placeholder is a flat name because `values` wraps each top-level value as a constant, so a dotted `{account.external_id}` does not resolve.
 Scoping keeps each account to its own rows.
 It is not an access boundary, because the query runs with the viewer's normal SQL access.

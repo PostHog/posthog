@@ -506,6 +506,7 @@ def enrich_hogql_validation_error(
                 kind="HogQLMetadata",
                 language=HogLanguage.HOG_QL,
                 query=query.query,
+                globals=query.values,
                 modifiers=query.modifiers,
                 filters=query.filters,
                 connectionId=query.connectionId,
