@@ -18,7 +18,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 
-import { AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID } from '../aiObservabilitySharedLogic'
 import { aiObservabilityMetricChartLogic } from './aiObservabilityMetricChartLogic'
 import { METRIC_CHART_DEFINITIONS, MetricChartKey } from './metricChart'
 
@@ -29,14 +28,19 @@ const METRIC_OPTIONS = (Object.keys(METRIC_CHART_DEFINITIONS) as MetricChartKey[
     label: METRIC_CHART_DEFINITIONS[key].label,
 }))
 
-export function AIObservabilityMetricChart({
-    metric: pinnedMetric,
-    searchApplied,
-}: {
+export interface AIObservabilityMetricChartProps {
     metric?: MetricChartKey
     /** A plain HogQL query can't read the content the table searches. */
     searchApplied?: boolean
-}): JSX.Element {
+    /** The data-node collection its table's Reload refreshes. */
+    collectionId: string
+}
+
+export function AIObservabilityMetricChart({
+    metric: pinnedMetric,
+    searchApplied,
+    collectionId,
+}: AIObservabilityMetricChartProps): JSX.Element {
     const logic = aiObservabilityMetricChartLogic({ metric: pinnedMetric })
     const { activeMetric: metric, interval, canZoom, query, bucketTraceLoading } = useValues(logic)
     const { setMetric, zoomTo, openBucketTrace } = useActions(logic)
@@ -46,7 +50,7 @@ export function AIObservabilityMetricChart({
         dataNodeLogic({
             key: `ai-observability-metric-chart-${pinnedMetric ?? 'pickable'}`,
             query,
-            dataNodeCollectionId: AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID,
+            dataNodeCollectionId: collectionId,
         })
     )
 

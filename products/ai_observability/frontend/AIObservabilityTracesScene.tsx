@@ -23,7 +23,6 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
-import { AIObservabilityMetricChart } from './components/AIObservabilityMetricChart'
 import { metricChartTableProps } from './components/metricChartTableProps'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { normalizeMessages } from './messageNormalization'
@@ -66,10 +65,7 @@ export function AIObservabilityTraces(): JSX.Element {
     const drawerContext = useTracesDrawerContext(TRACE_DRAWER_LIST_ID, TRACES_DATA_NODE_KEY)
     const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
     const chartTable = redesign
-        ? metricChartTableProps(
-              TRACES_DATA_NODE_KEY,
-              <AIObservabilityMetricChart searchApplied={!!appliedSearchTerm} />
-          )
+        ? metricChartTableProps(TRACES_DATA_NODE_KEY, { searchApplied: !!appliedSearchTerm })
         : { query: {}, context: { customActions: <TracesOptionsMenu key="traces-options-menu" /> } }
     const context: QueryContext<DataTableNode> = {
         ...drawerContext,

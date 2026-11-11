@@ -8,7 +8,6 @@ import { isHogQLQuery } from '~/queries/schema/node-guards'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
-import { AIObservabilityMetricChart } from './components/AIObservabilityMetricChart'
 import { metricChartTableProps } from './components/metricChartTableProps'
 import { AIObservabilityInstrumentationCheckEnumApi } from './generated/api.schemas'
 import { useInstrumentationEmptyState } from './hooks/useInstrumentationEmptyState'
@@ -28,7 +27,7 @@ export function AIObservabilityUsers(): JSX.Element {
     )
     const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
     const chartTable = redesign
-        ? metricChartTableProps(USERS_DATA_NODE_KEY, <AIObservabilityMetricChart metric="users" />)
+        ? metricChartTableProps(USERS_DATA_NODE_KEY, { metric: 'users' })
         : { query: {}, context: {} }
 
     const { renderSortableColumnTitle } = useSortableColumns(usersSort, setUsersSort)

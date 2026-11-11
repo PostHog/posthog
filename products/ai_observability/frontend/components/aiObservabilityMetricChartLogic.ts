@@ -133,6 +133,7 @@ export interface aiObservabilityMetricChartLogicMeta {
         scope: (
             activeMetric: MetricChartKey,
             usersTable: boolean,
+            propertyFilters: AnyPropertyFilter[],
             interval: IntervalType,
             weekStartDay: number,
             dateFilter: {
@@ -220,14 +221,22 @@ export const aiObservabilityMetricChartLogic = kea<aiObservabilityMetricChartLog
             }),
         ],
         scope: [
-            (s) => [s.activeMetric, s.usersTable, s.interval, s.weekStartDay, s.dateFilter],
+            (s) => [s.activeMetric, s.usersTable, s.propertyFilters, s.interval, s.weekStartDay, s.dateFilter],
             (
                 metric: MetricChartKey,
                 usersTable: boolean,
+                propertyFilters: AnyPropertyFilter[],
                 interval: IntervalType,
                 weekStartDay: number,
                 dateFilter: { dateFrom: string | null; dateTo: string | null }
-            ): MetricChartScope => ({ metric, usersTable, interval, weekStartDay, ...dateFilter }),
+            ): MetricChartScope => ({
+                metric,
+                usersTable,
+                propertyFiltered: propertyFilters.length > 0,
+                interval,
+                weekStartDay,
+                ...dateFilter,
+            }),
         ],
         query: [
             (s) => [s.scope, s.filters],

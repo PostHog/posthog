@@ -64,6 +64,8 @@ export interface MetricChartScope {
     metric: MetricChartKey
     /** Count each person's generations, as the Users table does, in place of whole traces. */
     usersTable: boolean
+    /** A property filter is set, so few traces may match. */
+    propertyFiltered: boolean
     interval: IntervalType
     weekStartDay: number
     dateFrom: string | null
@@ -75,12 +77,16 @@ export interface MetricChartScope {
  * trace with a matching event in the range, totalled over all its events within 10 minutes of the range, as the
  * table does. It shows at its first event, or at the range start if it began earlier.
  */
-function tableRows({ metric, usersTable, dateFrom }: MetricChartScope): string {
+function tableRows({ metric, usersTable, propertyFiltered, dateFrom }: MetricChartScope): string {
     if (usersTable) {
         return `SELECT properties.$ai_trace_id AS trace_id, timestamp AS first_seen, timestamp AS time, distinct_id AS value
             FROM events WHERE event = '$ai_generation' AND {filters}`
     }
     const bounded = !!dateFrom && dateFrom !== 'all'
+    // Narrows to the matching traces before totalling them, so the trace ID index can skip the rest.
+    const matchingTraces = propertyFiltered
+        ? `AND properties.$ai_trace_id IN (SELECT properties.$ai_trace_id FROM events WHERE ${TRACE_EVENTS} AND {filters})`
+        : ''
     return `SELECT
             properties.$ai_trace_id AS trace_id,
             min(timestamp) AS first_seen,
@@ -90,6 +96,7 @@ function tableRows({ metric, usersTable, dateFrom }: MetricChartScope): string {
         WHERE ${TRACE_EVENTS} AND notEmpty(toString(properties.$ai_trace_id))
             AND timestamp >= {filters.dateRange.from} - toIntervalMinute(10)
             AND timestamp <= {filters.dateRange.to} + toIntervalMinute(10)
+            ${matchingTraces}
         GROUP BY trace_id
         HAVING countIf({filters}) > 0 AND first_seen <= {filters.dateRange.to} AND max(timestamp) >= {filters.dateRange.from}`
 }
