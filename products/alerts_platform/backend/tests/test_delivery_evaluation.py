@@ -752,7 +752,10 @@ class TestDeliverEvaluation(APIBaseTest):
 
             assert recipients._recipients == {SourceKind.LOGS: first}
 
-    def test_email_and_in_app_rows_reach_each_user_who_can_still_see_the_alert_at_their_current_address(self) -> None:
+    @parameterized.expand([("with_the_sources_access_rule", True), ("without_an_access_rule", False)])
+    def test_email_and_in_app_rows_reach_each_user_who_can_still_see_the_alert_at_their_current_address(
+        self, _name: str, source_has_rule: bool
+    ) -> None:
         configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
             id=CONFIGURATION_ID,
             team=self.team,
@@ -783,14 +786,16 @@ class TestDeliverEvaluation(APIBaseTest):
         def source_access(*, team_id: int, configuration_id: UUID, user_ids: list[int]) -> list[int]:
             return [user_id for user_id in user_ids if user_id != denied.id]
 
-        with patch.dict(subscribers._access, {SourceKind.LOGS: source_access}):
+        with patch.dict(subscribers._access, {SourceKind.LOGS: source_access} if source_has_rule else {}, clear=True):
             self._run(
                 _announcement(_transition(AlertEventKind.FIRING)),
                 {},
                 transports={DestinationType.EMAIL: EmailingTransport, DestinationType.IN_APP: NotifyingTransport},
             )
 
-        assert sorted(channel for channel, _ in RecordingTransport.sends) == [str(self.user.id), "renamed@example.com"]
+        assert sorted(channel for channel, _ in RecordingTransport.sends) == (
+            [str(self.user.id), "renamed@example.com"] if source_has_rule else []
+        )
 
 
 class TestDeliveryPath(APIBaseTest):

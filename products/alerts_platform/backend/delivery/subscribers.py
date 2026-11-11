@@ -3,13 +3,14 @@
 A stored address keeps sending after its user changes it, loses access, or leaves the organization.
 A user id is resolved at each send instead: to the user's current address, and only while the user
 can view the alert's project and passes the source's own access rule. The platform imports no
-source, so a source registers that rule here when Django starts.
+source, so a source registers that rule here when Django starts. A source with no rule reaches
+nobody this way, because the platform cannot tell who may see what its alerts are about.
 """
 
 from typing import cast
 from uuid import UUID
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -60,11 +61,13 @@ def resolve(
 def _users_with_access(
     source: SourceKind, *, team: Team, configuration_id: UUID, user_ids: list[int]
 ) -> list[tuple[int, str]]:
-    if not user_ids:
-        return []
-    candidates = list(team.all_users_with_access().filter(id__in=user_ids).values_list("id", "email"))
     access = _access.get(source)
-    if access is None or not candidates:
-        return candidates
+    if access is None or not user_ids:
+        return []
+    # By uuid, so the project's member and role rules are evaluated for these users only.
+    uuids = [str(uuid) for uuid in User.objects.filter(id__in=user_ids).values_list("uuid", flat=True)]
+    candidates = list(team.all_users_with_access(user_uuids=uuids).values_list("id", "email"))
+    if not candidates:
+        return []
     allowed = set(access(team_id=team.id, configuration_id=configuration_id, user_ids=[uid for uid, _ in candidates]))
     return [(user_id, email) for user_id, email in candidates if user_id in allowed]
