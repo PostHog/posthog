@@ -217,9 +217,11 @@ describe('scenario environment', () => {
                 HTTP_SERVER_PORT: '1',
                 PGAPPNAME: 'other',
                 SCENARIO_RUNNER: '0',
+                KAFKA_CONSUMER_GROUP_ID: 'scenario-events',
             }
             const [spec] = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), settings)
 
+            expect(spec.env).not.toHaveProperty('KAFKA_CONSUMER_GROUP_ID')
             expect(spec.env).toMatchObject({
                 SES_REGION: 'eu-west-1',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
@@ -536,6 +538,26 @@ describe('scenario environment', () => {
             await nextTimers(0)
 
             expect({ exits: supervisor.exits(), running: tagged() }).toEqual({ exits: [], running: [] })
+        }, 15_000)
+
+        it('records a role whose first start fails and retries it, instead of failing the start', async () => {
+            const missing = createSupervisor({
+                command: path.join(os.tmpdir(), `scenario-missing-${process.pid}`),
+                args: [],
+                cwd: os.tmpdir(),
+                logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+                graceMs: 1000,
+                restartBackoffMs: 20,
+            })
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}))
+            try {
+                await missing.start([spec])
+
+                await waitForExpect(() => expect(missing.exits().length).toBeGreaterThanOrEqual(2), 5000, 20)
+                expect(missing.exits()[0]).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
+            } finally {
+                await missing.stop()
+            }
         }, 15_000)
 
         it('records a role it cannot start again and keeps retrying until it starts', async () => {
