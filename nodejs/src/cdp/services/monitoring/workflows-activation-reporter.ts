@@ -1,5 +1,6 @@
 import { LRUCache } from 'lru-cache'
 
+import { unquoteMailbox } from '~/cdp/services/messaging/helpers/suppressed-recipients'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
@@ -14,10 +15,12 @@ type WorkflowsActivationEvents = {
 
 const REPORT_INTERVAL_MS = 60 * 60 * 1000
 const ORGANIZATION_MEMBERS_REFRESH_MS = 10 * 60 * 1000
+export const MAX_PENDING_EMAIL_REPORTS = 1000
 
 export class WorkflowsActivationReporter {
     private lastReportedAt = new LRUCache<string, number>({ max: 50_000 })
     private organizationMemberEmails: LazyLoader<ReadonlySet<string>>
+    private pendingEmailReports = 0
 
     constructor(
         private teamManager: { getTeam(teamId: number): Promise<Team | null> },
@@ -32,7 +35,16 @@ export class WorkflowsActivationReporter {
     }
 
     public async reportEmailSent(teamId: number, workflowId: string, recipients: string[]): Promise<void> {
-        const recipientOutsideOrg = await this.isAnyRecipientOutsideOrganization(teamId, recipients)
+        if (this.pendingEmailReports >= MAX_PENDING_EMAIL_REPORTS) {
+            return
+        }
+        this.pendingEmailReports++
+        let recipientOutsideOrg: boolean | null
+        try {
+            recipientOutsideOrg = await this.isAnyRecipientOutsideOrganization(teamId, recipients)
+        } finally {
+            this.pendingEmailReports--
+        }
         if (recipientOutsideOrg === null) {
             return
         }
@@ -105,7 +117,7 @@ export class WorkflowsActivationReporter {
         )
         const emailsByOrganization: Record<string, Set<string>> = {}
         for (const { organization_id, email } of rows) {
-            ;(emailsByOrganization[organization_id] ??= new Set()).add(email)
+            ;(emailsByOrganization[organization_id] ??= new Set()).add(unquoteMailbox(email))
         }
         return emailsByOrganization
     }

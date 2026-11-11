@@ -1,7 +1,7 @@
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { Team } from '~/types'
 
-import { WorkflowsActivationReporter } from './workflows-activation-reporter'
+import { MAX_PENDING_EMAIL_REPORTS, WorkflowsActivationReporter } from './workflows-activation-reporter'
 
 describe('WorkflowsActivationReporter', () => {
     const team = { id: 2, uuid: 'team-uuid', organization_id: 'org-id' } as Team
@@ -100,6 +100,27 @@ describe('WorkflowsActivationReporter', () => {
         await reporter.reportEmailSent(2, 'flow-1', ['outsider@example.com'])
 
         expect(capture).not.toHaveBeenCalled()
+    })
+
+    it('reports no email sent beyond the pending limit while the organization members load', async () => {
+        jest.useRealTimers()
+        let releaseMembers: () => void = () => {}
+        const members = new Promise((resolve) => {
+            releaseMembers = () => resolve({ rows: [{ organization_id: 'org-id', email: 'member@example.com' }] })
+        })
+        const stalledPostgres = { query: () => members } as unknown as PostgresRouter
+        reporter = new WorkflowsActivationReporter({ getTeam }, stalledPostgres, capture)
+
+        const pending = Array.from({ length: MAX_PENDING_EMAIL_REPORTS }, (_, index) =>
+            reporter.reportEmailSent(2, `flow-${index}`, ['member@example.com'])
+        )
+        const overLimit = reporter.reportEmailSent(2, 'flow-over-limit', ['outsider@example.com'])
+        releaseMembers()
+        await Promise.all([...pending, overLimit])
+
+        expect(capture.mock.calls).toEqual([
+            [team, 'workflows message sent', { channel: 'email', recipient_outside_org: false, workflow_id: 'flow-0' }],
+        ])
     })
 
     it.each([

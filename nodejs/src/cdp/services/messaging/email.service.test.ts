@@ -2255,12 +2255,29 @@ describe('EmailService', () => {
                     () => ({ to: 'bounced@example.com', cc: memberEmail, suppressed: 'bounced@example.com' }),
                     false,
                 ],
+                [
+                    'a member stored with a quoted local part',
+                    () => ({
+                        to: `"Quoted Member ${team.id}"@example.com`,
+                        storedMemberEmail: `"quoted member ${team.id}"@example.com`,
+                    }),
+                    false,
+                ],
             ])('reports an accepted workflow email to %s', async (_name, recipients, recipientOutsideOrg) => {
-                const { to, cc, bcc, suppressed } = {
+                const { to, cc, bcc, suppressed, storedMemberEmail } = {
                     cc: undefined,
                     bcc: undefined,
                     suppressed: undefined,
+                    storedMemberEmail: undefined,
                     ...recipients(),
+                }
+                if (storedMemberEmail) {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'UPDATE posthog_user SET email = $1 WHERE email = $2',
+                        [storedMemberEmail, memberEmail],
+                        'testStoreQuotedMemberEmail'
+                    )
                 }
                 if (suppressed) {
                     await service['emailSuppressionService'].recordHardBounces(team.id, [suppressed])
