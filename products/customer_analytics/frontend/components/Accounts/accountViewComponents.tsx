@@ -11,6 +11,7 @@ import { AccountPropertiesWidget } from '../../scenes/CustomerAnalyticsAccountSc
 import { getAccountWidgetProperties } from '../../scenes/CustomerAnalyticsAccountScene/accountPropertiesWidgetConfig'
 import { AccountPropertiesWidgetConfiguration } from '../../scenes/CustomerAnalyticsAccountScene/AccountPropertiesWidgetConfiguration'
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
+import { AccountAgentActivityWidget } from './AccountAgentActivityWidget'
 import { AccountAutomationsExpansion } from './AccountAutomationsExpansion'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
@@ -32,7 +33,12 @@ import type {
 } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
-export type AccountViewComponentKind = AccountExpansionTab | 'properties' | 'session_replays' | 'dot_matrix'
+export type AccountViewComponentKind =
+    | AccountExpansionTab
+    | 'properties'
+    | 'session_replays'
+    | 'dot_matrix'
+    | 'agent_activity'
 
 interface AccountViewComponentBase {
     tagName: string
@@ -54,7 +60,7 @@ export interface AccountSystemTabDefinition extends AccountViewComponentBase {
 export type AccountViewComponentDefinition =
     | AccountSystemTabDefinition
     | (AccountViewComponentBase & {
-          kind: 'properties' | 'session_replays' | 'dot_matrix'
+          kind: 'properties' | 'session_replays' | 'dot_matrix' | 'agent_activity'
           systemTabId?: never
       })
 
@@ -130,6 +136,13 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
         ),
         tileContentClassName: '',
         remountOnConfigReload: false,
+    },
+    {
+        kind: 'agent_activity',
+        tagName: 'AgentActivity',
+        label: 'Agent activity',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_PRODUCT_USAGE,
+        Component: (props) => <AccountAgentActivityWidget accountId={props.accountId} {...getTileLogicProps(props)} />,
     },
     {
         kind: 'notes',

@@ -633,6 +633,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: false,
     },
+    [NodeKind.AccountAgentActivityQuery]: {
+        name: 'Account agent activity',
+        icon: IconTableChart,
+        inMenu: false,
+    },
     [NodeKind.BookActivityMatrixQuery]: {
         name: 'Book activity matrix',
         icon: IconTableChart,

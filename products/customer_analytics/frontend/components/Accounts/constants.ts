@@ -98,6 +98,8 @@ export const AccountsEvents = {
     DotMatrixSeriesSelected: 'customer analytics account dot matrix series selected',
     DotMatrixLoadFailed: 'customer analytics account dot matrix load failed',
     DotMatrixRetried: 'customer analytics account dot matrix retried',
+    AgentActivityIntentExpanded: 'customer analytics account agent activity intent expanded',
+    AgentActivityWeeksChanged: 'customer analytics account agent activity weeks changed',
     AccountEditorOpened: 'customer analytics account editor opened',
     AccountEdited: 'customer analytics account edited',
     EventStreamModalOpened: 'customer analytics account event stream modal opened',

@@ -262,6 +262,282 @@
             "required": ["key", "label"],
             "type": "object"
         },
+        "AccountAgentActivityBucket": {
+            "additionalProperties": false,
+            "properties": {
+                "agentCalls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "column": {
+                    "description": "Week start, the same as `AccountActivityMatrixColumn.key`.",
+                    "type": "string"
+                },
+                "uiPageviews": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["column", "agentCalls", "uiPageviews"],
+            "type": "object"
+        },
+        "AccountAgentActivityClient": {
+            "additionalProperties": false,
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "people": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["name", "calls", "people"],
+            "type": "object"
+        },
+        "AccountAgentActivityIntent": {
+            "additionalProperties": false,
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversations": {
+                    "$ref": "#/definitions/integer"
+                },
+                "intent": {
+                    "description": "What the agent said it was doing, cut to 500 characters.",
+                    "type": "string"
+                },
+                "lastSeen": {
+                    "type": "string"
+                }
+            },
+            "required": ["intent", "calls", "conversations", "lastSeen"],
+            "type": "object"
+        },
+        "AccountAgentActivityQuery": {
+            "additionalProperties": false,
+            "description": "What AI agents did for one account: MCP tool calls by product and tool, clients, intents and a weekly trend.",
+            "properties": {
+                "accountId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "AccountAgentActivityQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/AccountAgentActivityQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                },
+                "weeks": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Weeks to cover, ending with the current week. Defaults to 8, at most 26."
+                }
+            },
+            "required": ["accountId", "kind"],
+            "type": "object"
+        },
+        "AccountAgentActivityQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "$ref": "#/definitions/AccountAgentActivityResult"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warehouse_suggestions": {
+                    "description": "Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply.",
+                    "items": {
+                        "$ref": "#/definitions/WarehouseSuggestionNote"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/BreakdownNotAppliedWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "AccountAgentActivityResult": {
+            "additionalProperties": false,
+            "properties": {
+                "buckets": {
+                    "items": {
+                        "$ref": "#/definitions/AccountAgentActivityBucket"
+                    },
+                    "type": "array"
+                },
+                "clients": {
+                    "items": {
+                        "$ref": "#/definitions/AccountAgentActivityClient"
+                    },
+                    "type": "array"
+                },
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/AccountActivityMatrixColumn"
+                    },
+                    "type": "array"
+                },
+                "emptyReason": {
+                    "$ref": "#/definitions/AccountActivityMatrixEmptyReason"
+                },
+                "intents": {
+                    "description": "Most frequent intents first, grouped by exact text.",
+                    "items": {
+                        "$ref": "#/definitions/AccountAgentActivityIntent"
+                    },
+                    "type": "array"
+                },
+                "products": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixProduct"
+                    },
+                    "type": "array"
+                },
+                "tools": {
+                    "description": "Most called tools first.",
+                    "items": {
+                        "$ref": "#/definitions/AccountAgentActivityTool"
+                    },
+                    "type": "array"
+                },
+                "totals": {
+                    "$ref": "#/definitions/AccountAgentActivityTotals"
+                },
+                "truncated": {
+                    "description": "The tool, client or intent list reached its cap.",
+                    "type": "boolean"
+                }
+            },
+            "required": ["columns", "buckets", "totals", "products", "tools", "clients", "intents", "truncated"],
+            "type": "object"
+        },
+        "AccountAgentActivityTool": {
+            "additionalProperties": false,
+            "properties": {
+                "access": {
+                    "$ref": "#/definitions/AccountAgentToolAccess"
+                },
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversations": {
+                    "$ref": "#/definitions/integer"
+                },
+                "errors": {
+                    "$ref": "#/definitions/integer"
+                },
+                "people": {
+                    "$ref": "#/definitions/integer"
+                },
+                "product": {
+                    "description": "Product key, the same as `BookActivityMatrixProduct.key`.",
+                    "type": "string"
+                },
+                "tool": {
+                    "description": "The effective tool: the target of an `exec` call, or the tool name.",
+                    "type": "string"
+                }
+            },
+            "required": ["product", "tool", "access", "calls", "people", "conversations", "errors"],
+            "type": "object"
+        },
+        "AccountAgentActivityTotals": {
+            "additionalProperties": false,
+            "properties": {
+                "agentCalls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "agentPeople": {
+                    "$ref": "#/definitions/integer",
+                    "description": "People with at least one agent call."
+                },
+                "conversations": {
+                    "$ref": "#/definitions/integer"
+                },
+                "errors": {
+                    "$ref": "#/definitions/integer"
+                },
+                "reads": {
+                    "$ref": "#/definitions/integer"
+                },
+                "uiPageviews": {
+                    "$ref": "#/definitions/integer"
+                },
+                "writes": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["agentCalls", "agentPeople", "conversations", "errors", "reads", "writes", "uiPageviews"],
+            "type": "object"
+        },
+        "AccountAgentToolAccess": {
+            "enum": ["read", "write", "other"],
+            "type": "string"
+        },
         "AccountCustomPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -2288,6 +2564,9 @@
                 },
                 {
                     "$ref": "#/definitions/AccountActivityMatrixQuery"
+                },
+                {
+                    "$ref": "#/definitions/AccountAgentActivityQuery"
                 },
                 {
                     "$ref": "#/definitions/BookActivityMatrixQuery"
@@ -8669,6 +8948,117 @@
                 },
                 "results": {
                     "$ref": "#/definitions/AccountActivityMatrixResult"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warehouse_suggestions": {
+                    "description": "Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply.",
+                    "items": {
+                        "$ref": "#/definitions/WarehouseSuggestionNote"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/BreakdownNotAppliedWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedAccountAgentActivityQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "$ref": "#/definitions/AccountAgentActivityResult"
                 },
                 "timezone": {
                     "type": "string"
@@ -45086,6 +45476,7 @@
                 "AccountsTableQuery",
                 "AccountUsersQuery",
                 "AccountActivityMatrixQuery",
+                "AccountAgentActivityQuery",
                 "BookActivityMatrixQuery",
                 "BookActivityPeopleQuery",
                 "BookActivityFirstsQuery",
@@ -54996,6 +55387,78 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
+                            "$ref": "#/definitions/AccountAgentActivityResult"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warehouse_suggestions": {
+                            "description": "Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply.",
+                            "items": {
+                                "$ref": "#/definitions/WarehouseSuggestionNote"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/BreakdownNotAppliedWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
                             "$ref": "#/definitions/BookActivityMatrixResult"
                         },
                         "timings": {
@@ -57393,6 +57856,9 @@
                 },
                 {
                     "$ref": "#/definitions/AccountActivityMatrixQuery"
+                },
+                {
+                    "$ref": "#/definitions/AccountAgentActivityQuery"
                 },
                 {
                     "$ref": "#/definitions/BookActivityMatrixQuery"

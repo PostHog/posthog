@@ -236,6 +236,7 @@ def _process_query_request(
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "AccountActivityMatrixQuery": ["query:read", "account:read", "person:read"],
+    "AccountAgentActivityQuery": ["query:read", "account:read", "person:read"],
     "BookActivityMatrixQuery": ["query:read", "account:read"],
     "BookActivityPeopleQuery": ["query:read", "account:read", "person:read"],
     "BookActivityFirstsQuery": ["query:read", "account:read", "person:read"],

@@ -39,6 +39,7 @@ from rest_framework.exceptions import (
 
 from posthog.schema import (
     AccountActivityMatrixQuery,
+    AccountAgentActivityQuery,
     AccountsQuery,
     AccountsTableQuery,
     ActorsPropertyTaxonomyQuery,
@@ -691,6 +692,7 @@ RunnableQueryNode = Union[
     AccountsQuery,
     AccountsTableQuery,
     AccountActivityMatrixQuery,
+    AccountAgentActivityQuery,
     BookActivityMatrixQuery,
     BookActivityPeopleQuery,
     BookActivityFirstsQuery,
@@ -1758,6 +1760,18 @@ def get_query_runner(
         from products.customer_analytics.backend.facade.queries import AccountActivityMatrixQueryRunner
 
         return AccountActivityMatrixQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountAgentActivityQuery":
+        from products.customer_analytics.backend.facade.queries import AccountAgentActivityQueryRunner
+
+        return AccountAgentActivityQueryRunner(
             query=query,
             team=team,
             timings=timings,

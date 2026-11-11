@@ -36,6 +36,12 @@ class AccountActivityMatrixEmptyReason(StrEnum):
     NO_METRICS = "no_metrics"
 
 
+class AccountAgentToolAccess(StrEnum):
+    READ = "read"
+    WRITE = "write"
+    OTHER = "other"
+
+
 class AccountsTableAccountField(StrEnum):
     NAME = "name"
     EXTERNAL_ID = "external_id"
@@ -2595,6 +2601,7 @@ class NodeKind(StrEnum):
     ACCOUNTS_TABLE_QUERY = "AccountsTableQuery"
     ACCOUNT_USERS_QUERY = "AccountUsersQuery"
     ACCOUNT_ACTIVITY_MATRIX_QUERY = "AccountActivityMatrixQuery"
+    ACCOUNT_AGENT_ACTIVITY_QUERY = "AccountAgentActivityQuery"
     BOOK_ACTIVITY_MATRIX_QUERY = "BookActivityMatrixQuery"
     BOOK_ACTIVITY_PEOPLE_QUERY = "BookActivityPeopleQuery"
     BOOK_ACTIVITY_FIRSTS_QUERY = "BookActivityFirstsQuery"
