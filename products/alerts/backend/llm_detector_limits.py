@@ -11,6 +11,7 @@ their order, and the lock they need live there, so the API and the Max tool cann
 
 import json
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import UUID
 
 from django.db import connection
 
@@ -273,7 +274,7 @@ def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = Non
     # Imported here to keep this module importable from the serializer without pulling the
     # alert model's own import graph into every reader of the cap.
     from products.alerts.backend.models.alert import AlertConfiguration  # noqa: PLC0415
-    from products.alerts_platform.backend.facade.api import enabled_native_configurations  # noqa: PLC0415
+    from products.alerts_platform.backend.facade.api import count_configurations  # noqa: PLC0415
     from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, SourceKind  # noqa: PLC0415
 
     queryset = AlertConfiguration.objects.filter(
@@ -281,11 +282,13 @@ def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = Non
     )
     if exclude_alert_id is not None:
         queryset = queryset.exclude(id=exclude_alert_id)
-    native = sum(
-        1
-        for configuration in enabled_native_configurations(team_ids=[team_id], source_kind=SourceKind.INSIGHT)
-        if str(configuration.id) != exclude_alert_id
-        and is_llm_detector_config((configuration.source_config.get(SOURCE_CONDITION_KEY) or {}).get("detector"))
+    native = count_configurations(
+        team_id=team_id,
+        source_kind=SourceKind.INSIGHT,
+        native_only=True,
+        enabled_only=True,
+        exclude_id=UUID(exclude_alert_id) if exclude_alert_id else None,
+        source_config_contains={SOURCE_CONDITION_KEY: {"detector": {"type": DetectorType.LLM.value}}},
     )
     return queryset.count() + native
 

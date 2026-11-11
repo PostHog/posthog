@@ -111,8 +111,8 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
 def native_insight_alert_view(
     team_id: int, alert_id: UUID, *, lock: bool = False
 ) -> PlatformAlertConfigurationView | None:
-    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or
-    None. With `lock`, call it inside a transaction."""
+    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None.
+    With `lock`, its row stays locked until the caller's transaction ends."""
     configuration = get_configuration(
         team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id, lock=lock
     )

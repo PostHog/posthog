@@ -2245,16 +2245,34 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             serializer.save()
         return Response(self.get_serializer(serializer.instance).data)
 
+    def _alert_watches(self, alert_id: uuid.UUID, insight_id: int) -> bool:
+        if AlertConfiguration.objects.filter(team_id=self.team_id, id=alert_id, insight_id=insight_id).exists():
+            return True
+        view = native_insight_alert_view(self.team_id, alert_id)
+        native = AlertConfiguration.from_platform_view(view, team_id=self.team_id) if view is not None else None
+        return native is not None and native.insight_id == insight_id
+
     def _take_native_ownership(self, alert: AlertConfiguration, user: User) -> AlertConfiguration:
         """`take_ownership` for an alert with no insight row: the platform stores its owner, and its
         enable goes through the platform's admission, after the AI detector's."""
         with transaction.atomic():
             if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
                 raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+            # Admission skips the cap for an alert that is already on, so it reads the alert as stored
+            # under the lock, not as this request first read it.
+            locked = native_insight_alert_view(alert.team_id, alert.id, lock=True)
+            reloaded = AlertConfiguration.from_platform_view(locked, team_id=alert.team_id) if locked else None
+            if reloaded is None:
+                raise Http404
+            alert = reloaded
             assign_alert_owner(
                 team_id=alert.team_id, alert_id=alert.id, user=user, was_impersonated=get_was_impersonated()
             )
             alert.created_by = user
+            # The same checks the row path's enable runs, against the insight as it is under the lock,
+            # so an insight edit that broke the alert's configuration refuses the enable.
+            alert.insight.refresh_from_db()
+            self.get_serializer(alert, data={"enabled": True}, partial=True).is_valid(raise_exception=True)
             _admit_llm_alert_write(
                 self.get_serializer_context(),
                 detector_config=alert.detector_config,
@@ -2543,11 +2561,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         date_from = serializer.validated_data.get("date_from")
         config = serializer.validated_data.get("config")
         alert_id = serializer.validated_data.get("alert")
-        if (
-            alert_id is not None
-            and not AlertConfiguration.objects.filter(team_id=self.team_id, id=alert_id).exists()
-            and native_insight_alert_view(self.team_id, alert_id) is None
-        ):
+        # The alert's earlier checks go into the prompt, so it must watch the insight the caller was
+        # authorized for, not another one the caller may not view.
+        if alert_id is not None and not self._alert_watches(alert_id, insight.id):
             raise ValidationError({"alert": ["Alert not found."]})
 
         try:
