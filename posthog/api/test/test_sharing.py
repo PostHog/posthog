@@ -25,7 +25,7 @@ from posthog.api.sharing import (
     check_can_access_sharing_configuration,
     shared_url_as_png,
 )
-from posthog.api.sharing_publish_gate import dashboard_filter_leaves
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard, dashboard_filter_leaves
 from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
@@ -2173,6 +2173,16 @@ class TestSharingResourceEditChecks(APIBaseTest):
             check_can_access_sharing_configuration(view, request, sharing)
 
         assert "cannot be shared through this endpoint" in str(caught.exception)
+
+
+class TestDashboardPublishGate(APIBaseTest):
+    def test_repeated_checks_against_one_dashboard_row_load_its_team_once(self) -> None:
+        destination = Dashboard.objects.get(pk=Dashboard.objects.create(team=self.team, name="Destination").pk)
+        query = {"kind": "HogQLQuery", "query": "select 1"}
+        check_can_add_insight_to_dashboard(self.user, destination, query)
+
+        with self.assertNumQueries(0):
+            check_can_add_insight_to_dashboard(self.user, destination, query)
 
 
 class TestSharingConfigurationReadAccess(APIBaseTest):

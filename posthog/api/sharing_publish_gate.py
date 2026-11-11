@@ -91,6 +91,18 @@ def insight_query_access_error(
     return f"Can't save this query: you don't have access to {denied_names}, and this insight is {exposure}."
 
 
+def _dashboard_team(dashboard: GatedDashboard) -> Team:
+    """The team that stores the dashboard, with its organization.
+
+    A dashboard row caches both after the first check, so a copy loop that checks the same destination
+    once per tile loads them once. A summary carries only the team id, so its team is read by id.
+    """
+    team = getattr(dashboard, "team", None)
+    if isinstance(team, Team):
+        return team
+    return Team.objects.select_related("organization").get(id=dashboard.team_id)
+
+
 def check_can_add_insight_to_dashboard(
     user: User,
     dashboard: GatedDashboard,
@@ -103,7 +115,7 @@ def check_can_add_insight_to_dashboard(
     control entitlement, or the editor is an org admin."""
     if not isinstance(query, dict):
         return
-    team = Team.objects.get(id=dashboard.team_id)
+    team = _dashboard_team(dashboard)
     if not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return
     uac = user_access_control or UserAccessControl(user=user, team=team)
