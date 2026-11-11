@@ -299,6 +299,13 @@ def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_m
     return f"*{title}*\n{mrkdwn_content}"
 
 
+def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:
+    from posthog.utils import absolute_uri
+
+    # report_run is the evaluation page's URL param that opens this report in its drawer.
+    return absolute_uri(f"/project/{project_id}/ai-evals/evaluations/{evaluation_id}?report_run={report_run_id}")
+
+
 def deliver_email_report(
     report_run,
     targets: list[dict],
@@ -310,7 +317,6 @@ def deliver_email_report(
 ) -> list[str]:
     """Send report via email. Returns list of errors (empty if all succeeded)."""
     from posthog.email import EmailMessage
-    from posthog.utils import absolute_uri
 
     content = EvalReportContent.from_dict(report_run.content)
     citation_map = _build_citation_map(content.citations)
@@ -322,7 +328,7 @@ def deliver_email_report(
         body_parts.append(_render_section_html(section.title, section.content, project_id, citation_map))
     body_html = "\n".join(body_parts)
 
-    evaluation_url = absolute_uri(f"/project/{project_id}/ai-evals/evaluations/{evaluation_id}")
+    evaluation_url = _report_url(project_id, evaluation_id, str(report_run.id))
     period_start_display = _format_period_for_display(period_start)
     period_end_display = _format_period_for_display(period_end)
     subject_title = content.title or "Evaluation report"
@@ -386,6 +392,7 @@ def deliver_slack_report(
     report_run,
     targets: list[dict],
     evaluation_name: str,
+    evaluation_id: str,
     team_id: int,
     project_id: int,
     period_start: str,
@@ -410,8 +417,10 @@ def deliver_slack_report(
     if len(header_text) > 150:
         header_text = header_text[:147] + "..."
 
+    report_url = _report_url(project_id, evaluation_id, str(report_run.id))
     period_line = (
         f"*{evaluation_name}*  ·  {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
+        f"  ·  <{report_url}|Open in PostHog>"
     )
 
     team = Team.objects.select_related("organization").get(id=team_id)
@@ -528,7 +537,7 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     slack_failures: list[SlackDeliveryFailure] = []
     if slack_targets:
         slack_failures = deliver_slack_report(
-            report_run, slack_targets, evaluation_name, team_id, project_id, period_start, period_end
+            report_run, slack_targets, evaluation_name, evaluation_id, team_id, project_id, period_start, period_end
         )
         all_errors.extend(failure.message for failure in slack_failures)
 

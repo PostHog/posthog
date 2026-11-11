@@ -1,9 +1,7 @@
-import { useMemo, useState } from 'react'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { LemonBadge, LemonButton, LemonCollapse, LemonDivider } from '@posthog/lemon-ui'
-
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { urls } from 'scenes/urls'
 
 import type {
     EvaluationReportCitation,
@@ -12,84 +10,10 @@ import type {
     EvaluationReportSection,
     EvaluationReportStoredMetrics,
 } from '../types'
-
-// Rewrite each cited generation or trace ID in the content into a markdown link
-// to the trace viewer. Uses the structured citations list (not regex scanning) so:
-// - only ids the agent explicitly cited get linked (no false positives)
-// - the trace_id for the correct URL is guaranteed available
-// - there's no ReDoS surface on arbitrary prose input
-//
-// Two-phase placeholder swap prevents double-wrapping when an id is mentioned
-// multiple times, and prevents one id's generated link from being re-matched
-// by a later citation. Wrapper variants (`uuid`, <uuid>, bare) are collapsed
-// in descending specificity so the wrappers themselves get absorbed into the
-// replacement rather than surviving around a link.
-const SAFE_CITATION_LABEL_RE = /^[A-Za-z0-9._~-]{1,8}$/
-
-function citationLinkLabel(citedId: string, fallbackLabel: string): string {
-    const preview = citedId.slice(0, 8)
-    return SAFE_CITATION_LABEL_RE.test(preview) ? `${preview}...` : fallbackLabel
-}
-
-// $ai_session_id is caller-supplied through ingestion and urls.aiObservabilitySession interpolates
-// it into the path raw, so a ">" or ")" in it escapes the Markdown link destination and the rest of
-// the ID renders as attacker-controlled Markdown. Only link IDs that can't do that; anything else
-// stays plain text. Percent-encoding the session URL is the real fix, but that also has to teach
-// the session scene to decode, which is a routing change beyond this.
-const LINKABLE_SESSION_ID_RE = /^[A-Za-z0-9._~:@-]+$/
-
-// A citation names the unit that was evaluated: a session, a generation, or a trace. Session
-// citations may also carry the trace the agent read inside them, but the link goes to the session.
-function citationTarget(c: EvaluationReportCitation): { citedId: string; url: string; label: string } | null {
-    if (c.session_id) {
-        if (!LINKABLE_SESSION_ID_RE.test(c.session_id)) {
-            return null
-        }
-        return { citedId: c.session_id, url: urls.aiObservabilitySession(c.session_id), label: 'session' }
-    }
-    const citedId = c.generation_id || c.trace_id
-    const traceId = c.trace_id || c.generation_id
-    if (!citedId || !traceId) {
-        return null
-    }
-    return {
-        citedId,
-        url: urls.aiObservabilityTrace(traceId, c.generation_id && c.trace_id ? { event: c.generation_id } : undefined),
-        label: c.generation_id ? 'generation' : 'trace',
-    }
-}
-
-function linkifyCitations(content: string, citations: EvaluationReportCitation[]): string {
-    if (citations.length === 0) {
-        return content
-    }
-    const tokens: Array<{ token: string; link: string }> = []
-    let out = content
-    citations.forEach((c, idx) => {
-        const target = citationTarget(c)
-        if (!target) {
-            return
-        }
-        const { citedId, url } = target
-        const token = `\0CITE${idx}\0`
-        // Angle-bracket destination: trace and session IDs are opaque and caller-supplied, and a
-        // bare ")" in one would otherwise close the destination early and hijack the rest of the link.
-        const link = `[\`${citationLinkLabel(citedId, target.label)}\`](<${url}>)`
-        const before = out
-        out = out.split(`\`${citedId}\``).join(token)
-        out = out.split(`<${citedId}>`).join(token)
-        if (c.generation_id) {
-            out = out.split(citedId).join(token)
-        }
-        if (out !== before) {
-            tokens.push({ token, link })
-        }
-    })
-    for (const { token, link } of tokens) {
-        out = out.split(token).join(link)
-    }
-    return out
-}
+import { EvaluationReportCitations } from './EvaluationReportCitations'
+import { EvaluationReportPeriodChart } from './EvaluationReportPeriodChart'
+import { linkifyCitations } from './reportCitationLinks'
+import { ReportDeliveryTag } from './ReportDeliveryTag'
 
 // Strip a leading markdown heading line if it matches the section title.
 // The agent sometimes prefixes each section's content with its own heading,
@@ -159,6 +83,8 @@ const RESULT_ORDER: Record<EvaluationOutputType, string[]> = {
     sentiment: ['positive', 'neutral', 'negative'],
 }
 
+const PERIOD_FORMAT = { formatDate: 'MMM D', formatTime: 'HH:mm' }
+
 const METRICS_UNAVAILABLE_MESSAGE =
     'Metrics could not be calculated for this period because evaluation data was temporarily unavailable. This does not mean that no evaluations ran.'
 
@@ -225,6 +151,11 @@ function getBooleanPassRate(
     return (passCount / (passCount + failCount)) * 100
 }
 
+/** The pass rate a report stored, or one worked out from its pass and fail counts. */
+export function reportPassRate(metrics: EvaluationReportStoredMetrics): number | undefined {
+    return getBooleanPassRate(metrics, getResultMetrics(metrics))
+}
+
 export function summarizeEvaluationReportResults(metrics: EvaluationReportStoredMetrics): string {
     const resultMetrics = getResultMetrics(metrics)
     if (['boolean', 'numeric', 'categorical'].includes(metrics.output_type ?? 'boolean')) {
@@ -263,7 +194,7 @@ function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): J
         metrics.output_config && 'passing_rule' in metrics.output_config ? metrics.output_config.passing_rule : null
 
     return (
-        <div className="bg-bg-light border rounded p-3 mb-3">
+        <div className="rounded border bg-surface-primary p-3">
             {metrics.output_type === 'numeric' && passingRule && 'threshold' in passingRule && (
                 <p className="text-sm text-muted">{`Passing rule used for this report: score ${passingRule.operator === 'gte' ? '≥' : '≤'} ${passingRule.threshold}`}</p>
             )}
@@ -337,147 +268,81 @@ function MetricsCard({ metrics }: { metrics: EvaluationReportStoredMetrics }): J
     )
 }
 
-function DeliveryStatusBadge({ status }: { status: string }): JSX.Element {
-    const statusMap: Record<string, { label: string; status: 'success' | 'warning' | 'danger' | 'muted' }> = {
-        delivered: { label: 'Delivered', status: 'success' },
-        generated: { label: 'Generated', status: 'success' },
-        pending: { label: 'Pending', status: 'muted' },
-        partial_failure: { label: 'Partial failure', status: 'warning' },
-        failed: { label: 'Failed', status: 'danger' },
-    }
-    const info = statusMap[status] || { label: status, status: 'muted' as const }
-    return <LemonBadge content={info.label} status={info.status} />
-}
-
 export function EvaluationReportViewer({
+    evaluationId,
     reportRun,
-    onClose,
-    compact = false,
+    onOpenTrace,
+    onShowResults,
 }: {
+    evaluationId: string
     reportRun: EvaluationReportRun
-    onClose?: () => void
-    /** When true, hides the header/close row — useful when the parent already provides framing (e.g. an expanded table row). */
-    compact?: boolean
+    onOpenTrace: (traceId: string, eventId: string | null) => void
+    /** Opens the Runs tab on this report's period. */
+    onShowResults: () => void
 }): JSX.Element {
     const content = reportRun.content
-    const sections = useMemo(() => content.sections ?? [], [content.sections])
+    const sections = content.sections ?? []
     const metrics = content.metrics ?? reportRun.metadata
+    const citations = content.citations ?? []
     const metricsUnavailable = content.generation_status === 'metrics_unavailable'
-    const citations = useMemo(() => content.citations ?? [], [content.citations])
-
-    // Default to executive summary (first section) expanded. Memoized so Expand/Collapse all
-    // buttons can set the list deterministically.
-    const sectionKeys = useMemo(() => sections.map((_, i) => i.toString()), [sections])
-    const [expandedKeys, setExpandedKeys] = useState<string[]>(sections.length > 0 ? ['0'] : [])
-
-    const allExpanded = expandedKeys.length === sectionKeys.length && sectionKeys.length > 0
-    const allCollapsed = expandedKeys.length === 0
+    const deliveryFailed = reportRun.delivery_status === 'failed' || reportRun.delivery_status === 'partial_failure'
 
     return (
-        <div>
-            {!compact && (
-                <>
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                            <h2 className="font-bold text-base mb-0">{content.title || 'Report'}</h2>
-                            <DeliveryStatusBadge status={reportRun.delivery_status} />
-                        </div>
-                        {onClose && (
-                            <LemonButton size="small" onClick={onClose}>
-                                Close
-                            </LemonButton>
-                        )}
-                    </div>
-                    <div className="text-xs text-muted mb-3">
-                        Period: {new Date(reportRun.period_start).toLocaleString()} –{' '}
-                        {new Date(reportRun.period_end).toLocaleString()}
-                    </div>
-
-                    <LemonDivider className="my-3" />
-                </>
-            )}
-
-            {compact && (
-                <div className="flex items-center justify-between mb-2">
-                    {content.title ? <h3 className="font-semibold text-sm mb-0">{content.title}</h3> : <div />}
-                    {sections.length > 0 && (
-                        <div className="flex gap-2">
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={() => setExpandedKeys(sectionKeys)}
-                                disabledReason={allExpanded ? 'All sections already expanded' : undefined}
-                            >
-                                Expand all
-                            </LemonButton>
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={() => setExpandedKeys([])}
-                                disabledReason={allCollapsed ? 'All sections already collapsed' : undefined}
-                            >
-                                Collapse all
-                            </LemonButton>
-                        </div>
-                    )}
+        <article className="flex flex-col gap-4">
+            <header className="flex flex-col gap-1">
+                <h2 className="mb-0 text-lg font-semibold">{content.title || 'Evaluation report'}</h2>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-secondary">
+                    <span>
+                        <TZLabel time={reportRun.period_start} {...PERIOD_FORMAT} /> to{' '}
+                        <TZLabel time={reportRun.period_end} {...PERIOD_FORMAT} />
+                    </span>
+                    <ReportDeliveryTag status={reportRun.delivery_status} />
                 </div>
+            </header>
+
+            {deliveryFailed && reportRun.delivery_errors.length > 0 && (
+                <LemonBanner type={reportRun.delivery_status === 'failed' ? 'error' : 'warning'}>
+                    <p className="mb-1">
+                        {reportRun.delivery_status === 'failed'
+                            ? "This report couldn't be sent."
+                            : "This report couldn't be sent to every destination."}
+                    </p>
+                    <ul className="mb-0 text-xs">
+                        {reportRun.delivery_errors.map((error, index) => (
+                            <li key={index}>{error}</li>
+                        ))}
+                    </ul>
+                </LemonBanner>
             )}
 
             {metricsUnavailable ? (
-                <div className="bg-bg-light border rounded p-3 mb-3 text-sm text-muted">
-                    {METRICS_UNAVAILABLE_MESSAGE}
-                </div>
+                <div className="rounded border p-3 text-sm text-secondary">{METRICS_UNAVAILABLE_MESSAGE}</div>
             ) : (
-                metrics && <MetricsCard metrics={metrics} />
-            )}
-
-            {sections.length > 0 && (
                 <>
-                    {!compact && (
-                        <div className="flex justify-end gap-2 mb-2">
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={() => setExpandedKeys(sectionKeys)}
-                                disabledReason={allExpanded ? 'All sections already expanded' : undefined}
-                            >
-                                Expand all
-                            </LemonButton>
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={() => setExpandedKeys([])}
-                                disabledReason={allCollapsed ? 'All sections already collapsed' : undefined}
-                            >
-                                Collapse all
-                            </LemonButton>
-                        </div>
-                    )}
-
-                    <LemonCollapse
-                        multiple
-                        size="small"
-                        activeKeys={expandedKeys}
-                        onChange={(keys) => setExpandedKeys(keys as string[])}
-                        panels={sections.map((section, idx) => ({
-                            key: idx.toString(),
-                            header: section.title?.trim() || 'Section',
-                            content: <ReportSectionContent section={section} citations={citations} />,
-                        }))}
-                    />
+                    {metrics && <MetricsCard metrics={metrics} />}
+                    <EvaluationReportPeriodChart evaluationId={evaluationId} reportRun={reportRun} />
                 </>
             )}
 
-            {reportRun.delivery_errors.length > 0 && (
-                <div className="mt-4 p-2 bg-danger-highlight rounded">
-                    <h4 className="font-semibold text-sm text-danger">Delivery errors</h4>
-                    <ul className="text-xs">
-                        {reportRun.delivery_errors.map((err, i) => (
-                            <li key={i}>{err}</li>
-                        ))}
-                    </ul>
-                </div>
-            )}
-        </div>
+            {sections.map((section, index) => (
+                <section key={index} className="flex flex-col gap-1">
+                    <h3 className="mb-0 text-sm font-semibold">{section.title?.trim() || 'Section'}</h3>
+                    <ReportSectionContent section={section} citations={citations} />
+                </section>
+            ))}
+
+            <EvaluationReportCitations citations={citations} onOpenTrace={onOpenTrace} />
+
+            <div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={onShowResults}
+                    data-attr="llma-evaluation-report-show-results"
+                >
+                    See the results from this period
+                </LemonButton>
+            </div>
+        </article>
     )
 }

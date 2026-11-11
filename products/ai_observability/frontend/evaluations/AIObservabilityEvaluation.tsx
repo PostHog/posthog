@@ -15,11 +15,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationFirstResultStatus } from './components/EvaluationFirstResultStatus'
 import { EvaluationLatestReport } from './components/EvaluationLatestReport'
+import { EvaluationReportDrawer } from './components/EvaluationReportDrawer'
 import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
@@ -38,6 +40,7 @@ import {
     evaluationSupportsRunOutcomes,
     evaluationTypeUsesModelConfiguration,
 } from './evaluationCapabilities'
+import { evaluationReportDrawerLogic } from './evaluationReportDrawerLogic'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { LLMEvaluationLogicProps, hasUnsetConditionRollout, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
@@ -72,7 +75,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     )
     // The step layout edits reports with the rest of the configuration, so a report-only edit is unsaved too.
     const unsaved = hasUnsavedChanges || (!isNewEvaluation && reportConfigDirty)
-    const { saveEvaluation, resetEvaluation, setActiveTab, setFormStep } = useActions(llmEvaluationLogic)
+    const { saveEvaluation, resetEvaluation, setActiveTab, setFormStep, setRunsDates } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), {
         ...withoutTraceDrawerParams(searchParams),
@@ -330,10 +333,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 )}
                                 <EvaluationFirstResultStatus />
                                 {evaluationSupportsReportHistory(originalEvaluation) && (
-                                    <EvaluationLatestReport
-                                        evaluationId={evaluation.id}
-                                        onOpenReports={() => setActiveTab('reports')}
-                                    />
+                                    <EvaluationLatestReport evaluationId={evaluation.id} />
                                 )}
                                 {!runsBackfillId && (
                                     <div className="mb-4">
@@ -400,6 +400,28 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     },
                 ]}
             />
+            {evaluationSupportsReportHistory(originalEvaluation) && (
+                <EvaluationReportDrawer
+                    evaluationId={evaluation.id}
+                    generateDisabledReason={
+                        isReportableEvaluation ? undefined : 'Add a passing rule to generate new reports.'
+                    }
+                    onOpenTrace={(traceId, eventId) =>
+                        router.actions.push(router.values.location.pathname, {
+                            ...router.values.searchParams,
+                            trace: traceId,
+                            step: eventId ?? undefined,
+                        })
+                    }
+                    onShowResults={(periodStart, periodEnd) => {
+                        evaluationReportDrawerLogic({ evaluationId: evaluation.id }).actions.close()
+                        setActiveTab('runs')
+                        setRunsDates(periodStart, periodEnd)
+                    }}
+                />
+            )}
+            {/* Mounted for the whole page, so a report's cited trace opens from any tab, above the report. */}
+            <TraceDrawerHost listId="evaluation-runs" />
         </div>
     )
 }

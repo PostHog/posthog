@@ -3,6 +3,11 @@ import { cleanup, render, screen } from '@testing-library/react'
 import type { EvaluationReportCitation, EvaluationReportRun, EvaluationReportStoredMetrics } from '../types'
 import { EvaluationReportViewer, summarizeEvaluationReportResults } from './EvaluationReportViewer'
 
+// The period chart loads live results through a kea logic, which these rendering tests have no use for.
+jest.mock('./EvaluationReportPeriodChart', () => ({ EvaluationReportPeriodChart: () => null }))
+
+const VIEWER_PROPS = { evaluationId: 'evaluation-id', onOpenTrace: jest.fn(), onShowResults: jest.fn() }
+
 function buildMetrics(fields: EvaluationReportStoredMetrics): EvaluationReportStoredMetrics {
     return {
         total_runs: 10,
@@ -83,7 +88,7 @@ describe('EvaluationReportViewer', () => {
             previous_pass_rate: 80,
         })
 
-        render(<EvaluationReportViewer reportRun={buildReportRun(metrics)} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={buildReportRun(metrics)} />)
 
         expect(screen.getByText('Pass rate')).toBeTruthy()
         expect(screen.getByText('88.89%')).toBeTruthy()
@@ -95,7 +100,7 @@ describe('EvaluationReportViewer', () => {
     })
 
     it('renders a metrics-unavailable notice instead of a zero-run table', () => {
-        render(<EvaluationReportViewer reportRun={buildReportRun(null, 'metrics_unavailable')} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={buildReportRun(null, 'metrics_unavailable')} />)
 
         expect(screen.getByText(/could not be calculated/)).toBeTruthy()
         expect(screen.queryByText('Total runs')).toBeNull()
@@ -108,7 +113,7 @@ describe('EvaluationReportViewer', () => {
             result_rates: { positive: 40, neutral: 30, negative: 30 },
         })
 
-        render(<EvaluationReportViewer reportRun={buildReportRun(metrics)} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={buildReportRun(metrics)} />)
 
         expect(screen.queryByText('Pass rate')).toBeNull()
         expect(screen.getByText('Positive')).toBeTruthy()
@@ -120,7 +125,7 @@ describe('EvaluationReportViewer', () => {
         const reportRun = buildReportRun(buildMetrics({ pass_rate: 80 }))
         reportRun.content.sections = [{ content: '# Important context\n\nKeep this detail.' }]
 
-        render(<EvaluationReportViewer reportRun={reportRun} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={reportRun} />)
 
         const markdown = document.querySelector('[data-testid="react-markdown"]')
         expect(markdown?.textContent).toContain('# Important context')
@@ -183,7 +188,7 @@ describe('EvaluationReportViewer', () => {
             reportRun.content.sections = [{ title: 'Finding', content: content ?? `See \`${citedId}\`.` }]
             reportRun.content.citations = [citation]
 
-            render(<EvaluationReportViewer reportRun={reportRun} compact />)
+            render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={reportRun} />)
 
             const markdown = document.querySelector('[data-testid="react-markdown"]')
             // Angle-bracketed destination so an opaque ID containing ")" can't truncate the link.
@@ -207,7 +212,7 @@ describe('EvaluationReportViewer', () => {
         reportRun.content.sections = [{ title: 'Finding', content: `See \`${sessionId}\`.` }]
         reportRun.content.citations = [{ session_id: sessionId, reason: 'example' }]
 
-        render(<EvaluationReportViewer reportRun={reportRun} compact />)
+        render(<EvaluationReportViewer {...VIEWER_PROPS} reportRun={reportRun} />)
 
         const rendered = document.querySelector('[data-testid="react-markdown"]')?.textContent ?? ''
         // No link is generated, so the ID keeps the backticks the section already had and
