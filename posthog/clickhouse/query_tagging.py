@@ -411,6 +411,7 @@ def is_known_product_tag(value: str) -> bool:
     return value in _PRODUCT_TAG_VALUES
 
 
+# Where a HogQL rewrite moved a scan's flag calls: to `posthog.flag_evaluations`, or to a UNION ALL of it and `events`.
 FlagCallsRead = Literal["flag_evaluations", "union"]
 
 
@@ -580,8 +581,6 @@ class QueryTags(BaseModel):
     directly_read_ids: Optional[list[str]] = None
     materialized_saved_query_id: Optional[str] = None
 
-    # The HogQL rewrites that moved this query's flag calls to `posthog.flag_evaluations`: "flag_evaluations" for a
-    # scan that reads that table instead of `events`, and "union" for a scan that reads both tables with UNION ALL.
     flag_calls_read: Optional[list[FlagCallsRead]] = None
 
     trend_volume_type: Optional[str] = None

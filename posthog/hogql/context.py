@@ -187,8 +187,7 @@ class HogQLContext:
     # `_resolve_with_swaps` in transforms/flag_calls_from_flag_evaluations.py fills it when the swap succeeds, and the
     # SQL editor's notices read it.
     flag_called_union_spans: set[tuple[int, int]] = field(default_factory=set)
-    # How this query reads flag calls from `posthog.flag_evaluations`: "flag_evaluations" when a scan moved to that
-    # table, and "union" when a scan reads `posthog.events_with_flag_calls`. `read_tags` reports it to ClickHouse.
+    # The flag-call rewrites that this query applied. `read_tags` reports them to ClickHouse.
     flag_calls_read: set["FlagCallsRead"] = field(default_factory=set)
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
