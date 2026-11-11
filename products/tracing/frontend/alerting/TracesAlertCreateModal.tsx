@@ -7,9 +7,10 @@ import { WizardReview } from 'lib/components/WizardReview'
 
 import { UniversalFiltersGroup } from '~/types'
 
+import { AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
-import { PlatformAlertDestinations } from 'products/alerts_platform/frontend/destinations/PlatformAlertDestinations'
 import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
+import { PlatformAlertNotifications } from 'products/alerts_platform/frontend/destinations/PlatformAlertNotifications'
 
 import { TracesAlertFilterFields } from './TracesAlertFilterFields'
 import { tracesAlertFormLogic } from './tracesAlertFormLogic'
@@ -67,7 +68,10 @@ function TracesAlertCreateModalContent({
             cannotAdvanceReason: nameError,
             renderContent: (showValidationErrors) => (
                 <div className="max-w-2xl">
-                    <TracesAlertFilterFields nameError={showValidationErrors ? nameError : undefined} />
+                    <div className="space-y-5">
+                        <AlertEditorFormDetails nameError={showValidationErrors ? nameError : undefined} />
+                        <TracesAlertFilterFields />
+                    </div>
                 </div>
             ),
         },
@@ -86,10 +90,10 @@ function TracesAlertCreateModalContent({
         {
             key: 'notify',
             title: 'Notify',
-            description: 'Choose where the alert sends its notifications.',
+            description: 'Choose where to send alert events.',
             content: (
                 <div className="max-w-2xl">
-                    <PlatformAlertDestinations {...NEW_ALERT_DESTINATIONS} />
+                    <PlatformAlertNotifications {...NEW_ALERT_DESTINATIONS} />
                 </div>
             ),
         },
@@ -101,8 +105,8 @@ function TracesAlertCreateModalContent({
                 <WizardReview
                     notice={
                         pendingDestinations.length === 0 ? (
-                            <LemonBanner type="info">
-                                This alert has no destinations, so only alert routes can send its notifications.
+                            <LemonBanner type="warning">
+                                This alert will run without notifications. Go back to Notify to add a destination.
                             </LemonBanner>
                         ) : undefined
                     }
@@ -120,8 +124,10 @@ function TracesAlertCreateModalContent({
                         },
                         { label: 'Notification cooldown', value: `${alertForm.cooldownMinutes} minutes` },
                         {
-                            label: 'Destinations',
-                            value: pendingDestinations.length ? String(pendingDestinations.length) : 'None',
+                            label: 'Notifies',
+                            value: pendingDestinations.length
+                                ? `${pendingDestinations.length} notification destination${pendingDestinations.length === 1 ? '' : 's'}`
+                                : 'No notification destinations',
                         },
                     ]}
                 />

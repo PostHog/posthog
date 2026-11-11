@@ -5,6 +5,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from '../tracingFiltersLogic'
 import { TracesAlertCreateModal } from './TracesAlertCreateModal'
 import { TracesAlertEditModal } from './TracesAlertEditModal'
+import { TracesAlertHistoryModal } from './TracesAlertHistoryModal'
 import { TracesAlertList } from './TracesAlertList'
 import { tracesAlertsLogic } from './tracesAlertsLogic'
 
@@ -17,8 +18,8 @@ export function TracesAlertsTab(): JSX.Element {
 }
 
 function TracesAlertsTabContent(): JSX.Element {
-    const { isCreateAlertModalOpen, editingAlert } = useValues(tracesAlertsLogic)
-    const { closeCreateAlertModal, closeEditAlertModal } = useActions(tracesAlertsLogic)
+    const { isCreateAlertModalOpen, editingAlert, historyAlert } = useValues(tracesAlertsLogic)
+    const { closeCreateAlertModal, closeEditAlertModal, closeHistoryModal } = useActions(tracesAlertsLogic)
     const { filters } = useValues(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }))
 
     return (
@@ -34,6 +35,7 @@ function TracesAlertsTabContent(): JSX.Element {
                 viewerFilters={{ serviceNames: filters.serviceNames, filterGroup: filters.filterGroup }}
             />
             <TracesAlertEditModal alert={editingAlert} onClose={closeEditAlertModal} />
+            <TracesAlertHistoryModal alert={historyAlert} onClose={closeHistoryModal} />
         </div>
     )
 }

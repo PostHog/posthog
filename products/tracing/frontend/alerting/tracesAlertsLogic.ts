@@ -4,12 +4,16 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
 import {
     platformAlertsDestroy,
     platformAlertsList,
     platformAlertsPartialUpdate,
+    platformAlertsResetCreate,
+    platformAlertsSnoozeCreate,
 } from 'products/alerts_platform/frontend/generated/api'
 import {
     PatchedTracesPlatformAlertConfigurationEditApiSourceKind,
@@ -26,8 +30,12 @@ export interface tracesAlertsLogicValues {
     alertsLoadFailed: boolean
     alertsLoaded: boolean
     alertsLoading: boolean
+    createdByFilter: string | null
     editingAlert: PlatformAlertConfigurationApi | null
+    historyAlert: PlatformAlertConfigurationApi | null
     isCreateAlertModalOpen: boolean
+    resettingAlertIds: Set<string>
+    snoozingAlertIds: Set<string>
     togglingAlertIds: Set<string>
 }
 
@@ -37,6 +45,9 @@ export interface tracesAlertsLogicActions {
         value: true
     }
     closeEditAlertModal: () => {
+        value: true
+    }
+    closeHistoryModal: () => {
         value: true
     }
     deleteAlert: (alert: PlatformAlertConfigurationApi) => {
@@ -63,6 +74,29 @@ export interface tracesAlertsLogicActions {
     openEditAlertModal: (alert: PlatformAlertConfigurationApi) => {
         alert: PlatformAlertConfigurationApi
     }
+    openHistoryModal: (alert: PlatformAlertConfigurationApi) => {
+        alert: PlatformAlertConfigurationApi
+    }
+    resetAlert: (id: string) => {
+        id: string
+    }
+    setCreatedByFilter: (createdByFilter: string | null) => {
+        createdByFilter: string | null
+    }
+    setResettingAlertId: (
+        id: string,
+        resetting: boolean
+    ) => {
+        id: string
+        resetting: boolean
+    }
+    setSnoozingAlertId: (
+        id: string,
+        snoozing: boolean
+    ) => {
+        id: string
+        snoozing: boolean
+    }
     setTogglingAlertId: (
         id: string,
         toggling: boolean
@@ -70,8 +104,25 @@ export interface tracesAlertsLogicActions {
         id: string
         toggling: boolean
     }
+    snoozeAlert: (
+        alertId: string,
+        durationMinutes: number
+    ) => {
+        alertId: string
+        durationMinutes: number
+    }
+    snoozeAlertUntil: (
+        alertId: string,
+        snoozeUntil: string
+    ) => {
+        alertId: string
+        snoozeUntil: string
+    }
     toggleAlertEnabled: (alert: PlatformAlertConfigurationApi) => {
         alert: PlatformAlertConfigurationApi
+    }
+    unsnoozeAlert: (alertId: string) => {
+        alertId: string
     }
 }
 
@@ -80,18 +131,27 @@ export type tracesAlertsLogicType = MakeLogicType<tracesAlertsLogicValues, trace
 export const tracesAlertsLogic = kea<tracesAlertsLogicType>([
     path(['products', 'tracing', 'frontend', 'alerting', 'tracesAlertsLogic']),
 
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
 
     actions({
         deleteAlert: (alert: PlatformAlertConfigurationApi) => ({ alert }),
         toggleAlertEnabled: (alert: PlatformAlertConfigurationApi) => ({ alert }),
         setTogglingAlertId: (id: string, toggling: boolean) => ({ id, toggling }),
+        resetAlert: (id: string) => ({ id }),
+        setResettingAlertId: (id: string, resetting: boolean) => ({ id, resetting }),
+        snoozeAlert: (alertId: string, durationMinutes: number) => ({ alertId, durationMinutes }),
+        snoozeAlertUntil: (alertId: string, snoozeUntil: string) => ({ alertId, snoozeUntil }),
+        unsnoozeAlert: (alertId: string) => ({ alertId }),
+        setSnoozingAlertId: (id: string, snoozing: boolean) => ({ id, snoozing }),
+        setCreatedByFilter: (createdByFilter: string | null) => ({ createdByFilter }),
         openCreateAlertModal: true,
         closeCreateAlertModal: true,
         openEditAlertModal: (alert: PlatformAlertConfigurationApi) => ({ alert }),
         closeEditAlertModal: true,
+        openHistoryModal: (alert: PlatformAlertConfigurationApi) => ({ alert }),
+        closeHistoryModal: true,
     }),
 
     loaders(({ values }) => ({
@@ -103,6 +163,7 @@ export const tracesAlertsLogic = kea<tracesAlertsLogicType>([
                     const response = await platformAlertsList(String(values.currentTeamId), {
                         source_kind: PlatformAlertConfigurationSourceKindEnumApi.Traces,
                         limit: 100,
+                        ...(values.createdByFilter ? { created_by: values.createdByFilter } : {}),
                     })
                     breakpoint()
                     return response.results
@@ -116,11 +177,26 @@ export const tracesAlertsLogic = kea<tracesAlertsLogicType>([
         alertsLoaded: [false, { loadAlertsSuccess: () => true }],
         // A poll that fails after a good load keeps the rows on screen rather than replacing them with an error.
         alertsLoadFailed: [false, { loadAlertsSuccess: () => false, loadAlertsFailure: () => true }],
+        createdByFilter: [null as string | null, { setCreatedByFilter: (_, { createdByFilter }) => createdByFilter }],
         togglingAlertIds: [
             new Set<string>(),
             {
                 setTogglingAlertId: (state, { id, toggling }) =>
                     toggling ? new Set([...state, id]) : new Set([...state].filter((x) => x !== id)),
+            },
+        ],
+        resettingAlertIds: [
+            new Set<string>(),
+            {
+                setResettingAlertId: (state, { id, resetting }) =>
+                    resetting ? new Set([...state, id]) : new Set([...state].filter((x) => x !== id)),
+            },
+        ],
+        snoozingAlertIds: [
+            new Set<string>(),
+            {
+                setSnoozingAlertId: (state, { id, snoozing }) =>
+                    snoozing ? new Set([...state, id]) : new Set([...state].filter((x) => x !== id)),
             },
         ],
         isCreateAlertModalOpen: [false, { openCreateAlertModal: () => true, closeCreateAlertModal: () => false }],
@@ -129,17 +205,28 @@ export const tracesAlertsLogic = kea<tracesAlertsLogicType>([
             {
                 openEditAlertModal: (_, { alert }) => alert,
                 closeEditAlertModal: () => null,
+                // The open alert follows the list, so its switch and snooze show what was just saved.
+                loadAlertsSuccess: (editingAlert, { alerts }) =>
+                    editingAlert ? (alerts.find((alert) => alert.id === editingAlert.id) ?? editingAlert) : null,
                 deleteAlert: (editingAlert, { alert }) => (editingAlert?.id === alert.id ? null : editingAlert),
             },
+        ],
+        historyAlert: [
+            null as PlatformAlertConfigurationApi | null,
+            { openHistoryModal: (_, { alert }) => alert, closeHistoryModal: () => null },
         ],
     }),
 
     listeners(({ actions, values }) => ({
+        setCreatedByFilter: () => actions.loadAlerts(),
         openCreateAlertModal: () => {
             posthog.capture('traces alert create started')
         },
         openEditAlertModal: () => {
             posthog.capture('traces alert edit started')
+        },
+        openHistoryModal: () => {
+            posthog.capture('traces alert history viewed')
         },
         deleteAlert: async ({ alert }) => {
             try {
@@ -165,6 +252,61 @@ export const tracesAlertsLogic = kea<tracesAlertsLogicType>([
                 lemonToast.error('Could not update the alert. Try again.')
             } finally {
                 actions.setTogglingAlertId(alert.id, false)
+            }
+        },
+        resetAlert: async ({ id }) => {
+            actions.setResettingAlertId(id, true)
+            try {
+                await platformAlertsResetCreate(String(values.currentTeamId), id)
+                posthog.capture('traces alert reset')
+                lemonToast.success('Alert reset. Its next check runs shortly.')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Could not reset the alert. Try again.')
+            } finally {
+                actions.setResettingAlertId(id, false)
+            }
+        },
+        snoozeAlert: async ({ alertId, durationMinutes }) => {
+            actions.setSnoozingAlertId(alertId, true)
+            try {
+                await platformAlertsSnoozeCreate(String(values.currentTeamId), alertId, {
+                    snooze_until: dayjs().add(durationMinutes, 'minute').toISOString(),
+                })
+                posthog.capture('traces alert snoozed', { duration_minutes: durationMinutes })
+                lemonToast.success('Alert snoozed')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Could not snooze the alert. Try again.')
+            } finally {
+                actions.setSnoozingAlertId(alertId, false)
+            }
+        },
+        snoozeAlertUntil: async ({ alertId, snoozeUntil }) => {
+            actions.setSnoozingAlertId(alertId, true)
+            try {
+                await platformAlertsSnoozeCreate(String(values.currentTeamId), alertId, {
+                    snooze_until: resolveSnoozeUntil(snoozeUntil),
+                })
+                posthog.capture('traces alert snoozed')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Could not snooze the alert. Try again.')
+            } finally {
+                actions.setSnoozingAlertId(alertId, false)
+            }
+        },
+        unsnoozeAlert: async ({ alertId }) => {
+            actions.setSnoozingAlertId(alertId, true)
+            try {
+                await platformAlertsSnoozeCreate(String(values.currentTeamId), alertId, { snooze_until: null })
+                posthog.capture('traces alert unsnoozed')
+                lemonToast.success('Alert unsnoozed')
+                actions.loadAlerts()
+            } catch {
+                lemonToast.error('Could not unsnooze the alert. Try again.')
+            } finally {
+                actions.setSnoozingAlertId(alertId, false)
             }
         },
     })),

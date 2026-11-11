@@ -262,7 +262,7 @@ export function toWritePayload(
     }
 }
 
-function measureLabel(condition: TracesPlatformAlertConditionApi): string {
+export function measureLabel(condition: TracesPlatformAlertConditionApi): string {
     switch (condition.measure) {
         case MeasureEnumApi.RequestCount:
             return 'Requests'
@@ -275,14 +275,15 @@ function measureLabel(condition: TracesPlatformAlertConditionApi): string {
     }
 }
 
-function formatThreshold(condition: TracesPlatformAlertConditionApi): string {
+/** A value in the measure's unit: a count, a percentage for error rate, or milliseconds for latency. */
+export function formatMeasured(condition: TracesPlatformAlertConditionApi, value: number): string {
     switch (condition.measure) {
         case MeasureEnumApi.ErrorRate:
-            return `${round(condition.threshold * 100)}%`
+            return `${round(value * 100)}%`
         case MeasureEnumApi.Latency:
-            return `${condition.threshold} ms`
+            return `${round(value)} ms`
         default:
-            return String(condition.threshold)
+            return String(round(value))
     }
 }
 
@@ -291,7 +292,7 @@ export function describeTracesCondition(condition: TracesPlatformAlertConditionA
     if (!condition) {
         return 'Unknown condition'
     }
-    return `${measureLabel(condition)} ${condition.threshold_operator} ${formatThreshold(condition)} over ${
+    return `${measureLabel(condition)} ${condition.threshold_operator} ${formatMeasured(condition, condition.threshold)} over ${
         condition.window_minutes
     } minutes`
 }
@@ -307,8 +308,11 @@ export function describeTracesScope(config: TracesPlatformAlertConfigApi | null)
 export const SUGGESTION_RANGE = { date_from: '-24h' }
 
 /** The destinations logic of an alert being created, whose destinations are added once it is saved. */
-export const NEW_ALERT_DESTINATIONS = { alertId: null, sourceKind: 'traces' }
+export const NEW_ALERT_DESTINATIONS = { sourceKind: 'traces' }
 
-export function alertDestinations(alertId: string): { alertId: string; sourceKind: string } {
-    return { alertId, sourceKind: 'traces' }
-}
+export const SNOOZE_DURATIONS = [
+    { label: '30 minutes', minutes: 30 },
+    { label: '1 hour', minutes: 60 },
+    { label: '4 hours', minutes: 240 },
+    { label: '24 hours', minutes: 1440 },
+]
