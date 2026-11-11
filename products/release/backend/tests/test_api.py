@@ -3,7 +3,8 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, User
 
 
 class TestReleaseAPI(APIBaseTest):
@@ -23,15 +24,33 @@ class TestReleaseAPI(APIBaseTest):
         assert response.status_code == expected, response.json()
 
     @parameterized.expand(
-        [("existing", True, status.HTTP_201_CREATED), ("unknown", False, status.HTTP_400_BAD_REQUEST)]
+        [
+            ("existing", "existing", status.HTTP_201_CREATED),
+            ("unknown", "unknown", status.HTTP_400_BAD_REQUEST),
+            ("hidden_from_the_caller", "hidden", status.HTTP_400_BAD_REQUEST),
+        ]
     )
-    def test_linked_flags_must_exist_in_the_project(self, _name: str, exists: bool, expected: int) -> None:
-        if exists:
+    def test_linked_flags_must_exist_and_be_visible(self, _name: str, flag: str, expected: int) -> None:
+        flag_id = 999999
+        if flag != "unknown":
             flag_id = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/", {"key": "dark-mode"}, format="json"
             ).json()["id"]
-        else:
-            flag_id = 999999
+        if flag == "hidden":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            restricted = self.client.put(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}/access_controls",
+                {"access_level": "none"},
+                format="json",
+            )
+            assert restricted.status_code == status.HTTP_200_OK, restricted.json()
+            self.client.force_login(self._create_user("member@example.com"))
 
         response = self.client.post(self._url(), {"name": "Dark mode", "feature_flag_ids": [flag_id]}, format="json")
 

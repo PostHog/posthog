@@ -38,6 +38,7 @@ import {
 
 import { ReleaseLinkFlagCombobox } from './ReleaseLinkFlagCombobox'
 import { releaseLogic } from './releaseLogic'
+import { ReleaseShowMore } from './ReleaseShowMore'
 import { ReleaseBadgeVariant, ReleaseRow, badgeVariantForTag } from './releaseUtils'
 
 interface LinkedObject {
@@ -79,7 +80,6 @@ function LinkedRow({ item }: { item: LinkedObject }): JSX.Element {
 }
 
 const LINKED_LIMIT = 8
-const LINKED_PAGE = 20
 
 export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
     const [visible, setVisible] = useState(LINKED_LIMIT)
@@ -122,7 +122,6 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
     ]
 
     const shown = items.slice(0, visible)
-    const remaining = items.length - shown.length
 
     return (
         <Card size="sm" data-attr="release-linked">
@@ -157,25 +156,13 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                         Nothing linked yet.
                     </Text>
                 )}
-                {(remaining > 0 || visible > LINKED_LIMIT) && (
-                    <div className="flex flex-wrap gap-2">
-                        {remaining > 0 && (
-                            <Button
-                                variant="link-muted"
-                                size="sm"
-                                onClick={() => setVisible(visible + LINKED_PAGE)}
-                                data-attr="release-linked-show-more"
-                            >
-                                {`Show ${Math.min(remaining, LINKED_PAGE)} more of ${remaining}`}
-                            </Button>
-                        )}
-                        {visible > LINKED_LIMIT && (
-                            <Button variant="link-muted" size="sm" onClick={() => setVisible(LINKED_LIMIT)}>
-                                Show less
-                            </Button>
-                        )}
-                    </div>
-                )}
+                <ReleaseShowMore
+                    total={items.length}
+                    visible={visible}
+                    limit={LINKED_LIMIT}
+                    onChange={setVisible}
+                    dataAttr="release-linked"
+                />
                 {row.flags.length > 0 && <ReleaseLinkFlagCombobox row={row} placeholder="Link another flag" />}
             </CardContent>
         </Card>

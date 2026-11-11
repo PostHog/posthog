@@ -55,6 +55,7 @@ interface ReleaseLogicValues {
     experimentsFailed: boolean
     earlyAccessFailed: boolean
     experimentsReady: boolean
+    experimentsHidden: boolean
     earlyAccessReady: boolean
     schedulesFailed: boolean
     partialLoadFailed: boolean
@@ -84,6 +85,7 @@ interface ReleaseLogicActions {
     loadExperimentsSuccess: (experiments: ExperimentBasicApi[]) => { experiments: ExperimentBasicApi[] }
     loadExperimentsFailure: (error: string) => { error: string }
     loadExperimentCount: () => void
+    setExperimentsHidden: (hidden: boolean) => { hidden: boolean }
     loadEarlyAccessFeatures: () => void
     loadEarlyAccessCount: () => void
     loadEarlyAccessFeaturesSuccess: (earlyAccessFeatures: EarlyAccessFeatureApi[]) => {
@@ -118,8 +120,17 @@ const PAGE_SIZE = 500
 const RELOAD_WINDOW_MS = 2000
 const FLAG_SEARCH_LIMIT = 50
 const FLAG_FETCH_CONCURRENCY = 8
+const SCHEDULE_ID_CHUNK = 100
 
 type ListPage<T> = { results?: T[]; next?: string | null } | T[]
+
+function chunk<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = []
+    for (let start = 0; start < items.length; start += size) {
+        chunks.push(items.slice(start, start + size))
+    }
+    return chunks
+}
 
 function linkedFlagIds(releases: ReleaseDTOApi[]): number[] {
     return [...new Set(releases.flatMap((release) => release.feature_flag_ids))]
@@ -169,6 +180,7 @@ export const releaseLogic = kea<releaseLogicType>([
     })),
     actions({
         reload: (force?: boolean) => ({ force: !!force }),
+        setExperimentsHidden: (hidden: boolean) => ({ hidden }),
         setSearch: (search: string) => ({ search }),
         setStageFilter: (stage: ReleaseStage | null) => ({ stage }),
         setDecisionOnly: (decisionOnly: boolean) => ({ decisionOnly }),
@@ -185,7 +197,7 @@ export const releaseLogic = kea<releaseLogicType>([
         linkFlag: (id: string, flagId: number) => ({ id, flagId }),
         unlinkFlag: (id: string, flagId: number) => ({ id, flagId }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         releases: [
             [] as ReleaseDTOApi[],
             {
@@ -276,7 +288,12 @@ export const releaseLogic = kea<releaseLogicType>([
                             breakpoint
                         )
                     )
-                    return pages.flat()
+                    const experiments = pages.flat()
+                    const loadedIds = new Set(experiments.map((experiment) => experiment.id))
+                    actions.setExperimentsHidden(
+                        flagsWithExperiments.some((flag) => flag.experiment_set.some((id) => !loadedIds.has(id)))
+                    )
+                    return experiments
                 },
             },
         ],
@@ -328,12 +345,12 @@ export const releaseLogic = kea<releaseLogicType>([
                     const projectId = String(values.currentProjectId)
                     const pages = valuesOrThrow(
                         await inBatches(
-                            linkedFlagIds(values.releases),
-                            (id) =>
+                            chunk(linkedFlagIds(values.releases), SCHEDULE_ID_CHUNK),
+                            (ids) =>
                                 allPages((offset) =>
                                     scheduledChangesList(projectId, {
                                         model_name: 'FeatureFlag',
-                                        record_id: String(id),
+                                        record_ids: ids.join(','),
                                         limit: PAGE_SIZE,
                                         offset,
                                     })
@@ -356,6 +373,7 @@ export const releaseLogic = kea<releaseLogicType>([
         flagSearchFailed: [false, { searchFlags: () => false, searchFlagsFailure: () => true }],
         flagsReady: [false, { loadFlagsSuccess: () => true, loadFlagsFailure: () => true }],
         experimentsReady: [false, { loadExperimentsSuccess: () => true }],
+        experimentsHidden: [false, { setExperimentsHidden: (_, { hidden }) => hidden }],
         earlyAccessReady: [false, { loadEarlyAccessFeaturesSuccess: () => true }],
         loadFailed: [
             false,
@@ -382,9 +400,13 @@ export const releaseLogic = kea<releaseLogicType>([
     }),
     selectors({
         partialLoadFailed: [
-            (s) => [s.experimentsFailed, s.earlyAccessFailed, s.schedulesFailed],
-            (experimentsFailed: boolean, earlyAccessFailed: boolean, schedulesFailed: boolean) =>
-                experimentsFailed || earlyAccessFailed || schedulesFailed,
+            (s) => [s.experimentsFailed, s.experimentsHidden, s.earlyAccessFailed, s.schedulesFailed],
+            (
+                experimentsFailed: boolean,
+                experimentsHidden: boolean,
+                earlyAccessFailed: boolean,
+                schedulesFailed: boolean
+            ) => experimentsFailed || experimentsHidden || earlyAccessFailed || schedulesFailed,
         ],
         dataLoading: [
             (s) => [s.releasesLoading, s.experimentsLoading, s.flagsReady, s.loadFailed],
@@ -403,6 +425,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 s.experimentsFailed,
                 s.earlyAccessFailed,
                 s.experimentsReady,
+                s.experimentsHidden,
                 s.earlyAccessReady,
             ],
             (
@@ -416,6 +439,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 experimentsFailed: boolean,
                 earlyAccessFailed: boolean,
                 experimentsReady: boolean,
+                experimentsHidden: boolean,
                 earlyAccessReady: boolean
             ): ReleaseRow[] => {
                 if (!flagsReady || loadFailed) {
@@ -426,7 +450,11 @@ export const releaseLogic = kea<releaseLogicType>([
                     experiments,
                     earlyAccessFeatures,
                     scheduledChanges,
-                    experimentsReady && earlyAccessReady && !experimentsFailed && !earlyAccessFailed
+                    experimentsReady &&
+                        earlyAccessReady &&
+                        !experimentsFailed &&
+                        !experimentsHidden &&
+                        !earlyAccessFailed
                 )
                 return releases.map((release) => buildReleaseRow(release, index))
             },

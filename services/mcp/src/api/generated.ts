@@ -137925,6 +137925,10 @@ export namespace Schemas {
      * Filter by the ID of a specific feature flag.
      */
     record_id?: string;
+    /**
+     * Comma-separated feature flag IDs. Returns the schedules of any of them, at most 200 IDs.
+     */
+    record_ids?: string;
     };
 
     export type SchemaPropertyGroupsListParams = {

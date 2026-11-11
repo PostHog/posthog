@@ -1054,6 +1054,7 @@ const scheduledChangesList = (): ToolBase<
                 model_name: params.model_name,
                 offset: params.offset,
                 record_id: params.record_id,
+                record_ids: params.record_ids,
             },
         })
         return await withPostHogUrl(context, result, '/feature-flags')

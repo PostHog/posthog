@@ -18,9 +18,10 @@ export function ReleasePartialLoadWarning(): JSX.Element | null {
                 <IconWarning />
             </ItemMedia>
             <ItemContent>
-                <ItemTitle>Some linked details could not load</ItemTitle>
+                <ItemTitle>Some linked details are missing</ItemTitle>
                 <ItemDescription>
-                    Experiments, early access or schedules may be missing, so stages and next steps can be incomplete.
+                    Some experiments, early access or schedules could not load or are hidden from you, so stages and
+                    next steps can be incomplete.
                 </ItemDescription>
             </ItemContent>
             <ItemActions>

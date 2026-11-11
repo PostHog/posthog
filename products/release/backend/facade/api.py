@@ -14,7 +14,7 @@ from uuid import UUID
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
-from products.feature_flags.backend.facade.api import existing_flag_ids
+from products.feature_flags.backend.facade.api import FlagAccessFilter, existing_flag_ids
 
 from ..logic import releases as logic
 from ..models import Release
@@ -24,8 +24,8 @@ ReleaseNotFoundError = contracts.ReleaseNotFoundError
 UnknownFeatureFlagsError = contracts.UnknownFeatureFlagsError
 
 
-def _check_flags(team_id: int, flag_ids: list[int]) -> None:
-    unknown = sorted(set(flag_ids) - existing_flag_ids(flag_ids, team_id=team_id))
+def _check_flags(team_id: int, flag_ids: list[int], access_control: FlagAccessFilter) -> None:
+    unknown = sorted(set(flag_ids) - existing_flag_ids(flag_ids, team_id=team_id, access_control=access_control))
     if unknown:
         raise contracts.UnknownFeatureFlagsError(unknown)
 
@@ -45,8 +45,8 @@ def list_page(team_id: int, page: PageRequest) -> Page[contracts.ReleaseDTO]:
     return select_page(logic.list_releases(team_id), page).map(_to_dto)
 
 
-def create(input: contracts.CreateReleaseInput) -> contracts.ReleaseDTO:
-    _check_flags(input.team_id, list(input.feature_flag_ids))
+def create(input: contracts.CreateReleaseInput, access_control: FlagAccessFilter) -> contracts.ReleaseDTO:
+    _check_flags(input.team_id, list(input.feature_flag_ids), access_control)
     obj = logic.create_release(
         team_id=input.team_id,
         name=input.name,
@@ -57,10 +57,14 @@ def create(input: contracts.CreateReleaseInput) -> contracts.ReleaseDTO:
     return _to_dto(logic.get_release(input.team_id, obj.id))
 
 
-def update(team_id: int, release_id: UUID, changes: dict[str, Any]) -> contracts.ReleaseDTO:
+def update(
+    team_id: int, release_id: UUID, changes: dict[str, Any], access_control: FlagAccessFilter
+) -> contracts.ReleaseDTO:
     if "feature_flag_ids" in changes:
         linked = set(logic.get_release(team_id, release_id).feature_flag_ids)
-        _check_flags(team_id, [flag_id for flag_id in changes["feature_flag_ids"] if flag_id not in linked])
+        _check_flags(
+            team_id, [flag_id for flag_id in changes["feature_flag_ids"] if flag_id not in linked], access_control
+        )
     return _to_dto(logic.update_release(team_id, release_id, changes))
 
 

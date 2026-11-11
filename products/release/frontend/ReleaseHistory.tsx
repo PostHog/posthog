@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { IconCalendar, IconFlag } from '@posthog/icons'
-import { Button, Card, CardContent, CardHeader, CardTitle, Text, cn } from '@posthog/quill'
+import { Card, CardContent, CardHeader, CardTitle, Text, cn } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -9,10 +9,10 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
+import { ReleaseShowMore } from './ReleaseShowMore'
 import { ReleaseEvent, ReleaseRow } from './releaseUtils'
 
 const HISTORY_LIMIT = 4
-const HISTORY_PAGE = 20
 
 const KIND_TYPE: Partial<Record<ReleaseEvent['kind'], string>> = {
     flag: 'feature_flag',
@@ -75,10 +75,10 @@ function EventList({ events, dashed }: { events: ReleaseEvent[]; dashed?: boolea
 
 export function ReleaseHistory({ row }: { row: ReleaseRow }): JSX.Element {
     const [visible, setVisible] = useState(HISTORY_LIMIT)
+    const [upcomingVisible, setUpcomingVisible] = useState(HISTORY_LIMIT)
     const upcoming = row.events.filter((event) => event.upcoming).sort((a, b) => a.date.localeCompare(b.date))
     const past = row.events.filter((event) => !event.upcoming).sort((a, b) => b.date.localeCompare(a.date))
     const shownPast = past.slice(0, visible)
-    const remaining = past.length - shownPast.length
 
     return (
         <Card data-attr="release-timeline-card">
@@ -91,7 +91,16 @@ export function ReleaseHistory({ row }: { row: ReleaseRow }): JSX.Element {
                         Coming up
                     </Text>
                     {upcoming.length ? (
-                        <EventList events={upcoming} dashed />
+                        <>
+                            <EventList events={upcoming.slice(0, upcomingVisible)} dashed />
+                            <ReleaseShowMore
+                                total={upcoming.length}
+                                visible={upcomingVisible}
+                                limit={HISTORY_LIMIT}
+                                onChange={setUpcomingVisible}
+                                dataAttr="release-timeline-upcoming"
+                            />
+                        </>
                     ) : (
                         <Text size="xs" variant="muted">
                             {row.flags.length
@@ -105,30 +114,13 @@ export function ReleaseHistory({ row }: { row: ReleaseRow }): JSX.Element {
                         So far
                     </Text>
                     <EventList events={shownPast} />
-                    {past.length > HISTORY_LIMIT && (
-                        <div className="flex flex-wrap gap-2">
-                            {remaining > 0 && (
-                                <Button
-                                    variant="link-muted"
-                                    size="sm"
-                                    onClick={() => setVisible(visible + HISTORY_PAGE)}
-                                    data-attr="release-timeline-show-all"
-                                >
-                                    {`Show ${Math.min(remaining, HISTORY_PAGE)} more of ${remaining}`}
-                                </Button>
-                            )}
-                            {visible > HISTORY_LIMIT && (
-                                <Button
-                                    variant="link-muted"
-                                    size="sm"
-                                    onClick={() => setVisible(HISTORY_LIMIT)}
-                                    data-attr="release-timeline-show-less"
-                                >
-                                    Show less
-                                </Button>
-                            )}
-                        </div>
-                    )}
+                    <ReleaseShowMore
+                        total={past.length}
+                        visible={visible}
+                        limit={HISTORY_LIMIT}
+                        onChange={setVisible}
+                        dataAttr="release-timeline-past"
+                    />
                 </div>
             </CardContent>
         </Card>

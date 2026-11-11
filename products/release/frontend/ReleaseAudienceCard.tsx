@@ -1,5 +1,6 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconCalendar, IconEllipsis, IconWarning } from '@posthog/icons'
 import {
@@ -31,6 +32,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { releaseLogic } from './releaseLogic'
+import { ReleaseShowMore } from './ReleaseShowMore'
 import { ReleaseFlagAudience, ReleaseRow, isEnrollingEarlyAccess, isExperimentRunning } from './releaseUtils'
 
 function emptyVariantWarning(row: ReleaseRow, audience: ReleaseFlagAudience): string | null {
@@ -159,7 +161,10 @@ function AudienceRow({ row, audience }: { row: ReleaseRow; audience: ReleaseFlag
     )
 }
 
+const AUDIENCE_LIMIT = 5
+
 export function ReleaseAudienceCard({ row }: { row: ReleaseRow }): JSX.Element {
+    const [visible, setVisible] = useState(AUDIENCE_LIMIT)
     const openEarlyAccess = row.earlyAccess.find(isEnrollingEarlyAccess)
 
     return (
@@ -169,12 +174,19 @@ export function ReleaseAudienceCard({ row }: { row: ReleaseRow }): JSX.Element {
                 <CardDescription>From the release conditions of each flag. Edit them on the flag.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-                {row.audiences.map((audience, index) => (
+                {row.audiences.slice(0, visible).map((audience, index) => (
                     <div key={audience.flag.id} className="flex flex-col gap-4">
                         {index > 0 && <Separator />}
                         <AudienceRow row={row} audience={audience} />
                     </div>
                 ))}
+                <ReleaseShowMore
+                    total={row.audiences.length}
+                    visible={visible}
+                    limit={AUDIENCE_LIMIT}
+                    onChange={setVisible}
+                    dataAttr="release-audience"
+                />
                 {openEarlyAccess && row.audiences.every((audience) => audience.percent !== null) && (
                     <Text size="xs" variant="muted">
                         {`Users can also opt in through ${openEarlyAccess.name}, now in ${openEarlyAccess.stage}.`}

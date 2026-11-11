@@ -44,7 +44,9 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: TypedRequest[dict[str, Any]], **kwargs) -> Response:
         """Create a release."""
         try:
-            dto = api.create(contracts.CreateReleaseInput(team_id=self.team_id, **request.validated_data))
+            dto = api.create(
+                contracts.CreateReleaseInput(team_id=self.team_id, **request.validated_data), self.user_access_control
+            )
         except api.UnknownFeatureFlagsError as error:
             raise ValidationError({"feature_flag_ids": f"These flags do not exist in this project: {error.flag_ids}"})
         return Response(ReleaseSerializer(dto).data, status=status.HTTP_201_CREATED)
@@ -57,7 +59,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request: TypedRequest[dict[str, Any]], pk: UUID, **kwargs) -> Response:
         """Change the name, description, owner or linked flags of a release."""
         try:
-            dto = api.update(self.team_id, pk, request.validated_data)
+            dto = api.update(self.team_id, pk, request.validated_data, self.user_access_control)
         except api.ReleaseNotFoundError:
             raise NotFound("Release not found.")
         except api.UnknownFeatureFlagsError as error:
