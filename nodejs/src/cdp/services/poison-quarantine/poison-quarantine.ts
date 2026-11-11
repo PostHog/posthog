@@ -57,6 +57,9 @@ export class PoisonQuarantine {
             try {
                 return await handler(messages)
             } catch (batchError) {
+                if (batchError instanceof DependencyUnavailableError) {
+                    throw batchError
+                }
                 return await this.isolate(handler, messages, batchError, source)
             }
         }
