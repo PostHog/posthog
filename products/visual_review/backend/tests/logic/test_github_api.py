@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+
 from products.visual_review.backend.logic import github_api
 from products.visual_review.backend.models import Repo
 
@@ -123,3 +125,21 @@ def test_pull_request_state_reads_the_merge_time(merged_at: str | None, expected
         state = github_api.pull_request_state(Repo(repo_full_name="org/repo"), 7)
 
     assert state is not None and state.merged_at == expected
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        GitHubRateLimitError("rate limited", retry_after=42),
+        GitHubEgressBudgetExhausted("shed", scope="1"),
+    ],
+)
+def test_a_refused_ancestry_read_propagates_and_commit_contains_answers_false(refusal: Exception) -> None:
+    github = MagicMock()
+    github.api_request.side_effect = refusal
+    repo = Repo(repo_full_name="org/repo")
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        with pytest.raises(type(refusal)):
+            github_api.commit_ancestry(repo, "merge-base", "seed")
+        assert github_api.commit_contains(repo, "merge-base", "seed") is False

@@ -133,11 +133,14 @@ def default_branch_head_sha(repo: Repo, priority: Priority = Priority.CRITICAL) 
 
 
 def _is_ancestor(repo: Repo, ancestor_sha: str, head_sha: str, priority: Priority) -> bool | None:
-    """Whether `ancestor_sha` is in the history of `head_sha`, or None when GitHub cannot tell."""
+    """Whether `ancestor_sha` is in the history of `head_sha`, or None when GitHub cannot tell.
+
+    A rate limit or a refusal by the egress budget propagates, so a caller can wait and ask again.
+    """
     try:
         github = get_github_integration_for_repo(repo, priority)
         merge_base = _get_merge_base_sha(github, repo.repo_full_name, ancestor_sha, head_sha)
-    except (errors.GitHubIntegrationNotFoundError, *GITHUB_READ_REFUSED):
+    except errors.GitHubIntegrationNotFoundError:
         logger.warning("visual_review.commit_ancestry_unknown", repo_id=str(repo.id), ancestor=ancestor_sha)
         return None
     if merge_base is None:
@@ -151,7 +154,9 @@ def commit_ancestry(
     """Whether `ancestor_sha` is in the history of `head_sha`, or None when GitHub cannot tell.
 
     Two commits never change their ancestry, so a known answer is cached and later calls for the
-    same pair make no request. An unknown answer is not cached, so the next call asks again.
+    same pair make no request. An unknown answer is not cached, so the next call asks again. A rate
+    limit raises `GitHubRateLimitError` and a refusal by the egress budget raises
+    `GitHubEgressBudgetExhausted`, so a caller on a retry path waits instead of failing for good.
     """
     if ancestor_sha == head_sha:
         return True
@@ -163,8 +168,15 @@ def commit_ancestry(
 
 
 def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
-    """Whether `ancestor_sha` is in the history of `head_sha`. False when GitHub cannot tell."""
-    return commit_ancestry(repo, ancestor_sha, head_sha) is True
+    """Whether `ancestor_sha` is in the history of `head_sha`. False when GitHub cannot tell.
+
+    A refused read also answers False, because the callers of this function do not retry.
+    """
+    try:
+        return commit_ancestry(repo, ancestor_sha, head_sha) is True
+    except GITHUB_READ_REFUSED:
+        logger.warning("visual_review.commit_ancestry_unknown", repo_id=str(repo.id), ancestor=ancestor_sha)
+        return False
 
 
 _MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
