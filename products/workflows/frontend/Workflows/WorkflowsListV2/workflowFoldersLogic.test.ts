@@ -445,75 +445,57 @@ describe('workflowFoldersLogic', () => {
     })
 
     it.each([
-        ['pages through a folder the shared tree cut to its first page, and nothing else', 200],
-        ['keeps the cached files of a cut folder whose next page fails', 500],
-    ])('%s', async (_name, nextPageStatus) => {
+        ['restores a folder the shared tree cut to its first page from workflow file scans alone', 200, false],
+        ['keeps the cached files of a cut folder and offers a retry when its scan fails', 500, true],
+        ['keeps the cached files of a cut folder and offers a retry when its scan stalls', null, true],
+    ])('%s', async (_name, scanStatus, offersRetry) => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing')
         const requests: URLSearchParams[] = []
+        const welcome = { id: 'direct', path: 'Billing/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id }
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     requests.push(params)
-                    return [
-                        nextPageStatus,
-                        paginated(
-                            params.get('parent') === 'Billing'
-                                ? [
-                                      {
-                                          id: 'direct',
-                                          path: 'Billing/Welcome',
-                                          type: 'hog_flow',
-                                          ref: FIXTURE_WORKFLOWS[0].id,
-                                      },
-                                  ]
-                                : []
-                        ),
-                    ]
+                    if (scanStatus === null) {
+                        return new Promise(() => {})
+                    }
+                    if (params.get('parent') === 'Billing') {
+                        // A mixed folder: the indexed workflow sits behind pages of another product's files.
+                        const offset = Number(params.get('offset'))
+                        const notes = Array.from({ length: 101 }, (_, index) => ({
+                            id: `notes-${offset + index}`,
+                            path: `Billing/Notes ${offset + index}`,
+                            type: 'notebook',
+                            ref: `synthetic-notes-${offset + index}`,
+                        }))
+                        return [200, paginated(offset < 200 ? notes : [welcome])]
+                    }
+                    return scanStatus === 200 ? projectFiles({ request }) : [scanStatus, { detail: 'Unavailable' }]
                 },
             },
         })
-        projectTreeDataLogic.actions.loadFolderSuccess(
-            'Billing',
-            [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
-            true,
-            1,
-            true
-        )
+        jest.useFakeTimers()
+        try {
+            projectTreeDataLogic.actions.loadFolderSuccess(
+                'Billing',
+                [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
+                true,
+                1,
+                true
+            )
+            await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
+        } finally {
+            jest.useRealTimers()
+        }
         await expectLogic(logic).toFinishAllListeners()
-        expect(requests.map((params) => params.get('parent'))).toEqual(['Billing'])
+
+        expect(new Set(requests.map((params) => params.get('search')))).toEqual(
+            new Set(['type:folder', 'type:hog_flow', 'type:message_template'])
+        )
         expect(logic.values.browserReadyLoading).toBe(false)
-        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
-    })
-
-    it('keeps the cached files of a cut folder when the tree changes while its next page loads and fails', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.openFolder('Billing')
-        let failPage!: () => void
-        const pageHeld = new Promise<void>((resolve) => (failPage = resolve))
-        let pageRequested = false
-        useMocks({
-            get: {
-                '/api/projects/:team_id/file_system/': async () => {
-                    pageRequested = true
-                    await pageHeld
-                    return [500, { detail: 'Unavailable' }]
-                },
-            },
-        })
-        projectTreeDataLogic.actions.loadFolderSuccess(
-            'Billing',
-            [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
-            true,
-            1,
-            true
-        )
-        await waitFor(() => expect(pageRequested).toBe(true))
-        addProjectFiles([{ id: 'unrelated', path: 'Empty/Notes', type: 'notebook', ref: 'synthetic-notes' }])
-        failPage()
-        await expectLogic(logic).toFinishAllListeners()
-
+        expect(logic.values.browserLoadFailed).toBe(offersRetry)
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
     })
 

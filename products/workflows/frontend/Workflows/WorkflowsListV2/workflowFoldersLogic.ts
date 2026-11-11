@@ -833,7 +833,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     listeners(({ actions, values, cache }) => ({
         loadBrowser: () => actions.loadOtherFiles(),
         // The shared tree drops collapsed folders and cuts a reloaded folder to its first page. Neither changes a file,
-        // so the view puts back what it indexed, and pages on through a cut folder, instead of reloading the project.
+        // so the view puts back what it indexed.
         [projectTreeDataLogic.actionTypes.pruneClosedFolders]: () => actions.restoreFileIndex(),
         [projectTreeDataLogic.actionTypes.loadFolderSuccess]: () => actions.restoreFileIndex(),
         [projectTreeDataLogic.actionTypes.loadFolderFailure]: () => actions.restoreFileIndex(),
@@ -882,10 +882,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         restoreFileIndex: () => {
             const present = new Set(Object.values(values.folders).flatMap((files) => files.map((entry) => entry.id)))
             const missing = [...fileIndex(cache).values()].filter((entry) => !present.has(entry.id))
-            // A folder whose next page failed is not loaded again, so its cached files go back like evicted ones.
+            // The tree does not load a cut or failed folder's other pages, so the cached files go back like evicted
+            // ones. A cut folder can mix in any number of other products' files, so a workflow-only scan checks its own.
             const evicted = missing.filter((entry) => {
                 const folder = parentPath(entry.path)
-                return !(folder in values.folders) || values.folderStates[folder] === 'error'
+                return !(folder in values.folders) || ['error', 'has-more'].includes(values.folderStates[folder])
             })
             if (evicted.length) {
                 projectTreeDataLogic.actions.addLoadedResults({
@@ -895,13 +896,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     lastCount: evicted.length,
                 })
             }
-            const cutFolders = new Set(
-                missing
-                    .map((entry) => parentPath(entry.path))
-                    .filter((folder) => values.folderStates[folder] === 'has-more')
-            )
-            for (const folder of cutFolders) {
-                projectTreeDataLogic.actions.loadFolder(folder)
+            if (evicted.some((entry) => values.folderStates[parentPath(entry.path)] === 'has-more')) {
+                actions.loadBrowser()
             }
         },
         setValue: ({ value }) => {
