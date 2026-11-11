@@ -3,16 +3,23 @@ import { dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { EventsNode } from '~/queries/schema/schema-general'
-import { BaseMathType, HogQLMathType, IntervalType, PropertyMathType } from '~/types'
+import { HogQLMathType, IntervalType, PropertyMathType } from '~/types'
 
 import { formatLLMCost, formatLLMLatency } from '../utils'
 
 const count = (value: number): string => humanFriendlyNumber(value)
 
+// Each metric reads the same events as the table column it mirrors.
+export const TRACE_EVENTS =
+    "event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')"
+const COST_EVENTS = "event IN ('$ai_generation', '$ai_embedding')"
+const GENERATION_EVENTS = "event = '$ai_generation'"
+
 export type MetricChartKey = 'traces' | 'users' | 'cost' | 'latency' | 'errors'
 
 export interface MetricChartDefinition {
     label: string
+    eventFilter: string
     series: Pick<EventsNode, 'math' | 'math_property' | 'math_hogql'>
     format: (value: number) => string
 }
@@ -20,26 +27,31 @@ export interface MetricChartDefinition {
 export const METRIC_CHART_DEFINITIONS: Record<MetricChartKey, MetricChartDefinition> = {
     traces: {
         label: 'Traces',
+        eventFilter: TRACE_EVENTS,
         series: { math: HogQLMathType.HogQL, math_hogql: 'count(DISTINCT properties.$ai_trace_id)' },
         format: count,
     },
     users: {
         label: 'Users',
-        series: { math: BaseMathType.UniqueUsers },
+        eventFilter: GENERATION_EVENTS,
+        series: { math: HogQLMathType.HogQL, math_hogql: 'count(DISTINCT distinct_id)' },
         format: count,
     },
     cost: {
         label: 'Cost',
+        eventFilter: COST_EVENTS,
         series: { math: PropertyMathType.Sum, math_property: '$ai_total_cost_usd' },
         format: formatLLMCost,
     },
     latency: {
         label: 'Avg. latency',
+        eventFilter: GENERATION_EVENTS,
         series: { math: PropertyMathType.Average, math_property: '$ai_latency' },
         format: (value) => formatLLMLatency(value),
     },
     errors: {
         label: 'Errors',
+        eventFilter: TRACE_EVENTS,
         series: {
             math: HogQLMathType.HogQL,
             math_hogql: "countIf(notEmpty(toString(properties.$ai_error)) OR properties.$ai_is_error = 'true')",

@@ -45,7 +45,7 @@ export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: 
 
     const definition = METRIC_CHART_DEFINITIONS[metric]
     const [result, traces] = (response as TrendsQueryResponse | null)?.results ?? []
-    const traceCounts: number[] | undefined = traces?.data
+    const traceCounts: number[] | undefined = (metric === 'traces' ? result : traces)?.data
     const labels = useMemo<string[]>(() => result?.days ?? [], [result])
     const series = useMemo<Series[]>(
         () => [{ key: metric, label: definition.label, data: result?.data ?? [] }],

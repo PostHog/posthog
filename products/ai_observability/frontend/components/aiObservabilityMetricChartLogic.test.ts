@@ -41,4 +41,30 @@ describe('aiObservabilityMetricChartLogic', () => {
 
         expect(router.values.searchParams.trace).toBe(openTrace)
     })
+
+    it('opens the trace page from the Users tab, which has no drawer', async () => {
+        router.actions.push(urls.aiObservabilityUsers(), { date_from: '-1h' })
+        jest.mocked(performQuery).mockResolvedValue({ results: [['trace-1', '2026-11-10T18:28:02Z']] } as any)
+        const logic = aiObservabilityMetricChartLogic({ metric: 'users' })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.openBucketTrace('2026-11-10 18:28:00')).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain(urls.aiObservabilityTrace('trace-1'))
+    })
+
+    it.each([
+        ['cost by minute', 'cost', '-1h', 2],
+        ['traces by minute', 'traces', '-1h', 1],
+        ['cost by hour', 'cost', '-24h', 1],
+    ] as const)(
+        'only adds a trace count series for %s when a bar can open a trace',
+        (_name, metric, dateFrom, count) => {
+            router.actions.push(urls.aiObservabilityTraces(), { date_from: dateFrom })
+            const logic = aiObservabilityMetricChartLogic({ metric })
+            logic.mount()
+
+            expect(logic.values.query.series).toHaveLength(count)
+        }
+    )
 })
