@@ -27,7 +27,7 @@ from posthog.models.events_plan_deletion import (
     reschedule_plan_deletions,
     with_period,
 )
-from posthog.models.events_retention_config import TeamEventsRetention
+from posthog.models.events_retention_config import TeamEventsRetention, TeamEventsRetentionConfig
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -128,18 +128,22 @@ def _captured(scoped_capture: MagicMock) -> list[dict]:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "deleting,pass_months,notified",
+    "deleting,pass_months,setting_months,notified",
     [
-        pytest.param(True, 24, True, id="pass_at_the_next_cleanup"),
-        pytest.param(False, 24, False, id="deletion_turned_off"),
-        pytest.param(True, 36, False, id="period_shortened_after_pass"),
+        pytest.param(True, 24, None, True, id="pass_at_the_next_cleanup"),
+        pytest.param(False, 24, None, False, id="deletion_turned_off"),
+        pytest.param(True, 36, None, False, id="period_shortened_after_pass"),
+        pytest.param(True, 12, 12, False, id="setting_already_deletes_monthly"),
+        pytest.param(True, 24, 36, True, id="setting_past_the_plan"),
     ],
 )
 @override_settings(CLOUD_DEPLOYMENT="US")
 def test_report_upcoming_events_deletions_tells_admins_once_two_weeks_before_the_pass(
-    deleting: bool, pass_months: int, notified: bool
+    deleting: bool, pass_months: int, setting_months: int | None, notified: bool
 ):
     team = _team_with_pass(pass_months)
+    if setting_months is not None:
+        TeamEventsRetentionConfig.objects.create(team=team, events_retention_months=setting_months)
 
     with (
         override_settings(EVENTS_DATA_RETENTION_ENFORCED=deleting),
@@ -159,6 +163,7 @@ def test_report_upcoming_events_deletions_tells_admins_once_two_weeks_before_the
                     "organization_name": "Scheduled",
                     "retention_months": 24,
                     "deletion_scheduled_on": "2027-02-03",
+                    "$update_person_last_seen_at": False,
                 },
                 "groups": {"organization": str(team.organization_id)},
             }

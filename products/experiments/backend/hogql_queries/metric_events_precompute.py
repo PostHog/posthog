@@ -19,6 +19,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentWarehouseNativeNode,
@@ -72,7 +73,13 @@ class MetricEventsPrecompute:
     team: Team
     experiment: Experiment
     as_of: datetime
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+    metric: (
+        ExperimentMeanMetric
+        | ExperimentFunnelMetric
+        | ExperimentRatioMetric
+        | ExperimentRetentionMetric
+        | ExperimentQuantileMetric
+    )
     group_type_index: Optional[int]
     has_breakdowns: bool
     cuped_enabled: bool
@@ -175,6 +182,9 @@ class MetricEventsPrecompute:
             if extension_seconds <= METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS:
                 return None
             return "retention_window"
+        if isinstance(self.metric, ExperimentQuantileMetric):
+            # Quantile metrics need every per-event value, and the build has no write query for them.
+            return "unsupported_metric_type"
 
     def _source_ineligibility_reason(
         self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode

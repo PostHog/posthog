@@ -252,7 +252,7 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'source_map_upload',
         label: 'Source map upload',
-        scopes: ['organization:read', 'error_tracking:write'],
+        scopes: ['error_tracking:write'],
     },
     {
         value: 'zapier',

@@ -890,6 +890,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             posthog.capture('command k result opened', {
                 section: row.kind === 'item' ? row.section : 'ask-ai',
                 ranked_section: row.key.split('/')[0],
+                result_category: item?.category ?? null,
+                result_type: item?.itemType ?? null,
                 position: values.selectableRows.findIndex((candidate) => candidate.key === row.key),
                 has_filters: values.chips.length > 0,
                 filter_keys: values.chips.map((chip) => chip.key),

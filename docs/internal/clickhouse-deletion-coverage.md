@@ -338,7 +338,7 @@ Organization admins set the retention in project and organization settings, and 
 `monthly_retention_events_cleanup_job` has six steps:
 
 - `update_plan_deletions` tracks each team's pass period in `TeamEventsPlanDeletion`: the set period, never past the plan's period, else the default period. It gives a row only to the teams where `should_delete_past_default_period` is true, and removes the rows of all other teams. A team without a row gets no pass, and its set period is never capped by its plan.
-  - `should_delete_past_default_period` needs enforcement and the `events-data-retention-deletion` flag. The flag gets each team's plan period and organization, so a rollout can target plans and leave out organizations.
+  - `should_delete_past_default_period` needs the `events-data-retention-deletion` flag on PostHog Cloud, and does not depend on query enforcement. Self-hosted never gets a pass. The flag gets each team's plan period and organization, so a rollout can target plans and leave out organizations.
   - A new row's first pass is at least 3 months out, so a team keeps its events for at least 3 months after the flag turns on.
   - Turning the flag off removes the team's row at the next run. A run that already finished `update_plan_deletions` still deletes for that team.
   - A shorter period, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out.
@@ -370,6 +370,8 @@ The Celery beat task `report_upcoming_events_deletions` runs daily at 15:00 UTC.
 On the day the next cleanup is exactly 14 days away, it reschedules the rows due at that cleanup, the same way a settings save does, so a period that got shorter since the pass was set moves the pass instead of announcing it.
 It then sends an `events retention deletion upcoming` event to the admins of each organization with a team still due, one organization at a time, whether the team downgraded or not.
 Every pass gets this event, every 3 months, and only teams behind the deletion flag have rows, so a team that joins the flag after a downgrade hears before its first pass.
+A team whose set period is at or below its pass's period is left out, because the monthly cleanup already deletes everything that pass would.
+A set period above the pass's period still sends.
 Only that one day sends, so nothing records what was sent.
 A failed send fails the task, which retries the same way as the shortened task, and a retry sends again to the organizations already sent.
 Workflows turn both events into emails.

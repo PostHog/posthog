@@ -74,13 +74,20 @@ class TestAccountViewContentValidation(SimpleTestCase):
                 validate_account_view_content(content)
             assert context.exception.errors == [f"Component 1: {expected_error}"]
 
-    def test_accepts_replay_tile_with_date_config(self) -> None:
-        content = account_view_content(
-            '<SessionReplays nodeId="replay-one" title="Recent recordings" config={{"dateRange":{"date_from":"-7d","date_to":null}}} />'
-        )
+    @parameterized.expand(
+        [
+            (
+                '<SessionReplays nodeId="replay-one" title="Recent recordings" config={{"dateRange":{"date_from":"-7d","date_to":null}}} />',
+                "Recent recordings",
+            ),
+            ('<Automations nodeId="automations-one" span={6} />', "Automations"),
+        ]
+    )
+    def test_accepts_account_widget(self, component: str, expected_text: str) -> None:
+        content = account_view_content(component)
         validated, text_content = validate_account_view_content(content)
         self.assertEqual(validated, content)
-        self.assertEqual(text_content, "Recent recordings")
+        self.assertEqual(text_content, expected_text)
 
     def test_rejects_span_outside_twelve_columns(self) -> None:
         with self.assertRaises(InvalidAccountViewContent) as context:

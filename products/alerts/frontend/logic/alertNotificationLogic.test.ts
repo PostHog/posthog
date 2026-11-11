@@ -6,10 +6,15 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType, IntegrationType } from '~/types'
 
-import { alertsTestDeliveryCreate } from 'products/alerts/frontend/generated/api'
+import {
+    alertsDestinationsDeleteCreate,
+    alertsDestinationsPagerdutyCreate,
+    alertsTestDeliveryCreate,
+} from 'products/alerts/frontend/generated/api'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
+    ALERT_NOTIFICATION_TYPE_PAGERDUTY,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
 } from 'products/alerts/frontend/logic/alertNotifications'
@@ -17,6 +22,8 @@ import {
 import { alertNotificationLogic } from './alertNotificationLogic'
 
 jest.mock('products/alerts/frontend/generated/api', () => ({
+    alertsDestinationsDeleteCreate: jest.fn(),
+    alertsDestinationsPagerdutyCreate: jest.fn(),
     alertsTestDeliveryCreate: jest.fn(),
 }))
 
@@ -234,5 +241,60 @@ describe('alertNotificationLogic', () => {
         expect(payload.inputs?.text?.value).toContain('{event.properties.alert_name}')
 
         await expectLogic(logic).toMatchValues({ pendingNotifications: [] })
+    })
+
+    it('creates and removes a PagerDuty destination through the alert API', async () => {
+        jest.mocked(alertsDestinationsPagerdutyCreate).mockResolvedValue({ hog_function_ids: ['hf-open', 'hf-close'] })
+        jest.mocked(alertsDestinationsDeleteCreate).mockResolvedValue(undefined)
+        logic = alertNotificationLogic({ alertId: 'alert-123' })
+        logic.mount()
+
+        logic.actions.addPendingNotification({
+            type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
+            routingKey: 'a'.repeat(32),
+            severity: 'error',
+            region: 'eu',
+        })
+        logic.actions.createPendingHogFunctions('alert-123', 'Daily revenue check')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(alertsDestinationsPagerdutyCreate).toHaveBeenCalledWith(expect.any(String), 'alert-123', {
+            pagerduty_routing_key: 'a'.repeat(32),
+            pagerduty_severity: 'error',
+            pagerduty_region: 'eu',
+        })
+        await expectLogic(logic).toMatchValues({ pendingNotifications: [] })
+
+        logic.actions.deleteExistingPagerDutyDestination([
+            { id: 'hf-open' } as HogFunctionType,
+            { id: 'hf-close' } as HogFunctionType,
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(alertsDestinationsDeleteCreate).toHaveBeenCalledWith(expect.any(String), 'alert-123', {
+            hog_function_ids: ['hf-open', 'hf-close'],
+        })
+    })
+
+    it('drops a staged PagerDuty notification when the new alert can no longer page', async () => {
+        logic = alertNotificationLogic({})
+        logic.mount()
+        logic.actions.addPendingNotification({
+            type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
+            routingKey: 'a'.repeat(32),
+            severity: 'critical',
+            region: 'us',
+        })
+        logic.actions.addPendingNotification({
+            type: ALERT_NOTIFICATION_TYPE_WEBHOOK,
+            webhookUrl: 'https://example.com',
+        })
+
+        logic.actions.loadNewAlertPagerDutyAvailableSuccess(false)
+
+        await expectLogic(logic).toMatchValues({
+            pendingNotifications: [{ type: ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl: 'https://example.com' }],
+        })
     })
 })

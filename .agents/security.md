@@ -13,6 +13,11 @@ Before you create a branch or PR, choose the route:
 - **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit PostHog Cloud remotely today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution on our infrastructure, or exposure of credentials or secrets. The severity label does not necessarily decide the route: a high finding that does not meet this bar can go public. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
 - **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, issues in local tools such as a CLI or SDK that need a non-default setup like a custom host, and missing rate limits.
 
+Two questions help you choose between the embargo and a public PR:
+
+- **Is the weakness already public?** A dependency upgrade that picks up an upstream fix with a public release, advisory, or CVE does not disclose anything new, because attackers can already read the upstream patch. It goes to `PostHog/posthog` as a plain version bump. Ask team-security to look before it merges, and to decide if it must land faster than the merge queue allows.
+- **Could an attacker, or an agent that reads every public diff, exploit the weakness from your diff before the fix is live?** A merged fix takes about an hour to deploy. If the diff does not give that head start, the fix goes public. If it does and the finding meets the severe bar above, it needs the embargo.
+
 A public security fix is a normal fix with a neutral description.
 Describe what the change does, not how to exploit the old behavior.
 Leave out step-by-step reproductions, payloads, and severity ratings from the title, description, commit messages, and test names.
@@ -20,6 +25,7 @@ Leave out step-by-step reproductions, payloads, and severity ratings from the ti
 Never create a branch, push, or open a PR in `PostHog/posthog-private` without the user's confirmation in the current conversation.
 When you ask, say why the finding looks severe enough for an embargo.
 If you are unsure whether a finding is severe enough, stop and ask the user before you push to either repo.
+With the user's confirmation, a draft PR in `PostHog/posthog-private` lets team-security read the diff before anyone decides. Keep it a draft until they decide, and move the fix to `PostHog/posthog` if they say it can go public.
 Do not choose the private repo only because a change touches access control, authentication, or another security-sensitive area, or only because a branch is named `security/`.
 
 Follow the user's instructions about whether to create a branch, commit, push, or update a PR.

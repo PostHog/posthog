@@ -381,6 +381,11 @@ EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
 EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-precompute-task-queue"
 )
+# The build and direct-heavy queues have workers but get no calcs yet; the routing changes send calcs to them later.
+EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-build-task-queue")
+EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-recalculation-direct-heavy-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
@@ -481,6 +486,15 @@ ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES: int = get_from_env(
 if ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform metrics check starts"
+    )
+# The platform's traces batches allowed to run at once, across every team. A batch runs its
+# `trace_spans` queries one after another, so this bounds the concurrent traces alert queries.
+ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform traces check starts"
     )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)

@@ -44,7 +44,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
-import { tagsModel } from '~/models/tagsModel'
 import { performQuery } from '~/queries/query'
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
@@ -524,9 +523,6 @@ export interface experimentLogicActions {
     openReleaseConditionsModal: () => {
         value: true
     } // modalsLogic
-    loadTags: () => {
-        value: true
-    } // tagsModel
     addSharedMetricsToExperiment: (
         sharedMetricIds: SharedMetric['id'][],
         metadata: {
@@ -1055,8 +1051,6 @@ export const experimentLogic = kea<experimentLogicType>([
         actions: [
             experimentsLogic,
             ['updateExperiments'],
-            tagsModel,
-            ['loadTags'],
             eventUsageLogic,
             [
                 'reportExperimentViewed',
@@ -2020,10 +2014,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 if (payload?.update_feature_flag_params && experimentUpdate.feature_flag) {
                     actions.updateFlagFromPartial(experimentUpdate.feature_flag)
                 }
-                if (payload?.tags) {
-                    // Newly created tags must reach tagsModel or the tag filters won't offer them.
-                    actions.loadTags()
-                }
             }
             // NOTE: No implicit metric reload here. Each action that calls updateExperiment
             // is responsible for triggering its own reload if needed. This prevents:
@@ -2361,6 +2351,11 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     for (const query of metrics) {
                         const insightQuery = queryBuilder(query)
+                        // Ratio, retention and percentile metrics have no insight equivalent, and the API
+                        // rejects an insight without a query
+                        if (!insightQuery) {
+                            continue
+                        }
 
                         await insightsApi.create({ name: query.name || undefined, query: insightQuery }, [dashboard.id])
                     }

@@ -41,6 +41,7 @@ pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolic
         "batch_exports",
         "batch_exports_backfill",
         "dwh_cdp_producer_job",
+        "temporal_workflow",
         "endpoints",
         "alert_destination",
         "session_replay",
