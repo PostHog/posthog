@@ -78,7 +78,7 @@ def read_flag_calls_in_lazy_join(
     join_name = _join_name(join_scope)
     scope = FlagCallScope.join(join_name)
     pin: ast.Expr | None = None
-    if database.flag_calls_only_in_flag_evaluations and not scan.pins_flag_calls(
+    if context.flag_calls_only_in_flag_evaluations() and not scan.pins_flag_calls(
         filter_conjuncts(subquery), needs_flag_key=False
     ):
         reads_join_event = _join_event_reader(join_scope, original_select_type)
@@ -121,7 +121,7 @@ def refuse_flag_calls_in_wrapped_lazy_join(
     flag calls itself. The wrapper holds none of the filters of `node`, so `read_flag_calls_in_lazy_join` can neither
     move the pin there nor see the comparison to refuse it."""
     database = swap_database(context)
-    if database is None or not database.flag_calls_only_in_flag_evaluations:
+    if database is None or not context.flag_calls_only_in_flag_evaluations():
         return
     if not _compares_with_flag_calls(node, _join_event_reader(join_scope, original_select_type)):
         return

@@ -10,6 +10,7 @@ from disposable_email_domains import blocklist as disposable_email_domains_list
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import EmailIntegration, Integration
 from posthog.models.integration.email import lock_sender_domain
 from posthog.models.organization import Organization
@@ -26,7 +27,7 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         integration = EmailIntegration.create_native_integration(
             config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
         )
-        assert integration.team == self.team
+        assert integration.team_id == self.team.id
         assert integration.config["email"] == "user@successdomain.com"
         assert integration.config["provider"] == "ses"
         assert integration.config["domain"] == "successdomain.com"
@@ -37,9 +38,10 @@ class TestEmailIntegrationDomainValidation(BaseTest):
     def test_duplicate_sender_in_same_team_is_rejected(self, mock_create_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
-        first = EmailIntegration.create_native_integration(
+        first_record = EmailIntegration.create_native_integration(
             config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
         )
+        first = Integration.objects.get(pk=first_record.id)
         first.config["verified"] = True
         first.save()
 
@@ -253,12 +255,13 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
     def _create_email_integration(self, email: str, team_id: int, organization_id: str) -> Integration:
         with patch("products.workflows.backend.facade.api.create_ses_email_domain"):
-            return EmailIntegration.create_native_integration(
+            record = EmailIntegration.create_native_integration(
                 {"email": email, "name": "Test"},
                 team_id=team_id,
                 organization_id=organization_id,
                 created_by=self.user,
             )
+        return Integration.objects.get(pk=record.id)
 
     @patch("posthog.tasks.integrations.delete_ses_identity")
     def test_team_cascade_delete_cleans_up_ses_identity(self, mock_delete_identity):
@@ -267,6 +270,15 @@ class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             team.delete()
+
+        mock_delete_identity.assert_called_once_with("partner.com")
+
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_sdk_delete_cleans_up_ses_identity_once(self, mock_delete_identity):
+        integration = self._create_email_integration("owner@partner.com", self.team.id, str(self.organization.id))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            IntegrationManager.any.delete(self.team.id, integration.id, ignore_usages=True)
 
         mock_delete_identity.assert_called_once_with("partner.com")
 
@@ -307,11 +319,16 @@ class TestEmailIntegrationDefaultSender(BaseTest):
 
         assert self._default_sender_id() == first.id
 
+    @parameterized.expand([("model_delete", False), ("sdk_delete", True)])
     @patch("posthog.models.integration.email.reload_integrations_on_workers")
-    def test_deleting_the_default_sender_clears_it(self, _reload):
+    def test_deleting_the_default_sender_clears_it(self, _name, through_sdk, _reload):
         sender = self._create_sender("hello@first.example.com")
         EmailIntegration(sender).verify()
+        assert self._default_sender_id() == sender.id
 
-        sender.delete()
+        if through_sdk:
+            IntegrationManager.any.delete(self.team.id, sender.id, ignore_usages=True)
+        else:
+            sender.delete()
 
         assert self._default_sender_id() is None
