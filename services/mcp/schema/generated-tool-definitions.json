@@ -8026,6 +8026,36 @@
             "readOnlyHint": true
         }
     },
+    "inbox-my-settings-get": {
+        "description": "Get the personal inbox overrides of the authenticated user. These overrides replace the project defaults for this user only: the minimum priority at which PostHog opens pull requests for reports that suggest the user as reviewer (`autostart_priority`), whether those pull requests open ready for review (`github_open_pull_request_ready`), whether the user becomes a GitHub assignee on them (`github_assign_on_pull_request`), and where and from which priority PostHog sends the user Slack pings (`slack_notification_integration_id`, `slack_notification_channel`, `slack_notification_min_priority`). A null field follows the project default. `has_overrides: false` means the user saved no overrides, so the project defaults apply to every setting.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get your inbox overrides",
+        "title": "Get your inbox overrides",
+        "required_scopes": ["user:write"],
+        "api_operations": ["GET /api/users/{user_id}/signal_autonomy/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-my-settings-update": {
+        "description": "Change the personal inbox overrides of the authenticated user, for example \"open pull requests for me only at P1 or higher\" (`autostart_priority: P1`) or \"send my inbox pings to this channel\". This is a partial update: only the fields you send change, and the other fields keep their values. Send null on a field to make it follow the project default again. The API checks `slack_notification_integration_id` against the current project of the user, so take the id from integrations-list in that project. Read inbox-my-settings-get first and confirm the change with the user.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update your inbox overrides",
+        "title": "Update your inbox overrides",
+        "required_scopes": ["user:write"],
+        "api_operations": ["POST /api/users/{user_id}/signal_autonomy/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-ranking-outcomes-list": {
         "description": "List the outcomes the inbox ranking model predicts for each report (`open`, `action`, `fix`), with what each one means, its horizon in days, its cohort, its base rate, and whether training could read it. The values come from the model that scored this project's reports, so read this tool for the current meaning of the `ranking.predictions` field in inbox-reports-list rather than relying on a fixed description. A lift is the probability divided by the base rate. A prediction is a forecast, never the report's state. `status: not_available` means you cannot see the ranking model.",
         "category": "Signals",
@@ -15365,7 +15395,7 @@
         "feature_flag": "ui-customization"
     },
     "ui-customization-get": {
-        "description": "Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the Analytics pane in the new navigation. It is the person's own layout, or the default when customized is false. Call it before you change the fragment, then send the whole changed layout to ui-customization-set.",
+        "description": "Get the person's layout for a supported UI customization context. For analytics_sidebar, this is the Analytics pane in the new navigation. It is the person's own layout, or the default when customized is false. Call it before you change the fragment, then send the whole changed layout to ui-customization-set. Built-in lists (pinned, recents, by_posthog) are references, not their resolved items. Do not assume a destination is missing because it is not listed here. Check the list contents with the relevant tools before adding shortcuts, or ask the person when those contents are unavailable. Project-wide favorites do not identify the person's own favorites. For a general redesign, use activity-summary-get when available to ground a few navigation suggestions in the current person's recent work, repeatedly opened objects, and product pages in this project. Use the dates and object IDs it returns, and briefly explain why each suggestion is relevant. The summary is not an exact last-few-days query and may be stale, not_ready, or unavailable. When it cannot provide recent context, use resolved Pinned and Recents items or ask what matters now. Activity does not resolve those built-in lists. The person's stated goal takes priority; inferred interests do not authorize removing sections or adding metrics. Do not delay a specific request to fetch activity.",
         "category": "UI customization",
         "feature": "ui_customization",
         "summary": "Get UI customization",
@@ -15397,7 +15427,7 @@
         "feature_flag": "ui-customization"
     },
     "ui-customization-set": {
-        "description": "Replace the person's layout for the selected UI customization context. It changes only the person who calls it, in this project. For analytics_sidebar: Build the layout from sections of items: links and buttons that open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and notebooks from their tools first; never invent them. Saving rejects an insight, dashboard or notebook that does not exist, and a metric whose insight is not a trends insight. Use at most 30 items total across all sections, including at most 4 live metrics. Each built-in list counts as one item. Keep the default sections the person did not ask to remove, and keep the IDs of the sections you keep. A 400 error names each value that does not fit, so fix those values and send it again.",
+        "description": "Replace the person's layout for the selected UI customization context. It changes only the person who calls it, in this project. For analytics_sidebar: Build the layout from sections of items: links and buttons that open a PostHog page or an insight, dashboard or notebook of this project, metrics that show the latest value of a trends insight, and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and notebooks from their tools first; never invent them. Saving rejects an insight, dashboard or notebook that does not exist, and a metric whose insight is not a trends insight. Use at most 30 items total across all sections, including at most 4 live metrics. Each built-in list counts as one item, but can render many rows. These limits are ceilings, not targets. Keep the menu compact and focused on the destinations the person needs to open. Apply specific requests directly; ask only for missing details. For a general redesign, ask what the person needs to open most often and which existing sections they want to keep. Keep only the optional sections they explicitly choose to retain; ask about undecided sections. Do not offer an additive checklist of metrics, dashboards, buttons, and sections. Reuse or reorder existing navigation instead of duplicating it: Pinned already provides personal shortcuts, and Recents and By PostHog may already contain the requested destinations. Add live metrics only when explicitly requested. If a requested metric is unsupported, explain the limit instead of substituting a different measure without agreement. Stay within the supported layout schema; do not offer code changes or a separate app to satisfy decoration requests. Keep the IDs of sections you keep. After saving, briefly state what changed and explain that ui-customization-reset restores the default, not the previous custom layout. A 400 error names each value that does not fit, so fix those values and send it again.",
         "category": "UI customization",
         "feature": "ui_customization",
         "summary": "Set UI customization",
