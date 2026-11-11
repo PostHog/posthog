@@ -168,6 +168,62 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("event", "properties", "value", "properties.value", False),
+            ("event_after_grouping", "properties", "value", "properties.value", True),
+            ("person", "person_properties", "value", "poe.properties.value", False),
+            ("flag", "properties", "$feature/value", "properties.`$feature/value`", False),
+        ]
+    )
+    def test_boolean_constants_compare_with_untyped_properties_as_text(
+        self, _name: str, column: str, key: str, property_expr: str, grouped: bool
+    ) -> None:
+        context = HogQLContext(
+            use_new_events_schema=True,
+            property_metadata=PropertyMetadata(),
+            database=Database(),
+            apply_events_retention_floor=False,
+        )
+        context.property_swapper = PropertySwapper("UTC", {}, {}, {}, context, False)
+        prepared = prepare_ast_for_printing(
+            parse_select(
+                f"SELECT tuple({property_expr} = true, true = {property_expr}, {property_expr} = false, "
+                f"{property_expr} != true) FROM events" + (f" GROUP BY {property_expr}" if grouped else "")
+            ),
+            context,
+            "clickhouse",
+        )
+        assert isinstance(prepared, ast.SelectQuery)
+        printed = print_prepared_ast(prepared.select[0], context, "clickhouse")
+
+        def document(value: object) -> dict[str, object]:
+            if value is None:
+                return {}
+            if not key.startswith("$feature/"):
+                return {key: value}
+            # The cleaner stores a boolean flag as its text, and a variant named "true" or "false" under a sentinel.
+            stored = str(value).lower() if isinstance(value, bool) else f"${value}" if value != "TRUE" else value
+            return {"$feature_flags": {key.removeprefix("$feature/"): stored}}
+
+        values: list[object] = [True, "true", False, "false", "TRUE", None]
+        rows = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
+            {
+                **context.values,
+                "documents": [json.dumps(document(value)) for value in values],
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE() if column == "properties" else PERSON_PROPERTIES_JSON_TYPE(),
+            },
+        )
+        assert [row[0] for row in rows] == [
+            (1, 1, 0, 0),
+            (1, 1, 0, 0),
+            (0, 0, 1, 1),
+            (0, 0, 1, 1),
+            (0, 0, 0, 1),
+            (0, 0, 0, 1),
+        ]
+
+    @parameterized.expand(
+        [
             (field, property_type)
             for field in ("properties", "person_properties")
             for property_type in ("Numeric", "DateTime")
