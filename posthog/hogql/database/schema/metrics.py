@@ -187,7 +187,13 @@ class MetricSamplesTable(Table):
             name="timestamp_arr", nullable=False, description="When each data point was recorded."
         ),
         "value_arr": FloatArrayDatabaseField(
-            name="value_arr", nullable=False, description="Numeric value of each data point (for gauge/sum metrics)."
+            name="value_arr",
+            nullable=False,
+            description=(
+                "Numeric value of each data point (for gauge/sum metrics). A Prometheus stale marker, which ends a "
+                "series, is stored as a NaN with the bits 0x7FF0000000000002; leave it out with "
+                "`reinterpretAsUInt64(value) != 9218868437227405314`. The `metrics` table already leaves it out."
+            ),
         ),
         "count_arr": IntegerArrayDatabaseField(
             name="count_arr",
