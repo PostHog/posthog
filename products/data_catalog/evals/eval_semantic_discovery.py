@@ -108,10 +108,10 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
                     "expected_behavior": (
                         f"Tell the user that the certified view {LATE_VIEW_NAME} is behind its refresh schedule and "
                         f"last refreshed about {LATE_VIEW_REFRESHED_DAYS_AGO} days ago, so it holds no data for "
-                        f"yesterday. Then either answer from its source table {LATE_VIEW_SOURCE_TABLE_NAME} "
-                        f"({LATE_VIEW_YESTERDAY_SIGNUPS} signups yesterday) or say that the view cannot answer for "
-                        "yesterday. Fail an answer that reports 0, or any other number read from the view, as "
-                        "yesterday's count, and an answer that does not mention the late refresh."
+                        f"yesterday. Then answer from its source table {LATE_VIEW_SOURCE_TABLE_NAME}: "
+                        f"{LATE_VIEW_YESTERDAY_SIGNUPS} signups yesterday. Fail an answer that reports 0, or any "
+                        "other number read from the view, as yesterday's count. Fail an answer that gives no number "
+                        "for yesterday, and an answer that does not mention the late refresh."
                     )
                 },
             },

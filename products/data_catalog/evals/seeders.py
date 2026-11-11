@@ -866,7 +866,7 @@ def seed_instruction_like_column_annotation(context: CustomPromptSandboxContext)
 
 def seed_late_certified_view(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team, user = _team_and_user(context)
-    today = timezone.now().date()
+    today = timezone.now().astimezone(team.timezone_info).date()
 
     def day(days_ago: int) -> str:
         return (today - timedelta(days=days_ago)).isoformat()
@@ -885,7 +885,6 @@ def seed_late_certified_view(context: CustomPromptSandboxContext) -> dict[str, A
         ),
         descriptions={},
     )
-    # A materialized view's table belongs to the view, not to a source, so it must not carry source sync state.
     backing_rows = tuple(
         (day(days_ago), late_view_signups_on(days_ago))
         for days_ago in range(LATE_VIEW_REFRESHED_DAYS_AGO + 1, LATE_VIEW_HISTORY_DAYS + 1)
@@ -905,7 +904,7 @@ def seed_late_certified_view(context: CustomPromptSandboxContext) -> dict[str, A
         name=LATE_VIEW_NAME,
         columns={"day": _STRING_COLUMN, "signups": _INTEGER_COLUMN},
         query={"kind": "HogQLQuery", "query": LATE_VIEW_SQL},
-        table_id=backing.table_id,
+        table_id=backing.id,
         is_materialized=True,
         status=DataWarehouseSavedQuery.Status.COMPLETED,
     )
@@ -924,7 +923,6 @@ def seed_late_certified_view(context: CustomPromptSandboxContext) -> dict[str, A
     )
     certify(propose_certification(team=team, user=user, saved_query_id=str(view.id)), user)
 
-    # Without the warning the case cannot tell an agent that ignored it from one that never got it.
     response = execute_hogql_query(f"SELECT count() FROM {LATE_VIEW_NAME}", team=team, user=user)
     if not any(w.type == "warehouse_sync" and w.table_name == LATE_VIEW_NAME for w in response.warnings or []):
         raise RuntimeError(f"Seeded view '{LATE_VIEW_NAME}' did not raise a freshness warning.")

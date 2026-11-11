@@ -474,8 +474,11 @@ LATE_VIEW_HISTORY_DAYS = 14
 
 
 def late_view_signups_on(days_ago: int) -> int:
-    """Signups the seeded source table holds for the day `days_ago` days before the seed runs."""
-    return 3 + days_ago % 4
+    """Signups the seeded source table holds for the day `days_ago` days before the seed runs.
+
+    Every day gets a different count, so no number that the view holds equals the count for yesterday.
+    """
+    return 10 + days_ago
 
 
 LATE_VIEW_YESTERDAY_SIGNUPS = late_view_signups_on(1)
