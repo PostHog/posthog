@@ -96,11 +96,31 @@ class _OpenCheck:
             self.config is not None
             and self.config.monitoring is not None
             and self.config.monitoring.purpose == "expectation"
-            and (bool(self.readings) or (self.timing is not None and self.timing.state in _READING_DUE_STATES))
+            and (
+                self.final_verdict is not None
+                or bool(self.readings)
+                or (self.timing is not None and self.timing.state in _READING_DUE_STATES)
+            )
         )
 
     @property
+    def final_verdict(self) -> bool | None:
+        """The verdict final verification recorded on the check. It outranks any interim reading before it."""
+        if self.check.status == SignalReportCheck.Status.PASSED:
+            return True
+        if self.check.status == SignalReportCheck.Status.FAILED:
+            return False
+        return None
+
+    @property
+    def is_visible(self) -> bool:
+        # A final pass or fail is on the check row every reader already sees; interim readings are not.
+        return self.readable or self.final_verdict is not None
+
+    @property
     def latest_verdict(self) -> bool | None:
+        if self.final_verdict is not None:
+            return self.final_verdict
         return next((reading.matches for reading in reversed(self.readings) if reading.matches is not None), None)
 
 
@@ -242,7 +262,7 @@ def summarize_monitoring(
 
     ends_at = max(member.ends_at for member in members)
     interim = [member for member in members if member.takes_interim_readings]
-    visible = [member for member in interim if member.readable]
+    visible = [member for member in interim if member.is_visible]
     off_track = [member for member in visible if member.latest_verdict is False]
     if now >= ends_at:
         state = MonitoringSummaryState.WINDOW_ENDED

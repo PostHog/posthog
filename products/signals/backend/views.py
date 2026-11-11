@@ -4343,7 +4343,19 @@ class SignalReportViewSet(
         requested_ids = [str(report_id) for report_id in request.validated_data["report_ids"]]
         reports = self._refreshable_reports_in_request_order(requested_ids)
         policy = ReportMetricAccessPolicy(request=request, team=self.team)
-        refresh_report_metric_snapshots(team=self.team, reports=reports, policy=policy)
+        monitoring_row_metrics: dict[str, str] = {}
+        if self._report_monitoring_enabled:
+            summaries = monitoring_summaries(
+                reports, team_id=self.team_id, now=timezone.now(), may_read_values=policy.may_read_snapshot
+            )
+            monitoring_row_metrics = {
+                report_id: summary.lead_check.metric_id
+                for report_id, summary in summaries.items()
+                if summary.lead_check is not None and summary.lead_check.metric_id is not None
+            }
+        refresh_report_metric_snapshots(
+            team=self.team, reports=reports, policy=policy, row_metric_ids=monitoring_row_metrics
+        )
         # A refresh runs its queries between the read above and each compare-and-swap, and an edit
         # landing in that window wins. Read the rows back so the response carries what the edit
         # left rather than the state this request measured against.

@@ -202,11 +202,11 @@ class TestReportMetricListInterval(SimpleTestCase):
             ("named", {"interval": "hour"}, "hour"),
             ("trends_default", {}, "day"),
             ("explicit_null", {"interval": None}, "day"),
-            ("weekdays_only", {"dateRange": {"date_from": "-14d", "daysOfWeek": [1, 2, 3, 4, 5]}}, None),
-            ("complete_periods_only", {"dateRange": {"date_from": "-14d", "excludeIncompletePeriods": True}}, None),
+            ("weekdays_only", {"dateRange": {"date_from": "-14d", "daysOfWeek": [1, 2, 3, 4, 5]}}, "day"),
+            ("smoothed", {"trendsFilter": {"smoothingIntervals": 7}}, None),
         ]
     )
-    def test_interval_is_null_when_buckets_cannot_be_counted_back_from_value_at(
+    def test_interval_is_null_when_the_buckets_are_moving_averages(
         self, _name: str, source: dict[str, Any], expected: str | None
     ) -> None:
         query = trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception"}])

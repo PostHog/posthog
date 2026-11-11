@@ -158,6 +158,7 @@ from .report_metrics import (
     MAX_METRIC_SERIES_POINTS,
     MAX_METRIC_TITLE_LENGTH,
     MAX_METRIC_UNIT_LENGTH,
+    MAX_SERIES_BUCKET_LABEL_LENGTH,
     REPORT_METRIC_KINDS,
     REPORT_METRIC_ROLES,
     REPORT_METRIC_VALUE_FORMATS,
@@ -1374,6 +1375,18 @@ class ReportMetricSerializer(serializers.Serializer):
             "points. Null when no snapshot series is available to this viewer."
         ),
     )
+    series_buckets = serializers.ListField(
+        child=serializers.CharField(max_length=MAX_SERIES_BUCKET_LABEL_LENGTH),
+        allow_null=True,
+        required=False,
+        default=None,
+        max_length=MAX_METRIC_SERIES_POINTS,
+        help_text=(
+            "The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or "
+            "`2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or "
+            "`series` is null for this viewer."
+        ),
+    )
     value_format = serializers.ChoiceField(
         choices=REPORT_METRIC_VALUE_FORMATS,
         required=False,
@@ -1452,6 +1465,7 @@ class ReportMetricSerializer(serializers.Serializer):
             representation["value"] = None
             representation["value_at"] = None
             representation["series"] = None
+            representation["series_buckets"] = None
 
         if "query" in representation and not policy.may_read_query(instance):
             representation["query"] = None
@@ -1473,6 +1487,7 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
         help_text="Legacy optional comparison. New report metrics must omit it.",
     )
     # Proposed goals live in follow-up checks, so the metric authoring schema must not advertise them.
+    series_buckets = None  # type: ignore[assignment]  # recorded by snapshot refreshes, never authored
     goal_value = None  # type: ignore[assignment]
     goal_direction = None  # type: ignore[assignment]
     goal_grain = None  # type: ignore[assignment]
@@ -1499,10 +1514,9 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
     interval = serializers.SerializerMethodField(
         help_text=(
-            "Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`. The last bucket is the one "
-            "that contains `value_at`, in the project's timezone, and the buckets before it are consecutive. "
-            "`day` when the stored query names none, as in Trends. Null when the query skips buckets with "
-            "`daysOfWeek` or `excludeIncompletePeriods`, or is not a Trends query."
+            "Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`; `day` when the stored query "
+            "names none, as in Trends. Null when the query smooths its buckets into moving averages, whose values "
+            "mix neighbouring buckets, or is not a Trends query."
         )
     )
 
@@ -1512,11 +1526,9 @@ class ReportMetricListSerializer(ReportMetricSerializer):
         source = query.get("source") if isinstance(query, Mapping) else None
         if not isinstance(source, Mapping):
             return None
-        date_range = source.get("dateRange")
-        # Either option drops buckets from the series, so its buckets can no longer be counted back from `value_at`.
-        if isinstance(date_range, Mapping) and (
-            date_range.get("daysOfWeek") or date_range.get("excludeIncompletePeriods")
-        ):
+        trends_filter = source.get("trendsFilter")
+        smoothing = trends_filter.get("smoothingIntervals") if isinstance(trends_filter, Mapping) else None
+        if isinstance(smoothing, int) and smoothing > 1:
             return None
         interval = source.get("interval")
         # Trends buckets by day when the query names no interval.

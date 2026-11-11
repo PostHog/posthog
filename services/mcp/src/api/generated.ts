@@ -76980,6 +76980,13 @@ export namespace Schemas {
          * @nullable
          */
       series?: number[] | null;
+      /**
+         * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+         * @maxItems 14
+         * @nullable
+         * @items.maxLength 32
+         */
+      series_buckets?: string[] | null;
       /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
        *
        * * `number` - number
@@ -77031,7 +77038,7 @@ export namespace Schemas {
          */
       minimum_data_points?: number | null;
       /**
-         * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`. The last bucket is the one that contains `value_at`, in the project's timezone, and the buckets before it are consecutive. `day` when the stored query names none, as in Trends. Null when the query skips buckets with `daysOfWeek` or `excludeIncompletePeriods`, or is not a Trends query.
+         * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`; `day` when the stored query names none, as in Trends. Null when the query smooths its buckets into moving averages, whose values mix neighbouring buckets, or is not a Trends query.
          * @nullable
          */
       readonly interval: string | null;
@@ -102745,6 +102752,13 @@ export namespace Schemas {
          * @nullable
          */
       series?: number[] | null;
+      /**
+         * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+         * @maxItems 14
+         * @nullable
+         * @items.maxLength 32
+         */
+      series_buckets?: string[] | null;
       /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
        *
        * * `number` - number

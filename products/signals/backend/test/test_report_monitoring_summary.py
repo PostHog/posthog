@@ -113,7 +113,9 @@ class TestSummarizeMonitoring(SimpleTestCase):
             ("failed_measurement_keeps_last_verdict", [[True, None]], 2, "on_track", 0),
             ("window_end_outweighs_off_track", [[False]], 8, "window_ended", 0),
             # Final verification still decides with an errored member, so its readings still count.
-            ("errored_member_still_counts", [[True], [False]], 2, "not_on_track", 1, True),
+            ("errored_member_still_counts", [[True], [False]], 2, "not_on_track", 1, "errored"),
+            # A passed final verdict outranks the interim miss before it.
+            ("final_pass_outranks_interim_failure", [[True], [False]], 2, "on_track", 0, "passed"),
         ]
     )
     def test_state_and_lead_check(
@@ -123,12 +125,12 @@ class TestSummarizeMonitoring(SimpleTestCase):
         now_day: int,
         state: str,
         lead_index: int,
-        last_errored: bool = False,
+        last_status: str | None = None,
     ) -> None:
         report = _report()
         checks = [_metric_check(report) for _ in verdicts]
-        if last_errored:
-            checks[-1].status = SignalReportCheck.Status.ERRORED
+        if last_status is not None:
+            checks[-1].status = last_status
         observations = {
             str(check.id): [
                 _reading(check, day=index + 1 if matches is not None else 1.5, matches=matches)

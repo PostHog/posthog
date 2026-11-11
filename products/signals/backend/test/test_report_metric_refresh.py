@@ -62,7 +62,12 @@ def _metric(
 
 
 def _measurement(value: float = 21, *, measured_at: datetime | None = None) -> MetricMeasurement:
-    return MetricMeasurement(value=value, measured_at=measured_at or timezone.now(), series=[1.0, 2.0, 3.0])
+    return MetricMeasurement(
+        value=value,
+        measured_at=measured_at or timezone.now(),
+        series=[1.0, 2.0, 3.0],
+        series_buckets=["2026-08-27", "2026-08-28", "2026-08-29"],
+    )
 
 
 class TestReportMetricRefreshRequestValidation(SimpleTestCase):
@@ -118,6 +123,7 @@ class TestReportMetricRefreshApi(APIBaseTest):
         assert row["id"] == str(report.id)
         assert row["metrics"][0]["value"] == 21.0
         assert row["metrics"][0]["series"] == [1.0, 2.0, 3.0]
+        assert row["metrics"][0]["series_buckets"] == ["2026-08-27", "2026-08-28", "2026-08-29"]
         assert "query" not in row["metrics"][0]
         assert "comparison" not in row["metrics"][0]
 
@@ -167,6 +173,28 @@ class TestReportMetricRefreshApi(APIBaseTest):
         assert refreshed[(str(first.id), "affected-users")] == 5.0
         assert refreshed[(str(second.id), "primary")] == 5.0
         assert refreshed[(str(first.id), "occurrences")] == 17.0
+
+    def test_a_monitoring_row_metric_refreshes_before_the_card_metric_when_the_budget_runs_out(self) -> None:
+        report = self._report(
+            metrics=[
+                _metric(metric_id="affected-users", role="primary"),
+                _metric(metric_id="occurrences", kind="occurrences", role="supporting"),
+            ]
+        )
+
+        with (
+            patch("products.signals.backend.report_metric_refresh.MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST", 2),
+            patch(_MEASURE, return_value=_measurement(5)),
+        ):
+            refresh_report_metric_snapshots(
+                team=self.team,
+                reports=[report],
+                policy=ReportMetricAccessPolicy(request=None, team=self.team, user=self.user),
+                row_metric_ids={str(report.id): "occurrences"},
+            )
+
+        values = {metric["metric_id"]: metric["value"] for metric in SignalReport.objects.get(id=report.id).metrics}
+        assert values == {"affected-users": 17, "occurrences": 5}
 
     @parameterized.expand(
         [
@@ -356,7 +384,10 @@ class TestReportMetricQueryShapes(APIBaseTest):
             "products.signals.backend.report_metric_refresh.run_cached_trends_query",
             side_effect=[
                 TrendsQueryRunResult(results=[{"aggregated_value": 2.0}], last_refresh=measured_at),
-                TrendsQueryRunResult(results=[{"data": list(range(17))}], last_refresh=measured_at),
+                TrendsQueryRunResult(
+                    results=[{"data": list(range(17)), "days": [f"2026-08-{day:02d}" for day in range(1, 18)]}],
+                    last_refresh=measured_at,
+                ),
             ],
         ) as run_query:
             value, refreshed_at = whole_window_value(query, self.team)
@@ -364,8 +395,9 @@ class TestReportMetricQueryShapes(APIBaseTest):
 
         assert value == 2
         assert refreshed_at == measured_at
-        assert len(series) == MAX_METRIC_SERIES_POINTS
-        assert series == [float(value) for value in range(3, 17)]
+        assert len(series.values) == MAX_METRIC_SERIES_POINTS
+        assert series.values == [float(value) for value in range(3, 17)]
+        assert series.buckets == [f"2026-08-{day:02d}" for day in range(4, 18)]
         assert run_query.call_args_list[0].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.BOLD_NUMBER
         assert run_query.call_args_list[1].kwargs["query"]["trendsFilter"]["display"] == ChartDisplayType.ACTIONS_BAR
 
