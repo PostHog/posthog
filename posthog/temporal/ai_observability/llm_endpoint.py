@@ -157,7 +157,8 @@ def build_langchain_chat_client(
 
     ``use_responses_api`` sends calls to /v1/responses, which the gpt-6 models need for function tools
     with reasoning on. Those calls never store the response: /v1/responses keeps one for 30 days by
-    default, and agent prompts carry customer traces.
+    default, and agent prompts carry customer traces. Without a stored response, a tool loop's next
+    call can only send the model's reasoning back as encrypted content, so the client asks for it.
     """
     if not settings.DEBUG and not is_cloud():
         raise ApplicationError(
@@ -187,6 +188,9 @@ def build_langchain_chat_client(
             service_tier=service_tier,
             use_responses_api=use_responses_api or None,
             store=False if use_responses_api else None,
+            include=["reasoning.encrypted_content"] if use_responses_api else None,
+            # The v0 format mishandles reasoning items on the way back in a multi-turn loop.
+            output_version="responses/v1" if use_responses_api else "v0",
         )
 
     direct_key = os.environ.get("OPENAI_API_KEY")
@@ -200,6 +204,8 @@ def build_langchain_chat_client(
         service_tier=service_tier,
         use_responses_api=use_responses_api or None,
         store=False if use_responses_api else None,
+        include=["reasoning.encrypted_content"] if use_responses_api else None,
+        output_version="responses/v1" if use_responses_api else "v0",
     )
 
 

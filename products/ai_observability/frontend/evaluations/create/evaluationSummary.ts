@@ -41,7 +41,7 @@ export function reportText(report: {
     frequency: string
     scheduleCadence: string
     triggerThreshold: number
-    cooldownHours: number
+    cooldownMinutes: number
 }): string {
     if (!report.enabled) {
         return 'never'
@@ -49,13 +49,17 @@ export function reportText(report: {
     if (report.frequency === 'scheduled') {
         return report.scheduleCadence
     }
-    const limit =
-        report.cooldownHours === 24
-            ? 'once a day'
-            : report.cooldownHours === 1
-              ? 'once an hour'
-              : `once every ${report.cooldownHours} hours`
-    return `every ${report.triggerThreshold} results, at most ${limit}`
+    return `every ${report.triggerThreshold} results, at most ${cooldownText(report.cooldownMinutes)}`
+}
+
+function cooldownText(minutes: number): string {
+    if (minutes === 24 * 60) {
+        return 'once a day'
+    }
+    if (minutes === 60) {
+        return 'once an hour'
+    }
+    return minutes % 60 === 0 ? `once every ${minutes / 60} hours` : `once every ${minutes} minutes`
 }
 
 /** Who does the checking, such as "an LLM judge (gpt-4o-mini)". */

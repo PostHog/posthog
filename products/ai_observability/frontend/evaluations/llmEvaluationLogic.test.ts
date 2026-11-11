@@ -14,7 +14,7 @@ import type { TestHogResponseApi } from '../generated/api.schemas'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
-import { evaluationReportLogic } from './evaluationReportLogic'
+import { draftFromReport, effectiveCooldownMinutes, evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, DEFAULT_JUDGE_PROMPT, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { takeBackfillStart } from './pendingBackfillStarts'
@@ -2682,6 +2682,17 @@ return result`,
                 pushSpy.mockRestore()
                 reportLogic.unmount()
             }
+        })
+    })
+
+    describe('report cooldown', () => {
+        it.each([
+            { name: 'keeps a saved gap the hours field rounds, until someone edits it', hours: 2, expected: 90 },
+            { name: 'uses the edited hours once someone changes them', hours: 3, expected: 180 },
+        ])('$name', ({ hours, expected }) => {
+            const savedReport = { ...mockEvaluationReport, frequency: 'every_n' as const, cooldown_minutes: 90 }
+            const draft = { ...draftFromReport(savedReport), cooldownHours: hours }
+            expect(effectiveCooldownMinutes(savedReport, draft)).toBe(expected)
         })
     })
 

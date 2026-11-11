@@ -152,7 +152,7 @@ function scheduleFromRrule(rrule: string): {
     return { cadence: 'daily', weekdays: DEFAULT_WEEKLY_DAYS }
 }
 
-function draftFromReport(report: EvaluationReport): ReportConfigDraft {
+export function draftFromReport(report: EvaluationReport): ReportConfigDraft {
     const emailTarget = report.delivery_targets.find((t) => t.type === 'email')
     const slackTarget = report.delivery_targets.find((t) => t.type === 'slack')
     const schedule = scheduleFromRrule(report.rrule ?? '')
@@ -169,8 +169,24 @@ function draftFromReport(report: EvaluationReport): ReportConfigDraft {
         slackChannelValue: slackTarget?.channel ?? '',
         reportPromptGuidance: report.report_prompt_guidance ?? '',
         triggerThreshold: report.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT,
-        cooldownHours: Math.max(1, Math.round((report.cooldown_minutes ?? COOLDOWN_HOURS_DEFAULT * 60) / 60)),
+        cooldownHours: cooldownHoursFromMinutes(report.cooldown_minutes),
     }
+}
+
+/** The hours field shows whole hours, so a cooldown saved in minutes through the API rounds for display. */
+function cooldownHoursFromMinutes(minutes: number | null | undefined): number {
+    return Math.max(1, Math.round((minutes ?? COOLDOWN_HOURS_DEFAULT * 60) / 60))
+}
+
+/** The cooldown a report runs with: the saved minutes until someone edits the hours, then the edited hours. */
+export function effectiveCooldownMinutes(activeReport: EvaluationReport | null, draft: ReportConfigDraft): number {
+    if (
+        activeReport?.cooldown_minutes != null &&
+        draft.cooldownHours === cooldownHoursFromMinutes(activeReport.cooldown_minutes)
+    ) {
+        return activeReport.cooldown_minutes
+    }
+    return draft.cooldownHours * 60
 }
 
 export function buildDeliveryTargets(draft: ReportConfigDraft): EvaluationReportDeliveryTarget[] {
@@ -208,11 +224,7 @@ function buildReportUpdatePayload(
         // Only write cooldown_minutes back when the user changed it — the draft rounds
         // minutes to hours for display, so unconditionally writing (hours * 60) would
         // silently clobber sub-hour values set via the API (e.g. 89 min → 60 min).
-        const seededCooldownHours = Math.max(
-            1,
-            Math.round((activeReport.cooldown_minutes ?? COOLDOWN_HOURS_DEFAULT * 60) / 60)
-        )
-        if (draft.cooldownHours !== seededCooldownHours) {
+        if (draft.cooldownHours !== cooldownHoursFromMinutes(activeReport.cooldown_minutes)) {
             data.cooldown_minutes = draft.cooldownHours * 60
         }
     }
@@ -295,6 +307,7 @@ export interface evaluationReportLogicValues {
     configDraft: ReportConfigDraft
     configError: string | null
     configErrors: ReportConfigErrors
+    cooldownMinutes: number
     generateResult: null
     generateResultLoading: boolean
     isConfigDirty: boolean
@@ -487,6 +500,7 @@ export interface evaluationReportLogicMeta {
         configErrors: (configDraft: ReportConfigDraft) => ReportConfigErrors
         configError: (configDraft: ReportConfigDraft) => string | null
         activeReport: (reports: EvaluationReport[]) => EvaluationReport | null
+        cooldownMinutes: (activeReport: EvaluationReport | null, configDraft: ReportConfigDraft) => number
         isConfigDirty: (activeReport: EvaluationReport | null, configDraft: ReportConfigDraft) => boolean
     }
 }
@@ -711,6 +725,11 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             (reports: EvaluationReport[]): EvaluationReport | null => {
                 return reports.find((r: EvaluationReport) => !r.deleted) || null
             },
+        ],
+        cooldownMinutes: [
+            (s) => [s.activeReport, s.configDraft],
+            (activeReport: EvaluationReport | null, configDraft: ReportConfigDraft): number =>
+                effectiveCooldownMinutes(activeReport, configDraft),
         ],
         isConfigDirty: [
             (s) => [s.activeReport, s.configDraft],

@@ -24,7 +24,7 @@ export function EvaluationSentence({
     const { props } = useMountedLogic(llmEvaluationLogic)
     const { evaluation, usesDecisionModel, selectedModelName, selectedModel, isReportableEvaluation, isNewEvaluation } =
         useValues(llmEvaluationLogic)
-    const { configDraft } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
+    const { configDraft, cooldownMinutes } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
 
     if (!evaluation) {
         return null
@@ -74,7 +74,10 @@ export function EvaluationSentence({
             <span>for</span>
             {part('triggers', triggerText(evaluation))}
             <span>and alert me</span>
-            {part('reports', reportText({ ...configDraft, enabled: configDraft.enabled && isReportableEvaluation }))}
+            {part(
+                'reports',
+                reportText({ ...configDraft, cooldownMinutes, enabled: configDraft.enabled && isReportableEvaluation })
+            )}
         </section>
     )
 }

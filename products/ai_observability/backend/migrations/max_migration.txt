@@ -1,1 +1,1 @@
-0077_evaluation_report_daily_cooldown
+0078_move_default_report_cooldowns_to_daily
