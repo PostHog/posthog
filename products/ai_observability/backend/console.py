@@ -109,3 +109,15 @@ class AIObservabilityTool(ConsoleTool):
                 undo_hint="To stop it, use Pause dataset cleanup. Datasets deleted in the meantime cannot be restored.",
             )
         return [send, cleanup]
+
+
+console.register_moved_page(
+    old_path="admin/posthog/organization/send-ai-observability-usage-report/",
+    title="Sending AI observability usage reports",
+    url="/admin/console/tools/ai-observability/",
+)
+console.register_moved_page(
+    old_path="admin/posthog/organization/ai-observability-dataset-retention/",
+    title="AI observability dataset retention",
+    url="/admin/console/tools/ai-observability/",
+)
