@@ -26,6 +26,7 @@ from products.logs.backend.log_patterns import (
     compile_match_regex,
     extract_match_literal,
     group_stored_patterns,
+    merge_split_templates,
     mine_patterns,
     pattern_fingerprint,
 )
@@ -107,6 +108,40 @@ def _sample(
 
 
 class TestStoredPatternGroups(TestCase):
+    @parameterized.expand(
+        [
+            ("agree", "^queue drained$", "^queue drained$", "^queue drained$"),
+            ("one_withheld", "^queue drained$", None, None),
+            ("differ", "^queue drained$", r"^queue\\u0020drained$", None),
+        ]
+    )
+    def test_merged_split_templates_keep_a_regex_only_when_both_agree(
+        self, _name: str, first: str | None, second: str | None, expected: str | None
+    ) -> None:
+        timestamp = dt.datetime(2026, 6, 23, 12, tzinfo=dt.UTC)
+        split = [
+            MinedPattern(
+                pattern="queue drained",
+                count=10,
+                volume_share_pct=0,
+                error_count=0,
+                first_seen=timestamp,
+                last_seen=timestamp,
+                examples=[],
+                services=["api"],
+                bucket_counts=[10],
+                severity_counts={"info": 10},
+                match_regex=regex,
+                match_literal="queue drained",
+            )
+            for regex in (first, second)
+        ]
+
+        [merged] = merge_split_templates(split)
+
+        assert merged.count == 20
+        assert merged.match_regex == expected
+
     @parameterized.expand([(51, "job"), (8, "🦔" * 100), (1, "🦔" * 1024)])
     def test_bounded_members_preserve_exact_aggregates(self, count: int, identifier: str) -> None:
         timestamp = dt.datetime(2026, 6, 23, 12, tzinfo=dt.UTC)

@@ -23,6 +23,7 @@ from posthog.utils import get_instance_region
 
 from products.logs.backend.log_patterns import (
     ERROR_SEVERITIES,
+    STORED_EXAMPLE_MAX_CHARS,
     LogSample,
     MinedPattern,
     _env,
@@ -414,7 +415,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         rows = self._execute(
             parse_select(
                 "SELECT transform(pattern, {patterns}, {group_ids}, 0) AS pattern_group, "
-                "substringUTF8(body, 1, 4096), severity_text, service_name, timestamp "
+                "substringUTF8(body, 1, {max_chars}), severity_text, service_name, timestamp "
                 "FROM logs WHERE {where} AND pattern IN {patterns} "
                 "LIMIT {fetch_per_group} BY pattern_group LIMIT {limit}",
                 placeholders={
@@ -422,6 +423,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                     "patterns": ast.Constant(value=list(member_groups)),
                     "group_ids": ast.Constant(value=list(member_groups.values())),
                     "fetch_per_group": ast.Constant(value=fetch_per_group),
+                    "max_chars": ast.Constant(value=STORED_EXAMPLE_MAX_CHARS),
                     "limit": ast.Constant(value=len(patterns) * fetch_per_group),
                 },
             )

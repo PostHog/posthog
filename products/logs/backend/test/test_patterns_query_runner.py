@@ -112,7 +112,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         other_key_set = "<JSON:fields,level,target>"
 
         def tracing(message: str | None, index: int) -> dict:
-            fields = {"message": message} if message is not None else {"count": index}
+            fields = {"message": message} if message is not None else {"count": index, "padding": "x" * 5000}
             body = json.dumps(
                 {
                     "timestamp": f"2026-06-23T12:00:{index % 60:02d}.000000Z",
@@ -146,6 +146,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert patterns[key_set]["match_patterns"] == [key_set]
         assert patterns[key_set]["examples"]
         assert all("message" not in example["body"] for example in patterns[key_set]["examples"])
+        assert all(len(example["body"]) <= 4096 for example in patterns[key_set]["examples"])
         assert patterns["Archived <N> files"]["match_patterns"] == ["Archived <N> files"]
         assert results["represented_count"] == 75
         assert results["remainder_count"] == 0
@@ -198,6 +199,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["sampled"] is True
         assert [pattern["pattern"] for pattern in results["patterns"]] == ["frame <num> too large"]
         assert results["patterns"][0]["estimated_count"] == 200
+        assert sum(results["patterns"][0]["severity_counts"].values()) == results["patterns"][0]["count"]
         assert 0 < results["patterns"][0]["count"] <= 50
 
     @parameterized.expand([(False, 100, "flag_disabled"), (True, 98, "insufficient_version_coverage")])

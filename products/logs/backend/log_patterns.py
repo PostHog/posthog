@@ -11,6 +11,8 @@ from urllib.parse import quote
 from products.logs.backend.vendor.drain3 import Drain, LogMasker, MaskingInstruction
 
 ERROR_SEVERITIES = {"error", "fatal"}
+# Longest raw body kept as a stored-pattern example. Ingestion accepts bodies far larger.
+STORED_EXAMPLE_MAX_CHARS = 4096
 STORED_PATTERN_GROUP_MAX_MEMBERS = 50
 STORED_PATTERN_GROUP_MAX_BYTES = 3072
 
@@ -623,7 +625,6 @@ def split_json_key_set_group(
             count=scaled(pattern.count),
             error_count=scaled(pattern.error_count),
             bucket_counts=[scaled(count) for count in pattern.bucket_counts],
-            severity_counts={severity: scaled(count) for severity, count in pattern.severity_counts.items()},
             match_patterns=[],
             pattern_version=None,
             sample_count=pattern.count,
@@ -647,8 +648,9 @@ def split_json_key_set_group(
         for sample in residual:
             if len(examples) >= _env("LOGS_PATTERNS_MAX_EXAMPLES", 10, int):
                 break
-            if all(example.body != sample.body for example in examples):
-                examples.append(sample)
+            body = sample.body[:STORED_EXAMPLE_MAX_CHARS]
+            if all(example.body != body for example in examples):
+                examples.append(replace(sample, body=body))
         split.append(
             replace(
                 group,
@@ -657,7 +659,7 @@ def split_json_key_set_group(
                 first_seen=min(sample.timestamp for sample in residual),
                 last_seen=max(sample.timestamp for sample in residual),
                 bucket_counts=[scaled(count) for count in bucket_counts],
-                severity_counts={severity: scaled(count) for severity, count in severities.items()},
+                severity_counts=severities,
                 examples=examples,
                 sample_count=len(residual),
                 sample_error_count=residual_errors,
@@ -696,8 +698,9 @@ def merge_split_templates(patterns: list[MinedPattern]) -> list[MinedPattern]:
             services=sorted({*existing.services, *pattern.services})[: _env("LOGS_PATTERNS_MAX_SERVICES", 4, int)],
             bucket_counts=[a + b for a, b in zip(existing.bucket_counts, pattern.bucket_counts)],
             severity_counts=severities,
-            match_regex=existing.match_regex or pattern.match_regex,
-            match_literal=existing.match_literal or pattern.match_literal,
+            # Each regex was validated against its own group's raw rows only, and the same message
+            # can be encoded differently in another key set, so keep a regex only when both agree.
+            match_regex=existing.match_regex if existing.match_regex == pattern.match_regex else None,
             sample_count=(existing.sample_count or 0) + (pattern.sample_count or 0),
             sample_error_count=(existing.sample_error_count or 0) + (pattern.sample_error_count or 0),
         )
