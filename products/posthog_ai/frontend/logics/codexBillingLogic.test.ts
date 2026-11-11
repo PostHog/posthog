@@ -80,6 +80,13 @@ describe('codexBillingLogic', () => {
                 ModelAccessEnumApi.OwnSubscription,
             ],
             [
+                'the account needs a new sign-in',
+                true,
+                RuntimeAdapterEnumApi.Codex,
+                'reauth_required',
+                ModelAccessEnumApi.PosthogGateway,
+            ],
+            [
                 'the account was disconnected',
                 true,
                 RuntimeAdapterEnumApi.Codex,
