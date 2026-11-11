@@ -22,6 +22,7 @@ import { ReportGithubConnection } from './ReportGithubConnection'
 interface ImplementButtonProps {
     report: SignalReport
     surface?: 'detail_pane' | 'triage_mode'
+    position?: 'body' | 'header'
     implementationDisabledReason?: string | null
     reportTaskToOpen?: ReportTaskEntry | null
     openChoicesFromLink?: boolean
@@ -31,6 +32,7 @@ interface ImplementButtonProps {
 export function ImplementButton({
     report,
     surface = 'detail_pane',
+    position = 'body',
     implementationDisabledReason,
     reportTaskToOpen,
     openChoicesFromLink = false,
@@ -99,6 +101,15 @@ export function ImplementButton({
         run(prompt)
     }
 
+    const captureButtonClick = (buttonAction: 'implement' | 'view_task'): void => {
+        captureInboxReportAction({
+            report,
+            actionType: 'implementation_button_clicked',
+            surface,
+            extra: { button_action: buttonAction, button_position: position },
+        })
+    }
+
     if (reportTaskToOpen?.task.latest_run) {
         const task = reportTaskToOpen.task
         const run = task.latest_run!
@@ -110,6 +121,7 @@ export function ImplementButton({
                 to={urls.taskDetail(task.id)}
                 onClick={(event) => {
                     event.preventDefault()
+                    captureButtonClick('view_task')
                     openReportTask(report, task.id, run.id)
                 }}
                 tooltip="Open this task in the PostHog AI sidebar"
@@ -127,7 +139,10 @@ export function ImplementButton({
                 size="small"
                 className="[--lemon-button-hover-depth:0px]"
                 icon={<IconPullRequest />}
-                onClick={() => submit(instructions)}
+                onClick={() => {
+                    captureButtonClick('implement')
+                    submit(instructions)
+                }}
                 loading={isCreatingPr}
                 disabledReason={disabledReason}
                 tooltip="Start a PostHog agent to implement this report"
