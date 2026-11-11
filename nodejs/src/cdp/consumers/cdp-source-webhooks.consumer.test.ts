@@ -998,6 +998,19 @@ describe('SourceWebhooksConsumer', () => {
                     expect(res.body.error).toContain('The trigger refused the run (400)')
                     expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
                 })
+
+                it('refuses a manual trigger on the public webhook route', async () => {
+                    const manualHogFlow = await buildManualHogFlow()
+
+                    const res = await doPostRequest({
+                        webhookId: manualHogFlow.id,
+                        body: { user_id: 'user@example.com' },
+                    })
+
+                    expect(res.status).toEqual(403)
+                    expect(mockExecuteSpy).not.toHaveBeenCalled()
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
             })
         })
 

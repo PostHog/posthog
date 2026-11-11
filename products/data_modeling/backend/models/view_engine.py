@@ -9,6 +9,10 @@ from posthog.dataclasses import frozen
 RAW_TRINO_MATERIALIZE_REASON = "Views that run raw Trino SQL cannot be materialized yet."
 RAW_TRINO_LINEAGE_REASON = "Views that run raw Trino SQL have no lineage, because only hosted Trino can parse them."
 RAW_TRINO_CLICKHOUSE_REFERENCE_REASON = "HogQL queries cannot reference a view that runs raw Trino SQL."
+CONNECTION_SAVE_REASON = (
+    "Views can't be saved on a direct connection. Create the view in your own database, "
+    "or save this query as an insight."
+)
 CONNECTION_MATERIALIZE_REASON = "Views that run on a direct connection cannot be materialized yet."
 CONNECTION_LINEAGE_REASON = "Views that run on a direct connection have no lineage yet."
 CONNECTION_CLICKHOUSE_REFERENCE_REASON = "HogQL queries cannot reference a view that runs on a direct connection."

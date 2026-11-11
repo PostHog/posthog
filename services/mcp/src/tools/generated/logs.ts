@@ -60,6 +60,9 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
         if (params.grouping !== undefined) {
             body['grouping'] = params.grouping
         }
+        if (params.labels !== undefined) {
+            body['labels'] = params.labels
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
@@ -81,6 +84,7 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
             'schedule_restriction',
             'snooze_until',
             'grouping',
+            'labels',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -294,6 +298,7 @@ const logsAlertsList = (): ToolBase<
                     'window_minutes',
                     'schedule_restriction',
                     'grouping',
+                    'labels',
                     'platform_owned',
                     'created_at',
                     'updated_at',
@@ -355,6 +360,9 @@ const logsAlertsPartialUpdate = (): ToolBase<
         if (params.grouping !== undefined) {
             body['grouping'] = params.grouping
         }
+        if (params.labels !== undefined) {
+            body['labels'] = params.labels
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
@@ -376,6 +384,7 @@ const logsAlertsPartialUpdate = (): ToolBase<
             'schedule_restriction',
             'snooze_until',
             'grouping',
+            'labels',
             'platform_owned',
             'next_check_at',
             'last_notified_at',
@@ -422,6 +431,7 @@ const logsAlertsRetrieve = (): ToolBase<
             'schedule_restriction',
             'snooze_until',
             'grouping',
+            'labels',
             'platform_owned',
             'next_check_at',
             'last_notified_at',

@@ -255,6 +255,7 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    IP_RESTRICTIONS = 'ip_restrictions',
     MEMBER_GOVERNANCE = 'member_governance',
     SSF = 'ssf',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
@@ -400,7 +401,14 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 // Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
 // hard dependency on generated types; when adopting generated `UserApi`, switch to
 // `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
-export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | 'connector' | null
+export type OnboardingSkippedReason =
+    | 'delegated'
+    | 'later'
+    | 'other'
+    | 'provisioned'
+    | 'connector'
+    | 'device_login'
+    | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -651,6 +659,9 @@ export interface OrganizationType extends OrganizationBasicType {
     read_only_mcp_access?: boolean
     member_notice?: OrganizationMemberNoticeApi | null
     allow_publicly_shared_resources: boolean
+    ip_restrictions?: string[]
+    ip_restrictions_enabled?: boolean
+    ip_restrictions_warning?: string | null
     metadata?: OrganizationMetadata
     member_count: number
     default_anonymize_ips?: boolean
@@ -5052,6 +5063,8 @@ export interface GroupType {
     name_plural?: string | null
     detail_dashboard?: number | null
     default_columns?: string[]
+    /** When ingestion auto-created this group type. Null for types created before this was recorded. */
+    created_at?: string | null
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -6603,6 +6616,8 @@ export type SchemaIncrementalFieldsResponse = {
     primary_key_detection_supported?: boolean
     cdc_available?: boolean
     xmin_available?: boolean
+    /** Whether the organization can keep a history table for an incremental table. */
+    incremental_history_available?: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -6634,6 +6649,7 @@ export interface ExternalDataSourceSyncSchema {
     append_available: boolean
     cdc_available?: boolean
     xmin_available?: boolean
+    incremental_history_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks

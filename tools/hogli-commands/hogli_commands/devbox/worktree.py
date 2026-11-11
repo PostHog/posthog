@@ -27,7 +27,7 @@ from . import (
     hogland,
     mutagen,
 )
-from .cli import _preferred_region, devbox_clone, devbox_start, resolve_workspace_name
+from .cli import _preferred_region, devbox_clone, devbox_start, resolve_default_workspace_name, resolve_workspace_name
 from .coder import (
     REGION_NAME_SUFFIXES,
     _fail,
@@ -84,8 +84,11 @@ def label_budget(username: str, region: str) -> int:
     return CODER_NAME_MAX_LENGTH - used
 
 
-def derive_label(branch: str, max_length: int) -> str:
+def derive_label(branch: str, max_length: int, owner: str | None = None) -> str:
     """Turn a branch name into a devbox label that fits Coder's 32-character workspace name limit.
+
+    An ``owner/`` branch prefix is dropped, because the workspace name already
+    carries the owner's username.
 
     A label that had to be shortened or repaired gets a hash of the full branch
     name, so two long branches with a shared prefix still map to different boxes.
@@ -96,7 +99,8 @@ def derive_label(branch: str, max_length: int) -> str:
             "Pass `--label <label>` with a short label instead."
         )
     slug = branch.lower()
-    for prefix in _BRANCH_PREFIXES_TO_DROP:
+    prefixes = _BRANCH_PREFIXES_TO_DROP + ((f"{owner.lower()}/",) if owner else ())
+    for prefix in prefixes:
         if slug.startswith(prefix) and len(slug) > len(prefix):
             slug = slug[len(prefix) :]
     slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")
@@ -226,6 +230,7 @@ class _WorktreeTarget:
 class _BoxNaming:
     provider: str
     label_budget: int
+    owner: str | None
     max_length: int
     name_for: Callable[[str], str]
     destroy_command: Callable[[str], str]
@@ -233,12 +238,15 @@ class _BoxNaming:
 
 def _coder_naming(cloning: bool, clone_source: str | None) -> _BoxNaming:
     if cloning:
-        region = region_from_workspace_name(resolve_workspace_name(clone_source)[0])
+        source = resolve_workspace_name(clone_source) if clone_source else resolve_default_workspace_name()
+        region = region_from_workspace_name(source[0])
     else:
         region = _preferred_region()
+    username = get_username()
     return _BoxNaming(
         provider="Coder",
-        label_budget=label_budget(get_username(), region),
+        label_budget=label_budget(username, region),
+        owner=username,
         max_length=CODER_NAME_MAX_LENGTH,
         name_for=lambda resolved_label: get_workspace_name(resolved_label, region=region),
         destroy_command=lambda name: f"hogli devbox:destroy {extract_workspace_label(name) or ''}",
@@ -249,6 +257,7 @@ def _hogland_naming() -> _BoxNaming:
     return _BoxNaming(
         provider="Hogland",
         label_budget=hogland.NAME_MAX_LENGTH - len(hogland.NAME_PREFIX),
+        owner=None,
         max_length=hogland.NAME_MAX_LENGTH,
         name_for=hogland.name_for_label,
         destroy_command=lambda name: f"hogland devbox delete {name}",
@@ -315,7 +324,7 @@ def _resolve_target(
         return _WorktreeTarget(workspace_name=registered.workspace, label=registered_label, reset_mirror=recreated)
 
     box_naming = naming()
-    resolved_label = label or derive_label(_current_branch(root), box_naming.label_budget)
+    resolved_label = label or derive_label(_current_branch(root), box_naming.label_budget, box_naming.owner)
     name = box_naming.name_for(resolved_label)
     if len(name) > box_naming.max_length:
         _fail(

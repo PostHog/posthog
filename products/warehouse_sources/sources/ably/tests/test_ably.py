@@ -7,6 +7,10 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 from products.warehouse_sources.sources.ably._config import AblySourceConfig
 from products.warehouse_sources.sources.ably.ably import (
     ABLY_VERSION_2,
+    MALFORMED_API_KEY_ERROR,
+    REJECTED_API_KEY_ERROR,
+    UNREACHABLE_ERROR,
+    UNVERIFIED_API_KEY_ERROR,
     AblyResumeConfig,
     _add_channel_path,
     _add_interval_start,
@@ -343,20 +347,21 @@ class TestValidateCredentials:
             ok, error = validate_credentials("no-colon-here", ABLY_VERSION_2)
 
         assert ok is False
-        assert error is not None and "malformed" in error.lower()
+        assert error == MALFORMED_API_KEY_ERROR
         assert network.requests_log == []
         assert network.session_options == []
 
     @pytest.mark.parametrize(
-        ("status_code", "expect_ok"),
+        ("status_code", "expect_ok", "expected_error"),
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
+            (200, True, None),
+            (401, False, REJECTED_API_KEY_ERROR),
+            (403, False, REJECTED_API_KEY_ERROR),
+            (404, False, UNVERIFIED_API_KEY_ERROR),
+            (500, False, UNVERIFIED_API_KEY_ERROR),
         ],
     )
-    def test_status_code_mapping(self, status_code: int, expect_ok: bool) -> None:
+    def test_status_code_mapping(self, status_code: int, expect_ok: bool, expected_error: str | None) -> None:
         answer = ScriptedResponse(status=status_code)
         script = always(answer) if status_code == 500 else [answer]
         with scripted_network(script) as network:
@@ -366,12 +371,12 @@ class TestValidateCredentials:
         assert network.session_options[0]["headers"] == {"X-Ably-Version": "2"}
         assert network.requests_log[0].headers["x-ably-version"] == "2"
         assert ok is expect_ok
-        if not expect_ok:
-            assert error is not None
+        assert error == expected_error
+        assert error is None or str(status_code) not in error
 
     def test_network_error_is_reported_not_raised(self) -> None:
         with scripted_network(always(RequestsConnectionError("boom"))):
             ok, error = validate_credentials("app.key:secret", ABLY_VERSION_2)
 
         assert ok is False
-        assert error is not None and "boom" in error
+        assert error == UNREACHABLE_ERROR

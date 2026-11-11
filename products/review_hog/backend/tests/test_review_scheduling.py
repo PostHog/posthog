@@ -12,7 +12,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
-from products.review_hog.backend.temporal.types import ReviewPRQueueInputs, ReviewPRWorkflowInputs
+from products.review_hog.backend.temporal.types import (
+    ReviewPRQueueInputs,
+    ReviewPRWorkflowInputs,
+    SilentStamphogRequest,
+)
 
 
 @workflow.defn(name="review-pr")
@@ -43,6 +47,7 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
         review_mode="flash",
         trigger_source="automatic",
         requested_head_sha="a",
+        trigger_action="opened",
         publish=True,
     )
 
@@ -81,9 +86,9 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
             await asyncio.wait_for(entered.wait(), timeout=10)
             for request in (
                 first,
-                replace(first, requested_head_sha="b"),
-                replace(first, requested_head_sha="c"),
-                replace(first, review_mode="full", trigger_source="ui", requested_head_sha="c"),
+                replace(first, requested_head_sha="b", trigger_action="synchronize"),
+                replace(first, requested_head_sha="c", trigger_action="ready_for_review"),
+                replace(first, review_mode="full", trigger_source="ui", requested_head_sha="c", trigger_action=None),
             ):
                 await env.client.start_workflow(
                     ReviewPRQueueWorkflow.run,
@@ -100,10 +105,71 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
             release.set()
             assert await handle.result() == "report"
 
-    completed = [(review.review_mode, review.requested_head_sha) for review in reviews]
-    assert completed[-2:] == [("full", "c"), ("flash", "c")]
-    assert all(item == ("flash", "a") for item in completed[:-2])
+    completed = [(review.review_mode, review.requested_head_sha, review.trigger_action) for review in reviews]
+    assert completed[-2:] == [("full", "c", None), ("flash", "c", "ready_for_review")]
+    assert all(item == ("flash", "a", "opened") for item in completed[:-2])
     assert len(completed) == (4 if fail_first else 3)
+
+
+@pytest.mark.asyncio
+async def test_a_ready_event_for_the_running_turns_head_starts_silent_stamphog_once_the_turn_ends() -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    reviews: list[ReviewPRWorkflowInputs] = []
+    silent_requests: list[SilentStamphogRequest] = []
+    draft_opened = ReviewPRWorkflowInputs(
+        team_id=1,
+        user_id=1,
+        owner="PostHog",
+        repo="posthog",
+        pr_number=7,
+        review_mode="flash",
+        trigger_source="automatic",
+        requested_head_sha="a",
+        trigger_action="opened",
+        publish=True,
+    )
+    marked_ready = replace(draft_opened, trigger_action="ready_for_review", marks_ready=True)
+
+    @activity.defn(name="record_scheduled_review")
+    async def record(inputs: ReviewPRWorkflowInputs) -> str:
+        reviews.append(inputs)
+        entered.set()
+        await release.wait()
+        return "report"
+
+    @activity.defn(name="review_resolution_running_activity")
+    async def resolution_running(inputs: ReviewPRWorkflowInputs) -> bool:
+        return False
+
+    @activity.defn(name="start_silent_stamphog_activity")
+    async def start_silent_stamphog(request: SilentStamphogRequest) -> None:
+        silent_requests.append(request)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        queue = str(uuid.uuid4())
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            workflows=[ReviewPRQueueWorkflow, ScheduledReviewStub],
+            activities=[record, resolution_running, start_silent_stamphog],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                ReviewPRQueueWorkflow.run,
+                ReviewPRQueueInputs(requests=[draft_opened]),
+                id=queue,
+                task_queue=queue,
+            )
+            await asyncio.wait_for(entered.wait(), timeout=10)
+            await handle.signal("request_review", marked_ready)
+            release.set()
+            assert await handle.result() == "report"
+
+    assert reviews == [draft_opened]
+    assert silent_requests == [
+        SilentStamphogRequest(team_id=1, repository="PostHog/posthog", pr_number=7, head_sha="a")
+    ]
 
 
 @pytest.mark.asyncio
@@ -167,3 +233,25 @@ def test_a_repeated_full_request_waits_when_it_changes_comment_resolution(
     queue.add(request)
 
     assert queue.pending == ({"full": request} if expect_pending else {})
+
+
+def test_a_later_request_for_the_same_waiting_head_keeps_the_pr_ready() -> None:
+    running = ReviewPRWorkflowInputs(
+        team_id=1,
+        user_id=1,
+        owner="PostHog",
+        repo="posthog",
+        pr_number=7,
+        review_mode="flash",
+        trigger_source="automatic",
+        requested_head_sha="a",
+        publish=True,
+    )
+    marked_ready = replace(running, requested_head_sha="b", trigger_action="ready_for_review", marks_ready=True)
+    same_head_push = replace(marked_ready, trigger_action="synchronize", marks_ready=False)
+    queue = ReviewRequestQueue(active=running)
+
+    queue.add(marked_ready)
+    queue.add(same_head_push)
+
+    assert queue.pending == {"automatic": replace(same_head_push, marks_ready=True)}

@@ -113,6 +113,7 @@ ExtractErrors = {
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
     "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
+    "Failed to parse Parquet Thrift metadata": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
     # TOO_MANY_REDIRECTS, raised when the URL pattern points at something that answers with a

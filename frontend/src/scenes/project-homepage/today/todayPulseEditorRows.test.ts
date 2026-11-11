@@ -1,6 +1,6 @@
 import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
 
-import { editorNotes, editorRows } from './todayPulseEditorRows'
+import { IGNORED_TOGGLE, editorNotes, editorRows } from './todayPulseEditorRows'
 
 const row = (key: string): PulsePinApi => ({ key, name: key, dashboard_id: null })
 
@@ -37,18 +37,62 @@ describe('todayPulseEditorRows', () => {
             pinnedThisTime: [],
             expected: [['r1']],
         },
-    ])('keeps rows in place for $name', ({ search = '', pulsePins, pinnedThisTime, expected }) => {
-        const { groups } = editorRows({
-            search,
-            pulsePins: pulsePins.map(row),
-            pinnedOnOpen: [row('a')],
-            othersOnOpen: [row('s1'), row('s2')],
-            pinnedThisTime: pinnedThisTime.map(row),
-            recentInsights: [row('r1'), row('x')],
-            searchInsights: [],
-        })
-        expect(groups.map((group) => group.items)).toEqual(expected)
-    })
+        {
+            name: 'ignored numbers, listed once under a closed Ignored row',
+            pulsePins: ['a'],
+            pinnedThisTime: [],
+            ignored: ['s2', 'r1'],
+            expected: [['a'], ['s1', 'x'], [IGNORED_TOGGLE]],
+        },
+        {
+            name: 'ignored numbers under an open Ignored row',
+            pulsePins: ['a'],
+            pinnedThisTime: [],
+            ignored: ['s2'],
+            ignoredOpen: true,
+            expected: [['a'], ['s1', 'r1', 'x'], [IGNORED_TOGGLE, 'today-pulse-editor:ignored:s2']],
+        },
+        {
+            name: 'a search while numbers are ignored',
+            search: 's',
+            pulsePins: ['a'],
+            pinnedThisTime: [],
+            ignored: ['s2'],
+            ignoredOpen: true,
+            expected: [['s1']],
+        },
+        {
+            name: 'numbers from other products, which cannot be pinned',
+            pulsePins: ['a'],
+            pinnedThisTime: [],
+            others: ['s1', 'experiment:7', 'evaluation:9', 's2'],
+            expected: [['a'], ['s1', 's2', 'r1', 'x']],
+        },
+    ])(
+        'keeps rows in place for $name',
+        ({
+            search = '',
+            pulsePins,
+            pinnedThisTime,
+            others = ['s1', 's2'],
+            ignored = [],
+            ignoredOpen = false,
+            expected,
+        }) => {
+            const { groups } = editorRows({
+                search,
+                pulsePins: pulsePins.map(row),
+                pinnedOnOpen: [row('a')],
+                othersOnOpen: others.map(row),
+                pinnedThisTime: pinnedThisTime.map(row),
+                recentInsights: [row('r1'), row('x')],
+                searchInsights: [],
+                ignored: ignored.map((key) => ({ key, name: key })),
+                ignoredOpen,
+            })
+            expect(groups.map((group) => group.items)).toEqual(expected)
+        }
+    )
 
     it.each([
         { loading: true, failed: false, expected: 'Loading your insights…' },

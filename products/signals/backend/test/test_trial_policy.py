@@ -104,16 +104,36 @@ class TestTrialPolicy(BaseTest):
         assert self.policy.flag_decision().enabled is False
         assert self.admit().funding == "existing"
 
+    @parameterized.expand([("starts_later", 2, False), ("starts_today", 0, True), ("no_cutover", None, True)])
+    def test_pricing_stays_off_until_the_billing_cutover(
+        self, _name: str, cutover_in_days: int | None, enabled: bool
+    ) -> None:
+        if cutover_in_days is not None:
+            cutover = timezone.now().date() + timedelta(days=cutover_in_days)
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": cutover.isoformat()}}
+            self.organization.save(update_fields=["usage"])
+        decision = self.policy.flag_decision()
+        assert (decision.enabled, decision.confirmed) == (enabled, True)
+
     @parameterized.expand(
-        [("missing", False, False), ("flag_unavailable", True, False), ("cache_unavailable", False, True)]
+        [
+            ("missing", False, False, False),
+            ("flag_unavailable", True, False, False),
+            ("cache_unavailable", False, True, False),
+            ("cutover_unreadable", False, False, True),
+        ]
     )
     def test_unknown_flag_rejects_new_work_and_preserves_accepted_funding(
-        self, _name: str, flag_unavailable: bool, cache_unavailable: bool
+        self, _name: str, flag_unavailable: bool, cache_unavailable: bool, cutover_unreadable: bool
     ) -> None:
         grant = self.claim()
         funding = self.admit()
         self.exhaust(grant, "cost_limit")
-        self.flag_mock.return_value = None
+        if cutover_unreadable:
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": "soon"}}
+            self.organization.save(update_fields=["usage"])
+        else:
+            self.flag_mock.return_value = None
         self.flag_mock.side_effect = RuntimeError("flag unavailable") if flag_unavailable else None
         with patch(
             "products.signals.backend.trial.policy.cache.get",

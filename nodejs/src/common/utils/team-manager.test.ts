@@ -350,7 +350,7 @@ describe('TeamManager()', () => {
             expect(mockCaptureTeamEvent).toHaveBeenCalledWith(
                 newTeam,
                 'first team event ingested',
-                expect.objectContaining({ sdk: 'web' }),
+                expect.objectContaining({ sdk: 'web', $update_person_last_seen_at: false }),
                 expect.any(String)
             )
         })

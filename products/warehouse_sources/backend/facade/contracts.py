@@ -25,6 +25,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationUsage
 
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
@@ -40,6 +41,8 @@ CREDENTIALS_REFERENCE_INPUT_KEY = "credentials_integration_id"
 WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
 # A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
 UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
+# The `IntegrationUsage.type` of a warehouse destination that writes through an integration row.
+WAREHOUSE_DESTINATION_USAGE_TYPE = "warehouse_destination"
 
 
 class SharedCredentialsError(Exception):
@@ -72,8 +75,29 @@ class SharedCredentialsEdit(StrEnum):
     CONFIRMED = "confirmed"
 
 
+class LegacyHistoryTableError(Exception):
+    """An incremental schema's history table uses the legacy `_cdc` naming.
+
+    Incremental history writes with deltalite's history upsert, which needs the month-partitioned layout of a
+    `_history` table. A legacy table is unpartitioned, so an incremental sync cannot write it.
+    """
+
+
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
+
+
+HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE = (
+    "You need to be able to manage access to this table and its history table to copy its access rules."
+)
+
+
+class HistoryAccessRulesNotAllowedError(Exception):
+    """The user may not set the access rules of a table or of its history table."""
+
+
+class NoHistoryTableError(Exception):
+    """The table has no registered history table."""
 
 
 class HistoryTableDropRefusedError(Exception):
@@ -125,6 +149,16 @@ class ConfigValueError(ValueError):
     opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
     We name the field but never its value, so nothing a user typed reaches logs or error tracking.
     """
+
+
+@dataclass(frozen=True)
+class HistoryTableRef:
+    """A table's history table, as the table's access dialog shows it."""
+
+    id: UUID
+    # The name the history table is queried by in HogQL.
+    name: str
+    user_can_manage_access: bool
 
 
 @dataclass(frozen=True)
@@ -476,8 +510,36 @@ class WarehouseMigrationBusyError(ValueError):
     """The migration is already reading the vendor account."""
 
 
+class WarehouseMigrationUploadedError(ValueError):
+    """An agent uploaded this migration, so PostHog has no vendor key to read the account again."""
+
+
+class WarehouseMigrationUploadTooLargeError(ValueError):
+    """The uploaded migration would grow past the size PostHog stores for an upload."""
+
+
+class WarehouseMigrationHasVendorKeyError(ValueError):
+    """PostHog reads this migration's vendor account with an API key, so it takes no uploads."""
+
+
 class WarehouseMigrationItemClaimedError(ValueError):
     """An apply has already claimed or finished this migration item."""
+
+
+class WarehouseMigrationEmptySourceError(ValueError):
+    """An earlier apply left a source with no tables behind. The message says how to recover."""
+
+
+class WarehouseMigrationTableOverrideError(ValueError):
+    """The table overrides do not fit the item's plan. The message says why."""
+
+
+@dataclass(frozen=True)
+class MigrationTableOverride:
+    """Map one Fivetran table to a PostHog table at apply, or drop it with `posthog_table=None`."""
+
+    vendor_table: str
+    posthog_table: str | None
 
 
 class WarehouseMigrationUnknownItemsError(ValueError):
@@ -516,6 +578,13 @@ class WarehouseMigration:
     latest_error: str
     created_at: datetime
     item_counts: WarehouseMigrationItemCounts
+    has_vendor_key: bool
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationCreator:
+    first_name: str
+    email: str
 
 
 @dataclass(frozen=True)
@@ -532,6 +601,56 @@ class WarehouseMigrationItem:
     status: str
     external_data_source_id: UUID | None
     error: str
+    # Who prepared the migration, so whoever types a password for this item can see who chose its server.
+    created_by: WarehouseMigrationCreator | None = None
+
+
+@dataclass(frozen=True)
+class MigrationConnectionUpload:
+    """One vendor connection as the vendor API returned it, secrets included until PostHog removes them."""
+
+    connection: dict[str, Any]
+    # None when the vendor has no table list for the connection.
+    schema_config: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationUpload:
+    items: list[WarehouseMigrationItem]
+    # One message per uploaded destination or connection that could not be read. Each names it.
+    errors: list[str]
+
+
+@dataclass(frozen=True)
+class ClaimedWarehouseMigrationItem:
+    """A migration item that one apply request now owns."""
+
+    id: UUID
+    caveats: list[str]
+    source_type: str
+    # The prefix this attempt creates the source with: the caller's override, else the planned one.
+    prefix: str | None
+    description: str
+    sync_frequency: str
+    start_paused: bool
+    # The stored plan, passed back to `plan_migration_schemas`.
+    proposal: dict[str, Any]
+    # Set when an earlier attempt already created the source: the claim linked it and applied the item.
+    recovered_source_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class PlannedMigrationSchemas:
+    # The `schemas` payload for source creation, one entry per discovered table.
+    schemas: list[dict[str, Any]]
+    # Planned tables that PostHog did not find or cannot sync with these credentials.
+    unavailable: list[str]
+    # Planned tables that only sync through a webhook.
+    webhook_only: list[str]
+    # Discovered tables the plan covers.
+    planned: list[str]
+    # Planned tables that skip columns PostHog would still read, so they stay off.
+    kept_off: list[str]
 
 
 @dataclass(frozen=True)
@@ -541,3 +660,110 @@ class SourceReferencingIntegration:
     prefix: str | None
     # The inputs did not decode, so the source may point at the row. The search counts it as a user.
     unreadable: bool = False
+
+
+@frozen
+class StaffSchemaPartitioning:
+    enabled: bool | None
+    mode: str | None
+    format: str | None
+    size: int | None
+    count: int | None
+    # Pinned by staff. Applied on the next reset.
+    count_override: int | None
+    size_override: int | None
+    mode_override: str | None
+    keys_override: tuple[str, ...] | None
+    keys: tuple[str, ...] | None
+
+
+@frozen
+class StaffSchemaSummary:
+    """One schema as staff see it in PostHog Admin."""
+
+    id: UUID
+    name: str
+    team_id: int
+    team_name: str
+    source_id: UUID
+    source_type: str
+    is_cdc: bool
+    supports_scheduled_sync: bool
+    partitioning: StaffSchemaPartitioning
+    available_columns: tuple[str, ...] | None
+
+
+@frozen
+class StaffJobRow:
+    id: UUID
+    status: str
+    created_at: datetime
+    finished_at: datetime | None
+    rows_synced: int | None
+    workflow_id: str | None
+    workflow_run_id: str | None
+    latest_error: str | None
+
+
+@frozen
+class StaffJobsPage:
+    rows: tuple[StaffJobRow, ...]
+    number: int
+    num_pages: int
+    count: int
+
+
+@frozen
+class StaffSourceSummary:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    team_id: int
+    team_name: str
+
+
+@frozen
+class StaffSchemaRow:
+    id: UUID
+    name: str
+    deleted: bool
+    status: str | None
+    should_sync: bool
+    sync_type: str | None
+    sync_frequency_interval: timedelta | None
+    last_synced_at: datetime | None
+    table_id: UUID | None
+    table_name: str | None
+    table_row_count: int | None
+    latest_error: str | None
+
+
+@frozen
+class StaffSchemasPage:
+    rows: tuple[StaffSchemaRow, ...]
+    number: int
+    num_pages: int
+    count: int
+
+
+@frozen
+class RepartitionRequest:
+    """Partition settings staff chose. A value left empty keeps the schema's current one where that is allowed."""
+
+    partition_mode: str | None
+    partitioning_keys: tuple[str, ...]
+    partition_format: str | None
+    partition_count: int | None
+    partition_size: int | None
+
+
+@frozen
+class StaffActionResult:
+    ok: bool
+    message: str
+
+
+@dataclass(frozen=True)
+class DestinationReferencingIntegration:
+    id: UUID
+    name: str
