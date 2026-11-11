@@ -14,11 +14,12 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
+import { withTimeout } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { fileSystemList, fileSystemUnfiledRetrieve } from '~/generated/core/api'
+import { fileSystemFolderCountsRetrieve, fileSystemList, fileSystemUnfiledRetrieve } from '~/generated/core/api'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import type { FolderState } from '~/layout/panel-layout/ProjectTree/types'
+import type { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import { parentPath, splitPath, joinPath, isPathUnder, reparentPath } from '~/layout/panel-layout/ProjectTree/utils'
 import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
@@ -38,6 +39,7 @@ export type WorkflowFolderFileRow = { id: string; name: string; path: string } &
 export interface workflowFoldersLogicValues {
     folderStates: Record<string, FolderState> // projectTreeDataLogic
     folders: Record<string, FileSystemEntry[]> // projectTreeDataLogic
+    pendingActions: ProjectTreeAction[] // projectTreeDataLogic
     savedItems: FileSystemEntry[] // projectTreeDataLogic
     currentTeamId: number | null // teamLogic
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
@@ -65,6 +67,7 @@ export interface workflowFoldersLogicValues {
     folderJumpPaths: string[]
     folderJumpSearch: string
     folderMatchesText: MatchesText<WorkflowFolderFileRow>
+    folderMutationDisabledReason: (folder: string) => string | null
     folderPaths: string[]
     folderRows: WorkflowListRow[]
     folderScanFailed: boolean
@@ -75,8 +78,8 @@ export interface workflowFoldersLogicValues {
     hasActiveQuery: boolean
     matchingRows: WorkflowListRow[]
     matchingTemplates: FileSystemEntry[]
-    otherFilesReady: boolean
-    otherFilesReadyLoading: boolean
+    otherFileCounts: Record<string, number> | null
+    otherFileCountsLoading: boolean
     otherProductFileCount: number
     placements: Record<string, FileSystemEntry> | null
     showsAutomationSetup: boolean
@@ -112,14 +115,25 @@ export interface workflowFoldersLogicActions {
         errorObject?: any
     }
     loadOtherFilesSuccess: (
-        otherFilesReady: boolean,
+        otherFileCounts: {
+            [k: string]: number
+        } | null,
         payload?: void
     ) => {
-        otherFilesReady: boolean
+        otherFileCounts: {
+            [k: string]: number
+        } | null
         payload?: void
     }
     openFolder: (folder: string | null) => {
         folder: string | null
+    }
+    renameFolder: (
+        folder: string,
+        name: string
+    ) => {
+        folder: string
+        name: string
     }
     restoreFileIndex: () => {
         value: true
@@ -152,13 +166,18 @@ export interface workflowFoldersLogicActions {
 export interface workflowFoldersLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         browserLoadFailed: (folderScanFailed: boolean) => boolean
+        folderMutationDisabledReason: (pendingActions: ProjectTreeAction[]) => (folder: string) => string | null
         folderJumpPaths: (folderPaths: string[], folderJumpSearch: string) => string[]
         otherProductFileCount: (
-            savedItems: FileSystemEntry[],
+            otherFileCounts: Record<string, number> | null,
             currentFolder: string | null,
             hasActiveQuery: boolean
         ) => number
-        folderPaths: (savedItems: FileSystemEntry[], rows: WorkflowListRow[]) => string[]
+        folderPaths: (
+            savedItems: FileSystemEntry[],
+            rows: WorkflowListRow[],
+            otherFileCounts: Record<string, number> | null
+        ) => string[]
         folderTreeEntries: (
             folderPaths: string[],
             savedItems: FileSystemEntry[]
@@ -246,8 +265,13 @@ const WORKFLOW_FILE_TYPES = ['hog_flow', 'message_template']
 
 const MAX_INDEX_LOADS = 3
 
+const WORKFLOW_FOLDERS_TREE_KEY = 'workflow-files'
+
+// A stalled request would leave the folders loading with no way to retry, so each one fails after this long.
+export const FOLDER_REQUEST_TIMEOUT_MS = 10_000
+
 const WORKFLOW_FILE_SEARCHES = ['type:folder', 'type:hog_flow', 'type:message_template']
-const OTHER_FILES_SEARCH = '-type:folder -type:hog_flow -type:message_template'
+const OTHER_FILES_SEARCH = '-type:hog_flow -type:message_template'
 
 async function listAllFiles(
     teamId: string,
@@ -256,7 +280,11 @@ async function listAllFiles(
 ): Promise<FileSystemEntry[]> {
     const entries: FileSystemEntry[] = []
     for (let offset = 0; ; offset += 500) {
-        const page = await fileSystemList(teamId, { search, limit: 500, offset })
+        const page = await withTimeout(
+            (signal) => fileSystemList(teamId, { search, limit: 500, offset }, { signal }),
+            FOLDER_REQUEST_TIMEOUT_MS,
+            'workflowFoldersLogic: listing project files timed out'
+        )
         breakpoint()
         entries.push(
             ...page.results.map((entry) => ({
@@ -286,7 +314,7 @@ function isIndexed(entry: FileSystemEntry): boolean {
     return entry.type === 'folder' || WORKFLOW_FILE_TYPES.includes(entry.type ?? '')
 }
 
-/** The last copy of each file the shared tree held, other products' files included, so a prune cannot turn their folders into empty workflow folders. Moves and deletes update it, the folder scan replaces its folders and workflow files, the other products' scan replaces the rest, and a file also leaves when its folder, still held and fully loaded, no longer lists it. */
+/** The last copy of each file the shared tree held, so a prune cannot drop it from the view. Moves and deletes update it, the folder scan replaces its folders and workflow files, and a file also leaves when its folder, still held and fully loaded, no longer lists it. */
 function fileIndex(cache: Record<string, any>): Map<string, FileSystemEntry> {
     cache.fileIndex ??= new Map<string, FileSystemEntry>()
     return cache.fileIndex
@@ -300,10 +328,11 @@ function applyFullScan(
     owns: (entry: FileSystemEntry) => boolean
 ): void {
     const freshPaths = new Map(scanned.map((entry) => [entry.id, entry.path]))
-    for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
-        if (owns(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
-            projectTreeDataLogic.actions.deleteSavedItem(cached)
-        }
+    const stale = Object.values(projectTreeDataLogic.values.folders)
+        .flat()
+        .filter((cached) => owns(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path)
+    if (stale.length > 0) {
+        projectTreeDataLogic.actions.dropStaleItems(stale)
     }
     projectTreeDataLogic.actions.addLoadedResults({
         searchTerm: '',
@@ -345,9 +374,15 @@ function isInScope(parent: string, folder: string | null, searching: boolean): b
     return searching ? !scope || parent === scope || parent.startsWith(`${scope}/`) : parent === scope
 }
 
-function relevantFolderPaths(items: FileSystemEntry[], hasUnfiledWorkflows: boolean): string[] {
+function relevantFolderPaths(
+    items: FileSystemEntry[],
+    hasUnfiledWorkflows: boolean,
+    otherFileCounts: Record<string, number> | null
+): string[] {
     const files = items.filter((entry) => entry.type !== 'folder' && !entry.shortcut)
-    const foldersWithFiles = new Set(files.flatMap((file) => ancestorFolders(parentPath(file.path))))
+    const foldersWithFiles = new Set(
+        [...files.map((file) => parentPath(file.path)), ...Object.keys(otherFileCounts ?? {})].flatMap(ancestorFolders)
+    )
     const foldersWithWorkflowFiles = new Set(
         files
             .filter((file) => WORKFLOW_FILE_TYPES.includes(file.type ?? ''))
@@ -393,7 +428,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 'serverSearchStatus',
             ],
             projectTreeDataLogic,
-            ['savedItems', 'folders', 'folderStates'],
+            ['savedItems', 'folders', 'folderStates', 'pendingActions'],
             teamLogic,
             // Same id the shared project tree sends, so the unfiled backfill runs for the open environment.
             ['currentTeamId'],
@@ -407,6 +442,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         setExpandedFolders: (folders: string[]) => ({ folders }),
         setFolderSidebarCollapsed: (collapsed: boolean) => ({ collapsed }),
         openFolder: (folder: string | null) => ({ folder }),
+        renameFolder: (folder: string, name: string) => ({ folder, name }),
         revealFolder: (folder: string | null) => ({ folder }),
         selectTreeFolder: (folder: string | null, expanded: boolean) => ({ folder, expanded }),
     }),
@@ -453,7 +489,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         return false
                     }
                     const teamId = String(values.currentTeamId)
-                    await fileSystemUnfiledRetrieve(teamId)
+                    await withTimeout(
+                        (signal) => fileSystemUnfiledRetrieve(teamId, { signal }),
+                        FOLDER_REQUEST_TIMEOUT_MS,
+                        'workflowFoldersLogic: filing unfiled project files timed out'
+                    )
                     breakpoint()
                     for (let attempt = 0; attempt < MAX_INDEX_LOADS; attempt++) {
                         const changesBefore = changeCount(cache)
@@ -475,35 +515,47 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 },
             },
         ],
-        // Other products' files only hide folders the list has no use for and guard folder names, so the first paint never waits for them.
-        otherFilesReady: [
-            false,
+        // Other products' files only hide folders the list has no use for, so the first paint never waits for their counts.
+        otherFileCounts: [
+            null as Record<string, number> | null,
             {
                 loadOtherFiles: async (_: void, breakpoint) => {
                     if (!values.currentTeamId) {
-                        return false
+                        return null
                     }
-                    for (let attempt = 0; attempt < MAX_INDEX_LOADS; attempt++) {
-                        const changesBefore = changeCount(cache)
-                        const entries = await listAllFiles(String(values.currentTeamId), OTHER_FILES_SEARCH, breakpoint)
-                        if (changeCount(cache) !== changesBefore) {
-                            continue
-                        }
-                        applyFullScan(
-                            cache,
-                            entries,
-                            entries.filter((file) => !file.shortcut),
-                            (entry) => !isIndexed(entry)
-                        )
-                        return true
-                    }
-                    throw new Error('Project files kept changing while the folders loaded')
+                    const { results } = await withTimeout(
+                        (signal) =>
+                            fileSystemFolderCountsRetrieve(
+                                String(values.currentTeamId),
+                                { search: OTHER_FILES_SEARCH },
+                                { signal }
+                            ),
+                        FOLDER_REQUEST_TIMEOUT_MS,
+                        'workflowFoldersLogic: counting project files timed out'
+                    )
+                    breakpoint()
+                    return Object.fromEntries(results.map(({ folder, count }) => [folder, count]))
                 },
             },
         ],
     })),
     selectors({
         browserLoadFailed: [(s) => [s.folderScanFailed], (folderScanFailed: boolean): boolean => folderScanFailed],
+        // The shared tree applies a folder move only once its request lands, so a second change queued before then
+        // starts from the old path and leaves cached subfolders under a name the folder no longer has.
+        folderMutationDisabledReason: [
+            (s) => [s.pendingActions],
+            (pendingActions: ProjectTreeAction[]) =>
+                (folder: string): string | null => {
+                    const related = (path: string | undefined): boolean =>
+                        !!path && !!folder && (isPathUnder(path, folder) || isPathUnder(folder, path))
+                    return pendingActions.some(
+                        (action) => action.item.type === 'folder' && (related(action.path) || related(action.newPath))
+                    )
+                        ? 'Wait until this folder finishes moving'
+                        : null
+                },
+        ],
         folderJumpPaths: [
             (s) => [s.folderPaths, s.folderJumpSearch],
             (paths: string[], search: string): string[] =>
@@ -512,21 +564,14 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 ),
         ],
         otherProductFileCount: [
-            (s) => [s.savedItems, s.currentFolder, s.hasActiveQuery],
-            (items: FileSystemEntry[], folder: string | null, searching: boolean): number =>
-                searching
-                    ? 0
-                    : items.filter(
-                          (entry) =>
-                              !entry.shortcut &&
-                              !['folder', 'hog_flow', 'message_template'].includes(entry.type ?? '') &&
-                              parentPath(entry.path) === (folder ?? '')
-                      ).length,
+            (s) => [s.otherFileCounts, s.currentFolder, s.hasActiveQuery],
+            (counts: Record<string, number> | null, folder: string | null, searching: boolean): number =>
+                searching ? 0 : (counts?.[folder ?? ''] ?? 0),
         ],
         folderPaths: [
-            (s) => [s.savedItems, s.rows],
-            (items: FileSystemEntry[], rows: WorkflowListRow[]): string[] =>
-                relevantFolderPaths(items, rows.length > 0),
+            (s) => [s.savedItems, s.rows, s.otherFileCounts],
+            (items: FileSystemEntry[], rows: WorkflowListRow[], counts: Record<string, number> | null): string[] =>
+                relevantFolderPaths(items, rows.length > 0, counts),
         ],
         folderTreeEntries: [
             (s) => [s.folderPaths, s.savedItems],
@@ -807,6 +852,17 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
             publishPlacements(cache, actions.setPlacements)
         },
+        [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }: { items: FileSystemEntry[] }) => {
+            cache.changes = changeCount(cache) + 1
+            const ids = new Set(items.map((item) => item.id))
+            const folders = items.filter((item) => item.type === 'folder').map((item) => item.path)
+            const index = fileIndex(cache)
+            for (const [id, entry] of index) {
+                if (ids.has(id) || folders.some((path) => isPathUnder(entry.path, path))) {
+                    index.delete(id)
+                }
+            }
+        },
         [projectTreeDataLogic.actionTypes.movedItem]: ({ item, oldPath, newPath }) => {
             cache.changes = changeCount(cache) + 1
             const index = fileIndex(cache)
@@ -817,6 +873,19 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 }
             }
             publishPlacements(cache, actions.setPlacements)
+            if (
+                item.type === 'folder' &&
+                values.value.filters.some((filter) => filter.facet === 'in' && isPathUnder(filter.value, oldPath))
+            ) {
+                actions.setValue({
+                    ...values.value,
+                    filters: values.value.filters.map((filter) =>
+                        filter.facet === 'in'
+                            ? { ...filter, value: reparentPath(filter.value, oldPath, newPath) ?? filter.value }
+                            : filter
+                    ),
+                })
+            }
         },
         [projectTreeDataLogic.actionTypes.deleteTypeAndRef]: ({ type, ref }) => {
             cache.changes = changeCount(cache) + 1
@@ -866,6 +935,17 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 })
             }
         },
+        renameFolder: ({ folder, name }) => {
+            const entry = values.savedItems.find((item) => item.type === 'folder' && item.path === folder)
+            if (entry && !values.folderMutationDisabledReason(folder)) {
+                projectTreeDataLogic.actions.moveItem(
+                    entry,
+                    joinPath([...splitPath(parentPath(folder)), name.trim()]),
+                    false,
+                    WORKFLOW_FOLDERS_TREE_KEY
+                )
+            }
+        },
         openFolder: ({ folder }) => {
             actions.setValue({
                 ...values.value,
@@ -892,12 +972,17 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             const present = new Map(Object.values(folders).flatMap((files) => files.map((entry) => [entry.id, entry])))
             for (const [id, entry] of index) {
                 const folder = parentPath(entry.path)
-                if (!present.has(id) && folder in folders && values.folderStates[folder] !== 'has-more') {
+                // Only a complete folder load is the truth: a folder cut short, loading its next page or failed may still hold the file.
+                if (!present.has(id) && folder in folders && values.folderStates[folder] === 'loaded') {
                     index.delete(id)
                 }
             }
             for (const entry of present.values()) {
                 if (isIndexed(entry) || !entry.shortcut) {
+                    // A file the tree loads new or at another path, such as a refreshed rename, is newer than a scan in flight.
+                    if (isIndexed(entry) && index.get(entry.id)?.path !== entry.path) {
+                        cache.changes = changeCount(cache) + 1
+                    }
                     index.set(entry.id, entry)
                 }
             }

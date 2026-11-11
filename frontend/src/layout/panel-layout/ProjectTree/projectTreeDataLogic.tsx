@@ -87,7 +87,7 @@ const SHORTCUTS_PERSIST_OPTIONS =
  * without this one stalled request would withhold the toast and the Undo from every item that already
  * succeeded, and leave the batch in `cache.moveBatches` for the logic's lifetime.
  */
-const MOVE_TIMEOUT_MS = 30000
+export const MOVE_TIMEOUT_MS = 30000
 /**
  * A bulk move sends one request per item. Without a limit, a selection of thousands sends them all at once, the
  * browser queues most of them, and each queued request uses up its `MOVE_TIMEOUT_MS` before it is sent. The limit
@@ -382,6 +382,9 @@ export interface projectTreeDataLogicActions {
     ) => {
         ref: string
         type: string
+    }
+    dropStaleItems: (items: FileSystemEntry[]) => {
+        items: FileSystemEntry[]
     }
     linkItem: (
         oldPath: string,
@@ -735,6 +738,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
+        // Drops cached copies that a full reload no longer lists at their path, in one update. Nothing is deleted on
+        // the server, so this is not a deleteSavedItem: listeners that react to a delete, such as removing a pin, must
+        // not run for it.
+        dropStaleItems: (items: FileSystemEntry[]) => ({ items }),
         deleteItem: (item: FileSystemEntry, projectTreeLogicKey: string) => ({ item, projectTreeLogicKey }),
         linkItem: (oldPath: string, newPath: string, force: boolean, projectTreeLogicKey: string) => ({
             oldPath,
@@ -875,7 +882,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         const verb = action.type === 'prepare-link' ? 'link' : 'move'
                         const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
                         try {
-                            const response = await api.fileSystem.count(action.item.id)
+                            // The prepare step stays pending until the count answers, and a pending folder move
+                            // blocks other changes to that folder, so a stalled count fails like a stalled move.
+                            const response = await withTimeout(
+                                api.fileSystem.count(action.item.id),
+                                MOVE_TIMEOUT_MS,
+                                `projectTreeDataLogic: counting ${action.item.type} timed out`
+                            )
                             actions.removeQueuedAction(action)
                             if (response && response.count > MOVE_ALERT_LIMIT) {
                                 const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
@@ -1209,6 +1222,28 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     if (savedItem.type === 'folder') {
                         for (const folder of Object.keys(newState)) {
                             if (isPathUnder(folder, savedItem.path)) {
+                                delete newState[folder]
+                            }
+                        }
+                    }
+                    return newState
+                },
+                dropStaleItems: (state, { items }) => {
+                    const idsByFolder = new Map<string, Set<string>>()
+                    for (const item of items) {
+                        const folder = parentPath(item.path)
+                        idsByFolder.set(folder, (idsByFolder.get(folder) ?? new Set()).add(item.id))
+                    }
+                    const newState = { ...state }
+                    for (const [folder, ids] of idsByFolder) {
+                        if (newState[folder]) {
+                            newState[folder] = newState[folder].filter((item) => !ids.has(item.id))
+                        }
+                    }
+                    const droppedFolders = items.filter((item) => item.type === 'folder').map((item) => item.path)
+                    if (droppedFolders.length > 0) {
+                        for (const folder of Object.keys(newState)) {
+                            if (droppedFolders.some((path) => isPathUnder(folder, path))) {
                                 delete newState[folder]
                             }
                         }

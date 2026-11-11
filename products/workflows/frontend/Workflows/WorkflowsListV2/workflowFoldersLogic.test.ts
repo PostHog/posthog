@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -8,12 +9,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { MOVE_TIMEOUT_MS, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { workflowFoldersLogic } from './workflowFoldersLogic'
+import { FOLDER_REQUEST_TIMEOUT_MS, workflowFoldersLogic } from './workflowFoldersLogic'
 import { FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 
@@ -28,6 +29,14 @@ describe('workflowFoldersLogic', () => {
             lastCount: results.length,
         })
 
+    const templateReceipt = {
+        id: 'receipt',
+        path: 'Billing/Cards/Receipt',
+        type: 'message_template',
+        ref: 'template-receipt',
+        team_id: MOCK_TEAM_ID,
+    }
+
     const projectFiles = ({ request }: { request: Request }): [number, unknown] => {
         const type = new URL(request.url).searchParams.get('search')?.replace('type:', '')
         const entries = [
@@ -35,24 +44,11 @@ describe('workflowFoldersLogic', () => {
             { id: 'cards', path: 'Billing/Cards', type: 'folder' },
             { id: 'empty', path: 'Empty', type: 'folder' },
             { id: 'dashboards', path: 'Reports', type: 'folder' },
-            {
-                id: 'report',
-                path: 'Reports/Overview',
-                type: 'insight',
-                ref: 'synthetic-report',
-                meta: { type: 'SQL' },
-            },
             { id: 'unfiled', path: 'Unfiled', type: 'folder' },
             { id: 'cohorts', path: 'Unfiled/Cohorts', type: 'folder' },
             { id: 'direct', path: 'Billing/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id },
             { id: 'nested', path: 'Billing/Cards/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id },
-            {
-                id: 'receipt',
-                path: 'Billing/Cards/Receipt',
-                type: 'message_template',
-                ref: 'template-receipt',
-                team_id: MOCK_TEAM_ID,
-            },
+            templateReceipt,
             {
                 id: 'sibling-receipt',
                 path: 'Billing/Cards/Staging receipt',
@@ -61,12 +57,7 @@ describe('workflowFoldersLogic', () => {
                 team_id: MOCK_TEAM_ID + 1,
             },
         ]
-        return [
-            200,
-            paginated(
-                entries.filter((entry) => (type?.startsWith('-') ? entry.type === 'insight' : entry.type === type))
-            ),
-        ]
+        return [200, paginated(entries.filter((entry) => entry.type === type))]
     }
 
     beforeEach(() => {
@@ -76,6 +67,10 @@ describe('workflowFoldersLogic', () => {
                 '/api/projects/:team_id/hog_flows/summaries/': () => [200, paginated(FIXTURE_WORKFLOWS)],
                 '/api/projects/:team_id/hog_flows/metrics/global/': () => [200, []],
                 '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
+                '/api/projects/:team_id/file_system/folder_counts/': () => [
+                    200,
+                    { results: [{ folder: 'Reports', count: 1 }] },
+                ],
                 '/api/projects/:team_id/file_system/': projectFiles,
             },
         })
@@ -250,6 +245,26 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual(shown)
     })
 
+    it("asks only for workflow files and folders, and counts other products' files per folder", async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const searches = new Set<string | null>()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    searches.add(new URL(request.url).searchParams.get('search'))
+                    return projectFiles({ request })
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+
+        expect(searches).toEqual(new Set(['type:folder', 'type:hog_flow', 'type:message_template']))
+        expect(logic.values.folderPaths).not.toContain('Reports')
+        logic.actions.openFolder('Reports')
+        expect(logic.values.otherProductFileCount).toBe(1)
+    })
+
     it('hides empty folders inside a branch that only holds other products', async () => {
         await expectLogic(logic).toFinishAllListeners()
         addProjectFiles([{ id: 'drafts', path: 'Reports/Drafts', type: 'folder' }])
@@ -329,6 +344,41 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
     })
 
+    it('keeps a rename the shared tree refreshes while an older folder scan is still loading', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing/Cards')
+        let receiptPath = 'Billing/Cards/Receipt'
+        let releaseScan!: () => void
+        const scanHeld = new Promise<void>((resolve) => (releaseScan = resolve))
+        let scanStarted = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const receipt = { ...templateReceipt, path: receiptPath }
+                    if (params.get('ref') === 'template-receipt') {
+                        return [200, paginated([receipt])]
+                    }
+                    const search = params.get('search')
+                    if (search === 'type:message_template' && !scanStarted) {
+                        scanStarted = true
+                        await scanHeld
+                    }
+                    return [200, paginated(search === 'type:message_template' ? [receipt] : [])]
+                },
+            },
+        })
+        logic.actions.loadBrowser()
+        await waitFor(() => expect(scanStarted).toBe(true))
+        receiptPath = 'Billing/Cards/Receipt v2'
+        await projectTreeDataLogic.asyncActions.syncTypeAndRef('message_template', 'template-receipt', true)
+        releaseScan()
+        await waitFor(() => expect(logic.values.browserReadyLoading).toBe(false))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
+    })
+
     it.each([
         ['pages through a folder the shared tree cut to its first page, and nothing else', 200],
         ['keeps the cached files of a cut folder whose next page fails', 500],
@@ -369,6 +419,36 @@ describe('workflowFoldersLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(requests.map((params) => params.get('parent'))).toEqual(['Billing'])
         expect(logic.values.browserReadyLoading).toBe(false)
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
+    })
+
+    it('keeps the cached files of a cut folder when the tree changes while its next page loads and fails', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing')
+        let failPage!: () => void
+        const pageHeld = new Promise<void>((resolve) => (failPage = resolve))
+        let pageRequested = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async () => {
+                    pageRequested = true
+                    await pageHeld
+                    return [500, { detail: 'Unavailable' }]
+                },
+            },
+        })
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Billing',
+            [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
+            true,
+            1,
+            true
+        )
+        await waitFor(() => expect(pageRequested).toBe(true))
+        addProjectFiles([{ id: 'unrelated', path: 'Empty/Notes', type: 'notebook', ref: 'synthetic-notes' }])
+        failPage()
+        await expectLogic(logic).toFinishAllListeners()
+
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
     })
 
@@ -442,11 +522,29 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.browserLoadFailed).toBe(true)
     })
 
+    it.each([
+        ['the unfiled backfill', '/api/projects/:team_id/file_system/unfiled/'],
+        ['a file list page', '/api/projects/:team_id/file_system/'],
+    ])('offers a retry when %s stalls', async (_name, stalled) => {
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({ get: { [stalled]: () => new Promise(() => {}) } })
+        jest.useFakeTimers()
+        try {
+            logic.actions.loadBrowser()
+            await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
+            expect(logic.values.browserReadyLoading).toBe(false)
+            expect(logic.values.browserLoadFailed).toBe(true)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it("moves workflow files and drops folders and other products' files to match a full reload", async () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.folderPaths).not.toContain('Reports')
         useMocks({
             get: {
+                '/api/projects/:team_id/file_system/folder_counts/': () => [200, { results: [] }],
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const type = new URL(request.url).searchParams.get('search')
                     if (type === 'type:folder') {
@@ -479,10 +577,50 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).toContain('Reports')
     })
 
-    it("keeps the metadata of other products' files it writes into the shared tree", async () => {
+    it('replaces many files of one folder in the shared tree with one removal and one merge', async () => {
         await expectLogic(logic).toFinishAllListeners()
-        const report = projectTreeDataLogic.values.folders['Reports']?.find((entry) => entry.id === 'report')
-        expect(report?.meta).toEqual({ type: 'SQL' })
+        const files = (prefix: string): FileSystemEntry[] =>
+            Array.from({ length: 40 }, (_, index) => ({
+                id: `${prefix}-${index}`,
+                path: `Billing/${prefix} workflow ${index}`,
+                type: 'hog_flow',
+                ref: `${prefix}-ref-${index}`,
+            }))
+        const stale = files('stale')
+        const fresh = files('fresh')
+        addProjectFiles(stale)
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
+                    return [
+                        200,
+                        paginated(
+                            search === 'type:hog_flow'
+                                ? fresh
+                                : search === 'type:folder'
+                                  ? [{ id: 'billing', path: 'Billing', type: 'folder' }]
+                                  : []
+                        ),
+                    ]
+                },
+            },
+        })
+        const billingIds = (): string[] =>
+            (projectTreeDataLogic.values.folders['Billing'] ?? []).map((entry) => entry.id).sort()
+        let removals = 0
+        let previous = billingIds().length
+        const unsubscribe = getContext().store.subscribe(() => {
+            const current = billingIds().length
+            removals += current < previous ? 1 : 0
+            previous = current
+        })
+
+        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+        unsubscribe()
+
+        expect(billingIds()).toEqual(fresh.map((entry) => entry.id).sort())
+        expect(removals).toBe(1)
     })
 
     it("paints the folders before other products' files load", async () => {
@@ -491,17 +629,18 @@ describe('workflowFoldersLogic', () => {
         const otherFilesHeld = new Promise<void>((resolve) => (releaseOtherFiles = resolve))
         useMocks({
             get: {
-                '/api/projects/:team_id/file_system/': async ({ request }) => {
-                    const search = new URL(request.url).searchParams.get('search') ?? ''
-                    if (search.startsWith('-')) {
-                        await otherFilesHeld
-                        return [200, paginated([{ id: 'dashboards', path: 'Reports', type: 'folder' }])]
-                    }
-                    return [
-                        200,
-                        paginated(search === 'type:folder' ? [{ id: 'billing', path: 'Billing', type: 'folder' }] : []),
-                    ]
+                '/api/projects/:team_id/file_system/folder_counts/': async () => {
+                    await otherFilesHeld
+                    return [200, { results: [{ folder: 'Billing', count: 2 }] }]
                 },
+                '/api/projects/:team_id/file_system/': ({ request }) => [
+                    200,
+                    paginated(
+                        new URL(request.url).searchParams.get('search') === 'type:folder'
+                            ? [{ id: 'billing', path: 'Billing', type: 'folder' }]
+                            : []
+                    ),
+                ],
             },
         })
         initKeaTests()
@@ -511,9 +650,9 @@ describe('workflowFoldersLogic', () => {
 
         await waitFor(() => expect(logic.values.browserReady).toBe(true))
         expect(logic.values.folderPaths).toContain('Billing')
-        expect(logic.values.otherFilesReady).toBe(false)
+        expect(logic.values.otherFileCounts).toBeNull()
         releaseOtherFiles()
-        await waitFor(() => expect(logic.values.otherFilesReady).toBe(true))
+        await waitFor(() => expect(logic.values.otherFileCounts).toEqual({ Billing: 2 }))
     })
 
     it.each([
@@ -525,10 +664,8 @@ describe('workflowFoldersLogic', () => {
         const folderScansHeld = new Promise<void>((resolve) => (releaseFolderScans = resolve))
         useMocks({
             get: {
-                '/api/projects/:team_id/file_system/': async ({ request }) => {
-                    if ((new URL(request.url).searchParams.get('search') ?? '').startsWith('-')) {
-                        return [500, { detail: 'Unavailable' }]
-                    }
+                '/api/projects/:team_id/file_system/folder_counts/': () => [500, { detail: 'Unavailable' }],
+                '/api/projects/:team_id/file_system/': async () => {
                     await folderScansHeld
                     return folderScansSucceed ? [200, paginated([])] : [500, { detail: 'Unavailable' }]
                 },
@@ -538,7 +675,12 @@ describe('workflowFoldersLogic', () => {
         releaseFolderScans()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.browserLoadFailed).toBe(blocksContents)
-        useMocks({ get: { '/api/projects/:team_id/file_system/': () => [200, paginated([])] } })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': () => [200, paginated([])],
+                '/api/projects/:team_id/file_system/folder_counts/': () => [200, { results: [] }],
+            },
+        })
         await expectLogic(logic, () =>
             blocksContents ? logic.actions.loadBrowser() : logic.actions.loadOtherFiles()
         ).toFinishAllListeners()
@@ -589,6 +731,76 @@ describe('workflowFoldersLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.expandedFolders).toContain('project://Billing')
+    })
+
+    it('follows the open folder when an ancestor is renamed', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing/Cards')
+
+        projectTreeDataLogic.actions.movedItem({ id: 'billing', path: 'Billing', type: 'folder' }, 'Billing', 'Archive')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentFolder).toBe('Archive/Cards')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
+        expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Archive/Cards/Receipt'])
+    })
+
+    it('refuses a second rename of a folder or its subfolders until the first one lands', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        let releaseMove!: () => void
+        const moveHeld = new Promise<void>((resolve) => (releaseMove = resolve))
+        const moves: string[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 3 }],
+                '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => {
+                    const body = (await request.json()) as { new_path: string }
+                    moves.push(body.new_path)
+                    await moveHeld
+                    return [200, { id: params.id, path: body.new_path, type: 'folder' }]
+                },
+            },
+        })
+        logic.actions.renameFolder('Billing', 'Invoices')
+        await waitFor(() => expect(moves).toEqual(['Invoices']))
+        expect(logic.values.folderMutationDisabledReason('Billing')).not.toBeNull()
+        expect(logic.values.folderMutationDisabledReason('Billing/Cards')).not.toBeNull()
+        expect(logic.values.folderMutationDisabledReason('Empty')).toBeNull()
+
+        logic.actions.renameFolder('Billing', 'Accounts')
+        logic.actions.renameFolder('Billing/Cards', 'Debit')
+        releaseMove()
+        await waitFor(() => expect(logic.values.folderMutationDisabledReason('Invoices')).toBeNull())
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(moves).toEqual(['Invoices'])
+        expect(logic.values.folderPaths).toEqual(expect.arrayContaining(['Invoices', 'Invoices/Cards']))
+        expect(logic.values.folderPaths).not.toContain('Billing/Cards')
+    })
+
+    it('releases a folder rename when counting the folder stalls', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const moves: string[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system/:id/count/': () => new Promise(() => {}),
+                '/api/projects/:team_id/file_system/:id/move/': async ({ request }) => {
+                    moves.push(((await request.json()) as { new_path: string }).new_path)
+                    return [200, {}]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        try {
+            logic.actions.renameFolder('Billing', 'Invoices')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.folderMutationDisabledReason('Billing')).not.toBeNull()
+            await jest.advanceTimersByTimeAsync(MOVE_TIMEOUT_MS)
+            expect(logic.values.folderMutationDisabledReason('Billing')).toBeNull()
+            expect(moves).toEqual([])
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('closes the folders the person leaves, so only the open path shows as open', async () => {
