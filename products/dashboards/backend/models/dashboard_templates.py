@@ -122,7 +122,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                                         {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"},
                                         {"kind": "EventsNode", "event": "$screen", "name": "$screen"},
                                     ],
-                                    "math": "monthly_active",
+                                    "math": "dau",
                                     "name": "Pageview or screen",
                                 }
                             ],
@@ -131,7 +131,6 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                             "properties": [],
                             "trendsFilter": {
                                 "display": "Metric",
-                                "metricSummary": "latest",
                                 "showLegend": False,
                                 "yAxisScaleType": "linear",
                                 "showValuesOnSeries": False,

@@ -292,12 +292,12 @@ class TestTeam(BaseTest):
 
     @parameterized.expand(
         [
-            ("Active users (last 30 days)", "monthly_active"),
-            ("Daily active users (DAUs)", "dau"),
-            ("Weekly active users (WAUs)", "dau"),
+            ("Active users (last 30 days)",),
+            ("Daily active users (DAUs)",),
+            ("Weekly active users (WAUs)",),
         ]
     )
-    def test_default_dashboard_dau_wau_tiles_use_group_node(self, tile_name, expected_math):
+    def test_default_dashboard_dau_wau_tiles_use_group_node(self, tile_name):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         tile = DashboardTile.objects.get(
             dashboard=team.primary_dashboard,
@@ -309,7 +309,7 @@ class TestTeam(BaseTest):
         assert len(series) == 1
         assert series[0]["kind"] == "GroupNode"
         assert series[0]["operator"] == "OR"
-        assert series[0]["math"] == expected_math
+        assert series[0]["math"] == "dau"
         assert {n["event"] for n in series[0]["nodes"]} == {"$pageview", "$screen"}
 
     @parameterized.expand(
