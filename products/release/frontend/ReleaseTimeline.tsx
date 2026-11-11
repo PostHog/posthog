@@ -7,24 +7,27 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+
 import { releaseLogic } from './releaseLogic'
-import { ReleaseEvent, ReleaseSpan, STAGE_TONE } from './releaseUtils'
+import { CALENDAR_DAYS_AFTER, CALENDAR_DAYS_BEFORE, ReleaseEvent, ReleaseSpan, STAGE_TONE } from './releaseUtils'
 
 const DAY = 30
-const BEFORE = 17
-const AFTER = 60
+const BEFORE = CALENDAR_DAYS_BEFORE
+const AFTER = CALENDAR_DAYS_AFTER
 const NAME = 280
 const ROW = 48
 const HEADER = 56
 const OVERSCAN = 6
 
-const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; badge?: 'info' | 'warning' | 'default' }> =
-    {
-        flag: { top: 23, height: 2 },
-        early_access: { top: 38, height: 4, badge: 'warning' },
-        experiment: { top: 12, height: 24, badge: 'info' },
-        experiment_done: { top: 12, height: 24, badge: 'default' },
-    }
+const NARROW_SPAN = 72
+
+const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; badge: 'info' | 'warning' | 'default' }> = {
+    flag: { top: 28, height: 14, badge: 'default' },
+    early_access: { top: 28, height: 14, badge: 'warning' },
+    experiment: { top: 6, height: 18, badge: 'info' },
+    experiment_done: { top: 6, height: 18, badge: 'default' },
+}
 
 function markersByDay(
     events: ReleaseEvent[],
@@ -34,7 +37,7 @@ function markersByDay(
     const end = start.add(total, 'day')
     const days = new Map<string, ReleaseEvent[]>()
     for (const event of events) {
-        if (!event.upcoming) {
+        if (!event.upcoming && event.kind !== 'broadcast') {
             continue
         }
         const date = dayjs(event.date)
@@ -242,6 +245,7 @@ export function ReleaseTimeline(): JSX.Element {
                         <div className="relative" style={{ width: total * DAY }}>
                             {(placed.get(row.id)?.spans ?? []).map((span) => {
                                 const look = SPAN_LOOK[span.kind]
+                                const labelOutside = !!span.label && span.width < NARROW_SPAN
                                 return (
                                     <div
                                         key={span.key}
@@ -253,26 +257,24 @@ export function ReleaseTimeline(): JSX.Element {
                                             height: look.height,
                                         }}
                                     >
-                                        <LinkPrimitive
-                                            to={span.href}
-                                            title={span.label}
-                                            className={cn(
-                                                'flex h-full w-full',
-                                                !look.badge && 'rounded-full bg-border'
-                                            )}
-                                        >
-                                            {look.badge && (
-                                                <Badge
-                                                    variant={look.badge}
-                                                    className={cn(
-                                                        'h-full w-full justify-start overflow-hidden',
-                                                        !span.label && 'p-0'
-                                                    )}
-                                                >
-                                                    {span.label ? <span className="truncate">{span.label}</span> : null}
-                                                </Badge>
-                                            )}
+                                        <LinkPrimitive to={span.href} title={span.label} className="flex h-full w-full">
+                                            <Badge
+                                                variant={span.tone ?? look.badge}
+                                                className={cn(
+                                                    'h-full w-full justify-start overflow-hidden text-[10px]',
+                                                    (!span.label || labelOutside) && 'p-0'
+                                                )}
+                                            >
+                                                {span.label && !labelOutside ? (
+                                                    <span className="truncate">{span.label}</span>
+                                                ) : null}
+                                            </Badge>
                                         </LinkPrimitive>
+                                        {labelOutside && (
+                                            <span className="pointer-events-none absolute left-full top-1/2 ml-1 -translate-y-1/2 whitespace-nowrap text-[10px] text-muted-foreground">
+                                                {span.label}
+                                            </span>
+                                        )}
                                     </div>
                                 )
                             })}
@@ -286,11 +288,19 @@ export function ReleaseTimeline(): JSX.Element {
                                         )
                                         .join('\n')}
                                     className="absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground"
-                                    style={{ left: x(events[0].date) + DAY / 2 - 5, top: 16 }}
+                                    style={{ left: x(events[0].date) + DAY / 2 - 6, top: 8 }}
                                     data-attr="release-timeline-marker"
                                 >
-                                    <span className="size-2.5 rotate-45 border-2 border-primary bg-background" />
-                                    {events.length === 1 ? events[0].title : `${events.length} changes`}
+                                    {events.every((event) => event.kind === 'broadcast') ? (
+                                        <span className="flex size-3.5 items-center justify-center rounded-sm bg-background [&_svg]:size-3.5">
+                                            {iconForType('broadcasts')}
+                                        </span>
+                                    ) : (
+                                        <span className="size-2.5 rotate-45 border-2 border-primary bg-background" />
+                                    )}
+                                    <span className="max-w-44 truncate">
+                                        {events.length === 1 ? events[0].title : `${events.length} changes`}
+                                    </span>
                                 </div>
                             ))}
                         </div>

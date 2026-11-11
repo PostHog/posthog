@@ -24,7 +24,13 @@ def get_release(team_id: int, release_id: UUID) -> Release:
 
 
 def create_release(
-    *, team_id: int, name: str, description: str, owner_id: int | None, feature_flag_ids: list[int]
+    *,
+    team_id: int,
+    name: str,
+    description: str,
+    owner_id: int | None,
+    feature_flag_ids: list[int],
+    broadcast_ids: list[UUID],
 ) -> Release:
     return Release.objects.create(
         team_id=team_id,
@@ -32,6 +38,7 @@ def create_release(
         description=description,
         owner_id=owner_id,
         feature_flag_ids=feature_flag_ids,
+        broadcast_ids=broadcast_ids,
     )
 
 

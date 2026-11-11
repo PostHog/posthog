@@ -18,10 +18,18 @@ import { experimentsList } from 'products/experiments/frontend/generated/api'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { featureFlagsList, scheduledChangesList } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import { hogFlowsList, hogFlowsRetrieve, hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
+import type {
+    HogFlowApi,
+    HogFlowMinimalApi,
+    SendCalendarFlowApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
 import { releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
 import type { PatchedUpdateReleaseApi, ReleaseDTOApi } from './generated/api.schemas'
 import {
+    CALENDAR_DAYS_AFTER,
+    CALENDAR_DAYS_BEFORE,
     ReleaseRow,
     ReleaseStage,
     ScheduleIndex,
@@ -54,6 +62,11 @@ interface ReleaseLogicValues {
     earlyAccessFeatures: EarlyAccessFeatureApi[]
     earlyAccessCount: number
     scheduledChanges: ScheduledChangeApi[]
+    broadcasts: HogFlowApi[]
+    broadcastSends: SendCalendarFlowApi[]
+    broadcastSearchResults: HogFlowMinimalApi[]
+    broadcastSearchResultsLoading: boolean
+    broadcastsFailed: boolean
     search: string
     stageFilter: ReleaseStage | null
     decisionOnly: boolean
@@ -133,6 +146,19 @@ interface ReleaseLogicActions {
     ) => { id: string; changes: PatchedUpdateReleaseApi; successMessage?: string }
     linkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     unlinkFlag: (id: string, flagId: number) => { id: string; flagId: number }
+    linkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
+    unlinkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
+    loadBroadcasts: () => void
+    loadBroadcastsSuccess: (broadcasts: HogFlowApi[]) => { broadcasts: HogFlowApi[] }
+    loadBroadcastsFailure: (error: string) => { error: string }
+    loadBroadcastSends: () => void
+    loadBroadcastSendsSuccess: (broadcastSends: SendCalendarFlowApi[]) => { broadcastSends: SendCalendarFlowApi[] }
+    loadBroadcastSendsFailure: (error: string) => { error: string }
+    searchBroadcasts: (search: string) => string
+    searchBroadcastsSuccess: (broadcastSearchResults: HogFlowMinimalApi[]) => {
+        broadcastSearchResults: HogFlowMinimalApi[]
+    }
+    searchBroadcastsFailure: (error: string) => { error: string }
 }
 
 type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
@@ -225,6 +251,8 @@ export const releaseLogic = kea<releaseLogicType>([
         }),
         linkFlag: (id: string, flagId: number) => ({ id, flagId }),
         unlinkFlag: (id: string, flagId: number) => ({ id, flagId }),
+        linkBroadcast: (id: string, broadcastId: string) => ({ id, broadcastId }),
+        unlinkBroadcast: (id: string, broadcastId: string) => ({ id, broadcastId }),
     }),
     loaders(({ values, actions }) => ({
         releases: [
@@ -245,6 +273,7 @@ export const releaseLogic = kea<releaseLogicType>([
                                   name: changes.name ?? release.name,
                                   description: changes.description ?? release.description,
                                   feature_flag_ids: changes.feature_flag_ids ?? release.feature_flag_ids,
+                                  broadcast_ids: changes.broadcast_ids ?? release.broadcast_ids,
                               }
                             : release
                     ),
@@ -397,6 +426,61 @@ export const releaseLogic = kea<releaseLogicType>([
                 },
             },
         ],
+        broadcasts: [
+            [] as HogFlowApi[],
+            {
+                loadBroadcasts: async (_, breakpoint) => {
+                    const projectId = String(values.currentProjectId)
+                    const ids = [...new Set(values.releases.flatMap((release) => release.broadcast_ids))]
+                    const results = await inBatches(ids, (id) => hogFlowsRetrieve(projectId, id), breakpoint)
+                    const broadcasts: HogFlowApi[] = []
+                    for (const result of results) {
+                        if (result.status === 'fulfilled') {
+                            broadcasts.push(result.value)
+                        } else if ((result.reason as { status?: number })?.status !== 404) {
+                            throw result.reason
+                        }
+                    }
+                    return broadcasts
+                },
+            },
+        ],
+        broadcastSends: [
+            [] as SendCalendarFlowApi[],
+            {
+                loadBroadcastSends: async (_, breakpoint) => {
+                    const linked = new Set(values.releases.flatMap((release) => release.broadcast_ids))
+                    if (!linked.size) {
+                        return []
+                    }
+                    const today = new Date()
+                    today.setHours(0, 0, 0, 0)
+                    const start = new Date(today.getTime() - CALENDAR_DAYS_BEFORE * 86_400_000)
+                    const end = new Date(today.getTime() + (CALENDAR_DAYS_AFTER + 1) * 86_400_000)
+                    const flows = await hogFlowsSendCalendarRetrieve(String(values.currentProjectId), {
+                        start: start.toISOString(),
+                        end: end.toISOString(),
+                    })
+                    breakpoint()
+                    return flows.filter((flow) => linked.has(flow.id))
+                },
+            },
+        ],
+        broadcastSearchResults: [
+            [] as HogFlowMinimalApi[],
+            {
+                searchBroadcasts: async (search: string, breakpoint) => {
+                    await breakpoint(250)
+                    const page = await hogFlowsList(String(values.currentProjectId), {
+                        broadcast_eligible: true,
+                        search: search || undefined,
+                        limit: FLAG_SEARCH_LIMIT,
+                    })
+                    breakpoint()
+                    return page.results ?? []
+                },
+            },
+        ],
         earlyAccessCount: [
             0,
             {
@@ -458,6 +542,15 @@ export const releaseLogic = kea<releaseLogicType>([
             { loadEarlyAccessFeatures: () => false, loadEarlyAccessFeaturesFailure: () => true },
         ],
         schedulesFailed: [false, { loadScheduledChanges: () => false, loadScheduledChangesFailure: () => true }],
+        broadcastsFailed: [
+            false,
+            {
+                loadBroadcasts: () => false,
+                loadBroadcastSends: () => false,
+                loadBroadcastsFailure: () => true,
+                loadBroadcastSendsFailure: () => true,
+            },
+        ],
         scheduleFlagId: [
             null as number | null,
             {
@@ -482,19 +575,22 @@ export const releaseLogic = kea<releaseLogicType>([
                 s.earlyAccessFailed,
                 s.hiddenEarlyAccessFlagIds,
                 s.schedulesFailed,
+                s.broadcastsFailed,
             ],
             (
                 experimentsFailed: boolean,
                 hiddenExperimentFlagIds: number[],
                 earlyAccessFailed: boolean,
                 hiddenEarlyAccessFlagIds: number[],
-                schedulesFailed: boolean
+                schedulesFailed: boolean,
+                broadcastsFailed: boolean
             ) =>
                 experimentsFailed ||
                 hiddenExperimentFlagIds.length > 0 ||
                 earlyAccessFailed ||
                 hiddenEarlyAccessFlagIds.length > 0 ||
-                schedulesFailed,
+                schedulesFailed ||
+                broadcastsFailed,
         ],
         dataLoading: [
             (s) => [s.releasesLoading, s.experimentsLoading, s.flagsReady, s.loadFailed],
@@ -531,6 +627,8 @@ export const releaseLogic = kea<releaseLogicType>([
                 s.hiddenEarlyAccessFlagIds,
                 s.earlyAccessReady,
                 s.resolvedFlagIds,
+                s.broadcasts,
+                s.broadcastSends,
             ],
             (
                 releases: ReleaseDTOApi[],
@@ -546,7 +644,9 @@ export const releaseLogic = kea<releaseLogicType>([
                 hiddenExperimentFlagIds: number[],
                 hiddenEarlyAccessFlagIds: number[],
                 earlyAccessReady: boolean,
-                resolvedFlagIds: number[]
+                resolvedFlagIds: number[],
+                broadcasts: HogFlowApi[],
+                broadcastSends: SendCalendarFlowApi[]
             ): ReleaseRow[] => {
                 if (!flagsReady || loadFailed) {
                     return []
@@ -557,7 +657,8 @@ export const releaseLogic = kea<releaseLogicType>([
                         complete: experimentsReady && earlyAccessReady && !experimentsFailed && !earlyAccessFailed,
                         resolvedFlagIds,
                         unknownFlagIds: [...new Set([...hiddenExperimentFlagIds, ...hiddenEarlyAccessFlagIds])],
-                    }
+                    },
+                    { broadcasts, sends: broadcastSends }
                 )
                 return releases.map((release) => buildReleaseRow(release, index))
             },
@@ -642,6 +743,9 @@ export const releaseLogic = kea<releaseLogicType>([
                     if (changes.feature_flag_ids !== undefined) {
                         cache.relinkAfterSaves = true
                     }
+                    if (changes.broadcast_ids !== undefined) {
+                        cache.rebroadcastAfterSaves = true
+                    }
                 } catch {
                     lemonToast.error('The change could not be saved. Try again.')
                     cache.refetchAfterSaves = true
@@ -651,12 +755,19 @@ export const releaseLogic = kea<releaseLogicType>([
                     if (cache.pendingSaves === 0) {
                         if (cache.refetchAfterSaves) {
                             actions.loadReleases()
-                        } else if (cache.relinkAfterSaves) {
-                            actions.loadFlags()
-                            actions.loadScheduledChanges()
+                        } else {
+                            if (cache.relinkAfterSaves) {
+                                actions.loadFlags()
+                                actions.loadScheduledChanges()
+                            }
+                            if (cache.rebroadcastAfterSaves) {
+                                actions.loadBroadcasts()
+                                actions.loadBroadcastSends()
+                            }
                         }
                         cache.refetchAfterSaves = false
                         cache.relinkAfterSaves = false
+                        cache.rebroadcastAfterSaves = false
                     }
                 }
             })
@@ -680,6 +791,24 @@ export const releaseLogic = kea<releaseLogicType>([
                 })
             }
         },
+        linkBroadcast: ({ id, broadcastId }) => {
+            const release = values.releases.find((item) => item.id === id)
+            if (release && !release.broadcast_ids.includes(broadcastId)) {
+                actions.updateRelease(
+                    id,
+                    { broadcast_ids: [...release.broadcast_ids, broadcastId] },
+                    'Broadcast linked to the release'
+                )
+            }
+        },
+        unlinkBroadcast: ({ id, broadcastId }) => {
+            const release = values.releases.find((item) => item.id === id)
+            if (release) {
+                actions.updateRelease(id, {
+                    broadcast_ids: release.broadcast_ids.filter((item) => item !== broadcastId),
+                })
+            }
+        },
         loadFlagsSuccess: () => {
             actions.loadExperiments()
             actions.loadEarlyAccessFeatures()
@@ -687,6 +816,8 @@ export const releaseLogic = kea<releaseLogicType>([
         loadReleasesSuccess: () => {
             actions.loadFlags()
             actions.loadScheduledChanges()
+            actions.loadBroadcasts()
+            actions.loadBroadcastSends()
         },
         closeSchedule: () => {
             actions.loadScheduledChanges()

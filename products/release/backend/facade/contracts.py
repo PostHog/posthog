@@ -21,6 +21,22 @@ class UnknownFeatureFlagsError(Exception):
         self.flag_ids = flag_ids
 
 
+class UnknownBroadcastsError(Exception):
+    def __init__(self, broadcast_ids: list[UUID]) -> None:
+        super().__init__(broadcast_ids)
+        self.broadcast_ids = broadcast_ids
+
+
+@dataclass(frozen=True)
+class BroadcastVisibility:
+    existing: frozenset[UUID]
+    visible: frozenset[UUID]
+
+    @property
+    def hidden(self) -> frozenset[UUID]:
+        return self.existing - self.visible
+
+
 @dataclass(frozen=True)
 class FlagVisibility:
     existing: frozenset[int]
@@ -46,6 +62,7 @@ class ReleaseDTO:
     owner: ReleaseOwnerDTO | None
     feature_flag_ids: list[int]
     has_hidden_flags: bool
+    broadcast_ids: list[UUID]
     created_at: datetime
 
 
@@ -56,3 +73,4 @@ class CreateReleaseInput:
     description: str = ""
     owner_id: int | None = None
     feature_flag_ids: tuple[int, ...] = ()
+    broadcast_ids: tuple[UUID, ...] = ()

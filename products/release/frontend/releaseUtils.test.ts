@@ -1,5 +1,6 @@
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type { HogFlowApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
 import { buildReleaseIndex, buildReleaseRow } from './releaseUtils'
@@ -23,6 +24,7 @@ function row(hasHiddenFlags: boolean, flags: FeatureFlagApi[] = [FLAG]): ReturnT
         owner: null,
         feature_flag_ids: flags.map((flag) => flag.id),
         has_hidden_flags: hasHiddenFlags,
+        broadcast_ids: [],
         created_at: '2026-10-02T00:00:00Z',
     } as ReleaseDTOApi
     const index = buildReleaseIndex([FLAG], [], [], [], {
@@ -41,7 +43,44 @@ const ARCHIVED_EARLY_ACCESS = {
     feature_flag: { key: FLAG.key },
 } as unknown as EarlyAccessFeatureApi
 
+const LAUNCH_SEND = {
+    id: 'broadcast-1',
+    name: 'Launch email',
+    schedules: [{ id: 'schedule-1', next_run_at: '2099-01-02T09:00:00Z' }],
+    batch_jobs: [{ id: 'job-1', status: 'completed', created_at: '2026-10-05T09:00:00Z' }],
+} as unknown as SendCalendarFlowApi
+
 describe('buildReleaseRow', () => {
+    it('shows the sends of a linked broadcast and stops suggesting one', () => {
+        const release = {
+            id: 'release-1',
+            name: 'Quiet theme',
+            description: '',
+            owner: null,
+            feature_flag_ids: [FLAG.id],
+            has_hidden_flags: false,
+            broadcast_ids: [LAUNCH_SEND.id],
+            created_at: '2026-10-02T00:00:00Z',
+        } as ReleaseDTOApi
+        const index = buildReleaseIndex(
+            [FLAG],
+            [],
+            [],
+            [],
+            { complete: true, resolvedFlagIds: [FLAG.id], unknownFlagIds: [] },
+            { broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email' } as HogFlowApi], sends: [LAUNCH_SEND] }
+        )
+
+        const result = buildReleaseRow(release, index)
+
+        expect(result.events.filter((event) => event.kind === 'broadcast').map((event) => event.upcoming)).toEqual([
+            undefined,
+            true,
+        ])
+        expect(result.nextDate).toBe('2099-01-02T09:00:00Z')
+        expect(result.suggestions.map((suggestion) => suggestion.key)).not.toContain('broadcast')
+    })
+
     it('keeps an archived early access feature in the history without an enrollment bar', () => {
         const release = {
             id: 'release-1',
@@ -50,6 +89,7 @@ describe('buildReleaseRow', () => {
             owner: null,
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
+            broadcast_ids: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
         const index = buildReleaseIndex([FLAG], [], [ARCHIVED_EARLY_ACCESS], [], {

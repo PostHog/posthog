@@ -7,6 +7,9 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 
+from products.release.backend.models import Release
+from products.workflows.backend.facade.testing import create_workflow_for_test
+
 FLAG_PATCH = "products.release.backend.facade.api.releases_enabled"
 
 
@@ -122,6 +125,57 @@ class TestReleaseAPI(APIBaseTest):
             response = getattr(self.client, method)(self._url(suffix), {"name": "Dark mode"}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def _restrict_as_admin(self, resource_path: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        restricted = self.client.put(
+            f"/api/projects/{self.team.id}/{resource_path}/access_controls", {"access_level": "none"}, format="json"
+        )
+        assert restricted.status_code == status.HTTP_200_OK, restricted.json()
+
+    @parameterized.expand(
+        [
+            ("existing", "existing", status.HTTP_201_CREATED),
+            ("unknown", "unknown", status.HTTP_400_BAD_REQUEST),
+            ("hidden_from_the_caller", "hidden", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_linked_broadcasts_must_exist_and_be_visible(self, _name: str, broadcast: str, expected: int) -> None:
+        broadcast_id = "00000000-0000-0000-0000-000000000001"
+        if broadcast != "unknown":
+            broadcast_id = create_workflow_for_test(team_id=self.team.id, name="Launch email").id
+        if broadcast == "hidden":
+            self._restrict_as_admin(f"hog_flows/{broadcast_id}")
+            self.client.force_login(self._create_user("member@example.com"))
+
+        response = self.client.post(self._url(), {"name": "Dark mode", "broadcast_ids": [broadcast_id]}, format="json")
+
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_201_CREATED:
+            assert response.json()["broadcast_ids"] == [broadcast_id]
+
+    def test_hidden_broadcasts_are_omitted_and_kept_on_update(self) -> None:
+        visible_id, hidden_id = (
+            create_workflow_for_test(team_id=self.team.id, name=name).id for name in ("Launch email", "Beta email")
+        )
+        release_id = self.client.post(
+            self._url(), {"name": "Dark mode", "broadcast_ids": [visible_id, hidden_id]}, format="json"
+        ).json()["id"]
+        self._restrict_as_admin(f"hog_flows/{hidden_id}")
+        self.client.force_login(self._create_user("member@example.com"))
+
+        listed = self.client.get(self._url()).json()["results"][0]["broadcast_ids"]
+        self.client.patch(self._url(f"{release_id}/"), {"broadcast_ids": []}, format="json")
+        stored = Release.objects.unscoped().get(id=release_id).broadcast_ids
+
+        assert listed == [visible_id]
+        assert [str(broadcast_id) for broadcast_id in stored] == [hidden_id]
 
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(

@@ -11,6 +11,7 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
+import type { HogFlowApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
 
@@ -42,7 +43,10 @@ export interface ReleaseFlagAudience {
     variants: { key: string; percent: number }[]
 }
 
-export type ReleaseEventKind = 'release' | 'flag' | 'experiment' | 'early_access' | 'schedule'
+export type ReleaseEventKind = 'release' | 'flag' | 'experiment' | 'early_access' | 'schedule' | 'broadcast'
+
+export const CALENDAR_DAYS_BEFORE = 17
+export const CALENDAR_DAYS_AFTER = 60
 
 export interface ReleaseEvent {
     key: string
@@ -62,9 +66,12 @@ export interface ReleaseSuggestion {
     to: string
 }
 
+export type ReleaseSpanTone = 'default' | 'info' | 'warning' | 'success'
+
 export interface ReleaseSpan {
     key: string
     kind: 'flag' | 'early_access' | 'experiment' | 'experiment_done'
+    tone?: ReleaseSpanTone
     from: string
     to: string
     label?: string
@@ -87,6 +94,7 @@ export interface ReleaseRow {
     flags: FeatureFlagApi[]
     experiments: ExperimentBasicApi[]
     earlyAccess: EarlyAccessFeatureApi[]
+    broadcasts: HogFlowApi[]
     stage: ReleaseStage
     status: string
     audience: string
@@ -394,12 +402,40 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
     ]
 }
 
+function sendEvents(flow: SendCalendarFlowApi): ReleaseEvent[] {
+    const name = flow.name || 'Untitled broadcast'
+    const href = urls.broadcast(flow.id)
+    return [
+        ...flow.batch_jobs.map((job) => ({
+            key: `send-${job.id}`,
+            date: job.created_at,
+            kind: 'broadcast' as const,
+            title: `Broadcast sent: ${name}`,
+            detail: job.status === 'completed' ? undefined : `The send is ${job.status.replace('_', ' ')}`,
+            href,
+        })),
+        ...flow.schedules
+            .filter((schedule) => schedule.next_run_at)
+            .map((schedule) => ({
+                key: `send-schedule-${schedule.id}`,
+                date: schedule.next_run_at as string,
+                kind: 'broadcast' as const,
+                title: `Broadcast: ${name}`,
+                detail: 'Scheduled to send',
+                href,
+                upcoming: true,
+            })),
+    ]
+}
+
 export interface ReleaseIndex {
     flagsById: Map<number, FeatureFlagApi>
     experimentsByFlagKey: Map<string, ExperimentBasicApi[]>
     earlyAccessByFlagKey: Map<string, EarlyAccessFeatureApi[]>
     changesByFlagId: Map<string, ScheduledChangeApi[]>
     scheduleEventsByFlagId: Map<number, ReleaseEvent[]>
+    broadcastsById: Map<string, HogFlowApi>
+    sendEventsByBroadcastId: Map<string, ReleaseEvent[]>
     complete: boolean
     resolvedFlagIds: Set<number>
     unknownFlagIds: Set<number>
@@ -461,9 +497,12 @@ export function composeReleaseIndex(
         earlyAccessByFlagKey: Map<string, EarlyAccessFeatureApi[]>
         schedules: ScheduleIndex
     },
-    status: ReleaseIndexStatus
+    status: ReleaseIndexStatus,
+    messaging: { broadcasts: HogFlowApi[]; sends: SendCalendarFlowApi[] } = { broadcasts: [], sends: [] }
 ): ReleaseIndex {
     return {
+        broadcastsById: new Map(messaging.broadcasts.map((broadcast) => [broadcast.id, broadcast])),
+        sendEventsByBroadcastId: new Map(messaging.sends.map((flow) => [flow.id, sendEvents(flow)])),
         flagsById: parts.flagsById,
         experimentsByFlagKey: parts.experimentsByFlagKey,
         earlyAccessByFlagKey: parts.earlyAccessByFlagKey,
@@ -479,7 +518,8 @@ export function buildReleaseIndex(
     experiments: ExperimentBasicApi[],
     earlyAccess: EarlyAccessFeatureApi[],
     scheduled: ScheduledChangeApi[],
-    status: ReleaseIndexStatus
+    status: ReleaseIndexStatus,
+    messaging: { broadcasts: HogFlowApi[]; sends: SendCalendarFlowApi[] } = { broadcasts: [], sends: [] }
 ): ReleaseIndex {
     return composeReleaseIndex(
         {
@@ -488,7 +528,8 @@ export function buildReleaseIndex(
             earlyAccessByFlagKey: indexEarlyAccess(earlyAccess),
             schedules: indexSchedules(flags, scheduled),
         },
-        status
+        status,
+        messaging
     )
 }
 
@@ -501,6 +542,7 @@ interface ReleaseFacts {
     complete: boolean
     experiments: ExperimentBasicApi[]
     earlyAccess: EarlyAccessFeatureApi[]
+    broadcasts: HogFlowApi[]
     drafts: ExperimentBasicApi[]
     done: ExperimentBasicApi[]
     running: ExperimentBasicApi[]
@@ -568,6 +610,9 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         complete,
         experiments,
         earlyAccess,
+        broadcasts: release.broadcast_ids
+            .map((id) => index.broadcastsById.get(id))
+            .filter((broadcast): broadcast is HogFlowApi => !!broadcast),
         drafts: experiments.filter(isExperimentDraft),
         done,
         running,
@@ -881,16 +926,29 @@ function releaseEvents(release: ReleaseDTOApi, facts: ReleaseFacts, index: Relea
             href: urls.earlyAccessFeature(item.id),
         })),
         ...experiments.flatMap(experimentEvents),
+        ...release.broadcast_ids.flatMap((id) => index.sendEventsByBroadcastId.get(id) ?? []),
         ...flags.flatMap((flag) => index.scheduleEventsByFlagId.get(flag.id) ?? []),
     ]
 }
 
 function releaseSuggestions(facts: ReleaseFacts, stage: ReleaseStage): ReleaseSuggestion[] {
-    const { complete, flags, experiments, earlyAccess, finished } = facts
-    if (!complete || !flags.length || finished) {
+    const { complete, flags, experiments, earlyAccess, finished, broadcasts } = facts
+    if (!complete || !flags.length) {
         return []
     }
     const suggestions: ReleaseSuggestion[] = []
+    if (!broadcasts.length) {
+        suggestions.push({
+            key: 'broadcast',
+            title: 'Tell users about it',
+            detail: 'Send a broadcast when the release reaches more users, then link it here to see it on the calendar.',
+            label: 'New broadcast',
+            to: urls.broadcastNew(),
+        })
+    }
+    if (finished) {
+        return suggestions
+    }
     if (!experiments.length) {
         suggestions.push({
             key: 'experiment',
@@ -929,23 +987,42 @@ function experimentSpan(experiment: ExperimentBasicApi, today: dayjs.Dayjs, end:
     }
 }
 
+function flagLook(facts: ReleaseFacts): Pick<ReleaseSpan, 'label' | 'tone' | 'href'> {
+    const { flags, audiences, released, ended } = facts
+    const more = flags.length > 1 ? ` +${flags.length - 1}` : ''
+    const href = urls.featureFlag(flags[0].id)
+    if (ended) {
+        return { label: `Archived${more}`, tone: 'default', href }
+    }
+    if (released) {
+        return { label: `Everyone${more}`, tone: 'success', href }
+    }
+    if (!flags[0].active) {
+        return { label: `${flags[0].key} off${more}`, tone: 'default', href }
+    }
+    const percent = audiences[0]?.percent
+    return {
+        label: `${flags[0].key} ${percent === null || percent === undefined ? '' : `${percent}%`}${more}`.trim(),
+        tone: 'default',
+        href,
+    }
+}
+
 function releaseSpans(facts: ReleaseFacts): ReleaseSpan[] {
-    const { today, flags, firstFlagCreated, earlyAccess, running, paused, done } = facts
+    const { today, firstFlagCreated, earlyAccess, running, paused, done } = facts
     const end = today.format('YYYY-MM-DD')
     const spans: ReleaseSpan[] = []
     if (firstFlagCreated) {
-        spans.push({
-            key: 'flag',
-            kind: 'flag',
-            from: firstFlagCreated.slice(0, 10),
-            to: end,
-            href: urls.featureFlag(flags[0].id),
-        })
+        spans.push({ ...flagLook(facts), key: 'flag', kind: 'flag', from: firstFlagCreated.slice(0, 10), to: end })
     }
     for (const item of earlyAccess.filter((entry) => !['draft', 'concept', 'archived'].includes(entry.stage))) {
         spans.push({
             key: `ea-${item.id}`,
             kind: 'early_access',
+            label:
+                item.stage === 'general-availability'
+                    ? 'Early access, general availability'
+                    : `Early access, ${item.stage}`,
             from: item.created_at.slice(0, 10),
             to: end,
             href: urls.earlyAccessFeature(item.id),
@@ -989,6 +1066,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         flags: facts.flags,
         experiments: facts.experiments,
         earlyAccess: facts.earlyAccess,
+        broadcasts: facts.broadcasts,
         stage,
         audience: releaseAudience(facts),
         nextStep,

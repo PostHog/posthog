@@ -33,6 +33,11 @@ class WriteReleaseSerializer(serializers.Serializer):
         required=False,
         help_text="IDs of the feature flags that control who gets the release.",
     )
+    broadcast_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="IDs of the broadcasts that announce the release.",
+    )
 
     def validate_owner_id(self, value: int | None) -> int | None:
         if value is None:

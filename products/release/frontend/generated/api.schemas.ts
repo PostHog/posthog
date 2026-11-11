@@ -20,6 +20,7 @@ export interface ReleaseDTOApi {
     description: string
     owner: ReleaseOwnerDTOApi | null
     feature_flag_ids: number[]
+    broadcast_ids: string[]
     created_at: string
 }
 
@@ -51,6 +52,8 @@ export interface WriteReleaseApi {
      * @items.maximum 2147483647
      */
     feature_flag_ids?: number[]
+    /** IDs of the broadcasts that announce the release. */
+    broadcast_ids?: string[]
 }
 
 export interface PatchedUpdateReleaseApi {
@@ -72,6 +75,8 @@ export interface PatchedUpdateReleaseApi {
      * @items.maximum 2147483647
      */
     feature_flag_ids?: number[]
+    /** IDs of the broadcasts that announce the release. */
+    broadcast_ids?: string[]
 }
 
 export type ReleasesListParams = {

@@ -75717,6 +75717,7 @@ export namespace Schemas {
       description: string;
       owner: ReleaseOwnerDTO | null;
       feature_flag_ids: number[];
+      broadcast_ids: string[];
       created_at: string;
     }
 
@@ -92841,6 +92842,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     /**
@@ -122324,6 +122327,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     export interface ZendeskImportError {
