@@ -2261,6 +2261,10 @@ class GitHubIntegrationBase:
     _TRANSIENT_GRAPHQL_ERROR_MESSAGES = ("something went wrong while executing your query",)
     # Total GraphQL attempts (initial + retries) when GitHub returns a transient body error.
     _GRAPHQL_TRANSIENT_ATTEMPTS = 3
+    # GitHub reports its GraphQL point limit as a 200 whose ``errors`` carry one of these types.
+    _GRAPHQL_RATE_LIMIT_ERROR_TYPES = frozenset({"RATE_LIMITED", "RATE_LIMIT"})
+    # The GraphQL point limit resets hourly, so a response without a reset header waits this long.
+    _GRAPHQL_RATE_LIMIT_DEFAULT_RETRY_SECONDS = 60
 
     @classmethod
     def _graphql_errors_are_transient(cls, errors: list) -> bool:
@@ -2283,6 +2287,21 @@ class GitHubIntegrationBase:
             return False
         return True
 
+    @classmethod
+    def _graphql_errors_are_rate_limited(cls, errors: Any) -> bool:
+        if not isinstance(errors, list):
+            return False
+        for error in errors:
+            if not isinstance(error, dict):
+                continue
+            extensions = error.get("extensions")
+            types = {error.get("type")}
+            if isinstance(extensions, dict):
+                types |= {extensions.get("type"), extensions.get("code")}
+            if types & cls._GRAPHQL_RATE_LIMIT_ERROR_TYPES:
+                return True
+        return False
+
     def _gh_graphql(
         self,
         query: str,
@@ -2291,6 +2310,8 @@ class GitHubIntegrationBase:
         endpoint: str,
         timeout: int = 10,
         retry_transient: bool = True,
+        priority: Priority | None = None,
+        raise_rate_limit: bool = False,
     ) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
@@ -2300,6 +2321,10 @@ class GitHubIntegrationBase:
         the status-code retry can't catch. A mutation passes ``retry_transient=False``: a
         network error can arrive after GitHub already ran the write, so a repeat is the
         caller's decision to make, not this method's.
+
+        GitHub answers an exhausted GraphQL point budget with a 200 and rate-limit errors, which
+        raises ``GitHubIntegrationError`` like any other GraphQL error. ``raise_rate_limit=True``
+        raises ``GitHubRateLimitError`` for it instead, so a caller that sends many queries can stop.
         """
         errors: Any = None
         attempts = self._GRAPHQL_TRANSIENT_ATTEMPTS if retry_transient else 1
@@ -2311,6 +2336,7 @@ class GitHubIntegrationBase:
                 json_body={"query": query, "variables": variables},
                 timeout=timeout,
                 retry_transient=retry_transient,
+                priority=priority,
             )
             if response.status_code != 200:
                 raise GitHubIntegrationError(
@@ -2322,6 +2348,15 @@ class GitHubIntegrationBase:
             errors = body.get("errors")
             if not errors:
                 return data or {}
+            if raise_rate_limit and self._graphql_errors_are_rate_limited(errors):
+                try:
+                    reset_at = int(response.headers.get("x-ratelimit-reset", ""))
+                    retry_after = max(1, reset_at - int(time.time()))
+                except (TypeError, ValueError):
+                    retry_after = self._GRAPHQL_RATE_LIMIT_DEFAULT_RETRY_SECONDS
+                raise GitHubRateLimitError(
+                    f"GitHubIntegration: GraphQL rate limited on {endpoint}", retry_after=retry_after
+                )
             if data:
                 # GitHub can return useful partial data with field-level permission errors.
                 logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)

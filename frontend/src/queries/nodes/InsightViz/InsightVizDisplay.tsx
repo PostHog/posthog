@@ -9,6 +9,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { ExplainEmptyInsightContext } from 'lib/insights/explainEmptyInsightContext'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -249,6 +250,7 @@ export function InsightVizDisplay({
 
     const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = todayRailNav && !embedded
 
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
@@ -545,7 +547,7 @@ export function InsightVizDisplay({
                         </div>
                     )}
 
-                    <QuillSurfaceContext.Provider value={todayRailNav && !embedded}>
+                    <QuillSurfaceContext.Provider value={quillSurface}>
                         <InsightsTable
                             // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
                             isLegend={display !== ChartDisplayType.WorldMap}
@@ -631,60 +633,66 @@ export function InsightVizDisplay({
                     />
                 )}
                 {showingResults && (
-                    <>
-                        {!embedded &&
-                            ((isFunnels && hasFunnelResults) ||
-                                isPaths ||
-                                (showComputationMetadata && !BlockingEmptyState)) && (
-                                <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
-                                    <div className="flex items-center gap-2">
-                                        {showComputationMetadata && (
-                                            <InsightResultMetadata
-                                                disableLastComputation={disableLastComputation}
-                                                disableLastComputationRefresh={disableLastComputationRefresh}
-                                            />
-                                        )}
-                                    </div>
+                    <QuillSurfaceContext.Provider value={quillSurface}>
+                        <ExplainEmptyInsightContext.Provider value={!embedded}>
+                            {!embedded &&
+                                ((isFunnels && hasFunnelResults) ||
+                                    isPaths ||
+                                    (showComputationMetadata && !BlockingEmptyState)) && (
+                                    <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
+                                        <div className="flex items-center gap-2">
+                                            {showComputationMetadata && (
+                                                <InsightResultMetadata
+                                                    disableLastComputation={disableLastComputation}
+                                                    disableLastComputationRefresh={disableLastComputationRefresh}
+                                                />
+                                            )}
+                                        </div>
 
-                                    <div className="flex items-center gap-2">
-                                        {isPaths && <PathCanvasLabel />}
-                                        {isFunnels && <FunnelCanvasLabel />}
-                                        {showsExplainChart && (
-                                            <Suspense fallback={null}>
-                                                <ExplainChartButton insightProps={insightProps} />
-                                            </Suspense>
-                                        )}
-                                        {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
+                                        <div className="flex items-center gap-2">
+                                            {isPaths && <PathCanvasLabel />}
+                                            {isFunnels && <FunnelCanvasLabel />}
+                                            {showsExplainChart && (
+                                                <Suspense fallback={null}>
+                                                    <ExplainChartButton insightProps={insightProps} />
+                                                </Suspense>
+                                            )}
+                                            {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                        {!embedded && flagCallsRetentionGap && (
-                            <FlagCallsRetentionNotice
-                                gap={flagCallsRetentionGap}
-                                retentionStartDate={flagCallsRetentionStartDate}
-                            />
-                        )}
-                        <div
-                            className={clsx(
-                                'InsightVizDisplay__content',
-                                showSideLegend && 'InsightVizDisplay__content--with-legend'
+                            {!embedded && flagCallsRetentionGap && (
+                                <FlagCallsRetentionNotice
+                                    gap={flagCallsRetentionGap}
+                                    retentionStartDate={flagCallsRetentionStartDate}
+                                />
                             )}
-                        >
-                            {BlockingEmptyState ? (
-                                BlockingEmptyState
-                            ) : showSideLegend ? (
-                                <>
-                                    <div className="InsightVizDisplay__content__left">{chart}</div>
-                                    <div className="InsightVizDisplay__content__right empty:hidden">
-                                        {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
-                                    </div>
-                                </>
-                            ) : (
-                                chart
-                            )}
-                        </div>
-                    </>
+                            <div
+                                className={clsx(
+                                    'InsightVizDisplay__content',
+                                    showSideLegend && 'InsightVizDisplay__content--with-legend'
+                                )}
+                            >
+                                {BlockingEmptyState ? (
+                                    BlockingEmptyState
+                                ) : showSideLegend ? (
+                                    <>
+                                        <div className="InsightVizDisplay__content__left">{chart}</div>
+                                        <div className="InsightVizDisplay__content__right empty:hidden">
+                                            {display === ChartDisplayType.BoxPlot ? (
+                                                <BoxPlotLegend />
+                                            ) : (
+                                                <InsightLegend />
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    chart
+                                )}
+                            </div>
+                        </ExplainEmptyInsightContext.Provider>
+                    </QuillSurfaceContext.Provider>
                 )}
             </div>
             <ResultCustomizationsModal />
