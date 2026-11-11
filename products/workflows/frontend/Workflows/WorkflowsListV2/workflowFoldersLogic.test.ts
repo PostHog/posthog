@@ -200,6 +200,12 @@ describe('workflowFoldersLogic', () => {
             toast: [],
         },
         {
+            name: 'drops a folder the server already deleted, as after a delete that timed out',
+            status: 404,
+            body: { type: 'invalid_request', code: 'not_found', detail: 'Not found.' },
+            toast: [],
+        },
+        {
             name: 'keeps a folder the server reports is not empty',
             status: 409,
             body: { type: 'invalid_request', code: 'directory_not_empty', detail: 'Folder is not empty.' },
@@ -226,7 +232,7 @@ describe('workflowFoldersLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             await logic.asyncActions.deleteFolder('Empty')
             expect(recursive).toBe('false')
-            expect(logic.values.folderPaths.includes('Empty')).toBe(status !== 204)
+            expect(logic.values.folderPaths.includes('Empty')).toBe(![204, 404].includes(status))
             expect(errorToast.mock.calls.map(([message]) => message)).toEqual(toast)
         } finally {
             errorToast.mockRestore()

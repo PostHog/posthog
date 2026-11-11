@@ -1017,6 +1017,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 )
                 projectTreeDataLogic.actions.deleteSavedItem(entry)
             } catch (error) {
+                // A delete that timed out can still land on the server, so a retry finds the folder gone.
+                if (error instanceof ApiError && error.status === 404) {
+                    projectTreeDataLogic.actions.deleteSavedItem(entry)
+                    return
+                }
                 const reason =
                     error instanceof ApiError && error.code === 'directory_not_empty'
                         ? 'It still contains project files.'
