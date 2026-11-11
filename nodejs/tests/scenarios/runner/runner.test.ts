@@ -564,7 +564,7 @@ describe('runner through seed, drive and judge', () => {
             'email',
         ],
         [
-            'passes when the roles deliver every webhook unit through the edge proxy',
+            'passes when the edge records a webhook delivery for every unit',
             'all',
             'event_webhook',
             () => undefined,
