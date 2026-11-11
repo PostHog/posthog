@@ -5,11 +5,11 @@ import clsx from 'clsx'
 import React, { useRef, useState } from 'react'
 
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
 
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { RawInputAutosize } from './RawInputAutosize'
 

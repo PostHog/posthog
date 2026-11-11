@@ -9,14 +9,15 @@ import { CSSProperties, MouseEvent, useCallback, useEffect, useMemo, useRef, use
 import { List } from 'react-window'
 
 import { IconCheck, IconPencil, IconX } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils/arrays'
 import { createFuse } from 'lib/utils/fuseSearch'
 
