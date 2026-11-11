@@ -164,13 +164,38 @@ Guards:
 The check runs before the finishing run is counted, so when that run completes a proof, it passes.
 An error in the check is logged and never fails the run.
 
-`auto_quarantine_mode` on the repository decides what a proof does:
+`auto_quarantine_mode` on the repository decides what a proof does, and also covers [automatic release](#automatic-release):
 
 - `off`, the default: nothing is checked.
 - `preview`: each proof is logged and sent as a `vr_flake_proven` event, and nothing changes.
 - `on`: the story is quarantined for `AUTO_QUARANTINE_DAYS` with `source=auto`, the newest failing run as its source run, a reason that names the proof and its commits, and a notice to the owning team.
 
 Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
+
+### Automatic release
+
+Quarantines pile up, because a person has to come back and lift each one.
+Visual review lifts a quarantine by itself once trusted runs render its story clean for a week.
+
+When a full default-branch run without a pull request finishes, a Celery task, `release clean quarantines`, checks every active quarantine of the run's type, whoever opened it.
+The task runs at most once an hour per repository and run type, and it checks with GitHub that the run is on the default branch.
+A quarantine lifts when all of these hold:
+
+- It was created at least `AUTO_LIFT_CLEAN_DAYS` ago, so a quarantine somebody just opened is never lifted under them.
+- The trusted runs of the last `AUTO_LIFT_CLEAN_DAYS`, on the default branch and in the merge queue, hold at least `AUTO_LIFT_MIN_RUNS` rows for the story, and every one of them is `unchanged`. Any other result blocks, also one that a quarantine, an approval, or a toleration kept out of the gate.
+- The finishing run rendered the story `unchanged` against a baseline.
+
+The lift works like a manual one: every active row of the story ends, and `lifted_at_sha` is the finishing run's commit, so a branch that forked before it keeps the quarantine.
+`lift_reason` on the quarantine says why, for example "Lifted automatically: unchanged in 1243 runs over 7 days".
+A pending lift request on that quarantine is marked superseded the next time a default-branch run reconciles lift requests.
+No Slack notice goes out.
+A relapse needs nothing special: the story fails again, and automatic quarantine proves the flake again.
+
+The same `auto_quarantine_mode` decides what happens:
+
+- `off`: nothing is checked and no task is queued.
+- `preview`: each quarantine that would lift is logged and sent as a `vr_quarantine_clean` event, once per story per 24 hours, and nothing changes.
+- `on`: the quarantine lifts, and the log line and event record it.
 
 ## The flow
 
@@ -390,6 +415,5 @@ Variants recorded against a superseded baseline can never match again.
 
 **Not yet built:**
 
-- Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

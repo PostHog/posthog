@@ -51,7 +51,8 @@ class Repo(ProductTeamModel):
     # Off by default: the digest posts into other teams' Slack channels, so a repo opts in.
     debt_digest_enabled = models.BooleanField(default=False, db_default=False)
 
-    # Off by default: an automatic quarantine hides a gate failure from every pull request, so a repo opts in.
+    # Covers automatic quarantine and automatic release. Off by default: an automatic quarantine hides a
+    # gate failure from every pull request, so a repo opts in.
     auto_quarantine_mode = models.CharField(
         max_length=10,
         choices=AutoQuarantineMode.choices,
@@ -429,6 +430,9 @@ class QuarantinedIdentifier(ProductTeamModel):
     # so it lacks what the lift relied on, such as a baseline entry that landed on the default
     # branch. Null for a quarantine that expired on its own or was lifted before this column.
     lifted_at_sha = models.CharField(max_length=40, null=True, blank=True)
+    # Why visual review lifted the quarantine by itself. Empty when a person, an agent, a merged fix,
+    # or the expiry ended it.
+    lift_reason = models.CharField(max_length=255, blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

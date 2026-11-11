@@ -435,6 +435,7 @@ class QuarantinedIdentifierEntry:
     # failing snapshot prompted it). None for quarantines opened from the
     # snapshot history page or pre-dating this column.
     source_run: QuarantineSourceRun | None = None
+    lift_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -706,6 +707,16 @@ AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
 # As of November 2026, people opened at most 8 quarantines a day on 95 percent of days in this repo,
 # and a capture regression produced 12 proofs in 24 hours.
 AUTO_QUARANTINE_DAILY_LIMIT = 10
+
+# How long trusted runs must render a quarantined story clean before the quarantine lifts itself, and
+# how old a quarantine must be before that. It matches `FLAKINESS_RATE_DAYS` and the retention of
+# merge queue runs, so the window never reaches past the runs that are still stored. A quarantine
+# somebody just opened is never lifted under them.
+AUTO_LIFT_CLEAN_DAYS = 7
+
+# Trusted runs inside the window that must all render the story unchanged. A clean streak shorter
+# than this still relapses too often to act on, and a week of a busy repo holds far more runs.
+AUTO_LIFT_MIN_RUNS = 300
 
 # Bounds GitHub requests, so a storm of failures cannot stall run completion.
 AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25

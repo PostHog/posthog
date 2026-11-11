@@ -262,9 +262,10 @@ class UpdateRepoInputSerializer(DataclassSerializer):
             },
             "auto_quarantine_mode": {
                 "help_text": (
-                    "Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky. "
-                    "`off` (the default) does nothing. `preview` logs each proof and changes nothing. "
-                    "`on` quarantines the snapshot for 14 days and notifies the owning team."
+                    "Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky, "
+                    "and lift a quarantine once those runs render the snapshot unchanged for a week. "
+                    "`off` (the default) does nothing. `preview` logs each finding and changes nothing. "
+                    "`on` quarantines the snapshot for 14 days and notifies the owning team, and lifts clean quarantines."
                 )
             },
         }
@@ -380,6 +381,13 @@ class QuarantinedIdentifierEntrySerializer(DataclassSerializer):
         allow_null=True,
         required=False,
         help_text="Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context.",
+    )
+    lift_reason = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Why visual review lifted this quarantine by itself, for example after a clean week of runs. "
+            "Empty when a person, an agent, a merged fix, or the expiry ended it, and while it is active."
+        ),
     )
 
     class Meta:

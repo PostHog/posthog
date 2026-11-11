@@ -834,6 +834,7 @@ def _to_quarantined_entry(
         updated_at=q.updated_at,
         created_by=created_by,
         source_run=source_run,
+        lift_reason=q.lift_reason,
     )
 
 
