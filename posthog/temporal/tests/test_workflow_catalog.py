@@ -39,5 +39,5 @@ def test_each_workflow_type_belongs_to_one_product() -> None:
 
 def test_committed_catalog_is_current() -> None:
     assert CATALOG_PATH.read_text() == render_catalog(), (
-        "Run `python manage.py export_temporal_workflow_catalog` and commit posthog/temporal/workflow_catalog.json"
+        "Run `python manage.py export_temporal_workflow_catalog` and commit posthog/temporal/generated/workflow_catalog.json"
     )
