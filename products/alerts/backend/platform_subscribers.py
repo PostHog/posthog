@@ -5,12 +5,11 @@ writer that changes it calls `sync_subscriber_destinations` too. The platform de
 destinations, which resolve each user's address and insight access at send time.
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 from typing import Final
 from uuid import UUID
 
 from posthog.dataclasses import frozen
-from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
 from products.alerts_platform.backend.facade.api import set_subscriber_destinations, subscriber_user_ids_by_public_id
@@ -30,6 +29,12 @@ def sync_subscriber_destinations(alert: AlertConfiguration) -> bool:
         in_app_resource_type="insight",
         in_app_resource_id=alert.insight.short_id,
     )
+
+
+def sync_alert_subscriber_destinations(*, team_id: int, alert_id: UUID) -> bool:
+    """`sync_subscriber_destinations` for an alert named by id. False when the alert or its copy is gone."""
+    alert = AlertConfiguration.objects.select_related("insight").filter(team_id=team_id, id=alert_id).first()
+    return alert is not None and sync_subscriber_destinations(alert)
 
 
 def remove_member_subscriptions(*, user_id: int, organization_id: UUID) -> int:
@@ -70,31 +75,21 @@ def backfill_subscriber_destinations(*, team_id: int | None = None) -> Subscribe
     return SubscriberBackfillCounts(written=written, without_copy=without_copy)
 
 
-def show_platform_subscribers(alerts: Sequence[AlertConfiguration]) -> None:
-    """Shows each alert's subscribers as its platform copy's destinations name them, in place.
-
-    An alert whose copy has no subscriber destination keeps its subscriptions, which hold the same
-    users until the backfill reaches it.
-    """
-    by_team: dict[int, list[AlertConfiguration]] = {}
-    for alert in alerts:
-        by_team.setdefault(alert.team_id, []).append(alert)
-    for team_id, team_alerts in by_team.items():
-        user_ids = subscriber_user_ids_by_public_id(team_id=team_id, public_ids=[alert.id for alert in team_alerts])
-        users = User.objects.in_bulk({user_id for ids in user_ids.values() for user_id in ids})
-        for alert in team_alerts:
-            if alert.id in user_ids:
-                alert.platform_subscribers = [users[user_id] for user_id in user_ids[alert.id] if user_id in users]  # type: ignore[attr-defined]
+def platform_subscriber_ids(*, team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, tuple[int, ...]]:
+    """The users each alert's platform copy names as subscribers, by public id. An alert whose copy has
+    no subscriber destination is left out, and its subscriptions hold the same users until the backfill
+    reaches it."""
+    return subscriber_user_ids_by_public_id(team_id=team_id, public_ids=alert_ids)
 
 
-def subscribers_of(alert: AlertConfiguration) -> list[User]:
-    """The alert's subscribers: as `show_platform_subscribers` left them, or its subscriptions."""
-    shown = getattr(alert, "platform_subscribers", None)
-    return list(shown) if shown is not None else list(alert.subscribed_users.all())
-
-
-def first_subscriber(alert: AlertConfiguration) -> User | None:
+def first_subscriber_id(*, team_id: int, alert_id: UUID) -> int | None:
     """One subscriber, from the platform copy's destinations when it has any. None when nobody subscribes."""
-    show_platform_subscribers([alert])
-    subscribers = subscribers_of(alert)
-    return subscribers[0] if subscribers else None
+    copied = platform_subscriber_ids(team_id=team_id, alert_ids=[alert_id]).get(alert_id)
+    if copied is not None:
+        return min(copied, default=None)
+    return (
+        AlertSubscription.objects.filter(alert_configuration_id=alert_id)
+        .order_by("user_id")
+        .values_list("user_id", flat=True)
+        .first()
+    )

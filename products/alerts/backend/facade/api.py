@@ -69,9 +69,9 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 SLACK_SNOOZE_MAX_DAYS = 31
 
 
-def first_subscriber(alert: AlertConfiguration) -> User | None:
+def first_subscriber_id(*, team_id: int, alert_id: uuid.UUID) -> int | None:
     """One of the alert's subscribers, for a chart render or an investigation to run as. None when nobody subscribes."""
-    return platform_subscribers.first_subscriber(alert)
+    return platform_subscribers.first_subscriber_id(team_id=team_id, alert_id=alert_id)
 
 
 def remove_member_subscriptions(*, user_id: int, organization_id: uuid.UUID) -> int:

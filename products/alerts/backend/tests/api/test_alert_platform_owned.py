@@ -22,7 +22,7 @@ from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.evaluation.detector import _earlier_flags
-from products.alerts.backend.facade.api import first_subscriber, snooze_alert_from_slack
+from products.alerts.backend.facade.api import first_subscriber_id, snooze_alert_from_slack
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -403,7 +403,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         assert [[user["id"] for user in alert["subscribed_users"]] for alert in listed] == [[self.user.id]]
         assert [user["id"] for user in detail["subscribed_users"]] == [self.user.id]
         assert view is not None
-        assert first_subscriber(AlertConfiguration.from_platform_view(view, team_id=self.team.id)) == self.user
+        assert first_subscriber_id(team_id=self.team.id, alert_id=self.copy_id) == self.user.id
 
     def test_a_page_of_alerts_insight_keeps_no_row_for_builds_in_queries_that_do_not_grow_with_it(self) -> None:
         def native(insight_id: int) -> PlatformAlertConfigurationView:
