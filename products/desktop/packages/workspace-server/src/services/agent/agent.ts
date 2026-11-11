@@ -49,6 +49,7 @@ import {
   type GatewayModelRow,
   gatewayModelRowsFromTaskModels,
   normalizeGatewayModelsResponse,
+  TASK_MODELS_FETCH_TIMEOUT_MS,
   taskModelsUrl,
 } from "@posthog/agent/gateway-models";
 import {
@@ -2742,6 +2743,7 @@ For git operations while detached:
     try {
       const response = await this.agentAuthAdapter.authenticatedFetch(
         taskModelsUrl(apiHost, projectId),
+        { signal: AbortSignal.timeout(TASK_MODELS_FETCH_TIMEOUT_MS) },
       );
       if (!response.ok) return [];
       return gatewayModelRowsFromTaskModels(await response.json());

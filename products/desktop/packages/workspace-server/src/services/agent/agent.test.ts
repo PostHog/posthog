@@ -144,6 +144,7 @@ vi.mock("@posthog/agent/gateway-models", () => ({
   fetchGatewayModels: vi.fn().mockResolvedValue([]),
   gatewayModelRowsFromTaskModels: vi.fn(() => []),
   normalizeGatewayModelsResponse: vi.fn((rows) => rows),
+  TASK_MODELS_FETCH_TIMEOUT_MS: 10_000,
   taskModelsUrl: vi.fn(
     (apiHost: string, projectId: number) =>
       `${apiHost}/api/projects/${projectId}/tasks/models/`,
@@ -194,6 +195,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { DEFAULT_GATEWAY_MODEL as SHARED_DEFAULT_GATEWAY_MODEL } from "@posthog/shared";
 import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
 import { RICH_OUTPUT_PROMPT_LEAD } from "@posthog/shared/rich-output-prompt";
 import {
@@ -502,8 +504,27 @@ describe("AgentService", () => {
 
     expect(deps.agentAuthAdapter.authenticatedFetch).toHaveBeenCalledWith(
       "https://us.posthog.com/api/projects/1/tasks/models/",
+      { signal: expect.any(AbortSignal) },
     );
     expect(fetchGatewayModels).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the default model when the Django catalog times out", async () => {
+    deps.agentAuthAdapter.ensureGatewayProxy.mockRejectedValueOnce(
+      new Error("PostHog session ended"),
+    );
+    deps.agentAuthAdapter.authenticatedFetch.mockRejectedValueOnce(
+      new DOMException("The operation timed out.", "TimeoutError"),
+    );
+
+    const options = await service.getPreviewConfigOptions(
+      "https://us.posthog.com",
+      "claude",
+    );
+
+    expect(options.find((option) => option.id === "model")).toMatchObject({
+      currentValue: SHARED_DEFAULT_GATEWAY_MODEL,
+    });
   });
 
   it("includes Modal models in Claude preview options", async () => {

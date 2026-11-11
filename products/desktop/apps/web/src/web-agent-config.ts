@@ -9,6 +9,7 @@ import {
   type GatewayModelRow,
   gatewayModelRowsFromTaskModels,
   normalizeGatewayModelsResponse,
+  TASK_MODELS_FETCH_TIMEOUT_MS,
   taskModelsUrl,
 } from "@posthog/agent/gateway-models";
 import type { AuthService } from "@posthog/core/auth/auth";
@@ -25,6 +26,7 @@ export async function fetchWebTaskModelRows(): Promise<GatewayModelRow[]> {
     const response = await auth.authenticatedFetch(
       fetch,
       taskModelsUrl(apiHost, projectId),
+      { signal: AbortSignal.timeout(TASK_MODELS_FETCH_TIMEOUT_MS) },
     );
     if (!response.ok) return [];
     return gatewayModelRowsFromTaskModels(await response.json());

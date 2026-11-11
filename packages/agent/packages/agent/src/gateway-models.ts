@@ -36,6 +36,7 @@ export {
   isServedModelId,
   normalizeGatewayModelsResponse,
   pickAllowedModel,
+  TASK_MODELS_FETCH_TIMEOUT_MS,
   taskModelsUrl,
 } from "@posthog/agent-contracts";
 

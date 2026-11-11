@@ -178,6 +178,8 @@ interface TaskModelChoice {
   allowed?: unknown;
 }
 
+export const TASK_MODELS_FETCH_TIMEOUT_MS = 10_000;
+
 export function taskModelsUrl(apiHost: string, projectId: number): string {
   return `${apiHost.replace(/\/+$/, "")}/api/projects/${projectId}/tasks/models/`;
 }
