@@ -1,0 +1,51 @@
+name: Agent Infra Review Triage
+
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
+on:
+    pull_request_target:
+        types: [opened, reopened, ready_for_review, synchronize]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: agent-infra-review-triage-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+jobs:
+    triage:
+        if: ${{ github.event.pull_request.draft == false && !startsWith(github.head_ref, 'trunk-merge/') }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
+            - name: Checkout master branch
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  persist-credentials: false
+                  sparse-checkout: |
+                      /.github/
+                      /.nvmrc
+                  sparse-checkout-cone-mode: false
+
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+
+            - name: Triage the pull request
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  AI_GATEWAY_MINT_KEY: ${{ secrets.AGENT_INFRA_TRIAGE_AI_GATEWAY_MINT_KEY }}
+              run: node .github/scripts/agent-infra-review-triage.js

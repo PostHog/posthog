@@ -423,6 +423,8 @@ module.exports = {
     docsLabelApplies,
     labelsForTitle,
     labelsForFiles,
+    pathPatternToRegExp,
+    changedFilenames,
     staleLabels,
     loadRules,
     isFlagsLowHangingFruitCandidate,
