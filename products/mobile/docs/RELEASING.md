@@ -108,6 +108,12 @@ This release includes the connection recovery, offline cache, chat navigation, r
 Native configuration and dependency changes require new binaries and a new runtime.
 It submits to TestFlight and Google Play internal testing; public-store promotion remains manual after testing.
 
+Version `1.13.0` requests both native builds through `native-1130`, following `ota-1110-final-reply`.
+It includes session replay video, report links that open in the app, updated iOS icons and the mobile replay prototype already on `master`.
+Native dependencies and configuration changes require new binaries.
+The request raises the version above the `1.12.0` PR base and submits to TestFlight and Google Play internal testing.
+Public-store promotion remains manual after testing.
+
 The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
 Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
 
@@ -134,7 +140,10 @@ Use its source commit, run URL, staged build IDs/group and EAS message (`mobile-
 If nothing reached EAS, an operator may remove the draft receipt and rerun the original workflow.
 If publication happened, repair that receipt and production pointer from the verified EAS results, without resubmitting; retain the claim until reconciliation is complete.
 A partially submitted native release needs operator recovery of the unfinished platform using its recorded build ID, rather than a new automatic build.
-A corrective request may follow the last completed receipt only when the failed request was never claimed. Any sibling request with a receipt blocks that correction until its publication or production pointer has been reconciled.
+A corrective request may follow the last completed receipt when the failed request was never claimed or an operator reconciled and abandoned an unstaged native claim.
+Before abandoning a native claim, verify that the original run and both EAS builds are terminal, and that neither binary was submitted to a store.
+Keep the GitHub release as a draft with its original tag and receipt fields, and change only the receipt's `state` to `abandoned`. Include the original `tag_name` explicitly when updating the release through the API.
+The publisher accepts that state for a sibling draft without staged data, a result, or release assets. Rerunning the abandoned request still stops at its existing claim.
 These recovery operations require release access and are exceptional; routine publication stays in GitHub Actions.
 
 ## Store records this app uses
@@ -209,14 +218,16 @@ Each profile sets `APP_VARIANT` in its `env` block in `eas.json`, and `app.confi
 The three variants install side by side on one device. They do not share sign-in, settings or the widget's data.
 The names, id suffixes and schemes are in `src/lib/appVariants.json`.
 
-| Variant       | Profile       | App name        | iOS bundle id                     | Android package              | URL scheme        | iOS App Group                           | Icon                                       |
-| ------------- | ------------- | --------------- | --------------------------------- | ---------------------------- | ----------------- | --------------------------------------- | ------------------------------------------ |
-| `development` | `development` | PostHog Dev     | `com.posthog.code.mobile.dev`     | `com.posthog.mobile.dev`     | `posthog-dev`     | `group.com.posthog.code.mobile.dev`     | `icon-dev.png`, amber DEV band             |
-| `preview`     | `preview`     | PostHog Preview | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `icon-preview.png`, purple PREVIEW band    |
-| `production`  | `production`  | PostHog         | `com.posthog.code.mobile`         | `com.posthog.mobile`         | `posthog`         | `group.com.posthog.code.mobile`         | `app.icon` on iOS 26, `icon.png` elsewhere |
+| Variant       | Profile       | App name        | iOS bundle id                     | Android package              | URL scheme        | iOS App Group                           | Icon                                           |
+| ------------- | ------------- | --------------- | --------------------------------- | ---------------------------- | ----------------- | --------------------------------------- | ---------------------------------------------- |
+| `development` | `development` | PostHog Dev     | `com.posthog.code.mobile.dev`     | `com.posthog.mobile.dev`     | `posthog-dev`     | `group.com.posthog.code.mobile.dev`     | `app-dev.icon` on iOS, amber DEV band          |
+| `preview`     | `preview`     | PostHog Preview | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `app-preview.icon` on iOS, purple PREVIEW band |
+| `production`  | `production`  | PostHog         | `com.posthog.code.mobile`         | `com.posthog.mobile`         | `posthog`         | `group.com.posthog.code.mobile`         | `app.icon` on iOS                              |
 
 - The widget extension's bundle id is the app's id plus `.HedgehogWidget`, for example `com.posthog.code.mobile.dev.HedgehogWidget`.
 - The production profile also sets `EXPO_PUBLIC_SIGNUP_LINK=0`, so store builds hide "Create an account".
+- After editing an iOS icon bundle, regenerate the native project with Expo prebuild and install a new build.
+  Xcode compiles the Home Screen appearances and generates fallback images for older iOS versions.
 - In the app, `src/lib/environment.ts` reads the variant from the bundle id, so an update cannot change it.
   A Metro bundle always counts as development.
 - Development and preview builds show an environment ribbon on the sign-in screen and in Settings, and a Settings Environment group.

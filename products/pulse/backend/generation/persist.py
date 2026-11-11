@@ -7,7 +7,7 @@ from django.db.models import QuerySet
 import structlog
 
 from products.alerts.backend.models import AlertConfiguration
-from products.annotations.backend.models.annotation import Annotation
+from products.annotations.backend.facade.api import annotation_ids_in_team
 from products.dashboards.backend.facade import api as dashboards_api
 from products.experiments.backend.facade import pulse as experiments_pulse
 from products.product_analytics.backend.facade.models import Insight
@@ -107,8 +107,9 @@ def _build_opportunity(
     )
 
 
-# A dashboard, a subscription or an experiment resolves to its id, because its model stays behind its product's facade.
-_LinkTarget = Insight | Annotation | AlertConfiguration | int
+# A dashboard, an annotation, a subscription or an experiment resolves to its id, because its model stays
+# behind its product's facade.
+_LinkTarget = Insight | AlertConfiguration | int
 
 
 def _numeric_refs(evidence_type: EvidenceType, refs: set[str]) -> list[int]:
@@ -121,8 +122,8 @@ def _numeric_refs(evidence_type: EvidenceType, refs: set[str]) -> list[int]:
 
 def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[EvidenceType, str], _LinkTarget]:
     """Batch-resolve cited refs, keyed by EvidenceRef.key, to the model instances the ResourceLink
-    FKs point at, or to the id for a subscription or an experiment. A ref that resolves to nothing
-    is still linked (cached columns only)."""
+    FKs point at, or to the id for an annotation, a subscription or an experiment. A ref that
+    resolves to nothing is still linked (cached columns only)."""
     by_type: dict[EvidenceType, set[str]] = {}
     for ref in evidence:
         by_type.setdefault(ref.type, set()).add(ref.ref)
@@ -149,8 +150,8 @@ def _resolve_link_fks(team_id: int, evidence: list[EvidenceRef]) -> dict[tuple[E
     annotation_refs = by_type.get(EvidenceType.ANNOTATION)
     if annotation_refs:
         annotation_ids = _numeric_refs(EvidenceType.ANNOTATION, annotation_refs)
-        for annotation in Annotation.objects.filter(team_id=team_id, id__in=annotation_ids):
-            resolved[(EvidenceType.ANNOTATION, str(annotation.id))] = annotation
+        for annotation_id in annotation_ids_in_team(team_id=team_id, annotation_ids=annotation_ids):
+            resolved[(EvidenceType.ANNOTATION, str(annotation_id))] = annotation_id
     experiment_refs = by_type.get(EvidenceType.EXPERIMENT)
     if experiment_refs:
         experiment_ids = _numeric_refs(EvidenceType.EXPERIMENT, experiment_refs)

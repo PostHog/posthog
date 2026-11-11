@@ -91,7 +91,7 @@ Known gaps and behavior that stays on the device.
 - **No proactive refresh timer.** The app refreshes at launch when the token is nearly expired and on any 401, not on a schedule.
 - **Project switcher lists environments as projects** when a project has more than one environment (team), because it lists teams.
 - **Production OAuth apps may not allow the Errors and Sessions scopes yet.** `error_tracking:read`, `error_tracking:write`, `session_recording:read`, `replay_scanner:read` and `replay_scanner:write` need a human to add them to the US and EU mobile applications' ceiling in Django admin. Until then the server drops them and both screens show "isn't available yet".
-- **Web links do not open the app.** `app.config.ts` declares no iOS associated domains and no Android intent filters, so an `https://` report, issue or recording link opens the browser. The server serves `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` for report links (`posthog/mobile_app_links.py`) when the cloud settings are present. `webLinkTarget()` maps report, issue and recording links once a universal link reaches the app (from a custom-scheme link or a future associated domain). For an issue or recording link `webLinkTarget()` ignores the project id, so a link to another project opens in the current one and its request can fail. A report link keeps its project and host: the report screen reads the report in that project without switching the session, or offers the browser for another region or a refused project. The paired inbox pane stays on the session's project. Replay and chat still read the session's project, so from such a report a replay opens on the web, and chat moves the session to the report's project first, or offers the browser when the cached account does not list that project.
+- **Only report links open the app.** Universal links and App Links cover `/project/*/inbox/reports/*` on `us.posthog.com` and `eu.posthog.com` (`app.config.ts`, `posthog/mobile_app_links.py`), except the web-only `/project/*/inbox/reports/triage`. Issue and recording links still open the browser, although `webLinkTarget()` maps them. For an issue or recording link `webLinkTarget()` ignores the project id, so a link to another project opens in the current one and its request can fail. A report link keeps its project and host: the report screen reads the report in that project without switching the session, or offers the browser for another region or a refused project. The paired inbox pane stays on the session's project. Replay and chat still read the session's project, so from such a report a replay opens on the web, and chat moves the session to the report's project first, or offers the browser when the cached account does not list that project. Slack's in-app browser can keep a link in Slack.
 - **Shared screen chrome lives in Views.** Errors and Sessions import `features/views/screen/*`, `ViewsToast` and `ViewsReauthState`. Move them to `src/ui/` (or one shared module) in a follow-up, so features import only other features' hooks again.
 - **Only one list can be pinned.** Errors and Sessions share the one user slot in the nav pill (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
 - **Views' sign-in state hides Browse.** While Views lacks its own scopes, the Browse group is hidden, so Errors and Sessions are reachable only through a pin.
@@ -203,10 +203,17 @@ by the mobile footer change:
 
 ## Session replay
 
-- **No player.** The phone shows the summary, chapter frames and the event timeline. Watching the recording is
-  "Open full replay", the web player in the browser. No inspector, console or network panes.
-- **No clip video.** Replay Vision renders an MP4 with idle time cut, but playing it needs `expo-video`, a native
-  module the app does not ship. Adding it needs a new native build, not an over-the-air update.
+- **No player with `mobile-replay-video` off.** The phone shows the summary, chapter frames and the event timeline.
+  Watching the recording is "Open full replay", the web player in the browser.
+- **The video is pixels only.** Watch replay plays an MP4, so it has no DOM inspection, console or network panes, and no event markers on the scrubber.
+  Those stay in the web player, which More and the player's error state open as Open in PostHog.
+- **The first watch waits for a render.** Rendering takes a few minutes, and the app polls only while the player is open.
+  No push says the video is ready.
+- **Renders spend the export cap.** Each first watch of a session counts against the team's monthly video export cap.
+  At the cap, the player offers only the web player.
+  A video expires after 30 days, and the next watch renders and counts again.
+- **Recordings longer than 3 hours do not play in the app.** A render the server cut short plays with a note that it stops early.
+- **Replay Vision's own MP4 is not played.** Replay Vision renders an MP4 with idle time cut, but the player plays the Export to MP4 render, so a summarized session still renders an export on its first watch.
 - **No push when a summary is ready.** The screen polls for two minutes while it is open. Backend ask: a hook on scan
   completion that sends a mobile push with the session id, so a tap opens `/replay/{sessionId}`.
 - **Frames need two requests.** The thumbnail endpoint answers with a redirect to a signed URL, so each frame costs an

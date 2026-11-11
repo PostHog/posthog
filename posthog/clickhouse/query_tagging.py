@@ -113,6 +113,7 @@ class Feature(StrEnum):
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
     WAREHOUSE_SUGGESTIONS = "warehouse_suggestions"
+    EVAL_SUGGESTIONS = "eval_suggestions"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
     INGESTION_WARNINGS = "ingestion_warnings"
@@ -453,6 +454,7 @@ class QueryTags(BaseModel):
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
     api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
+    warehouse_suggestion_access: Optional[str] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product

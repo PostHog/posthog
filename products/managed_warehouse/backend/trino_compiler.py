@@ -103,26 +103,40 @@ def _reject_pure_compilation(error: Exception, *, feature_code: str) -> None:
     raise error
 
 
+@frozen
+class TrinoTargetReadiness:
+    catalog_name: str | None = None
+    # The control plane gave no answer, so the target can still be ready.
+    lookup_failed: bool = False
+
+
+_NOT_READY = TrinoTargetReadiness()
+
+
 def get_ready_trino_catalog_name(organization_id: str) -> str | None:
     """Return the control-plane-owned catalog only after its Trino target is ready."""
+    return get_trino_target_readiness(organization_id).catalog_name
+
+
+def get_trino_target_readiness(organization_id: str) -> TrinoTargetReadiness:
     from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
 
     response = _request("GET", organization_id, "/trino", require_enabled=False)
     readiness_logger = logger.bind(organization_id=str(organization_id), status_code=response.status_code)
     if not status.is_success(response.status_code):
         readiness_logger.warning("trino_target_not_ready", reason="http_error")
-        return None
+        return TrinoTargetReadiness(lookup_failed=status.is_server_error(response.status_code))
     if not isinstance(response.data, dict):
         readiness_logger.warning(
             "trino_target_not_ready", reason="invalid_response", response_type=type(response.data).__name__
         )
-        return None
+        return _NOT_READY
     enabled = response.data.get("enabled")
     if not isinstance(enabled, bool):
         readiness_logger.warning(
             "trino_target_not_ready", reason="invalid_enabled", enabled_type=type(enabled).__name__
         )
-        return None
+        return _NOT_READY
     if not enabled:
         readiness_logger.info(
             "trino_target_not_ready",
@@ -130,14 +144,14 @@ def get_ready_trino_catalog_name(organization_id: str) -> str | None:
             enabled=enabled,
             enabled_type=type(enabled).__name__,
         )
-        return None
+        return _NOT_READY
 
     trino_status = response.data.get("status")
     if not isinstance(trino_status, dict):
         readiness_logger.warning(
             "trino_target_not_ready", reason="invalid_status", status_type=type(trino_status).__name__
         )
-        return None
+        return _NOT_READY
     state = trino_status.get("state")
     if state != "ready":
         readiness_logger.info(
@@ -146,7 +160,7 @@ def get_ready_trino_catalog_name(organization_id: str) -> str | None:
             state=state[:128] if isinstance(state, str) else None,
             state_type=type(state).__name__,
         )
-        return None
+        return _NOT_READY
     response_org = trino_status.get("org")
     if response_org is not None and str(response_org) != str(organization_id):
         readiness_logger.warning(
@@ -156,15 +170,15 @@ def get_ready_trino_catalog_name(organization_id: str) -> str | None:
             response_organization_id=response_org[:128] if isinstance(response_org, str) else None,
             response_organization_id_type=type(response_org).__name__,
         )
-        return None
+        return _NOT_READY
 
     catalog_name = trino_status.get("trino_catalog_name") or trino_status.get("catalog")
     if not isinstance(catalog_name, str) or not catalog_name.strip():
         readiness_logger.warning(
             "trino_target_not_ready", reason="invalid_catalog", catalog_type=type(catalog_name).__name__
         )
-        return None
-    return catalog_name.strip()
+        return _NOT_READY
+    return TrinoTargetReadiness(catalog_name=catalog_name.strip())
 
 
 def prepare_hogql_to_trino_compiler(

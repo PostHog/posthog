@@ -204,17 +204,18 @@ hogli devbox:worktree --on-clean stop           # save what worktrees:clean does
 - Pass `--provider hogland` with `--auto` to save Hogland as the default, which automatic boxes then use. `hogli devbox:config:rm worktree-provider` goes back to Coder.
 - `worktrees:clean --stop-boxes` hibernates the box, and `--delete-boxes` deletes it.
 - A worktree that still has a box on the other provider is refused until that box is removed.
-- `--clone-from` and `--start-app` are Coder-only.
+- `--clone-from <label>` clones the running Hogland devbox `wt-<label>`, or `default` for the devbox named `default`. It runs `hogland devbox clone`, so it needs a `hogland` CLI that has that command; an older one fails with the upgrade command. The clone copies the whole box, including secrets, so it asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
+- `--start-app` saves the setting on a new box as the file `~/.config/hogli/start-app`. Every later `devbox:worktree` run on that box then waits for the mirror to catch up and runs `hogli up -d`. A clone keeps the source's setting. On an existing box the flag is ignored, so delete or create that file on the box to change it.
 
 ### Provision a box for every new worktree
 
 `hogli devbox:worktree --auto claude,phw` saves the worktree sources that get a box automatically.
-The sources are `claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `superset`, `emdash`, `orca`, `conductor`, `worktrunk`, and `other` for a plain `git worktree add`.
+The sources are `claude`, `codex`, `posthog-code`, `phw`, `t3code`, `herdr`, `superset`, `emdash`, `orca`, `conductor`, `worktrunk`, `paseo`, and `other` for a plain `git worktree add`.
 It only saves the setting, so run it from any checkout.
 Two triggers start `hogli devbox:worktree -y` in the background, and the first one for a worktree wins:
 
 - The husky `post-checkout` hook, for `claude`, `codex`, `posthog-code` and `phw`, which it recognizes by their worktree folders, and for `other`.
-- The app's own create hook, which runs `bin/devbox-worktree-hook created <source>`. The repo checks these hooks in for Superset (`.superset/config.json`), Emdash (`.emdash.json`), Orca (`orca.yaml`) and worktrunk (`.config/wt.toml`). Orca and worktrunk ask each user to approve the commands once. Conductor would let a checked-in script replace each user's own scripts, so `--auto conductor` writes its hooks to the main checkout's uncommitted `.conductor/settings.local.toml` instead, and leaves an existing file for you to edit. t3code does not run `t3.json` by itself: each user imports it once from **Import from t3.json** in the project's scripts menu or in Settings → Projects → Actions. t3code runs only the first script set to run on worktree creation, so a project that already has its own setup script skips this one. herdr has no repo hook file, so run `herdr plugin link <main checkout>/tools/herdr-devbox-plugin` once.
+- The app's own create hook, which runs `bin/devbox-worktree-hook created <source>`. The repo checks these hooks in for Superset (`.superset/config.json`), Emdash (`.emdash.json`), Orca (`orca.yaml`) and worktrunk (`.config/wt.toml`). Orca and worktrunk ask each user to approve the commands once. Conductor would let a checked-in script replace each user's own scripts, so `--auto conductor` writes its hooks to the main checkout's uncommitted `.conductor/settings.local.toml` instead, and leaves an existing file for you to edit. t3code does not run `t3.json` by itself: each user imports it once from **Import from t3.json** in the project's scripts menu or in Settings → Projects → Actions. t3code runs only the first script set to run on worktree creation, so a project that already has its own setup script skips this one. herdr has no repo hook file, so run `herdr plugin link <main checkout>/tools/herdr-devbox-plugin` once. Paseo has no checked-in hook either: put an untracked `paseo.json` in the main checkout whose `worktree.setup` runs `bin/devbox-worktree-hook created paseo` and whose `worktree.teardown` runs `bin/devbox-worktree-hook removing`. Paseo copies it into each new worktree.
 
 The script runs the main checkout's hogli, so pull the main checkout after a change to these commands.
 

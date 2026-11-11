@@ -58,6 +58,7 @@ def create_export_asset_async(
     export_format: str,
     export_context: dict[str, object],
     expires_after: datetime | None = None,
+    is_system: bool = False,
 ) -> ExportedAsset:
     if export_format not in ExportedAsset.get_supported_format_values():
         raise ValueError(f"Unsupported export format: {export_format}")
@@ -67,6 +68,7 @@ def create_export_asset_async(
         created_by=created_by,
         export_format=export_format,
         export_context=export_context,
+        is_system=is_system,
         # None keeps the model's format-default TTL (see ExportedAsset.save).
         expires_after=ExportedAsset.round_up_expiry(expires_after) if expires_after is not None else None,
     )

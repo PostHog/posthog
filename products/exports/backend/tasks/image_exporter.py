@@ -89,9 +89,17 @@ FIND_REPLAY_WRAPPER_JS = f"""(
 )"""
 
 MEASURE_CONTENT_HEIGHT_JS = f"""
+    // The player scales the replay down to fit the viewport, so its scaled box would shrink the viewport
+    // and the replay with it. Measure it unscaled, as the width measure does, and keep its aspect ratio
+    // when the width is capped.
+    const replayElement = {FIND_REPLAY_WRAPPER_JS};
+    if (replayElement) {{
+        const widthCap = Math.min(1, {MAX_WIDTH_PIXELS} / replayElement.offsetWidth);
+        return Math.round(replayElement.offsetHeight * widthCap);
+    }}
+
     const element = document.querySelector('.InsightCard__viz') ||
                   document.querySelector('.ExportedInsight__content') ||
-                  {FIND_REPLAY_WRAPPER_JS} ||
                   document.querySelector('.heatmap-exporter');
     if (element) {{
         const rect = element.getBoundingClientRect();
@@ -273,9 +281,11 @@ def _export_to_png(
             )
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
             heatmap_url = exported_asset.export_context["heatmap_url"]
-            ok, err = is_heatmap_url_allowed(heatmap_url, exported_asset.export_context.get("heatmap_type"))
+            ok, err = is_heatmap_url_allowed(
+                heatmap_url, exported_asset.export_context.get("heatmap_type"), exported_asset.team
+            )
             if not ok:
-                raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
+                raise InvalidExportContext(f"heatmap_url not allowed: {err}")
 
             # URL-encode the page and data URLs so their inner `?` and `&` (e.g.
             # `?width=1024&format=jpeg` on screenshot content URLs) don't corrupt

@@ -110,20 +110,34 @@ const TOP_USERS = [
 
 const FAILURE_BUCKETS = [
     {
+        message: 'validation',
+        error_type: 'validation',
+        error_status: '',
+        occurrences: 64,
+        last_seen: '2026-06-07T09:41:10Z',
+        harnesses: ['Claude Code', 'Cursor'],
+        cause: 'Validation error: invalid_input (field: steps)',
+        sample_message: 'Validation error: invalid_input (field: steps)',
+    },
+    {
+        message: 'validation',
+        error_type: 'validation',
+        error_status: '',
+        occurrences: 31,
+        last_seen: '2026-06-07T08:02:00Z',
+        harnesses: ['Claude Code'],
+        cause: 'Invalid input: parameter "steps.N.url": expected string',
+        sample_message: 'Invalid input: parameter "steps.2.url": expected string',
+    },
+    {
         message: 'api_5xx (HTTP 500)',
         error_type: 'api_5xx',
         error_status: '500',
-        occurrences: 96,
-        last_seen: '2026-06-07T09:41:10Z',
-        harnesses: ['PostHog AI', 'Slack'],
-    },
-    {
-        message: 'timeout',
-        error_type: 'timeout',
-        error_status: '',
-        occurrences: 54,
+        occurrences: 12,
         last_seen: '2026-06-06T22:10:00Z',
-        harnesses: ['Claude Code'],
+        harnesses: ['PostHog AI'],
+        cause: '',
+        sample_message: '',
     },
 ]
 

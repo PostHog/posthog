@@ -30,6 +30,7 @@ from posthog.utils import get_instance_region
 from products.ai_observability.backend.prompt_references import resolve_prompt_references
 from products.product_analytics.backend.facade.api import get_query_specific_instructions
 from products.subscriptions.backend.logic.report_text import REPORT_TEXT_INSTRUCTIONS, ReportSummary
+from products.subscriptions.backend.temporal.results_summarizer import is_time_series_query
 
 logger = structlog.get_logger(__name__)
 
@@ -142,6 +143,14 @@ SUMMARY_INTERPRETATION_INSTRUCTIONS = """Interpret performance against an approp
 - Compare like periods when the supplied data permits it. Account for weekdays versus weekends, elapsed time since publication, and complete versus partial periods. Do not invent a comparison that is absent from the data.
 - If the supplied evidence explains a change, put that explanation beside the value. Distinguish a known event from a proven cause; timing alone does not establish causation.
 - If context is absent, describe the observed change without guessing its cause. Do not list speculative explanations or call routine variation surprising, strong, exceptional, or alarming without evidence."""
+
+
+TREND_FIELD_INSTRUCTIONS = """Trend series fields:
+- latest is the most recent complete period, previous point is the point before it in the chart, and change is the direction and size of the move between them.
+- in progress is a period that was still collecting data. Do not compare it with complete periods or describe it as a rise or fall.
+- window trend compares the later half of the chart window with the earlier half. It describes the shape of the whole window, not the latest move, so it can point the other way from change.
+- When you describe a move "from X to Y", use the direction of the numbers. Never use window trend as the direction of a from-to change.
+- When you compare deliveries, compare latest with latest."""
 
 
 def _compile_template(template: str, variables: dict[str, str]) -> str:
@@ -454,6 +463,8 @@ def generate_change_summary(
         )
 
     messages[0]["content"] += f"\n\n{SUMMARY_CONTENT_INSTRUCTIONS}\n\n{SUMMARY_INTERPRETATION_INSTRUCTIONS}"
+    if any(is_time_series_query(state.get("query_kind", "")) for state in current_states):
+        messages[0]["content"] += f"\n\n{TREND_FIELD_INSTRUCTIONS}"
     messages[0]["content"] += (
         f"\n\n{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend."
     )
@@ -480,11 +491,11 @@ def generate_change_summary(
 
     prompt_tokens, completion_tokens = 0, 0
     with client:
-        for max_tokens in (1500, 4500):
+        for max_completion_tokens in (4096, 8192):
             result = client.chat.completions.create(
-                model="gpt-4.1-mini",
-                temperature=0.3,
-                max_tokens=max_tokens,
+                model="gpt-6-luna",
+                reasoning_effort="low",
+                max_completion_tokens=max_completion_tokens,
                 response_format={
                     "type": "json_schema",
                     "json_schema": {
@@ -493,7 +504,7 @@ def generate_change_summary(
                         "schema": to_strict_json_schema(ReportSummary),
                     },
                 },
-                timeout=20,
+                timeout=30,
                 messages=cast(list[ChatCompletionMessageParam], messages),
                 user=user_tag,
             )

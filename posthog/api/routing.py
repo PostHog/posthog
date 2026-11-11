@@ -56,6 +56,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -561,6 +562,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
             include_all_if_admin = True
 
+        if self.scope_object == "early_access_feature" and self.request.GET.get("ids") is not None:
+            include_all_if_admin = True
+
         return self.user_access_control.filter_queryset_by_access_level(
             queryset, include_all_if_admin=include_all_if_admin
         )
@@ -908,4 +912,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except (Team.DoesNotExist, KeyError):
             pass
 
-        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        access = UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        if self._is_team_view or self._is_project_view:
+            # The SDK checks in this request read the same rules, so they reuse this instance.
+            authorization.reuse_current_rules(access)
+        return access
