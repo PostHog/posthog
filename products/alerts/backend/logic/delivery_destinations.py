@@ -12,7 +12,6 @@ from products.alerts.backend.logic.alert_email import (
 )
 from products.alerts.backend.logic.alert_in_app import insight_in_app_groups
 from products.alerts.backend.logic.destinations import list_alert_destination_groups
-from products.alerts_platform.backend.facade.api import subscriber_user_ids_by_public_id
 from products.alerts_platform.backend.facade.contracts import AlertDestinationGroup
 
 
@@ -20,13 +19,10 @@ def list_delivery_destination_groups(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[AlertDestinationGroup]:
     """An alert's HogFunction destinations, plus its subscribers' email and in-app notifications
-    for an insight alert whose platform copy does not hold them yet.
+    for an insight alert.
 
     Separate from `list_alert_destination_groups`, which the alert APIs list and delete through. A
     subscriber group there would show up as a destination a person could delete.
-
-    Once the copy holds its subscribers as `AlertDestination` rows, delivery sends to those, which
-    check each user's access at send time. An alert with no insight row has only those.
     """
     groups = [
         *list_alert_destination_groups(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids),
@@ -35,7 +31,7 @@ def list_delivery_destination_groups(
     if not event_ids:
         return groups
     alert = insight_alert(team_id=team_id, alert_id=alert_id)
-    if alert is None or subscriber_user_ids_by_public_id(team_id=team_id, public_ids=[alert.id]):
+    if alert is None:
         return groups
     recipients = recipients_with_access(alert)
     return [

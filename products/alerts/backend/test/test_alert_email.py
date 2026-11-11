@@ -11,7 +11,6 @@ from products.alerts.backend.facade.destinations import list_alert_destination_g
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
 from products.alerts.backend.platform_insight_alert import subscribers_with_insight_access
-from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import DestinationType, SourceKind
@@ -97,25 +96,14 @@ class TestInsightAlertEmailDestination(APIBaseTest):
             ("another_sources_event", True, None, "$logs_alert_firing"),
             ("an_alert_id_that_is_not_an_insight_alert", True, "legacy-logs-alert", LEGACY_INSIGHT_ALERT_EVENT),
             ("an_alert_nobody_subscribed_to", False, None, LEGACY_INSIGHT_ALERT_EVENT),
-            ("subscribers_its_platform_copy_holds", True, None, LEGACY_INSIGHT_ALERT_EVENT, True),
         ]
     )
     def test_no_subscriber_group_without_an_insight_alert_and_a_subscriber(
-        self, _name: str, subscribed: bool, alert_id: str | None, event_id: str, held_by_copy: bool = False
+        self, _name: str, subscribed: bool, alert_id: str | None, event_id: str
     ) -> None:
         alert = self._alert()
         if subscribed:
             self._subscribe(alert, self.user)
-        if held_by_copy:
-            with team_scope(self.team.id):
-                platform_testing.create_configuration(
-                    team_id=self.team.id,
-                    name="alert",
-                    source_kind=SourceKind.INSIGHT,
-                    check_interval_minutes=60,
-                    legacy_configuration_id=alert.id,
-                )
-            assert sync_subscriber_destinations(alert)
 
         groups = list_delivery_destination_groups(
             team_id=self.team.id, alert_id=alert_id or str(alert.id), allowed_event_ids=[event_id]
