@@ -9,6 +9,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     EE_AVAILABLE,
     NO_ACCESS_LEVEL,
@@ -18,8 +19,8 @@ from products.access_control.backend.facade.user_access_control import (
     ResolvedAccess,
     UserAccessControl,
     _AccessControl,
+    _ObjectAccessTarget,
     default_access_level,
-    model_to_resource,
 )
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import RoleMembership
@@ -118,25 +119,31 @@ class SubjectAccessControl(UserAccessControl):
         member or role always has something to fall back to (the object's default, then the
         system default), so their answer is never None on that account.
         """
-        resource = model_to_resource(obj)
-        if not resource:
+        target = self._target_for_object(obj)
+        if target is None:
             return None
+        return self._inherited_access_for_target(target)
+
+    def inherited_access_for_ref(self, ref: ObjectAccessRef) -> Optional[ResolvedAccess]:
+        """`inherited_access_for_object` for an object held only as a reference."""
+        return self._inherited_access_for_target(self._target_for_ref(ref))
+
+    def _inherited_access_for_target(self, target: _ObjectAccessTarget) -> Optional[ResolvedAccess]:
+        resource = target.resource
         if self._subject_member is None and self._subject_role_id is None:
             if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
                 return None
 
-        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator_id(target.created_by_id))
         if resolved:
             return access
 
         rows = [
             ac
-            for ac in self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
+            for ac in self._get_access_controls(self._access_controls_filters_for_object(resource, target.object_id))
             if not self._is_subject_row(ac)
         ]
-        return self._object_access_level_from_rows(
-            resource, rows, fallback_parent_id=self._fallback_parent_id(obj, resource)
-        )
+        return self._object_access_level_from_rows(resource, rows, fallback_parent_id=target.fallback_parent_id)
 
     def inherited_access_for_resource(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
         """The access the subject would have to `resource` if their resource-wide override were

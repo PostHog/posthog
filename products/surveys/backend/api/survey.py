@@ -82,7 +82,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.actions.backend.facade.api import existing_action_ids, get_actions
+from products.actions.backend.facade.api import existing_action_ids, get_action_details, get_actions
 from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
@@ -450,8 +450,6 @@ else:
 def get_survey_conditions_with_actions(
     survey: "Survey", action_serializer_class: type[serializers.Serializer] | None = None
 ) -> dict | None:
-    if action_serializer_class is None:
-        action_serializer_class = ActionSerializer
     conditions = survey.conditions
     actions = survey.actions.all()
     if len(actions) > 0:
@@ -459,14 +457,18 @@ def get_survey_conditions_with_actions(
             conditions = {}
         else:
             conditions = dict(conditions)
-        conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
+        if action_serializer_class is None:
+            details = get_action_details(team_id=survey.team_id, action_ids=[action.id for action in actions])
+            conditions["actions"] = {"values": ActionSerializer(details, many=True).data}
+        else:
+            conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
     elif isinstance(conditions, dict) and isinstance(conditions.get("actions"), dict):
         # The actions M2M didn't resolve (e.g. the referenced actions were deleted) but a stale
         # actions blob still lives in `conditions`. That stored blob can carry fields this caller's
         # serializer would never expose — notably `created_by` on the public /surveys and /decide
         # payload — so project each value down to the serializer's own fields. Never surface more
         # than the serializer itself would.
-        meta = getattr(action_serializer_class, "Meta", None)
+        meta = getattr(action_serializer_class or ActionSerializer, "Meta", None)
         allowed_fields = getattr(meta, "fields", None)
         if isinstance(allowed_fields, list | tuple):
             allowed = set(allowed_fields)

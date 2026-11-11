@@ -50,6 +50,7 @@ from posthog.api.file_system.deletion import (
     delete_file_system_object,
     get_restorable_object,
     is_file_system_type_registered,
+    prepare_file_system_deletes,
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
@@ -1200,6 +1201,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for team_id, file_type, ref, _row_key in entries_by_group:
             if ref:
                 refs_by_type.setdefault((team_id, file_type), set()).add(ref)
+        prepare_file_system_deletes(self.request, refs_by_type)
         any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id, _file_type in refs_by_type}
         spellings_by_type = {
             key: _stored_spellings(key[0], key[1], refs, any_surface_by_team[key[0]])
