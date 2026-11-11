@@ -115,6 +115,19 @@ interface MoveBatch {
 
 let lastMoveBatchId = 0
 
+/** `state` without the records of the dropped folders among `items` and of every folder inside them. */
+function withoutDroppedFolders<T>(state: Record<string, T>, items: FileSystemEntry[]): Record<string, T> {
+    const dropped = new Set(
+        items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
+    )
+    return Object.fromEntries(
+        Object.entries(state).filter(([folder]) => {
+            const parts = splitPath(folder)
+            return !parts.some((_, index) => dropped.has(joinPath(parts.slice(0, index + 1))))
+        })
+    )
+}
+
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
 // `orderedIds` is appended at the end so a partial input never silently drops items.
 function applyOrder(shortcuts: FileSystemEntry[], orderedIds: string[]): FileSystemEntry[] {
@@ -1241,16 +1254,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             newState[folder] = newState[folder].filter((item) => !ids.has(item.id))
                         }
                     }
-                    const dropped = new Set(
-                        items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
-                    )
-                    for (const folder of Object.keys(newState)) {
-                        const parts = splitPath(folder)
-                        if (parts.some((_, index) => dropped.has(joinPath(parts.slice(0, index + 1))))) {
-                            delete newState[folder]
-                        }
-                    }
-                    return newState
+                    return withoutDroppedFolders(newState, items)
                 },
                 deleteTypeAndRef: (state, { type, ref }) => {
                     const newState = { ...state }
@@ -1309,6 +1313,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     const previousOffset = forceReload ? 0 : (state[folder] ?? 0)
                     return { ...state, [folder]: previousOffset + offsetIncrease }
                 },
+                dropStaleItems: (state, { items }) => withoutDroppedFolders(state, items),
                 pruneClosedFolders: (state, { expandedFolders }) => {
                     const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
                     const newState: Record<string, number> = {}
@@ -1330,6 +1335,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+                dropStaleItems: (state, { items }) => withoutDroppedFolders(state, items),
                 pruneClosedFolders: (state, { expandedFolders }) => {
                     const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
                     const newState: Record<string, FolderState> = {}

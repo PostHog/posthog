@@ -660,7 +660,7 @@ describe('projectTreeDataLogic', () => {
         expect(error).toHaveBeenCalledWith('Error moving item: Error: nope')
     })
 
-    it('drops the cached contents of stale folders and their subfolders, and nothing that only shares a prefix', () => {
+    it('drops stale folders and their subfolders, with their load state, and nothing that only shares a prefix', async () => {
         const folder = (path: string): FileSystemEntry => ({ id: path, path, type: 'folder' })
         const file = (path: string): FileSystemEntry => ({ id: path, path, type: 'notebook', ref: path })
         const results = [
@@ -670,12 +670,37 @@ describe('projectTreeDataLogic', () => {
             ),
         ]
         logic.actions.addLoadedResults({ searchTerm: '', results, hasMore: false, lastCount: results.length })
+        logic.actions.loadFolderSuccess('X', [file('X/Gone')], false, 1)
+        logic.actions.loadFolderSuccess('A/B/C', [file('A/B/C/Deep')], true, 1)
 
         logic.actions.dropStaleItems([folder('A/B'), folder('X')])
 
         expect(Object.keys(logic.values.folders).sort()).toEqual(['', 'A', 'AB', 'X\\/Y'])
         expect(logic.values.folders[''].map((entry) => entry.path).sort()).toEqual(['A', 'AB', 'X\\/Y'])
         expect(logic.values.folders['A'].map((entry) => entry.path)).toEqual(['A/Top'])
+
+        jest.mocked(api.fileSystem.list).mockRestore()
+        const requests: { parent: string | null; offset: string | null }[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    requests.push({ parent: params.get('parent'), offset: params.get('offset') })
+                    return { results: [file(`${params.get('parent')}/Replacement`)], users: [] }
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadFolder('X')
+            logic.actions.loadFolder('A/B/C')
+        }).toFinishAllListeners()
+
+        expect(requests).toEqual([
+            { parent: 'X', offset: '0' },
+            { parent: 'A/B/C', offset: '0' },
+        ])
+        expect(logic.values.folders['X'].map((entry) => entry.path)).toEqual(['X/Replacement'])
+        expect(logic.values.folders['A/B/C'].map((entry) => entry.path)).toEqual(['A/B/C/Replacement'])
     })
 
     it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {
