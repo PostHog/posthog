@@ -73,9 +73,7 @@ export function ProviderImportModal(): JSX.Element {
             onClose={closeImportModal}
             width={640}
         >
-            {isAdminOrOwner === false ? (
-                <AccessDenied object={isCustomerIO ? 'Customer.io integration' : 'imports'} inline />
-            ) : importProviders === null && importProvidersLoading ? (
+            {importProviders === null && importProvidersLoading ? (
                 <div className="flex justify-center py-8">
                     <Spinner className="text-3xl" />
                 </div>
@@ -98,7 +96,10 @@ export function ProviderImportModal(): JSX.Element {
                             All tools
                         </LemonButton>
                     )}
-                    {isCustomerIO ? (
+                    {/* Only Customer.io keeps its key after the import, so only it needs an admin. The API checks workflow access for the rest. */}
+                    {isCustomerIO && isAdminOrOwner === false ? (
+                        <AccessDenied object="Customer.io integration" inline />
+                    ) : isCustomerIO ? (
                         <CustomerIOImportSteps provider={selectedProvider} />
                     ) : (
                         <ProviderImportPanel provider={selectedProvider} />
