@@ -129,6 +129,13 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             + [tracing(f"frame {i} too large", i) for i in range(20)]
             + [tracing(None, i) for i in range(5)]
             + [{**tracing("upstream refused", i), "pattern": other_key_set} for i in range(10)]
+            + [
+                {
+                    **self._log(json.dumps({"fields": {"message": "upstream refused"}, "padding": "x" * 10000})),
+                    "pattern": other_key_set,
+                    "pattern_version": 6,
+                }
+            ]
             + [{**self._log("Archived 9 files"), "pattern": "Archived <N> files", "pattern_version": 6}] * 10
         )
 
@@ -137,7 +144,15 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         patterns = {pattern["pattern"]: pattern for pattern in results["patterns"]}
 
         assert results["source"] == "stored_patterns"
-        assert set(patterns) == {"upstream refused", "frame <num> too large", "Archived <N> files", key_set}
+        # A body past the read cap cannot be parsed, so its row stays in its key-set group.
+        assert set(patterns) == {
+            "upstream refused",
+            "frame <num> too large",
+            "Archived <N> files",
+            key_set,
+            other_key_set,
+        }
+        assert patterns[other_key_set]["count"] == 1
         assert [pattern["pattern"] for pattern in results["patterns"]].count("upstream refused") == 1
         assert patterns["upstream refused"]["count"] == 40
         assert patterns["upstream refused"]["error_count"] == 40
@@ -148,7 +163,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert all("message" not in example["body"] for example in patterns[key_set]["examples"])
         assert all(len(example["body"]) <= 4096 for example in patterns[key_set]["examples"])
         assert patterns["Archived <N> files"]["match_patterns"] == ["Archived <N> files"]
-        assert results["represented_count"] == 75
+        assert results["represented_count"] == 76
         assert results["remainder_count"] == 0
         assert [pattern["pattern"] for pattern in results["patterns"]][:2] == [
             "upstream refused",
@@ -171,7 +186,8 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        assert pivot["total_count"] == 40
+        # The regex runs on raw bodies, so it also finds the oversized row that stayed in its key-set group.
+        assert pivot["total_count"] == 41
 
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_a_sampled_json_split_reports_its_counts_as_estimates(self) -> None:

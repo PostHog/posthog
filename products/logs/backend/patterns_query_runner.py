@@ -328,6 +328,10 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         group's bodies, the same way body mining samples, recovers the messages without reading
         the bodies of the exact groups. Returns the patterns and whether any split count is a
         sampled estimate.
+
+        Bodies are read cut to `LOGS_PATTERNS_SPLIT_BODY_MAX_CHARS`, so the sample stays small
+        however large the logged records are. A cut body no longer parses as JSON, so its row stays
+        in the key-set group rather than being split by message.
         """
         candidates = [
             pattern
@@ -354,7 +358,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         rows = self._execute(
             parse_select(
                 "SELECT transform(pattern, {members}, {group_ids}, 0) AS pattern_group, "
-                "body, severity_text, service_name, timestamp "
+                "substringUTF8(body, 1, {body_max_chars}), severity_text, service_name, timestamp "
                 "FROM logs WHERE {where} AND pattern IN {members} "
                 "AND cityHash64(uuid) % transform(pattern, {members}, {divisors}, 1) = 0 "
                 "LIMIT {per_group} BY pattern_group LIMIT {limit}",
@@ -364,6 +368,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                     "group_ids": ast.Constant(value=group_ids),
                     "divisors": ast.Constant(value=member_divisors),
                     "per_group": ast.Constant(value=per_group),
+                    "body_max_chars": ast.Constant(value=_env("LOGS_PATTERNS_SPLIT_BODY_MAX_CHARS", 8192, int)),
                     "limit": ast.Constant(value=per_group * len(candidates)),
                 },
             )
