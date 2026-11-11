@@ -71,7 +71,7 @@ def check_trino_compile(request: HttpRequest, obj: Model, form: forms.Form | Non
     run_id = start_trino_compile_check(obj.pk, explain=form.cleaned_data["explain"], limit=form.cleaned_data["limit"])
     messages.success(
         request,
-        f"Started Trino compile check {run_id}. In US project 2, filter the trino_compile_check_result "
+        f"Started Trino compile check {run_id}. Filter the trino_compile_check_result "
         f"and trino_compile_check_completed events on run_id = '{run_id}'.",
     )
     return None
