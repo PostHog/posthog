@@ -7,6 +7,7 @@ import os from 'os'
 import path from 'path'
 
 import { internalFetch } from '~/common/utils/request'
+import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
 import { Environment, createEnvironment } from './environment'
@@ -367,6 +368,23 @@ describe('scenario environment', () => {
 
             expect(unmarked.exitCode).toBeNull()
             expect(() => process.kill(-unmarked.pid!, 0)).not.toThrow()
+        }, 10_000)
+
+        it('returns only once a group that ignores SIGTERM has let go of its port', async () => {
+            const stubborn = spawn(
+                process.execPath,
+                [
+                    '-e',
+                    "process.on('SIGTERM', () => {}); const server = require('http').createServer().listen(0, '127.0.0.1', () => process.stdout.write(String(server.address().port)))",
+                ],
+                { detached: true, stdio: ['ignore', 'pipe', 'ignore'] }
+            )
+            children.push(stubborn)
+            const port = Number(String((await once(stubborn.stdout!, 'data'))[0]))
+
+            await terminate({ groups: [stubborn.pid!], pids: [] }, 200)
+
+            expect(await isPortFree(port)).toBe(true)
         }, 10_000)
     })
 
