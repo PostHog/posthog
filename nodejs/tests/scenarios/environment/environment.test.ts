@@ -7,6 +7,7 @@ import net from 'net'
 import os from 'os'
 import path from 'path'
 import { setTimeout as nextTimers } from 'timers/promises'
+import { promisify } from 'util'
 
 import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
@@ -22,7 +23,7 @@ import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
-import { STACK, forgetSesBucket, membersOf, pingRedis, seekFailures, withPostgres } from './stack'
+import { STACK, forgetSesBucket, membersOf, pingRedis, scratchSchema, seekFailures, withPostgres } from './stack'
 import { createSupervisor } from './supervisor'
 
 const SELF = 100
@@ -53,9 +54,6 @@ const stateOf = (pid: number): string => {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
     return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
 }
-
-const inSchema = (url: string, schema: string): string =>
-    `${url}${url.includes('?') ? '&' : '?'}options=${encodeURIComponent(`-c search_path=${schema}`)}`
 
 const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
@@ -649,6 +647,7 @@ describe('scenario environment', () => {
     describe('up and reset', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         const realSpawn = childProcess.spawn
+        const realExecFile = childProcess.execFile as (...args: unknown[]) => ChildProcess
         const stubRolePids = new Set<number>()
         const stubRole =
             "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
@@ -666,8 +665,10 @@ describe('scenario environment', () => {
                     .once('error', () => setTimeout(bind, 20))
             bind()
         `
-        const templateSchema = `scenario_up_${process.pid}`
-        const templatesUrl = inSchema(defaultConfig.DATABASE_URL, templateSchema)
+        const templateSchema = scratchSchema(defaultConfig.DATABASE_URL, `scenario_up_${process.pid}`, [
+            'posthog_hogfunctiontemplate',
+        ])
+        const templatesUrl = templateSchema.url
         const insertTemplates = `INSERT INTO posthog_hogfunctiontemplate (id, template_id, sha, name, code, code_language, inputs_schema, type, status, category, free, created_at, updated_at) SELECT gen_random_uuid(), template_id, 'scenario', template_id, '', 'hog', '[]', 'destination', 'stable', '[]', true, now(), now() FROM unnest($1::text[]) AS template_id`
         const templatesInDjango = async (): Promise<string[]> =>
             await withPostgres(
@@ -791,8 +792,10 @@ describe('scenario environment', () => {
             const answers = path.join(__dirname, 'answers')
             fs.writeFileSync(answers, String((fs.existsSync(answers) ? Number(fs.readFileSync(answers, 'utf8')) : 0) + 1))
         `
-        const jobsSchema = `scenario_reset_${process.pid}`
-        const cyclotronUrl = inSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, jobsSchema)
+        const jobsSchema = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_reset_${process.pid}`, [
+            'cyclotron_jobs',
+        ])
+        const cyclotronUrl = jobsSchema.url
         const cyclotronFromEnv = process.env.CYCLOTRON_NODE_DATABASE_URL
         const testRedis = { host: '127.0.0.1', port: 6379 }
         const jobsLeft = async (): Promise<string[]> =>
@@ -822,6 +825,7 @@ describe('scenario environment', () => {
         let losesItsPort: Role | undefined
         let takesPortOnExit: Role | undefined
         let exitsAfterHealth: Role | undefined
+        let reachedKafka: Error | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
         const healthOf = async (role: Role): Promise<number> =>
@@ -846,31 +850,13 @@ describe('scenario environment', () => {
             })
 
         beforeAll(async () => {
-            await withPostgres(async (client) => {
-                await client.query(`DROP SCHEMA IF EXISTS ${templateSchema} CASCADE`)
-                await client.query(`CREATE SCHEMA ${templateSchema}`)
-                await client.query(
-                    `CREATE TABLE ${templateSchema}.posthog_hogfunctiontemplate (LIKE public.posthog_hogfunctiontemplate INCLUDING ALL)`
-                )
-            }, defaultConfig.DATABASE_URL)
-            await withPostgres(async (client) => {
-                await client.query(`DROP SCHEMA IF EXISTS ${jobsSchema} CASCADE`)
-                await client.query(`CREATE SCHEMA ${jobsSchema}`)
-                await client.query(
-                    `CREATE TABLE ${jobsSchema}.cyclotron_jobs (LIKE public.cyclotron_jobs INCLUDING ALL)`
-                )
-            }, defaultConfig.CYCLOTRON_NODE_DATABASE_URL)
+            await templateSchema.create()
+            await jobsSchema.create()
         })
 
         afterAll(async () => {
-            await withPostgres(
-                (client) => client.query(`DROP SCHEMA IF EXISTS ${templateSchema} CASCADE`),
-                defaultConfig.DATABASE_URL
-            )
-            await withPostgres(
-                (client) => client.query(`DROP SCHEMA IF EXISTS ${jobsSchema} CASCADE`),
-                defaultConfig.CYCLOTRON_NODE_DATABASE_URL
-            )
+            await templateSchema.drop()
+            await jobsSchema.drop()
         })
 
         beforeEach(async () => {
@@ -930,6 +916,26 @@ describe('scenario environment', () => {
                 stubRolePids.add(role.pid!)
                 return role
             }) as unknown as typeof childProcess.spawn)
+            const guardedExecFile = jest.spyOn(childProcess, 'execFile').mockImplementation(((
+                file: string,
+                ...rest: unknown[]
+            ) => {
+                if (file !== path.join(fakes, 'docker')) {
+                    reachedKafka ??= new Error(
+                        `The up test ran ${file} ${(rest[0] as string[]).join(' ')} instead of the fake docker.`
+                    )
+                    throw reachedKafka
+                }
+                return realExecFile(file, ...rest)
+            }) as unknown as typeof childProcess.execFile) as unknown as (...args: unknown[]) => ChildProcess
+            Object.defineProperty(guardedExecFile, promisify.custom, {
+                value: (...args: unknown[]) =>
+                    new Promise((resolve, reject) => {
+                        guardedExecFile(...args, (error: Error | null, stdout: string, stderr: string) =>
+                            error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr })
+                        )
+                    }),
+            })
             cacheDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
             process.env.XDG_CACHE_HOME = cacheDir
         })
@@ -957,6 +963,11 @@ describe('scenario environment', () => {
             }
             rmSync(fakes, { recursive: true, force: true })
             rmSync(cacheDir, { recursive: true, force: true })
+            const reached = reachedKafka
+            reachedKafka = undefined
+            if (reached) {
+                throw reached
+            }
         })
 
         it('waits for a dead consumer to leave the events group before it starts the roles', async () => {
@@ -1028,7 +1039,11 @@ describe('scenario environment', () => {
             await environment.up()
 
             const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
-            expect(Object.fromEntries(health)).toEqual(Object.fromEntries(CdpRole.options.map((role) => [role, 200])))
+            const edge = (await internalFetch(`${environment.edgeUrl()}/_health`)).status
+            expect({ ...Object.fromEntries(health), edge }).toEqual({
+                ...Object.fromEntries(CdpRole.options.map((role) => [role, 200])),
+                edge: 200,
+            })
         }, 30_000)
 
         it.each<[string, Role, () => void]>([

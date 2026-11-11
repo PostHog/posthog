@@ -31,6 +31,7 @@ export type { RoleExit } from './supervisor'
 export interface Environment {
     up(): Promise<void>
     reset(settings: Profile['settings']): Promise<void>
+    edgeUrl(): string
     role(name: Role): RoleHandle
     health(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
@@ -105,9 +106,7 @@ export function createEnvironment({
         },
 
         async reset(settings) {
-            if (!edge) {
-                throw new Error('Start the environment with up() before reset().')
-            }
+            const edge = startedEdge('reset')
             const exitsBefore = supervisor.exits().length
             await supervisor.stop()
             const specs = roleSpecs(env, edge.url, secrets, settings, sesRateLimiterValkey)
@@ -135,6 +134,8 @@ export function createEnvironment({
             await untilHealthy(specs, exitsBefore)
         },
 
+        edgeUrl: () => startedEdge('edgeUrl').url,
+
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
 
         async health() {
@@ -145,6 +146,13 @@ export function createEnvironment({
         exits: (): RoleExit[] => supervisor.exits(),
 
         down: stop,
+    }
+
+    function startedEdge(caller: string): ProviderEdge {
+        if (!edge) {
+            throw new Error(`Start the environment with up() before ${caller}().`)
+        }
+        return edge
     }
 
     async function untilHealthy(specs: RoleSpec[], exitsBefore: number): Promise<void> {
