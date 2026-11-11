@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
-import { KAFKA_CDP_EVENTS_DLQ, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
+import { KAFKA_CDP_EVENTS_DLQ, KAFKA_CDP_QUARANTINE, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -127,11 +127,11 @@ describe('CDP dead-letter replay', () => {
     }
 
     /** Reads the parked records back off the topic, waiting until the consumer has produced them. */
-    const readDlqRecords = async (expected = 1): Promise<Message[]> => {
+    const readDlqRecords = async (expected = 1, topic = dlqTopic): Promise<Message[]> => {
         const consumer = new KafkaConsumer(
             {
-                topic: dlqTopic,
-                groupId: `e2e-read-${dlqTopic}-${++readCount}`,
+                topic,
+                groupId: `e2e-read-${topic}-${++readCount}`,
                 autoCommit: false,
                 autoOffsetStore: false,
             },
@@ -482,6 +482,48 @@ describe('CDP dead-letter replay', () => {
         await expect(replayConsumer.replayBatch(records)).rejects.toThrow()
         expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
     })
+
+    it('quarantines a record it cannot rebuild and replays the records behind it', async () => {
+        const quarantineTopic = createKafkaTestTopicName(KAFKA_CDP_QUARANTINE)
+        await ensureKafkaTopics([quarantineTopic])
+        hub.CDP_POISON_QUARANTINE_ENABLED = true
+        hub.CDP_QUARANTINE_TOPIC = quarantineTopic
+        const broken = await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'destination',
+            inputs_schema: HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema,
+            inputs: { ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs, ...BROKEN_INPUTS },
+        })
+
+        const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
+        const postgresQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        await startEventsConsumer({ hogQueue: kafkaQueue, hogflowQueue: postgresQueue })
+        const unreadable = Buffer.from(`not an event at all ${randomUUID()}`)
+        await kafkaProducer.produce({ topic: eventsTopic, value: unreadable, key: null })
+        await kafkaProducer.flush()
+        await parkEvent(2)
+
+        await repairInputs(broken)
+        cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
+        await cyclotronWorker.start()
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: kafkaQueue,
+            hogflowQueue: postgresQueue,
+        })
+        await replayConsumer.start()
+
+        await waitForExpect(() => {
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        }, 30000)
+        expect(mockFetch.mock.calls[0][0]).toBe('https://example.com/posthog-webhook')
+
+        const [quarantined] = await readDlqRecords(1, quarantineTopic)
+        expect(quarantined.value).toEqual(unreadable)
+        const headers = Object.assign({}, ...(quarantined.headers ?? []).map((h: any) => h))
+        expect(headers.dlq_step.toString()).toBe('parse')
+        expect(headers.quarantine_may_have_side_effects.toString()).toBe('false')
+    }, 60000)
 
     it('drains records that were parked long before it ever joined the topic', async () => {
         // The deployment sits at zero replicas, so records always land before the worker connects.

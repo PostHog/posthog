@@ -6,7 +6,7 @@ import type { RdKafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 
-import { HealthCheckResult, PluginsServerConfig } from '../../types'
+import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import type { InvocationFailureSink } from '../services/dead-letter/cdp-dead-letter.service'
 import {
     DeadLetterRecord,
@@ -20,6 +20,7 @@ import {
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { PoisonQuarantine } from '../services/poison-quarantine/poison-quarantine'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType, InvocationBuildFailure } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -109,6 +110,7 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
     private hogFunctionPipeline: HogFunctionInvocationPipeline
     private hogFlowPipeline: HogFlowInvocationPipeline
     private buildFailures = new ReplayFailureCollector()
+    private poisonQuarantine: PoisonQuarantine
 
     public readonly counts: CdpDlqReplayCounts = { replayed: 0, queued: 0 }
 
@@ -132,6 +134,7 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             'auto.offset.reset': 'earliest',
         } as RdKafkaConsumerConfig)
 
+        this.poisonQuarantine = new PoisonQuarantine(config, this.outputs)
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager: this.hogFunctionManager,
             hogInputsService: this.hogInputsService,
@@ -163,23 +166,44 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
     /**
      * Rebuilds one batch and queues the invocations.
      *
-     * Everything here either succeeds for every record in the batch or throws. A record that cannot
-     * be rebuilt — bytes that will not parse, a team that no longer exists — throws like any other
-     * failure, so the offset stays put and the worker blocks on it. An operator turns the worker
-     * off and either fixes forward or moves the group's offset past that record by hand.
+     * Everything here either succeeds for every record in the batch or throws, so a destination that
+     * still fails to build blocks the worker until the fix is out. A record that cannot be rebuilt
+     * from its own bytes or headers is different: no deploy of this worker changes what it reads.
+     * With CDP_POISON_QUARANTINE_ENABLED it moves to the quarantine topic, bytes and headers intact,
+     * and the rest of the batch replays. Without it, it throws and an operator moves the group's
+     * offset past it by hand.
      */
     public async replayBatch(messages: Message[]): Promise<void> {
         this.buildFailures.clear()
-        const selected: { message: Message; record: DeadLetterRecord }[] = []
+        const unrebuildable: { message: Message; reason: string }[] = []
+        const selected: { message: Message; record: DeadLetterRecord; event: RawClickHouseEvent }[] = []
         for (const message of messages) {
             const record = readDeadLetterRecord(message)
-            if (!record) {
-                throw new Error(
-                    `Dead-letter record at ${message.topic}:${message.partition}:${message.offset} has no ` +
-                        'dlq_step header, so there is nothing to rebuild from it'
-                )
+            const event = record ? readEventOrNull(message) : null
+            if (record && event) {
+                selected.push({ message, record, event })
+                continue
             }
-            selected.push({ message, record })
+            const reason = record
+                ? `Could not rebuild an event from ${positionOf(message)} — ` +
+                  'refusing to commit past a parked event that was never replayed'
+                : `Dead-letter record at ${positionOf(message)} has no dlq_step header, so there is nothing to rebuild from it`
+            if (!this.poisonQuarantine.enabled) {
+                throw new Error(reason)
+            }
+            unrebuildable.push({ message, reason })
+        }
+
+        await Promise.all(
+            unrebuildable.map(({ message, reason }) =>
+                this.poisonQuarantine.quarantine(message, reason, {
+                    consumerGroup: REPLAY_GROUP_ID,
+                    mayHaveSideEffects: false,
+                })
+            )
+        )
+        if (unrebuildable.length) {
+            counterReplayRecords.labels({ outcome: 'quarantined' }).inc(unrebuildable.length)
         }
         if (!selected.length) {
             return
@@ -201,7 +225,7 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         const kindsByEvent = new Map<HogFunctionInvocationGlobals, Set<SourceKind> | null>()
         const globalsList: HogFunctionInvocationGlobals[] = []
 
-        const resolved = await Promise.all(selected.map(({ message }) => this.toGlobals(message)))
+        const resolved = await Promise.all(selected.map(({ event }) => this.toGlobals(event)))
 
         let teamMissing = 0
         for (const [index, { message, record }] of selected.entries()) {
@@ -209,12 +233,6 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             if (globals === TEAM_MISSING) {
                 teamMissing += 1
                 continue
-            }
-            if (!globals) {
-                throw new Error(
-                    `Could not rebuild an event from ${message.topic}:${message.partition}:${message.offset} — ` +
-                        'refusing to commit past a parked event that was never replayed'
-                )
             }
             const targets = replayTargetIds(record)
             const kinds = replayTargetKinds(record)
@@ -344,11 +362,7 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
      * committing past it. A team that no longer exists is the exception: no fix brings its events
      * back, so the caller counts the record and moves on.
      */
-    private async toGlobals(message: Message): Promise<HogFunctionInvocationGlobals | typeof TEAM_MISSING | null> {
-        const event = readParkedEvent(message)
-        if (!event) {
-            return null
-        }
+    private async toGlobals(event: RawClickHouseEvent): Promise<HogFunctionInvocationGlobals | typeof TEAM_MISSING> {
         // getTeam throws when the lookup fails, so null means the team is gone and so is any chance
         // of delivering its events.
         const team = await this.deps.teamManager.getTeam(event.team_id)
@@ -391,4 +405,16 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
     public isHealthy(): HealthCheckResult {
         return this.kafkaConsumer.isHealthy()
     }
+}
+
+function readEventOrNull(message: Message): RawClickHouseEvent | null {
+    try {
+        return readParkedEvent(message)
+    } catch {
+        return null
+    }
+}
+
+function positionOf(message: Message): string {
+    return `${message.topic}:${message.partition}:${message.offset}`
 }

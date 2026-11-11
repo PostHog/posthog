@@ -49,8 +49,12 @@ export class PoisonQuarantine {
         private outputs: CdpOutputs
     ) {}
 
+    public get enabled(): boolean {
+        return this.config.CDP_POISON_QUARANTINE_ENABLED
+    }
+
     public wrap(handler: EachBatchHandler, source: QuarantineSource): EachBatchHandler {
-        if (!this.config.CDP_POISON_QUARANTINE_ENABLED) {
+        if (!this.enabled) {
             return handler
         }
         return async (messages) => {
@@ -97,7 +101,7 @@ export class PoisonQuarantine {
         }
     }
 
-    private async quarantine(message: Message, error: unknown, source: QuarantineSource): Promise<void> {
+    public async quarantine(message: Message, error: unknown, source: QuarantineSource): Promise<void> {
         await this.outputs.produce(CDP_QUARANTINE_OUTPUT, {
             value: message.value,
             key: message.key ?? null,
