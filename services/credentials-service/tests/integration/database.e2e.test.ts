@@ -24,8 +24,8 @@ import { runMigrations } from '@/db/migrate'
 import type { Config, DatabaseConfig, KmsConfig } from '@/lib/config'
 import { CredentialsServer } from '@/server'
 
-const MIGRATIONS = ['1794323815130_initial-schema']
-const TABLES = ['audit_log', 'audit_log_default', 'idempotency_keys', 'integration_secrets', 'integrations']
+const MIGRATIONS = ['1794323815130_initial-schema', '1794323815131_runtime-role-grants']
+const TABLES = ['audit_log', 'audit_log_default', 'auth_jti', 'idempotency_keys', 'integration_secrets', 'integrations']
 const TEAM: IntegrationOwner = { type: 'team', id: 1 }
 const OTHER_TEAM: IntegrationOwner = { type: 'team', id: 2 }
 
@@ -82,6 +82,56 @@ describe('migrations', () => {
 
         expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual(MIGRATIONS)
         expect(await tables(url)).toEqual(TABLES)
+    })
+})
+
+describe('runtime role grants', () => {
+    const ROLE = 'credentials_runtime_test'
+    let runtime: Pool
+
+    beforeAll(async () => {
+        await pool.query(`CREATE ROLE ${ROLE} LOGIN PASSWORD 'not-a-real-password'`)
+        const url = await createDatabase('runtime_role_grants')
+        await runMigrations({ databaseUrl: url, direction: 'up', runtimeRole: ROLE })
+        const runtimeUrl = new URL(url)
+        runtimeUrl.username = ROLE
+        runtimeUrl.password = 'not-a-real-password'
+        runtime = new Pool({ connectionString: runtimeUrl.toString() })
+    })
+
+    afterAll(async () => {
+        await runtime?.end()
+    })
+
+    it('lets the runtime role write the integration tables and the replay table', async () => {
+        await runtime.query(
+            `INSERT INTO integrations (owner_type, owner_id, kind, auth_type) VALUES ('team', 1, 'slack', 'oauth')`
+        )
+        await runtime.query(`UPDATE integrations SET errors = 'x'`)
+        await runtime.query(`INSERT INTO auth_jti (deployment, jti, expires_at) VALUES ('d', 'j', now())`)
+        await runtime.query(`DELETE FROM auth_jti WHERE expires_at <= now()`)
+        await runtime.query(`DELETE FROM integrations`)
+    })
+
+    it('lets the runtime role append to and read the audit log', async () => {
+        await runtime.query(`INSERT INTO audit_log (deployment, operation, outcome) VALUES ('d', 'read', 'ok')`)
+        const result = await runtime.query(`SELECT count(*)::int AS n FROM audit_log`)
+        expect(result.rows[0].n).toBeGreaterThan(0)
+    })
+
+    it.each([
+        ['UPDATE', `UPDATE audit_log SET outcome = 'forged'`],
+        ['DELETE', `DELETE FROM audit_log`],
+        ['TRUNCATE', `TRUNCATE audit_log`],
+        ['UPDATE on the default partition', `UPDATE audit_log_default SET outcome = 'forged'`],
+        ['DELETE on the default partition', `DELETE FROM audit_log_default`],
+    ])('refuses %s on the audit log for the runtime role', async (_label, sql) => {
+        await expect(runtime.query(sql)).rejects.toThrow(/permission denied/)
+    })
+
+    it('skips the grants when no runtime role is given', async () => {
+        const url = await createDatabase('runtime_role_unset')
+        expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual(MIGRATIONS)
     })
 })
 

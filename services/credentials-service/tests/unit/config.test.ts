@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { loadConfig } from '@/lib/config'
+import { loadConfig, loadMigrateConfig } from '@/lib/config'
 
 const VAR = 'CREDENTIALS_SERVICE_RELOAD_SECONDS'
 
@@ -176,5 +176,46 @@ describe('loadConfig database', () => {
         process.env.CREDENTIALS_SERVICE_DATABASE_URL = URL
         process.env.CREDENTIALS_SERVICE_DATABASE_POOL_SIZE = size
         expect(() => loadConfig()).toThrow('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE')
+    })
+})
+
+describe('loadMigrateConfig', () => {
+    const VARS = [
+        'CREDENTIALS_SERVICE_DATABASE_URL',
+        'CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL',
+        'CREDENTIALS_SERVICE_RUNTIME_ROLE',
+    ]
+
+    afterEach(() => {
+        for (const key of VARS) {
+            delete process.env[key]
+        }
+    })
+
+    it.each([
+        ['nothing set', {}, undefined],
+        [
+            'only the runtime URL',
+            { CREDENTIALS_SERVICE_DATABASE_URL: 'postgres://runtime' },
+            { url: 'postgres://runtime', runtimeRole: '' },
+        ],
+        [
+            'the migrate URL wins over the runtime URL',
+            {
+                CREDENTIALS_SERVICE_DATABASE_URL: 'postgres://runtime',
+                CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL: 'postgres://migrate',
+                CREDENTIALS_SERVICE_RUNTIME_ROLE: 'svc_runtime',
+            },
+            { url: 'postgres://migrate', runtimeRole: 'svc_runtime' },
+        ],
+    ])('%s', (_label, env, expected) => {
+        Object.assign(process.env, env)
+        expect(loadMigrateConfig()).toEqual(expected)
+    })
+
+    it.each(['bad role', 'role;DROP', '1role'])('rejects the role name %j', (role) => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE = role
+        expect(() => loadMigrateConfig()).toThrow('CREDENTIALS_SERVICE_RUNTIME_ROLE')
     })
 })
