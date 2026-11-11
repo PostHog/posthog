@@ -1395,6 +1395,8 @@ class AlertDestinationData(TypedDict):
     pagerduty_severity: NotRequired[str]
     pagerduty_region: NotRequired[str]
     email_addresses: NotRequired[list[str]]
+    # Users rather than addresses, so a send reaches each one's current address, and only while they have access.
+    email_user_ids: NotRequired[list[int]]
     in_app_user_ids: NotRequired[list[int]]
     # What an in-app notification is about, so the inbox applies its access rules for that resource.
     in_app_resource_type: NotRequired[str]
@@ -1581,6 +1583,12 @@ class AlertDelivery:
     at: str  # ISO-8601 timestamp
 
 
+class LiveHogFunctionLookup(Protocol):
+    """Which of these HogFunctions still exist, enabled or not. The product that owns them registers it."""
+
+    def __call__(self, *, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]: ...
+
+
 class DestinationResolver(Protocol):
     """The lookup the product that owns destinations registers for native delivery."""
 
@@ -1671,6 +1679,16 @@ class SourceRecipients(Protocol):
     """
 
     def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
+
+
+class SubscriberAccess(Protocol):
+    """Which of these users may still hear about an alert, by the source's own access rules.
+
+    The platform has already kept only users who can view the alert's project. The source adds what
+    only it knows, such as access to the insight an insight alert watches.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> Collection[int]: ...
 
 
 class SourceAlertCreator(Protocol):
