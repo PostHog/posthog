@@ -3,7 +3,9 @@ import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
 import { KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
+import { ProducerMessage } from '~/common/kafka/producer'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
@@ -21,7 +23,8 @@ describe('CohortMembershipSweeper', () => {
     const TEAM_ID = 4242
     const COHORT_ID = 91204
     const MARKER_VERSION = '2026-05-26 12:30:00.000000'
-    const THRESHOLD = '2026-05-26 12:00:00.000000'
+    // Microseconds that a millisecond-precision value cannot carry.
+    const THRESHOLD = '2026-05-26 12:00:00.123456'
     const BELOW_THRESHOLD = '2026-05-26 11:00:00.000000'
     const ABOVE_THRESHOLD = '2026-05-26 13:00:00.000000'
     /** What the column defaults to, so it is what every row written before the feature reads as. */
@@ -42,6 +45,8 @@ describe('CohortMembershipSweeper', () => {
     let sweeper: CohortMembershipSweeper
     let watermarks: MembershipWatermarks
     let captureFailure: Error | null
+    let produced: ProducerMessage[]
+    let produceFailure: Error | null
     let runId: string
 
     beforeEach(async () => {
@@ -49,6 +54,8 @@ describe('CohortMembershipSweeper', () => {
         await resetBehavioralCohortsDatabase(postgres)
         watermarks = { 0: 10 }
         captureFailure = null
+        produced = []
+        produceFailure = null
         runId = new UUIDT().toString()
         sweeper = new CohortMembershipSweeper(config, postgres, {
             cluster: CLUSTER,
@@ -56,6 +63,15 @@ describe('CohortMembershipSweeper', () => {
             captureMembershipWatermarks: () =>
                 captureFailure ? Promise.reject(captureFailure) : Promise.resolve(watermarks),
             refreshConsumerProgress: () => Promise.resolve(),
+            producer: {
+                produce: (message) => {
+                    if (produceFailure) {
+                        return Promise.reject(produceFailure)
+                    }
+                    produced.push(message)
+                    return Promise.resolve()
+                },
+            },
         })
     })
 
@@ -116,14 +132,14 @@ describe('CohortMembershipSweeper', () => {
     }
 
     /** A run whose markers are all in, with a snapshot minimum already folded in by the consumer. */
-    const readyRun = async (): Promise<void> => {
+    const readyRun = async (run = runId, cohortId = COHORT_ID): Promise<void> => {
         await query(
             `INSERT INTO cohort_membership_sweeps
                 (run_id, cohort_id, team_id, marker_bits, min_marker_version, min_snapshot_version,
                  membership_hwms, membership_cluster, membership_topic, status, ready_at)
              VALUES ($1, $2, $3, -1, $4::timestamp, $5::timestamp, $6::jsonb, $7, $8, 'ready',
                      CURRENT_TIMESTAMP)`,
-            [runId, COHORT_ID, TEAM_ID, MARKER_VERSION, THRESHOLD, JSON.stringify(watermarks), CLUSTER, TOPIC]
+            [run, cohortId, TEAM_ID, MARKER_VERSION, THRESHOLD, JSON.stringify(watermarks), CLUSTER, TOPIC]
         )
     }
 
@@ -263,20 +279,94 @@ describe('CohortMembershipSweeper', () => {
         // A row written before the feature sorts below every producer stamp, so the run that did
         // not re-assert it deletes it. Those rows are most of what the first sweep has to remove.
         const preFeature = await insertMembership(TEAM_ID, COHORT_ID, UNVERSIONED)
+        // The floor in the log hides this row, so Postgres has to delete it too.
+        const justBelow = await insertMembership(TEAM_ID, COHORT_ID, '2026-05-26 12:00:00.123455')
         const asserted = await insertMembership(TEAM_ID, COHORT_ID, THRESHOLD)
         const liveChange = await insertMembership(TEAM_ID, COHORT_ID, ABOVE_THRESHOLD)
         const otherCohort = await insertMembership(TEAM_ID, COHORT_ID + 1, BELOW_THRESHOLD)
         const otherTeam = await insertMembership(TEAM_ID + 1, COHORT_ID, BELOW_THRESHOLD)
 
-        expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 4 })
+        expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 5 })
 
         const surviving = await survivingPersonIds()
         expect(surviving).toEqual([asserted, liveChange, otherCohort, otherTeam].sort((a, b) => a.localeCompare(b)))
-        expect(surviving).not.toEqual(expect.arrayContaining([stale1, stale2, stale3, preFeature]))
-        expect(await readSweep()).toMatchObject({ status: 'swept', swept_rows: '4' })
+        expect(surviving).not.toEqual(expect.arrayContaining([stale1, stale2, stale3, preFeature, justBelow]))
+        expect(await readSweep()).toMatchObject({ status: 'swept', swept_rows: '5' })
 
         // A second cycle must not re-sweep a finished run.
         expect(await sweeper.runOnce()).toMatchObject({ swept: 0, rowsDeleted: 0 })
+    })
+
+    const producedFloors = (): Record<string, unknown>[] =>
+        produced.map((message) => ({
+            topic: message.topic,
+            partition: message.partition,
+            floor: parseJSON(String(message.value)),
+        }))
+
+    it('should publish the floor to every captured partition before the first delete', async () => {
+        // Partition 1 never had a message, but a reader still needs its copy to complete the set.
+        watermarks = { 0: 10, 1: 0, 2: 7 }
+        await readyRun()
+        await openGate()
+        const stale = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+
+        let producedByFirstDelete: number | undefined
+        afterEachDeletePage((page) => {
+            if (page === 1) {
+                producedByFirstDelete = produced.length
+            }
+        })
+
+        expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 1 })
+        expect(await survivingPersonIds()).not.toContain(stale)
+        expect(producedByFirstDelete).toBe(3)
+        expect(producedFloors()).toEqual(
+            [0, 1, 2].map((partition) => ({
+                topic: TOPIC,
+                partition,
+                floor: {
+                    type: 'sweep_floor',
+                    team_id: TEAM_ID,
+                    cohort_id: COHORT_ID,
+                    run_id: runId,
+                    threshold: THRESHOLD,
+                    partitions: 3,
+                },
+            }))
+        )
+    })
+
+    it('should delete nothing when the floor fails to publish, and publish the same floor on the next claim', async () => {
+        await readyRun()
+        const queuedRunId = new UUIDT().toString()
+        await readyRun(queuedRunId, COHORT_ID + 1)
+        await openGate()
+        const stale = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+
+        produceFailure = new Error('broker unavailable')
+
+        expect(await sweeper.runOnce()).toMatchObject({ swept: 0, rowsDeleted: 0 })
+        expect(await survivingPersonIds()).toEqual([stale])
+        expect(await readSweep()).toMatchObject({ status: 'ready' })
+        // The queued run publishes to the same partitions, so the tick stops before claiming it.
+        expect(
+            await query('SELECT status, floor_threshold FROM cohort_membership_sweeps WHERE run_id = $1', [queuedRunId])
+        ).toEqual([{ status: 'ready', floor_threshold: null }])
+
+        // Some copies of the failed publish may be in the log already. A threshold recomputed
+        // from this lower minimum would keep the stale row, which those copies hide.
+        await query(`UPDATE cohort_membership_sweeps SET min_snapshot_version = $2::timestamp WHERE run_id = $1`, [
+            runId,
+            '2026-05-26 10:00:00.000000',
+        ])
+        produceFailure = null
+
+        expect(await sweeper.runOnce()).toMatchObject({ swept: 2, rowsDeleted: 1 })
+        expect(await survivingPersonIds()).toEqual([])
+        expect(producedFloors()).toContainEqual(
+            expect.objectContaining({ floor: expect.objectContaining({ run_id: runId, threshold: THRESHOLD }) })
+        )
     })
 
     it.each([
@@ -286,6 +376,9 @@ describe('CohortMembershipSweeper', () => {
         // repoint or a topic change must not sweep on the watermarks it captured before it.
         ['its watermarks came from another cluster', `membership_cluster = 'moved-cluster'`],
         ['its watermarks came from another topic', `membership_topic = 'moved_topic'`],
+        // A reconcile change with no usable version collapses the threshold to the sentinel, so
+        // there is no bound to publish a floor at.
+        ['its snapshot carried a change with no usable version', `min_snapshot_version = '-infinity'`],
     ])('should refuse to sweep a run when %s', async (_label, damage) => {
         watermarks = { 0: 10 }
         await readyRun()
@@ -297,17 +390,21 @@ describe('CohortMembershipSweeper', () => {
 
         expect(await sweeper.runOnce()).toMatchObject({ swept: 0, rowsDeleted: 0 })
         expect(await survivingPersonIds()).toEqual([live, stale].sort((a, b) => a.localeCompare(b)))
+        expect(produced).toEqual([])
     })
 
-    it('should reclaim a sweep whose pod died mid-run', async () => {
+    it('should reclaim a sweep whose pod died mid-run, even after the feed moved', async () => {
         await readyRun()
         await openGate()
         const stale = await insertMembership(TEAM_ID, COHORT_ID, BELOW_THRESHOLD)
+        // The dead pod froze the threshold and may have published the floor, so the gate, which
+        // refuses a run from another feed, must not hold the delete back.
         await query(
             `UPDATE cohort_membership_sweeps
-             SET status = 'sweeping', claimed_at = CURRENT_TIMESTAMP - INTERVAL '1 hour'
+             SET status = 'sweeping', claimed_at = CURRENT_TIMESTAMP - INTERVAL '1 hour',
+                 floor_threshold = $2::timestamp, membership_cluster = 'moved-cluster'
              WHERE run_id = $1`,
-            [runId]
+            [runId, THRESHOLD]
         )
 
         expect(await sweeper.runOnce()).toMatchObject({ swept: 1, rowsDeleted: 1 })
@@ -423,6 +520,18 @@ describe('CohortMembershipSweeper', () => {
                      CURRENT_TIMESTAMP - INTERVAL '31 days')`,
             [expiredRunId, COHORT_ID + 3, TEAM_ID]
         )
+        // Its floor may already be in the log, so the delete has to finish however old the run is.
+        // The live claim keeps this cycle's sweep away from it.
+        const flooredRunId = new UUIDT().toString()
+        await query(
+            `INSERT INTO cohort_membership_sweeps
+                (run_id, cohort_id, team_id, marker_bits, min_marker_version, min_snapshot_version,
+                 floor_threshold, membership_hwms, status, ready_at, claimed_at, created_at, updated_at)
+             VALUES ($1, $2, $3, -1, $4::timestamp, $5::timestamp, $5::timestamp, $6::jsonb, 'sweeping',
+                     CURRENT_TIMESTAMP - INTERVAL '31 days', CURRENT_TIMESTAMP,
+                     CURRENT_TIMESTAMP - INTERVAL '31 days', CURRENT_TIMESTAMP - INTERVAL '31 days')`,
+            [flooredRunId, COHORT_ID + 5, TEAM_ID, MARKER_VERSION, THRESHOLD, JSON.stringify({ 0: 10 })]
+        )
 
         // GC hygiene rides the same cycle: a terminal ledger row and a progress row past the
         // marker-retention horizon are deleted, while recent rows survive. The progress bound is
@@ -458,7 +567,7 @@ describe('CohortMembershipSweeper', () => {
             (
                 await query<{ run_id: string; status: string }>(
                     'SELECT run_id, status FROM cohort_membership_sweeps WHERE run_id = ANY($1)',
-                    [[blockedRunId, unpromotedRunId, expiredRunId]]
+                    [[blockedRunId, unpromotedRunId, expiredRunId, flooredRunId]]
                 )
             ).map((row) => [row.run_id, row.status])
         )
@@ -466,6 +575,7 @@ describe('CohortMembershipSweeper', () => {
             [blockedRunId]: 'ready',
             [unpromotedRunId]: 'collecting',
             [expiredRunId]: 'abandoned',
+            [flooredRunId]: 'sweeping',
         })
     })
 })

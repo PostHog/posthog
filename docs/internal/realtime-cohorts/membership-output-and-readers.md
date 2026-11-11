@@ -125,14 +125,16 @@ The consumer checks only the format, and it skips the check for an empty string.
 So an empty string, or a value in the right format that Postgres cannot read as a timestamp, such as one with a thirteenth month, reaches the database and fails the whole batch.
 
 A message whose JSON has a string `type` field is a control record, not a change.
+The sweep produces one kind, the [floor record](#the-floor-record).
 The consumer skips it, whatever the type, and its offset still counts toward the consumer's progress.
 Any other message that fails validation fails the whole batch every time.
 There is no dead-letter queue, so a malformed message stops the feed until it is skipped or the code is fixed.
 
 The topic's other Node readers, the workflow trigger consumer and the subscription matcher, skip a malformed message and count a parse error.
 They skip a control record without counting one.
-The Kafka tables that fill the legacy ClickHouse `cohort_membership` table read this topic too, and they store a control record as an `entered` row with a zero person id.
-So nothing may produce a control record while they still read the topic.
+Outside cloud, the Kafka table that fills the legacy ClickHouse `cohort_membership` table reads this topic too, and it stores a control record as an `entered` row with a zero person id.
+So on a local stack with the sweep on, each floor record adds such a row.
+In cloud, that table's Kafka table reads another cluster, where the sweep produces nothing.
 
 ## Mark and sweep
 
@@ -150,10 +152,10 @@ stateDiagram-v2
     collecting --> ready: all 64 markers,<br/>topic ends captured
     ready --> sweeping: consumer has applied<br/>up to the captured ends
     sweeping --> swept: no row below the threshold
-    sweeping --> ready: interrupted, or rows locked
+    sweeping --> ready: interrupted, rows locked,<br/>or the floor failed to publish
     collecting --> abandoned: no progress for days, or too old
-    ready --> abandoned: too old
-    sweeping --> abandoned: too old, or no usable threshold
+    ready --> abandoned: too old, and never claimed
+    sweeping --> abandoned: no usable threshold
 ```
 
 A ledger row per `(run, cohort)` tracks the process.
@@ -169,7 +171,10 @@ A ledger row per `(run, cohort)` tracks the process.
    Sweeping earlier would delete rows whose reconcile copies are still queued.
 4. **Sweep.**
    The **threshold** is the lower of the snapshot minimum and the marker minimum.
-   The sweeper deletes the cohort's rows with a version below the threshold, in small pages, skipping rows another writer has locked.
+   The first claim freezes it in the ledger row's `floor_threshold`, and every later claim of the run uses that value.
+   The sweeper produces a [floor record](#the-floor-record) to every partition named in the captured ends, and waits until the broker acknowledges each one.
+   If any produce fails, the sweeper deletes nothing and the run goes back to `ready`.
+   Then the sweeper deletes the cohort's rows with a version below the threshold, in small pages, skipping rows another writer has locked.
    A row the consumer refreshed in the meantime has a newer version and survives.
 5. **Swept.**
    When no row below the threshold remains, the run is done.
@@ -184,6 +189,36 @@ A run that an edit superseded after its reconcile was dispatched can still colle
 The processor withholds the remaining requests only when the edit moved the shape hash of the run's kind, after a catalog refresh that began after each request arrived, and it cannot take back markers it already produced.
 A run with every marker sweeps like any other run.
 A run whose markers stay incomplete never leaves `collecting`, and it is abandoned after a few days.
+
+### The floor record
+
+The sweep is the one change to the table that the topic does not carry as a membership change.
+The floor record puts it on the topic, so a reader of the topic can apply the sweep's deletes without reading Postgres:
+
+```json
+{
+  "type": "sweep_floor",
+  "team_id": 7,
+  "cohort_id": 42,
+  "run_id": "01928c3e-...",
+  "threshold": "2026-09-21 03:00:00.214331",
+  "partitions": 64
+}
+```
+
+It means that the cohort's rows with a version below `threshold` are void.
+`threshold` carries all six fractional digits, and the delete uses the same value.
+`partitions` is the number of copies, one for each partition of the membership topic when the run captured its ends.
+
+The sweeper produces every copy after it captured those ends, so in each partition the copy comes after every row of the run's snapshot.
+A reader that applies the floor only when it holds a copy from each of `partitions` distinct partitions has read every row the run re-asserted by then.
+A reader that applies it earlier can hide a person whose reconcile row is in a partition the reader has not reached.
+
+A failed publish puts some copies on the topic and deletes nothing.
+The next claim publishes the same frozen threshold again, so one partition can hold several copies, always with the same value.
+So a reader counts distinct partitions, not copies.
+
+A run with a frozen threshold is never abandoned for its age, and the gate does not hold it back again, so the delete follows its floor even after the consumer moves to another feed.
 
 ### What the table converges to
 
@@ -298,7 +333,8 @@ On 2026-09-21 at 03:00 a reconcile runs for cohort 42.
 3. All 64 markers arrive.
    At its next tick, the sweeper records the membership topic's ends and waits until the consumer has applied up to them.
 4. Assuming no marker is older, the threshold is 03:00:00.214331.
-   The sweeper deletes cohort 42's rows with an older version: p-3's row goes.
+   The sweeper produces a floor with that threshold to every partition of the membership topic.
+   Then it deletes cohort 42's rows with an older version: p-3's row goes.
    p-1 and p-2 are newer and stay.
 
 **A flag request.**
