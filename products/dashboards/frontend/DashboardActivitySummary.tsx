@@ -45,8 +45,8 @@ function SummaryContent({
             <li>
                 {summary.last_viewed_by_others_at ? (
                     <>
-                        Last opened by someone else {dayjs(summary.last_viewed_by_others_at).fromNow()}
-                        {byUser(summary.last_viewed_by_others_user)}
+                        Last opened{byUser(summary.last_viewed_by_others_user)}{' '}
+                        {dayjs(summary.last_viewed_by_others_at).fromNow()}
                     </>
                 ) : (
                     'No one else has opened it'
