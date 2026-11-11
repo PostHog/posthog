@@ -102,6 +102,7 @@
 - Simplify before opening: if your agent has a behavior-preserving cleanup pass (Claude Code: `/simplify`), run it on a non-trivial diff before final tests and preflight, since it edits the tree. Skip it for small mechanical changes.
 - Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need an automatic review.
+- Security review: when you mark any PR ready for review, check it against the list in `.agents/security.md`, "Requesting a security review". If it matches, add the `security-review` label.
 - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.
 - If a human directed this work, assign them as the PR assignee (the DRI) — actually set the assignee, don't just name them here. Leave a PR unassigned only when it is fully autonomous with no human driver (set Autonomy to "Fully autonomous").
 - Never write a GitHub @mention or username you have not verified this session. Resolve a real handle from `gh api user` (current user) or the PR's actual author/assignee via `gh pr view --json author,assignees` — never infer a handle from a display name.
