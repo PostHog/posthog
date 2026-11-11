@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { HogError } from '@/core/errors'
+import { failureText, HogError } from '@/core/errors'
 import { hasLogin, writeLoginToConfig } from '@/posthog/login/finish'
 
 import { productIntent, productLabel } from '../products'
@@ -28,7 +28,7 @@ async function recordIntents(run: SetupRun): Promise<void> {
     results.forEach((result, index) => {
         const id = products[index]
         if (result.status === 'rejected' && id !== undefined) {
-            const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
+            const reason = failureText(result.reason, run.ctx.mode.isCI)
             run.context.warnings.push(`PostHog didn't record your interest in ${productLabel(id)}: ${reason}`)
         }
     })
