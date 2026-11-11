@@ -30,6 +30,7 @@ from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannel
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
 from .team_conversations_ticket_config import TeamConversationsTicketConfig
 from .ticket import Ticket
+from .ticket_macro import TicketMacro
 from .ticket_view import TicketView
 from .ticket_view_favorite import TicketViewFavorite
 from .zendesk_import_job import ZendeskImportJob
@@ -72,6 +73,7 @@ __all__ = [
     "TeamConversationsTicketConfig",
     "Ticket",
     "TicketAssignment",
+    "TicketMacro",
     "TicketView",
     "TicketViewFavorite",
     "ZendeskImportJob",

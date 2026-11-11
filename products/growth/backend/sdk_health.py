@@ -48,6 +48,7 @@ DESKTOP_SDKS: frozenset[str] = frozenset(
         "posthog-node",
         "posthog-python",
         "posthog-php",
+        "posthog-laravel",
         "posthog-ruby",
         "posthog-go",
         "posthog-server",
@@ -63,6 +64,7 @@ DESKTOP_SDKS: frozenset[str] = frozenset(
         "posthog-rs-mcp",
         "posthog-go-mcp",
         "posthog-ruby-mcp",
+        "posthog-roblox",
         "js",
     }
 )
@@ -75,6 +77,7 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-node": "Node.js",
     "posthog-python": "Python",
     "posthog-php": "PHP",
+    "posthog-laravel": "Laravel",
     "posthog-ruby": "Ruby",
     "posthog-go": "Go",
     LEGACY_JAVA_SDK: "Java (legacy)",
@@ -97,6 +100,7 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-unreal": "Unreal Engine",
     "posthog-go-mcp": "Go MCP",
     "posthog-ruby-mcp": "Ruby MCP",
+    "posthog-roblox": "Roblox",
     "js": "JavaScript Lite",
 }
 

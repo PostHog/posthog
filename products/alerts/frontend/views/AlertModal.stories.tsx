@@ -7,6 +7,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -14,7 +15,6 @@ import {
     InsightThresholdType,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 
 import type { AlertCheck, AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'

@@ -18,6 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
+    IncidentAction,
     LegacyEventEmission,
     MessageImage,
     SourceKind,
@@ -75,6 +76,7 @@ class TestInsightLegacyEvents(APIBaseTest):
         *,
         sends_message: bool = True,
         detail: dict[str, Any] | None = None,
+        incident_action: IncidentAction | None = None,
     ) -> LegacyEventEmission:
         transition = AnnouncedTransition(
             grouping_key="",
@@ -89,7 +91,7 @@ class TestInsightLegacyEvents(APIBaseTest):
             evaluation_key="slot:1",
             source_detail=detail or {},
         )
-        return LegacyEventEmission(transition=transition, sends_message=sends_message, incident_action=None)
+        return LegacyEventEmission(transition=transition, sends_message=sends_message, incident_action=incident_action)
 
     @parameterized.expand(
         [
@@ -167,6 +169,41 @@ class TestInsightLegacyEvents(APIBaseTest):
         self, _name: str, kind: AlertEventKind, sends_message: bool, alert_id: str | None
     ) -> None:
         assert self._emit(self._emission(kind, sends_message=sends_message), alert_id=alert_id) == []
+
+    @parameterized.expand(
+        [
+            (
+                "an_opened_firing",
+                AlertEventKind.FIRING,
+                True,
+                IncidentAction.TRIGGER,
+                ["$insight_alert_firing", "$insight_alert_incident_opened"],
+            ),
+            (
+                "a_silent_resolve",
+                AlertEventKind.CHECK,
+                False,
+                IncidentAction.RESOLVE,
+                ["$insight_alert_incident_closed"],
+            ),
+        ]
+    )
+    def test_an_incident_edge_emits_its_incident_event_beside_any_message(
+        self,
+        _name: str,
+        kind: AlertEventKind,
+        sends_message: bool,
+        action: IncidentAction,
+        expected: list[str],
+    ) -> None:
+        events = self._emit(
+            self._emission(
+                kind, sends_message=sends_message, detail={"breaches": ["above 100"]}, incident_action=action
+            )
+        )
+
+        assert [event.event_name for event in events] == expected
+        assert all(event.properties["alert_id"] == str(self.alert.id) for event in events)
 
 
 class TestInsightChartImage(SimpleTestCase):

@@ -1,6 +1,9 @@
-import { LemonButton, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+
+import { ChipButton } from './ChipButton'
+import { LabeledChipValue } from './LabeledChipValue'
 
 export interface ClusterChipItem {
     label: string
@@ -30,12 +33,11 @@ function ClusterTooltip({ item }: { item: ClusterChipItem }): JSX.Element {
 
 export function TraceClustersChip({ first, others }: TraceClustersChipProps): JSX.Element {
     return (
-        <span className="inline-flex max-w-full min-w-0 items-center gap-1">
+        <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
             <Tooltip title={<ClusterTooltip item={first} />}>
-                <Link to={first.href} subtle className="min-w-0" data-attr="trace-view-cluster-chip">
+                <Link to={first.href} subtle className="inline-flex min-w-0" data-attr="trace-view-cluster-chip">
                     <LemonTag weight="normal" type={first.isOutlier ? 'caution' : 'default'} className="max-w-full">
-                        <span className="shrink-0">Cluster:&nbsp;</span>
-                        <span className="max-w-60 truncate">{first.label}</span>
+                        <LabeledChipValue label="Cluster">{first.label}</LabeledChipValue>
                     </LemonTag>
                 </Link>
             </Tooltip>
@@ -66,14 +68,12 @@ export function TraceClustersChip({ first, others }: TraceClustersChipProps): JS
                         },
                     ]}
                 >
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
+                    <ChipButton
                         aria-label={`${others.length} more ${others.length === 1 ? 'cluster' : 'clusters'}`}
                         data-attr="trace-view-cluster-chip-more"
                     >
                         {`+${others.length}`}
-                    </LemonButton>
+                    </ChipButton>
                 </LemonMenu>
             ) : null}
         </span>

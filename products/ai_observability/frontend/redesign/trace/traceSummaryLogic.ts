@@ -4,8 +4,8 @@ import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { aiObservabilityTracesSummaryCreate, aiObservabilityTracesSummaryRetrieve } from '../../generated/api'

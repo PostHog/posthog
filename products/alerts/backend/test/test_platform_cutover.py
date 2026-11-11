@@ -10,11 +10,14 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
+from products.alerts.backend.logic.destination_configs import destination_filter
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_cutover import CutoverSkip, RollbackSkip, cut_over_team, roll_back_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.contracts import DeliveryPath
+from products.cdp.backend.facade.models import HogFunction
 
 NOW = datetime(2026, 10, 14, 12, 0, tzinfo=UTC)
 _CUTOVER = "products.alerts.backend.platform_cutover"
@@ -30,6 +33,7 @@ class TestInsightPlatformCutover(APIBaseTest):
     @parameterized.expand(
         [
             ("quiet", {}, "not_firing"),
+            ("firing", {"state": AlertState.FIRING}, "firing"),
             ("errored", {"state": AlertState.ERRORED}, "errored"),
             (
                 "snoozed_keeps_checking_muted",
@@ -39,6 +43,12 @@ class TestInsightPlatformCutover(APIBaseTest):
             ("disabled", {"enabled": False, "next_check_at": None}, "not_firing"),
             ("statistical_detector", {"detector_config": {"type": "zscore"}}, "not_firing"),
             ("ai_detector", {"detector_config": {"type": "llm"}}, "not_firing"),
+            ("real_time", {"calculation_interval": AlertCalculationInterval.REAL_TIME.value}, "not_firing"),
+            (
+                "investigated",
+                {"detector_config": {"type": "zscore"}, "investigation_agent_enabled": True},
+                "not_firing",
+            ),
         ]
     )
     def test_an_alert_moves_with_its_state_and_schedule(
@@ -63,15 +73,8 @@ class TestInsightPlatformCutover(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("firing", {"state": AlertState.FIRING}, CutoverSkip.FIRING),
             ("check_due", {"next_check_at": NOW}, CutoverSkip.CHECK_DUE),
             ("never_scheduled", {"next_check_at": None}, CutoverSkip.CHECK_DUE),
-            (
-                "real_time",
-                {"calculation_interval": AlertCalculationInterval.REAL_TIME.value},
-                CutoverSkip.NOT_ON_PLATFORM,
-            ),
-            ("investigated", {"investigation_agent_enabled": True}, CutoverSkip.INVESTIGATION),
         ]
     )
     def test_an_alert_that_cannot_move_now_stays_with_insight(
@@ -84,6 +87,95 @@ class TestInsightPlatformCutover(APIBaseTest):
         assert result.skipped == reason
         alert.refresh_from_db()
         assert alert.owner == "source"
+
+    @parameterized.expand(
+        [
+            (
+                "agent_running",
+                InvestigationStatus.RUNNING,
+                None,
+                timedelta(minutes=10),
+                CutoverSkip.INVESTIGATION_UNSETTLED,
+            ),
+            (
+                "held_notification",
+                InvestigationStatus.DONE,
+                None,
+                timedelta(minutes=10),
+                CutoverSkip.INVESTIGATION_UNSETTLED,
+            ),
+            ("notification_sent", InvestigationStatus.DONE, NOW, timedelta(minutes=10), None),
+            ("past_the_horizon", InvestigationStatus.RUNNING, None, timedelta(hours=2), None),
+            ("firing_not_yet_notified", None, None, timedelta(minutes=5), CutoverSkip.NOTIFICATION_PENDING),
+            ("firing_notified", None, NOW, timedelta(minutes=5), None),
+            ("firing_past_its_workflow", None, None, timedelta(minutes=30), None),
+            (
+                "firing_not_renotified",
+                None,
+                None,
+                timedelta(minutes=5),
+                None,
+                {FIRING_NOT_RENOTIFIED_KEY: True},
+            ),
+        ]
+    )
+    def test_an_alert_moves_only_once_its_last_firing_settles(
+        self,
+        _name: str,
+        status: str | None,
+        sent_at: datetime | None,
+        age: timedelta,
+        reason: CutoverSkip | None,
+        triggered_metadata: dict | None = None,
+    ) -> None:
+        alert = self._alert(investigation_agent_enabled=True, detector_config={"type": "zscore"})
+        alert.subscribed_users.add(self.user)
+        check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            state=AlertState.FIRING,
+            investigation_status=status,
+            notification_sent_at=sent_at,
+            triggered_metadata=triggered_metadata,
+        )
+        AlertCheck.objects.filter(id=check.id).update(created_at=NOW - age)
+
+        (result,) = cut_over_team(self.team.id, now=NOW)
+
+        assert result.skipped == reason
+
+    @parameterized.expand(
+        [
+            ("subscriber", CutoverSkip.NOTIFICATION_PENDING),
+            ("custom_destination", CutoverSkip.NOTIFICATION_PENDING),
+            ("team_wide_destination", CutoverSkip.NOTIFICATION_PENDING),
+            ("nobody", None),
+        ]
+    )
+    def test_a_firing_alert_waits_only_while_someone_can_be_notified(
+        self, target: str, reason: CutoverSkip | None
+    ) -> None:
+        alert = self._alert()
+        if target == "subscriber":
+            alert.subscribed_users.add(self.user)
+        elif target != "nobody":
+            filters = destination_filter(str(alert.id), "$insight_alert_firing")
+            if target == "team_wide_destination":
+                filters["properties"] = []
+            HogFunction.objects.create(
+                team=self.team,
+                name="Alert → webhook",
+                type="internal_destination",
+                hog="return 1",
+                enabled=True,
+                template_id="template-custom",
+                filters=filters,
+            )
+        check = AlertCheck.objects.create(alert_configuration=alert, state=AlertState.FIRING)
+        AlertCheck.objects.filter(id=check.id).update(created_at=NOW - timedelta(minutes=5))
+
+        (result,) = cut_over_team(self.team.id, now=NOW)
+
+        assert result.skipped == reason
 
     def test_an_alert_in_a_child_environment_stays_with_insight(self) -> None:
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")

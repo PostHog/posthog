@@ -6,6 +6,7 @@ import { useCallback, useMemo, useRef } from 'react'
 import { SankeyChart } from '@posthog/quill-charts'
 import type { SankeyChartConfig, SankeyHighlight, SankeyTooltipHit } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme } from 'lib/charts/hooks'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -14,8 +15,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { PathsLink } from '~/queries/schema/schema-general'
 import { shouldQueryBeAsync } from '~/queries/utils'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { FALLBACK_CANVAS_WIDTH } from './constants'
 import { PathNodeCards } from './PathNodeCards'

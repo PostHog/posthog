@@ -19,31 +19,33 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
-import { holidaysMatcher, isChristmas } from 'lib/holidays'
 import { useInterval } from 'lib/hooks/useInterval'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { getRetryCooldown } from 'lib/insights/sharedUtils'
 import { IconChristmasOrnament, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import posthog from 'lib/posthog-typed'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
+import { holidaysMatcher, isChristmas } from 'lib/utils/holidays'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { isFunnelsDataWarehouseNode } from '~/queries/schema/node-guards'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { EventsNode, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
-import { isFunnelsDataWarehouseNode, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -57,9 +59,8 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
-import { getRetryCooldown } from '../sharedUtils'
 import { InsightErrorLayout } from './InsightErrorLayout'
-import { SampleDataState, SampleDataVariant } from './SampleDataState'
+import { SampleDataState, SampleDataVariant, type SampleTableContent } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
@@ -77,6 +78,7 @@ export function InsightEmptyState({
     detail,
     icon: iconProp,
     sampleDataVariant,
+    sampleTable,
     insightProps,
 }: {
     heading?: string
@@ -88,6 +90,7 @@ export function InsightEmptyState({
      * `null` to opt this call site out entirely.
      */
     sampleDataVariant?: SampleDataVariant | null
+    sampleTable?: SampleTableContent
     insightProps?: Pick<InsightLogicProps, 'dashboardId' | 'dashboardItemId'>
 }): JSX.Element {
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
@@ -114,7 +117,7 @@ export function InsightEmptyState({
     })
 
     if (showingSampleData) {
-        return <SampleDataState variant={sampleDataVariant ?? 'line'} />
+        return <SampleDataState variant={sampleDataVariant ?? 'line'} table={sampleTable} />
     }
 
     heading = heading ?? 'There are no matching events for this query'
@@ -354,7 +357,7 @@ export function StatelessInsightLoadingState({
     const [secondsElapsed, setSecondsElapsed] = useState(0)
 
     const [loadingMessageIndex, setLoadingMessageIndex] = useState(() =>
-        inStorybook() || inStorybookTestRunner() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
+        inStorybook() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
     )
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -392,7 +395,7 @@ export function StatelessInsightLoadingState({
         }
 
         // Don't toggle loading messages in storybook, will make tests flaky if so
-        if (inStorybook() || inStorybookTestRunner()) {
+        if (inStorybook()) {
             return
         }
 
@@ -477,7 +480,7 @@ export function SlowQuerySuggestions({
     // way to fast-forward, so a story covering these suggestions would have to sit through
     // SLOW_LOADING_TIME of real loading before they render. Dropping the threshold in Storybook makes
     // them a consequence of the insight loading instead of a race against the clock.
-    const slowLoadingTime = inStorybook() || inStorybookTestRunner() ? 0 : SLOW_LOADING_TIME
+    const slowLoadingTime = inStorybook() ? 0 : SLOW_LOADING_TIME
 
     if (loadingTimeSeconds < slowLoadingTime) {
         return null

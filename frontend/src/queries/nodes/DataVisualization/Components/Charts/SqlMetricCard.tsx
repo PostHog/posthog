@@ -1,7 +1,15 @@
 import clsx from 'clsx'
 
-import { MetricCard } from '@posthog/quill-charts'
+import {
+    Metric,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme } from 'lib/charts/hooks'
 import {
     METRIC_DEFAULT_DECREASE_COLOR,
@@ -13,8 +21,6 @@ import { hexToRGBA } from 'lib/utils/colors'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { MetricChartSettings } from '~/queries/schema/schema-general'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
@@ -53,8 +59,8 @@ export const SqlMetricCard = ({
             })}
         >
             {model ? (
-                <MetricCard
-                    title={null}
+                <Metric
+                    className="w-full px-0"
                     value={model.headlineValue}
                     data={model.data}
                     labels={model.labels}
@@ -70,14 +76,20 @@ export const SqlMetricCard = ({
                         metricSettings?.changeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR
                     )}
                     restingSubtitle={model.summary === 'latest' ? undefined : METRIC_SUMMARY_LABELS[model.summary]}
-                    changeInline
                     hoverChangeFromPreviousPoint
                     sparklineFill
-                    sparklineClassName="mt-4 -mx-3 -mb-3"
                     formatValue={(value) => formatSqlSeriesValue(value, model.series.settings)}
                     dataAttr="metric-value"
                     onError={handleChartError}
-                />
+                >
+                    {/* Wraps so a narrow card moves the pill under the number instead of clipping it. */}
+                    <MetricHeader className="flex-wrap items-center">
+                        <MetricValue />
+                        <MetricDelta />
+                    </MetricHeader>
+                    <MetricSubtitle className="mt-1" />
+                    <MetricSparkline className="mt-4 -mx-3 -mb-3" />
+                </Metric>
             ) : (
                 <InsightEmptyState sampleDataVariant="number" />
             )}

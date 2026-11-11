@@ -34,8 +34,21 @@ describe('offlineExperimentLogic', () => {
         initKeaTests()
         jest.resetAllMocks()
         readExperiment.mockResolvedValue(detailExperiment)
-        readSummaries.mockResolvedValue({ count: 25, next_cursor: null, results: makeOfflineDetailSummaries(25) })
-        readItems.mockResolvedValue({ count: 8, next_cursor: null, results: detailItems, scorer_versions: [] })
+        readSummaries.mockResolvedValue({
+            count: 25,
+            next: null,
+            previous: null,
+            next_cursor: null,
+            results: makeOfflineDetailSummaries(25),
+        })
+        readItems.mockResolvedValue({
+            count: 8,
+            next: null,
+            previous: null,
+            next_cursor: null,
+            results: detailItems,
+            scorer_versions: [],
+        })
         readCells.mockImplementation(async (_team, _experiment, params) =>
             makeOfflineDetailCells(params.item_ids.split(','), params.scorer_version_ids.split(','))
         )
@@ -45,8 +58,8 @@ describe('offlineExperimentLogic', () => {
         const summaries = makeOfflineDetailSummaries(101)
         readSummaries.mockImplementation(async (_team, _experiment, params) =>
             params?.cursor
-                ? { count: 101, next_cursor: null, results: summaries.slice(100) }
-                : { count: 101, next_cursor: 'more', results: summaries.slice(0, 100) }
+                ? { count: 101, next: null, previous: null, next_cursor: null, results: summaries.slice(100) }
+                : { count: 101, next: null, previous: null, next_cursor: 'more', results: summaries.slice(0, 100) }
         )
         const logic = offlineExperimentLogic({ teamId: 543, experimentId: detailExperiment.id })
         logic.mount()
@@ -99,7 +112,14 @@ describe('offlineExperimentLogic', () => {
         logic.actions.refresh()
         await expectLogic(logic).toDispatchActions(['loadOfflineItemsSuccess', 'loadCellBatch'])
         const newItems = [detailItems[7]]
-        readItems.mockResolvedValueOnce({ count: 8, next_cursor: null, results: newItems, scorer_versions: [] })
+        readItems.mockResolvedValueOnce({
+            count: 8,
+            next: null,
+            previous: null,
+            next_cursor: null,
+            results: newItems,
+            scorer_versions: [],
+        })
         logic.actions.nextItems('next-page')
         await expectLogic(logic).toDispatchActions(['loadOfflineItemsSuccess', 'loadedCellBatch'])
         resolveOld(

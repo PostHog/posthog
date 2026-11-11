@@ -1,12 +1,13 @@
 import { type ComponentType, type ReactElement, useEffect, useState } from 'react'
-import { Text, useWindowDimensions, View } from 'react-native'
-
+import { ScrollView, Text, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { ProjectSheet } from '@/features/projects/ProjectSheet'
+import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChevronUpDownIcon } from '@/ui/icons/ChevronUpDownIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
+import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { GripIcon } from '@/ui/icons/GripIcon'
 import { PinIcon } from '@/ui/icons/PinIcon'
 import { SettingsIcon } from '@/ui/icons/SettingsIcon'
@@ -15,6 +16,8 @@ import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
+import { useFloatingMenuStyle } from '@/ui/useFloatingMenuStyle'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { SignOutConfirm } from '../settings/SignOutConfirm'
@@ -25,9 +28,11 @@ interface NavMenuProps {
     projectName: string
     /** The focused tab's Edit pins row, in its own section above Settings. Null leaves the section out. */
     editPins: TabHeaderSlot['editPins']
-    /** A pinned list's rows, at the top while its tab is focused. Null leaves the section out. */
-    navList: { onUnpin: () => void; onOpenWeb: (() => void) | null } | null
+    /** A pinnable list's rows, at the top while its tab is focused. Null leaves the section out. */
+    navList: { pinned: boolean; onTogglePin: () => void; onOpenWeb: (() => void) | null } | null
     onClose: () => void
+    status: PostHogStatus
+    onOpenStatus: () => void
     onSettings: () => void
     onSignOut: () => void
     /** Replaces the rows with the sign-out confirmation. */
@@ -72,6 +77,8 @@ export function NavMenu({
     navList,
     onClose,
     onSettings,
+    status: { summary: statusUpdate, indicatorColor },
+    onOpenStatus,
     onSignOut,
     confirmingSignOut,
     signOutPending,
@@ -82,9 +89,10 @@ export function NavMenu({
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
-    const { width: windowWidth } = useWindowDimensions()
+    const { width: windowWidth } = useSceneDimensions()
     // The handoff's 75% width is the content box; padding and border add 22pt.
-    const width = Math.round(windowWidth * 0.75) + 22
+    const width = Math.min(400, Math.round(windowWidth * 0.75) + 22)
+    const cardStyle = useFloatingMenuStyle(topOffset(insets, 60), width)
     const [pickingProject, setPickingProject] = useState(false)
 
     useEffect(() => {
@@ -114,70 +122,109 @@ export function NavMenu({
                 transformOrigin="top right"
                 accessibilityLabel="Menu"
                 testID="nav-menu"
-                style={[styles.card, { top: topOffset(insets, 60), width }]}
+                style={[styles.card, cardStyle]}
             >
-                <Pressable44
-                    onPress={openPicker}
-                    disabled={signOutPending}
-                    accessibilityLabel={projectName}
-                    accessibilityHint="Switch project"
-                    pressedBackground={colors.sunken}
-                    style={styles.header}
-                    testID="nav-project"
-                >
-                    <Text style={styles.project} numberOfLines={1}>
-                        {projectName}
-                    </Text>
-                    <ChevronUpDownIcon size={iconSizes.small} color={colors.tertiary} />
-                </Pressable44>
-                <View style={styles.divider} />
-                {confirmingSignOut ? (
-                    <SignOutConfirm
-                        from="nav_menu"
-                        pending={signOutPending}
-                        error={signOutError}
-                        onCancel={onCancelSignOut}
-                        onConfirm={onConfirmSignOut}
-                        style={styles.confirm}
-                        testIDPrefix="nav"
-                    />
-                ) : (
-                    <>
-                        {navList ? (
-                            <>
-                                <MenuRow
-                                    label="Unpin from navigation"
-                                    Icon={PinIcon}
-                                    onPress={navList.onUnpin}
-                                    testID="nav-list-unpin"
-                                />
-                                {navList.onOpenWeb ? (
+                <ScrollView keyboardShouldPersistTaps="handled">
+                    <Pressable44
+                        onPress={openPicker}
+                        disabled={signOutPending}
+                        accessibilityLabel={projectName}
+                        accessibilityHint="Switch project"
+                        pressedBackground={colors.sunken}
+                        style={styles.header}
+                        testID="nav-project"
+                    >
+                        <Text style={styles.project} numberOfLines={1}>
+                            {projectName}
+                        </Text>
+                        <ChevronUpDownIcon size={iconSizes.small} color={colors.tertiary} />
+                    </Pressable44>
+                    <View style={styles.divider} />
+                    {confirmingSignOut ? (
+                        <SignOutConfirm
+                            from="nav_menu"
+                            pending={signOutPending}
+                            error={signOutError}
+                            onCancel={onCancelSignOut}
+                            onConfirm={onConfirmSignOut}
+                            style={styles.confirm}
+                            testIDPrefix="nav"
+                        />
+                    ) : (
+                        <>
+                            <Pressable44
+                                accessibilityRole="link"
+                                accessibilityLabel={
+                                    statusUpdate
+                                        ? `PostHog status: ${statusUpdate}`
+                                        : indicatorColor
+                                          ? 'PostHog status: All systems operational'
+                                          : 'PostHog status'
+                                }
+                                pressedBackground={colors.sunken}
+                                style={styles.row}
+                                onPress={onOpenStatus}
+                                testID="nav-status"
+                            >
+                                {indicatorColor ? (
+                                    <View style={styles.statusIcon}>
+                                        <View style={[styles.statusDot, { backgroundColor: colors[indicatorColor] }]} />
+                                    </View>
+                                ) : (
+                                    <GlobeIcon size={iconSizes.control} />
+                                )}
+                                <View style={styles.statusBody}>
+                                    <Text style={styles.statusTitle}>PostHog status</Text>
+                                    {statusUpdate ? (
+                                        <Text style={styles.statusSummary} numberOfLines={2}>
+                                            {statusUpdate}
+                                        </Text>
+                                    ) : null}
+                                </View>
+                                <ExternalLinkIcon size={iconSizes.small} color={colors.tertiary} />
+                            </Pressable44>
+                            <View style={[styles.divider, styles.sectionDivider]} />
+                            {navList ? (
+                                <>
                                     <MenuRow
-                                        label="Open on web"
-                                        Icon={ExternalLinkIcon}
-                                        onPress={navList.onOpenWeb}
-                                        testID="nav-list-open-web"
+                                        label={navList.pinned ? 'Unpin from navigation' : 'Pin to navigation'}
+                                        Icon={PinIcon}
+                                        onPress={navList.onTogglePin}
+                                        testID={navList.pinned ? 'nav-list-unpin' : 'nav-list-pin'}
                                     />
-                                ) : null}
-                                <View style={[styles.divider, styles.sectionDivider]} />
-                            </>
-                        ) : null}
-                        {editPins ? (
-                            <>
-                                <MenuRow
-                                    label="Edit pins"
-                                    Icon={GripIcon}
-                                    onPress={editPins.onPress}
-                                    disabled={editPins.disabled}
-                                    testID="views-edit-pins"
-                                />
-                                <View style={[styles.divider, styles.sectionDivider]} />
-                            </>
-                        ) : null}
-                        <MenuRow label="Settings" Icon={SettingsIcon} onPress={openSettings} testID="nav-settings" />
-                        <MenuRow label="Sign out" Icon={SignOutIcon} onPress={onSignOut} testID="nav-sign-out" />
-                    </>
-                )}
+                                    {navList.onOpenWeb ? (
+                                        <MenuRow
+                                            label="Open on web"
+                                            Icon={ExternalLinkIcon}
+                                            onPress={navList.onOpenWeb}
+                                            testID="nav-list-open-web"
+                                        />
+                                    ) : null}
+                                    <View style={[styles.divider, styles.sectionDivider]} />
+                                </>
+                            ) : null}
+                            {editPins ? (
+                                <>
+                                    <MenuRow
+                                        label="Edit pins"
+                                        Icon={GripIcon}
+                                        onPress={editPins.onPress}
+                                        disabled={editPins.disabled}
+                                        testID="views-edit-pins"
+                                    />
+                                    <View style={[styles.divider, styles.sectionDivider]} />
+                                </>
+                            ) : null}
+                            <MenuRow
+                                label="Settings"
+                                Icon={SettingsIcon}
+                                onPress={openSettings}
+                                testID="nav-settings"
+                            />
+                            <MenuRow label="Sign out" Icon={SignOutIcon} onPress={onSignOut} testID="nav-sign-out" />
+                        </>
+                    )}
+                </ScrollView>
             </FloatingCard>
             <ProjectSheet visible={visible && pickingProject} onClose={onClose} onSelect={switchProject} />
         </>
@@ -225,6 +272,11 @@ const useStyles = createStyles(({ colors }) => ({
         paddingHorizontal: 14,
         borderRadius: radii.menuRow,
     },
+    statusIcon: { width: iconSizes.control, alignItems: 'center' },
+    statusDot: { width: 10, height: 10, borderRadius: 5 },
+    statusBody: { flex: 1 },
+    statusTitle: { ...type.menuRow, color: colors.ink },
+    statusSummary: { ...type.meta, color: colors.muted },
     rowLabel: {
         ...type.menuRow,
         color: colors.ink,

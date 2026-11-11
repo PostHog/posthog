@@ -1,7 +1,13 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { UserType } from '~/types'
 
 import { twoFactorLogic } from './twoFactorLogic'
 
@@ -98,4 +104,100 @@ describe('twoFactorLogic', () => {
         logic.actions.toggleBackupCodesModal(false)
         expect(logic.values.generatingCodes).toBeNull()
     })
+
+    it('gives each setup response its own QR code URL, also after the logic mounts again', async () => {
+        useMocks({
+            get: { '/api/users/@me/two_factor_start_setup/': () => [200, { success: true, secret: 'SECRET' }] },
+        })
+        initKeaTests()
+        const qrCodeUrls: string[] = []
+
+        for (const _ of [1, 2]) {
+            const logic = twoFactorLogic()
+            const unmount = logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.openTwoFactorSetupModal()
+            }).toDispatchActions(['loadStartSetupSuccess'])
+            qrCodeUrls.push(logic.values.startSetup!.qrCodeUrl)
+            unmount()
+        }
+
+        expect(new Set(qrCodeUrls).size).toBe(2)
+    })
+
+    it('starts one setup call when the modal opens again while a call is in flight', async () => {
+        let respond: () => void = () => {}
+        const responded = new Promise<void>((resolve) => (respond = resolve))
+        const setupRequest = jest.fn(async () => {
+            await responded
+            return [200, { success: true, secret: 'SECRET' }]
+        })
+        useMocks({ get: { '/api/users/@me/two_factor_start_setup/': setupRequest } })
+        initKeaTests()
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const logic = twoFactorLogic()
+        logic.mount()
+
+        logic.actions.openTwoFactorSetupModal(true)
+        logic.actions.openTwoFactorSetupModal(true)
+        respond()
+        await expectLogic(logic).toDispatchActions(['loadStartSetupSuccess']).toFinishAllListeners()
+
+        expect(setupRequest).toHaveBeenCalledTimes(1)
+        expect(capture.mock.calls.filter(([event]) => event === 'two_factor_setup_started')).toEqual([
+            ['two_factor_setup_started', { forced: true }],
+        ])
+    })
+
+    it('shows no secret after a failed setup call and loads one on the next open', async () => {
+        const setupRequest = jest
+            .fn()
+            .mockReturnValueOnce([200, { success: true, secret: 'FIRST' }])
+            .mockReturnValueOnce([500, {}])
+            .mockReturnValue([200, { success: true, secret: 'SECOND' }])
+        useMocks({ get: { '/api/users/@me/two_factor_start_setup/': setupRequest } })
+        initKeaTests()
+        const logic = twoFactorLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.openTwoFactorSetupModal()
+        }).toDispatchActions(['loadStartSetupSuccess'])
+        logic.actions.closeTwoFactorSetupModal()
+        await expectLogic(logic, () => {
+            logic.actions.openTwoFactorSetupModal()
+        }).toDispatchActions(['loadStartSetupFailure'])
+        expect(logic.values.startSetup).toBeNull()
+
+        await expectLogic(logic, () => {
+            logic.actions.openTwoFactorSetupModal()
+        }).toDispatchActions(['loadStartSetupSuccess'])
+        expect(logic.values.startSetup?.secret).toBe('SECOND')
+    })
+
+    it.each([
+        ['a user who has 2FA', true, false],
+        ['a user who has no 2FA', false, true],
+    ])(
+        'waits for the full stage 2FA fields before it forces setup on %s',
+        async (_, is2faEnabled, expectedModalOpen) => {
+            initKeaTests()
+            const bootUser: UserType = {
+                ...MOCK_DEFAULT_USER,
+                organization: { ...MOCK_DEFAULT_USER.organization!, enforce_2fa: true },
+            }
+            delete bootUser.is_2fa_enabled
+            delete bootUser.has_sso_enforcement
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess(bootUser)
+            const logic = twoFactorLogic()
+            logic.mount()
+            expect(logic.values.isTwoFactorSetupModalOpen).toBe(false)
+
+            userLogic.actions.addFullStageUserFields({ is_2fa_enabled: is2faEnabled, has_sso_enforcement: false })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isTwoFactorSetupModalOpen).toBe(expectedModalOpen)
+        }
+    )
 })

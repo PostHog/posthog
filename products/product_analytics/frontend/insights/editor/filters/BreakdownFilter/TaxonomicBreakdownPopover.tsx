@@ -1,16 +1,25 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
+import { Popover as QuillPopover, PopoverContent, PopoverTrigger } from '@posthog/quill'
+
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { Popover, isInsideOpenPopover } from 'lib/lemon-ui/Popover/Popover'
+import { hogql } from 'lib/utils/hogql'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import {
+    isActionsNode,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isRetentionQuery,
+} from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { hogql, isActionsNode, isInsightQueryWithSeries, isInsightVizNode, isRetentionQuery } from '~/queries/utils'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
@@ -57,6 +66,7 @@ export const TaxonomicBreakdownPopover = ({
 
     const { currentDataWarehouseSchemaColumns } = useValues(taxonomicBreakdownFilterLogic)
     const { addBreakdown, replaceBreakdown } = useActions(taxonomicBreakdownFilterLogic)
+    const quillSurface = useQuillSurface()
 
     // A SQL expression breakdown is parsed once per series, in that series' own scope, so one
     // expression can only resolve when every series reads the same warehouse table. Mixing an events
@@ -113,49 +123,77 @@ export const TaxonomicBreakdownPopover = ({
             isTrends || isFunnels ? ['selector'] : ['selector', 'text', 'href', 'tag_name'],
     }
 
+    const taxonomicFilter = (
+        <TaxonomicFilter
+            groupType={taxonomicType}
+            value={breakdownValue}
+            hogQLExpressionShowBreakdownLabelHint
+            onChange={(taxonomicGroup, value) => {
+                if (breakdownValue && breakdownType) {
+                    replaceBreakdown(
+                        {
+                            value: breakdownValue,
+                            type: breakdownType,
+                        },
+                        {
+                            value,
+                            group: taxonomicGroup,
+                        }
+                    )
+                } else {
+                    addBreakdown(value, taxonomicGroup)
+                }
+
+                setOpen(false)
+            }}
+            eventNames={allEventNames}
+            taxonomicGroupTypes={taxonomicGroupTypes}
+            excludedProperties={excludedElementBreakdownProperties}
+            metadataSource={
+                // Without this the SQL expression editor validates against the events table
+                // and marks every warehouse column as unknown.
+                offerWarehouseSqlExpression
+                    ? {
+                          kind: NodeKind.HogQLQuery,
+                          query: hogql`SELECT * FROM ${hogql.identifier(dataWarehouseSeriesTableNames[0])}`,
+                      }
+                    : undefined
+            }
+            schemaColumns={currentDataWarehouseSchemaColumns}
+            schemaColumnsLoading={hasDataWarehouseSeries && databaseLoading}
+        />
+    )
+
+    if (quillSurface) {
+        return (
+            <QuillPopover
+                open={open}
+                onOpenChange={(next, details) => {
+                    const landedOn =
+                        details.reason === 'focus-out'
+                            ? (details.event as FocusEvent).relatedTarget
+                            : details.reason === 'outside-press'
+                              ? details.event.target
+                              : null
+                    if (!next && isInsideOpenPopover(landedOn)) {
+                        details.cancel()
+                        return
+                    }
+                    setOpen(next)
+                }}
+            >
+                <PopoverTrigger render={children} />
+                <PopoverContent align="start" className="min-h-50 w-auto p-0">
+                    <div data-not-quill>{taxonomicFilter}</div>
+                </PopoverContent>
+            </QuillPopover>
+        )
+    }
+
     return (
         <Popover
             style={{ minHeight: '200px' }}
-            overlay={
-                <TaxonomicFilter
-                    groupType={taxonomicType}
-                    value={breakdownValue}
-                    hogQLExpressionShowBreakdownLabelHint
-                    onChange={(taxonomicGroup, value) => {
-                        if (breakdownValue && breakdownType) {
-                            replaceBreakdown(
-                                {
-                                    value: breakdownValue,
-                                    type: breakdownType,
-                                },
-                                {
-                                    value,
-                                    group: taxonomicGroup,
-                                }
-                            )
-                        } else {
-                            addBreakdown(value, taxonomicGroup)
-                        }
-
-                        setOpen(false)
-                    }}
-                    eventNames={allEventNames}
-                    taxonomicGroupTypes={taxonomicGroupTypes}
-                    excludedProperties={excludedElementBreakdownProperties}
-                    metadataSource={
-                        // Without this the SQL expression editor validates against the events table
-                        // and marks every warehouse column as unknown.
-                        offerWarehouseSqlExpression
-                            ? {
-                                  kind: NodeKind.HogQLQuery,
-                                  query: hogql`SELECT * FROM ${hogql.identifier(dataWarehouseSeriesTableNames[0])}`,
-                              }
-                            : undefined
-                    }
-                    schemaColumns={currentDataWarehouseSchemaColumns}
-                    schemaColumnsLoading={hasDataWarehouseSeries && databaseLoading}
-                />
-            }
+            overlay={taxonomicFilter}
             visible={open}
             onClickOutside={() => setOpen(false)}
         >

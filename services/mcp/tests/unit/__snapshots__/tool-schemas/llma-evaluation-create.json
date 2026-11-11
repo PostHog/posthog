@@ -63,6 +63,10 @@
             "anyOf": [
                 {
                     "properties": {
+                        "include_media": {
+                            "description": "Set to false to judge text only.",
+                            "type": "boolean"
+                        },
                         "judge_method": {
                             "anyOf": [
                                 {

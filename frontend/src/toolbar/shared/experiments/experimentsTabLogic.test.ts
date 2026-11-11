@@ -75,6 +75,8 @@ const installFetchMock = (): void => {
     )
 }
 describe('experimentsTabLogic', () => {
+    // A new variant starts scoped to the page it was created on, which is the test page here.
+    const currentPageConditions = { url: 'http://localhost/project/997', urlMatchType: 'icontains' }
     let theExperimentsTabLogic: ReturnType<typeof experimentsTabLogic.build>
     let theExperimentsLogic: ReturnType<typeof experimentsLogic.build>
     let theToolbarLogic: ReturnType<typeof toolbarLogic.build>
@@ -180,6 +182,7 @@ describe('experimentsTabLogic', () => {
                             test: {
                                 is_new: true,
                                 transforms: [{}],
+                                conditions: currentPageConditions,
                                 rollout_percentage: 50,
                             },
                         },
@@ -206,7 +209,7 @@ describe('experimentsTabLogic', () => {
                                 transforms: [{}],
                                 rollout_percentage: 50,
                                 is_new: true,
-                                conditions: null,
+                                conditions: currentPageConditions,
                             },
                         },
                         original_html_state: {},
@@ -254,6 +257,7 @@ describe('experimentsTabLogic', () => {
                             test: {
                                 is_new: true,
                                 transforms: [{}],
+                                conditions: currentPageConditions,
                                 rollout_percentage: 50,
                             },
                         },

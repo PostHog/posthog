@@ -37,10 +37,10 @@ export function buildHeadline({
             topTool.error_rate_pct >= FLAKY_ERROR_RATE_PCT
                 ? `, though it errors ${topTool.error_rate_pct}% of the time`
                 : ''
-        return `${who} MCP server is live — ${agents} leaned on ${topTool.tool} ${formatNumber(topTool.total_calls)} times, your busiest tool${flaky}.`
+        return `${who} MCP server is live. ${agents} leaned on ${topTool.tool} ${formatNumber(topTool.total_calls)} times, your busiest tool${flaky}.`
     }
     // No per-tool rows resolved yet — fall back to top-line counts.
-    return `${who} MCP server is live — ${formatNumber(kpis.toolCalls.value)} tool calls across ${formatNumber(kpis.sessions.value)} sessions so far.`
+    return `${who} MCP server is live with ${formatNumber(kpis.toolCalls.value)} tool calls across ${formatNumber(kpis.sessions.value)} sessions so far.`
 }
 
 /** A concrete question for PostHog AI, tied to their actual worst tool so the answer is useful. */
@@ -57,7 +57,7 @@ export function buildMaxPrompt({
     if (topTool) {
         return `My busiest MCP tool is ${topTool.tool}. Show me how its usage and latency have trended over the last 7 days and whether anything looks anomalous.`
     }
-    return `Summarize how agents are using my MCP server from $mcp_tool_call events — top tools, error rates, and what they're trying to do.`
+    return `Summarize how agents are using my MCP server from $mcp_tool_call events: top tools, error rates, and what they're trying to do.`
 }
 
 // Friendly harness label → where to paste the prompt. Falls back to "your agent".

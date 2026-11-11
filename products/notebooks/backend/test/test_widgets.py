@@ -1247,9 +1247,15 @@ class TestWidgetData(APIBaseTest):
             return_value=history,
         ):
             history_response = self.client.get(history_url, {"limit": 1})
+            older_response = self.client.get(history_response.json()["next"])
         assert history_response.status_code == 200
         assert history_response.json()["count"] == 2
         assert len(history_response.json()["results"]) == 1
+        assert older_response.json()["next"] is None
+        assert [row["id"] for row in older_response.json()["results"]] != [
+            row["id"] for row in history_response.json()["results"]
+        ]
+        assert len(older_response.json()["results"]) == 1
         assert history_response.json()["results"][0]["build_hash"] == "b" * 64
         assert history_response.json()["results"][0]["security_review"]["severity"] == "high"
         assert history_response.json()["results"][0]["generation_cost_usd"] == "0.123456"

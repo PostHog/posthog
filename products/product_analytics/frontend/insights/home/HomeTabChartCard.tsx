@@ -1,3 +1,4 @@
+import '~/queries/nodes/InsightViz/InsightViz.scss'
 import './HomeTabChartCard.scss'
 
 import { useValues } from 'kea'

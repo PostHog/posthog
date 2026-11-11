@@ -11,6 +11,9 @@ import psycopg
 from psycopg import sql
 
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    client_side_deadline,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -268,6 +271,75 @@ def get_max_slot_wal_keep_size_mb(conn: psycopg.Connection) -> int | None:
         return None
     value = int(row[0])
     return value if value >= 0 else None
+
+
+VISIBLE_WAL_WAIT_SECONDS = 30.0
+_VISIBLE_WAL_POLL_SECONDS = 0.5
+_VISIBLE_WAL_STATEMENT_GRACE_SECONDS = 10.0
+
+# An xid's exclusive lock outlives the commit becoming visible, and prepared transactions hold one too.
+# A snapshot's xip list would miss xids at or past its xmax.
+_RUNNING_FROM = (
+    "FROM pg_locks l "
+    "LEFT JOIN pg_stat_activity a ON a.pid = l.pid "
+    "LEFT JOIN pg_prepared_xacts p ON p.transaction = l.transactionid "
+    "WHERE l.locktype = 'transactionid' AND l.mode = 'ExclusiveLock' AND l.granted "
+    "AND l.pid IS DISTINCT FROM pg_backend_pid() AND coalesce(a.datname, p.database) = current_database()"
+)
+_RUNNING_XIDS = "SELECT coalesce(array_agg(DISTINCT l.transactionid::text::bigint), '{}') " + _RUNNING_FROM
+
+# `pg_stat_activity` is snapshotted once per transaction, so each check clears it to see new backends.
+_NOT_VISIBLE_MARKER = "posthog_wal_position_not_visible"
+_WAIT_FOR_XIDS = (
+    "DO $wait$ DECLARE deadline timestamptz := clock_timestamp() + make_interval(secs => {timeout}); "
+    "BEGIN LOOP "
+    "PERFORM pg_stat_clear_snapshot(); "
+    "EXIT WHEN NOT EXISTS (SELECT 1 " + _RUNNING_FROM + " AND l.transactionid::text::bigint = ANY({xids})); "
+    "IF clock_timestamp() >= deadline THEN RAISE EXCEPTION '" + _NOT_VISIBLE_MARKER + "'; END IF; "
+    "PERFORM pg_sleep({poll}); "
+    "END LOOP; END $wait$"
+)
+
+
+class WalPositionNotVisibleError(Exception):
+    """A transaction running when the WAL position was read did not end in time."""
+
+
+def get_visible_wal_lsn(conn: psycopg.Connection, *, timeout: float = VISIBLE_WAL_WAIT_SECONDS) -> str:
+    """A WAL position whose every commit is visible to any snapshot taken after the call returns.
+
+    A commit writes its WAL before it becomes visible, and with synchronous replication it stays
+    invisible until a standby confirms it. Such a transaction is still running after the position is
+    read, so waiting for every one running then to end closes the gap. The insert position, not the
+    write position, so an asynchronous commit already visible is not left above it. A standby
+    reports how far it has replayed, since it writes no WAL of its own.
+    """
+    with client_side_deadline(conn, timeout + _VISIBLE_WAL_STATEMENT_GRACE_SECONDS), conn.cursor() as cur:
+        cur.execute(
+            "SELECT (CASE WHEN pg_is_in_recovery() THEN pg_last_wal_replay_lsn() ELSE pg_current_wal_insert_lsn() END)::text"
+        )
+        row = cur.fetchone()
+        if row is None or row[0] is None:
+            raise ValueError("The server reported no WAL position")
+        lsn = str(row[0])
+        cur.execute("SELECT pg_stat_clear_snapshot()")
+        cur.execute(_RUNNING_XIDS)
+        row = cur.fetchone()
+        running = [int(xid) for xid in row[0]] if row is not None and isinstance(row[0], list) else []
+        if not running:
+            return lsn
+        wait = sql.SQL(_WAIT_FOR_XIDS).format(
+            timeout=sql.Literal(float(timeout)),
+            xids=sql.SQL("ARRAY[{}]::bigint[]").format(sql.SQL(",").join(sql.Literal(xid) for xid in running)),
+            poll=sql.Literal(_VISIBLE_WAL_POLL_SECONDS),
+        )
+        try:
+            cur.execute(wait)
+        except psycopg.errors.RaiseException as e:
+            if _NOT_VISIBLE_MARKER not in str(e):
+                raise
+            raise WalPositionNotVisibleError(f"{len(running)} transaction(s) still running after {timeout}s") from e
+    return lsn
 
 
 def get_slot_lag_bytes(conn: psycopg.Connection, slot_name: str) -> int | None:

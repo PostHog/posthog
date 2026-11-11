@@ -22,8 +22,6 @@ from posthog.dataclasses import frozen
 logger = structlog.get_logger(__name__)
 
 Product = Literal[
-    "llm_gateway",
-    "ci",
     "posthog_code",
     "background_agents",
     "slack_app",
@@ -332,6 +330,7 @@ def ai_gateway_headers(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> dict[str, str] | None:
     """Build the Go ai-gateway headers that correlate a multi-call AI operation."""
     labels = dict(properties or {})
@@ -347,6 +346,8 @@ def ai_gateway_headers(
         headers["X-PostHog-Session-Id"] = session_id
     if distinct_id:
         headers["X-PostHog-Distinct-Id"] = distinct_id
+    if privacy_mode:
+        headers["X-PostHog-Privacy-Mode"] = "true"
     return headers or None
 
 
@@ -418,6 +419,7 @@ def build_openai_client(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> OpenAI:
     """Return a raw OpenAI client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_llm_client`.
@@ -441,9 +443,12 @@ def build_openai_client(
                 session_id=session_id,
                 properties=properties,
                 distinct_id=distinct_id,
+                privacy_mode=privacy_mode,
             ),
             http_client=httpx.Client(trust_env=False),
         )
+    if privacy_mode:
+        raise GatewayNotConfiguredError("Privacy mode requires AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
     return get_llm_client(product, default_headers=fallback_headers)
 
@@ -455,6 +460,7 @@ def build_async_openai_client(
     session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> AsyncOpenAI:
     """Async variant of :func:`build_openai_client`."""
     gateway = resolve_ai_gateway_config()
@@ -468,9 +474,12 @@ def build_async_openai_client(
                 session_id=session_id,
                 properties=properties,
                 distinct_id=distinct_id,
+                privacy_mode=privacy_mode,
             ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
+    if privacy_mode:
+        raise GatewayNotConfiguredError("Privacy mode requires AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
     return get_async_llm_client(product, default_headers=fallback_headers)
 
@@ -479,6 +488,7 @@ def build_ai_gateway_openai_client(
     api_key: str,
     ai_product: str,
     trace_id: str | None = None,
+    session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
 ) -> OpenAI:
@@ -496,6 +506,7 @@ def build_ai_gateway_openai_client(
         default_headers=ai_gateway_headers(
             ai_product=ai_product,
             trace_id=trace_id,
+            session_id=session_id,
             properties=properties,
             distinct_id=distinct_id,
         ),
@@ -662,11 +673,10 @@ def build_gemini_client(
             session_id=session_id,
             properties=properties,
             distinct_id=distinct_id,
+            privacy_mode=privacy_mode,
         )
         or {}
     )
-    if privacy_mode:
-        headers["X-PostHog-Privacy-Mode"] = "true"
     base_url = anthropic_gateway_base_url(gateway.url)
     # `files.upload` sends its chunks with none of the client's headers, so the transports carry them and the key.
     transport_headers = {**headers, "x-goog-api-key": gateway.api_key}

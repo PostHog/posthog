@@ -165,7 +165,13 @@ export function MetricsTableView({
     )
 }
 
-export function MetricsTableWidget({ result, loading, config, tileId }: DashboardWidgetComponentProps): JSX.Element {
+export function MetricsTableWidget({
+    result,
+    loading,
+    config,
+    tileId,
+    dashboardFilters,
+}: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as MetricsTableWidgetResult | null | undefined
     const [selected, setSelected] = useState<string[]>([])
     const [openKeys, setOpenKeys] = useState<string[]>([])
@@ -277,6 +283,7 @@ export function MetricsTableWidget({ result, loading, config, tileId }: Dashboar
             <MetricsTableDrilldownModal
                 config={parseMetricsTableWidgetConfig(config)}
                 keys={openKeys}
+                dashboardFilters={dashboardFilters}
                 onClose={() => setOpenKeys([])}
             />
         </>

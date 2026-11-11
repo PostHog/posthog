@@ -12,17 +12,23 @@ behavior change, not a contract improvement.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
 __all__ = [
     "CPUnavailableError",
+    "DuckLakeBackfillCatalog",
+    "DuckLakeDayReplacement",
+    "DuckLakeTableLayoutError",
+    "DuckLakeTableReplacement",
     "DuckgresQueryServerConfig",
+    "DuckgresServerSummary",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
     "DuckLakeCatalogConnectionConfig",
@@ -47,6 +53,7 @@ __all__ = [
     "ServiceCredentialConnect",
     "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
+    "StaffActionOutcome",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
 ]
@@ -428,3 +435,61 @@ class DuckLakeTableResult:
     # Highest incremental key written, for builds that track one. None when no rows were written.
     watermark: Any = None
     merged: bool = False
+
+
+@frozen
+class DuckLakeDayReplacement:
+    """The rows of one UTC day of `column`, which a backfill export of that day replaces."""
+
+    column: str
+    day: date
+
+
+@frozen
+class DuckLakeTableReplacement:
+    """All rows of the table, which a full backfill export replaces."""
+
+
+class DuckLakeTableLayoutError(ValueError):
+    """The table's column types differ from the backfill export, so add_files refuses the export's files."""
+
+
+class DuckLakeBackfillCatalog(Protocol):
+    """The DuckLake statements a backfill runs in the organization's Trino catalog."""
+
+    def ensure_table(
+        self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None: ...
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None: ...
+
+    def validate_file_count(self, files: Sequence[str]) -> None: ...
+
+    def register_files(
+        self,
+        table: str,
+        files: Sequence[str],
+        *,
+        import_id: str,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int: ...
+
+    def delete_rows(self, table: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement) -> None: ...
+
+
+@frozen
+class DuckgresServerSummary:
+    """An organization's warehouse server as staff see it in PostHog Admin. No credentials."""
+
+    server_id: UUID
+    host: str
+    bucket: str | None
+    internal_testing: bool
+    deprovisioned: bool
+
+
+@frozen
+class StaffActionOutcome:
+    ok: bool
+    status_code: int
+    message: str

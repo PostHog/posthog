@@ -18,12 +18,21 @@ import {
 import { toolbarApi } from '~/toolbar/shared/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
-import { WebExperiment, WebExperimentDraftType, WebExperimentForm } from '~/toolbar/shared/types'
+import { WebExperiment, WebExperimentDraftType, WebExperimentForm, WebExperimentVariant } from '~/toolbar/shared/types'
 import { urls } from '~/toolbar/shared/urls'
 import { elementToQuery, isLaunched, joinWithUiHost, percentageDistribution } from '~/toolbar/shared/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { ToolbarUserIntent } from '../../../types'
+
+// The element picker finds a selector that is unique on this page, and a shared component renders the same
+// selector elsewhere, so a new variant starts scoped to the page the user picked on.
+function currentPageCondition(): WebExperimentVariant['conditions'] {
+    return {
+        url: window.location.origin + window.location.pathname,
+        urlMatchType: 'icontains',
+    }
+}
 
 function newExperiment(): WebExperimentForm {
     return {
@@ -36,6 +45,7 @@ function newExperiment(): WebExperimentForm {
             test: {
                 is_new: true,
                 transforms: [{}],
+                conditions: currentPageCondition(),
                 rollout_percentage: 50,
             },
         },
@@ -639,7 +649,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 values.experimentForm.variants[nextVariantName] = {
                     is_new: true,
                     transforms: [{}],
-                    conditions: null,
+                    conditions: currentPageCondition(),
                     rollout_percentage: 0,
                 }
 

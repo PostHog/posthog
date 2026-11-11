@@ -26,7 +26,7 @@ class ExperimentRegularMetricInput:
     team_id: int | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentRegularMetricResult:
     """Result from calculating a single experiment-metric."""
 
@@ -35,6 +35,7 @@ class ExperimentRegularMetricResult:
     fingerprint: str
     success: bool
     error_message: str | None = None
+    skipped: bool = False
 
 
 @dataclasses.dataclass
@@ -54,7 +55,7 @@ class ExperimentSavedMetricInput:
     team_id: int | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentSavedMetricResult:
     """Result from calculating a single experiment-saved metric."""
 
@@ -63,6 +64,7 @@ class ExperimentSavedMetricResult:
     fingerprint: str
     success: bool
     error_message: str | None = None
+    skipped: bool = False
 
 
 @dataclasses.dataclass

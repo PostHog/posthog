@@ -10,6 +10,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 
+from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError
@@ -247,6 +248,39 @@ class TestMessageTemplatesAPI(APIBaseTest):
         contents = email["design"]["body"]["rows"][0]["columns"][0]["contents"]
         assert contents[0]["type"] == "html"
         assert contents[0]["values"]["html"] == "<p>Hello</p>"
+
+    @parameterized.expand(
+        [
+            ("stale_wrap_is_rebuilt", "<p>New copy</p>", "<p>New copy</p>"),
+            ("wrap_with_appended_copy_is_rebuilt", "<p>Old copy</p><p>Footer</p>", "<p>Old copy</p><p>Footer</p>"),
+            (
+                "wrap_with_its_unlayer_render_is_kept",
+                '<html><body class="clean-body u_body"><div class="u-row"><p>Old copy</p></div></body></html>',
+                "<p>Old copy</p>",
+            ),
+        ]
+    )
+    def test_update_with_html_and_wrap_design(self, _name, html, expected_block_html):
+        self.message_template.content = {
+            "email": {"subject": "Hi", "html": "<p>Old copy</p>", "design": build_html_wrap_design("<p>Old copy</p>")}
+        }
+        self.message_template.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={
+                "content": {
+                    "email": {"subject": "Hi", "html": html, "design": build_html_wrap_design("<p>Old copy</p>")}
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.message_template.refresh_from_db()
+        email = self.message_template.content["email"]
+        assert email["html"] == html
+        assert email["design"] == build_html_wrap_design(expected_block_html)
 
     def test_create_email_template_without_email_content_succeeds(self):
         response = self.client.post(

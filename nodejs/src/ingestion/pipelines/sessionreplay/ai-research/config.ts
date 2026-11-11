@@ -27,12 +27,6 @@ export type AiResearchV4Config = {
     AI_RESEARCH_V4_IMAGE_FETCH_GROUP_ID: string
     /** How long all key lookups of one batch may take. A job whose key is not read by then goes to a delay tier. */
     AI_RESEARCH_V4_IMAGE_FETCH_KEY_BUDGET_MS: number
-    /**
-     * The share of the per registrable domain limits below that the v4 lane uses. The v3 lane's pods hold their own
-     * budget, so a host sees both lanes.
-     */
-    AI_RESEARCH_V4_IMAGE_FETCH_HOST_BUDGET_SHARE: number
-
     /** US-only, PEM, multiple keys allowed (comma-separated). */
     AI_RESEARCH_V4_IMAGE_FETCH_WEB_BOT_AUTH_PRIVATE_KEYS: string
     /** While true, the fetch lane parses input but sends no request and writes no crawl history. */
@@ -169,7 +163,6 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         AI_RESEARCH_V4_KMS_REQUESTS_PER_SECOND: 150,
         AI_RESEARCH_V4_IMAGE_FETCH_GROUP_ID: 'ai-research-v4-image-fetch',
         AI_RESEARCH_V4_IMAGE_FETCH_KEY_BUDGET_MS: 60_000,
-        AI_RESEARCH_V4_IMAGE_FETCH_HOST_BUDGET_SHARE: 0.25,
 
         AI_RESEARCH_V4_IMAGE_FETCH_WEB_BOT_AUTH_PRIVATE_KEYS: '',
         AI_RESEARCH_V4_IMAGE_FETCH_DRY_RUN: true,
@@ -185,7 +178,7 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         AI_RESEARCH_V4_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
         AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 0,
         AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 6,
-        AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
+        AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 7,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
         AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,

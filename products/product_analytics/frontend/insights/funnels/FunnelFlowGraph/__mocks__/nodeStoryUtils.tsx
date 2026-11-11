@@ -10,7 +10,7 @@ import funnelInsight from '~/mocks/fixtures/api/projects/team_id/insights/funnel
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
-import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { EventsNode, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics, InsightLogicProps } from '~/types'
 
 let uniqueNode = 0
@@ -41,12 +41,10 @@ export function InsightProvider({ children }: { children: React.ReactNode }): JS
 export function makeStep(name: string, order: number, count: number, total: number): FunnelStepWithConversionMetrics {
     const fromPrevious = order === 0 ? 1 : total > 0 ? count / total : 0
     return {
-        action_id: name,
         name,
         custom_name: null,
         order,
         count,
-        type: 'events',
         average_conversion_time: order > 0 ? 120 : null,
         median_conversion_time: order > 0 ? 90 : null,
         converted_people_url: '/api/person/funnel/?',
@@ -54,6 +52,10 @@ export function makeStep(name: string, order: number, count: number, total: numb
         droppedOffFromPrevious: total - count,
         conversionRates: { fromPrevious, total: fromPrevious, fromBasisStep: fromPrevious },
     } as unknown as FunnelStepWithConversionMetrics
+}
+
+export function makeStepSeries(event: string): EventsNode {
+    return { kind: NodeKind.EventsNode, event, name: event }
 }
 
 export function pathNode(id: string, type: string, data: Record<string, unknown>, x: number): Node {

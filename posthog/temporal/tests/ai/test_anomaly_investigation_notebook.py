@@ -1,9 +1,18 @@
+import pytest
 from posthog.test.base import BaseTest
 
-from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
+from markdown_it import MarkdownIt
+
+from posthog.temporal.ai.anomaly_investigation.evaluated import EvaluatedCheck
+from posthog.temporal.ai.anomaly_investigation.notebook import (
+    NotebookRenderContext,
+    _summary_content,
+    build_investigation_markdown,
+)
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationHypothesis, InvestigationReport
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -22,13 +31,15 @@ class TestAnomalyInvestigationNotebook(BaseTest):
             triggered_dates=["2024-06-01", "2024-06-02"],
             interval="day",
         )
-        return NotebookRenderContext(alert=alert, alert_check=alert_check, insight=insight, report=report)
+        return NotebookRenderContext(
+            alert=alert, evaluated=EvaluatedCheck.of_alert_check(alert_check), insight=insight, report=report
+        )
 
     def test_builds_markdown_the_cell_tools_accept(self) -> None:
         report = InvestigationReport(
             verdict="true_positive",
             metric_meaning="Unique users who loaded a page under /pricing each day.",
-            summary="Traffic doubled after a marketing campaign launch.",
+            summary="- **Traffic doubled** after the `spring_launch` campaign.\n- Check [the report](https://example.com) with _marketing_.",
             hypotheses=[
                 InvestigationHypothesis(
                     title="Marketing launch",
@@ -51,6 +62,10 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         assert "## Recommendations" in markdown
         assert "### Run details" in markdown
         assert "- Campaign ID 42 launched at 2024-06-01 08:00" in markdown
+        # The summary keeps its bullets as plain text, and its link stays text.
+        assert "- Traffic doubled after the spring_launch campaign." in markdown
+        assert "- Check the report with marketing." in markdown
+        assert "example.com" not in markdown
 
         # The source insight stays live through a SavedInsightNode Query component.
         assert '<Query title="pageviews/day"' in markdown
@@ -70,3 +85,16 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         assert "## Recommendations" not in markdown
         assert "## What this metric measures" not in markdown
         assert "## Verdict" in markdown
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "See [the report](https://evil.example/collect) now.",
+        "See ``x` [click](https://evil.example/collect) `y`` now.",
+    ],
+)
+def test_summary_links_never_render_as_links(summary: str) -> None:
+    markdown = convert_notebook_content_to_markdown({"type": "doc", "content": _summary_content(summary)})
+
+    assert "<a " not in MarkdownIt("commonmark").render(markdown)

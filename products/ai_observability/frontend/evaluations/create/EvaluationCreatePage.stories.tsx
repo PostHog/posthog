@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -38,7 +37,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-10-20',
         pageUrl: urls.aiObservabilityEvaluation('new'),
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW],
         testOptions: {
             waitForSelector: '[data-attr="llma-evaluation-create-step-body-name"]',
         },
@@ -79,7 +77,7 @@ export const ReportsOpen: Story = {
 }
 
 export const SentimentEvaluation: Story = {
-    parameters: { testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-step-body-check"]' } },
+    parameters: { testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-step-body-name"]' } },
     decorators: [scene(1240)],
     play: async ({ canvasElement }) => {
         await openPart(canvasElement, 'method', 'Sentiment')
@@ -96,7 +94,7 @@ export const NothingMatches: Story = {
     },
     decorators: [scene(0)],
     play: async ({ canvasElement }) => {
-        await openPart(canvasElement, 'triggers', 'Triggers')
+        await openPart(canvasElement, 'triggers', 'Quick filters')
         await waitFor(() => {
             if (!canvasElement.querySelector('[data-attr="llma-evaluation-create-volume-none"]')) {
                 throw new Error('Waiting for the volume estimate')

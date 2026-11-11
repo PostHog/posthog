@@ -38,7 +38,6 @@ tools:
             Get all cohorts that a specific person belongs to. Requires the person_id query parameter.
         exclude_params:
             - format
-        reads_ingested_data: events
     persons-list:
         operation: persons_list
         enabled: true
@@ -63,7 +62,6 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
-        reads_ingested_data: events
         response:
             include:
                 - id
@@ -123,7 +121,6 @@ tools:
             Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.
         exclude_params:
             - format
-        reads_ingested_data: events
         response:
             include:
                 - id
@@ -149,4 +146,3 @@ tools:
         exclude_params:
             - format
             - force_refresh
-        reads_ingested_data: events

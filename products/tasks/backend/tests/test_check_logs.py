@@ -1,5 +1,9 @@
+import json
+
 import pytest
 from unittest.mock import patch
+
+from parameterized import parameterized
 
 from products.tasks.backend.logic.services.custom_prompt_internals import _check_logs, _stream_new_lines
 from products.tasks.backend.tests.agent_log_fixtures import (
@@ -7,19 +11,77 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     _agent_message_line,
     _end_turn_line,
     _refusal_line,
+    _tool_call_line,
     _usage_update_line,
     _user_message_line,
 )
 
 
 class TestCheckLogs:
-    def test_returns_agent_message_when_both_present(self):
-        log = "\n".join([_agent_message_line("hello"), _end_turn_line()])
+    @parameterized.expand(
+        [
+            ("contiguous", None, None),
+            ("child_tool", "tool_call", "claudeCode"),
+            ("canonical_child_tool", "tool_call", "posthog"),
+            ("codex_child_tool_update", "tool_call_update", None),
+            ("child_tool_update", "tool_call_update", "claudeCode"),
+            ("child_plan", "plan", "posthog"),
+            ("child_message", "agent_message", "claudeCode"),
+            ("child_message_chunk", "agent_message_chunk", "posthog"),
+        ]
+    )
+    def test_returns_complete_parent_message(
+        self, _name: str, update_kind: str | None, metadata_channel: str | None
+    ) -> None:
+        child_lines = []
+        if update_kind is not None:
+            child_lines = [
+                json.dumps(
+                    {
+                        "notification": {
+                            "method": "session/update",
+                            "params": {
+                                "update": {
+                                    "sessionUpdate": update_kind,
+                                    "toolCallId": "child-call" if metadata_channel else "subagent:worker:lookup",
+                                    "_meta": {metadata_channel: {"parentToolCallId": "child-task"}}
+                                    if metadata_channel
+                                    else {},
+                                    "content": {"type": "text", "text": "child answer"},
+                                }
+                            },
+                        }
+                    }
+                )
+            ]
+        log = "\n".join(
+            [
+                _agent_message_line("Searching"),
+                _tool_call_line(),
+                _agent_message_line('{"value": "'),
+                *child_lines,
+                _agent_message_line('complete"}'),
+                *child_lines,
+                _end_turn_line(),
+            ]
+        )
         with patch("posthog.storage.object_storage.read", return_value=log):
             state = _check_logs(FakeTaskRun())
         assert state.agent_finished is True
-        assert state.last_message == "hello"
+        assert state.last_message == '{"value": "complete"}'
         assert state.empty_end_turn is False
+
+    @parameterized.expand([("tool_call",), ("tool_call_update",), ("plan",), ("user_message",)])
+    def test_parent_updates_still_separate_messages(self, update_kind: str) -> None:
+        boundary = json.dumps(
+            {"notification": {"method": "session/update", "params": {"update": {"sessionUpdate": update_kind}}}}
+        )
+        log = "\n".join(
+            [_agent_message_line("Earlier commentary"), boundary, _agent_message_line("Final answer"), _end_turn_line()]
+        )
+        with patch("posthog.storage.object_storage.read", return_value=log):
+            state = _check_logs(FakeTaskRun())
+        assert state.last_message == "Final answer"
 
     def test_end_turn_without_agent_message_flags_empty_end_turn(self):
         """Regression: when skip_lines puts us past the agent_message but end_turn

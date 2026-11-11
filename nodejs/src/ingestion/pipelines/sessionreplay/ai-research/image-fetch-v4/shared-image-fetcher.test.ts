@@ -9,25 +9,28 @@ const OK: ImageFetchResult = {
     bytes: Buffer.from('png'),
     contentType: 'image/png',
 }
-const options = (tdmrepReservation: boolean) => ({ tdmrepReservation }) as ImageFetchOptions
+const options = (tdmrepReservation: boolean, asset: ImageFetchOptions['asset'] = 'image') =>
+    ({ tdmrepReservation, asset }) as ImageFetchOptions
 
 describe('SharedImageFetcher', () => {
     it.each([
-        ['one after the other', false],
-        ['at the same time', true],
-    ])('fetches again for a job whose TDM reservation differs, %s', async (_name, concurrent) => {
+        ['TDM reservation', 'one after the other', options(false), options(true)],
+        ['TDM reservation', 'at the same time', options(false), options(true)],
+        ['asset', 'one after the other', options(false), options(false, 'font')],
+        ['asset', 'at the same time', options(false), options(false, 'font')],
+    ])('fetches again for a job whose %s differs, %s', async (_field, timing, first, second) => {
         const inner = { fetch: jest.fn((_url: string, _options: ImageFetchOptions) => Promise.resolve(OK)) }
         const fetcher = new SharedImageFetcher(inner)
 
-        if (concurrent) {
-            await Promise.all([fetcher.fetch(IMAGE_URL, options(false)), fetcher.fetch(IMAGE_URL, options(true))])
+        if (timing === 'at the same time') {
+            await Promise.all([fetcher.fetch(IMAGE_URL, first), fetcher.fetch(IMAGE_URL, second)])
         } else {
-            await fetcher.fetch(IMAGE_URL, options(false))
-            await fetcher.fetch(IMAGE_URL, options(true))
+            await fetcher.fetch(IMAGE_URL, first)
+            await fetcher.fetch(IMAGE_URL, second)
         }
-        await fetcher.fetch(IMAGE_URL, options(true))
+        await fetcher.fetch(IMAGE_URL, second)
 
-        expect(inner.fetch.mock.calls.map(([, used]) => used.tdmrepReservation)).toEqual([false, true])
+        expect(inner.fetch.mock.calls.map(([, used]) => used)).toEqual([first, second])
     })
 
     it.each([

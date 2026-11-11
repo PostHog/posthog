@@ -346,6 +346,7 @@ function TracingSceneContents(): JSX.Element {
                                     dataSource={listRows}
                                     spanColumns={spanColumns}
                                     showRootTag={filters.viewMode === 'spans'}
+                                    showTraceDuration={filters.viewMode === 'traces'}
                                     loading={spansLoading}
                                     hasMoreToLoad={hasMoreToLoad}
                                     onLoadMore={fetchNextPage}

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { cn } from 'lib/utils/css-classes'
 
 import { SIDE_PANEL_MIN_WIDTH_COMPACT, useSidePanelFrame } from '~/layout/navigation-3000/sidepanel/useSidePanelFrame'

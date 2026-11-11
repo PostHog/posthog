@@ -36,9 +36,9 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
+import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/schema/node-guards'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, InsightShortId, InsightModel } from '~/types'
 import { InsightType } from '~/types'
 

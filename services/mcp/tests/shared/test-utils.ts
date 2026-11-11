@@ -701,6 +701,8 @@ export function makeToolExecutorState(
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        findScopeGatedTool: () => undefined,
+        supportsStepUp: false,
         flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',

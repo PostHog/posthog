@@ -10,12 +10,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUUIDLike } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { tagsModel } from '~/models/tagsModel'
+import { membersLogic } from '~/models/membersLogic'
 import { type DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import type {
@@ -1849,7 +1848,6 @@ export const accountsLogic = kea<accountsLogicType>([
             try {
                 await accountsPartialUpdate(String(values.currentTeamId), accountId, { tags })
                 posthog.capture(AccountsEvents.TagsUpdated, { tag_count: tags.length })
-                tagsModel.findMounted()?.actions.loadTags()
                 dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {

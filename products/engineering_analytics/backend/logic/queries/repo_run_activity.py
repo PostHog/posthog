@@ -86,7 +86,7 @@ def query_repo_run_activity(
         date_to_clause = "AND r.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace("__DATE_TO__", date_to_clause),
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(since=date_from)).replace("__DATE_TO__", date_to_clause),
         query_type="engineering_analytics.repo_run_activity",
         placeholders=placeholders,
     )

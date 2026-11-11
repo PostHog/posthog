@@ -11,14 +11,6 @@ from pydantic.dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class ExecTool:
-    name: str
-    description: str
-    # MCP carries the schema as opaque JSON, and the browser hands it to WebMCP unchanged.
-    input_schema: dict[str, Any]
-
-
-@dataclass(frozen=True)
 class RunExecInput:
     user_id: int
     team_id: int

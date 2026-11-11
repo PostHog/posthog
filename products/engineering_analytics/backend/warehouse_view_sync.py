@@ -15,14 +15,13 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
-from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
-from products.engineering_analytics.backend.facade.warehouse_views import get_expected_warehouse_views
+from products.engineering_analytics.backend.logic.enrollment import get_enrollment
 from products.engineering_analytics.backend.logic.sources import (
     DEPOT_JOB_ATTEMPTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -40,30 +39,23 @@ _RELEVANT_SCHEMAS: dict[str, tuple[str, ...]] = {
 def sync_engineering_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:
     """Called after validate_schema_and_update_table links a DataWarehouseTable to the schema.
 
-    Returns early unless a GitHub runs/jobs endpoint just loaded. In the steady state the team's
-    viewset already exists, so it re-syncs directly (``sync_views`` recomputes the expected views).
-    The expected-views guard runs only on first provisioning: a team whose jobs source isn't synced
-    yet has no view to expose, so the viewset row isn't created until both endpoints exist.
+    Returns early unless a GitHub runs/jobs or Depot attempts endpoint just loaded, and only
+    re-syncs a team that opted in (``sync_views`` recomputes the expected views). The opt-in row
+    is never created here: a team connects a GitHub source for many reasons, and this product's
+    views must not appear in its warehouse until a user enables the product.
     """
     try:
         if schema.name not in _RELEVANT_SCHEMAS.get(source.source_type, ()):
             return
 
-        managed_viewset = DataWarehouseManagedViewSet.objects.filter(
-            team=schema.team,
-            kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
-        ).first()
-
-        # Only on first provisioning: computing the expected views is the expensive part, so once the
-        # viewset exists we skip this guard and re-sync directly (one compute inside sync_views). A
-        # team whose jobs source isn't synced yet has no view to expose — don't create the viewset row.
+        managed_viewset = get_enrollment(schema.team)
         if managed_viewset is None:
-            if not get_expected_warehouse_views(schema.team):
-                return
-            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
-                team=schema.team,
-                kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
+            logger.info(
+                "sync_engineering_analytics_views_skipped_not_enrolled",
+                team_id=schema.team_id,
+                source_id=str(source.id),
             )
+            return
 
         logger.info(
             "sync_engineering_analytics_views_starting",

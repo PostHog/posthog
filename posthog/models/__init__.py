@@ -10,6 +10,7 @@ from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from .column_configuration import ColumnConfiguration
 from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
@@ -17,15 +18,13 @@ from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
 from .element import Element
 from .element_group import ElementGroup
-from .entity import Entity
+from .events_plan_deletion import TeamEventsPlanDeletion
 from .events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from .event.event import Event
 from .event_buffer import EventBuffer
 
 # TODO: remove noqa once the event filters API imports from posthog.models
 from .event_filter_config import EventFilterConfig, EventFilterPipelineOverride  # noqa: F401
-from products.event_definitions.backend.models import EventDefinition
-from products.event_definitions.backend.models import EventProperty
 from .file_system.file_system import FileSystem
 from .file_system.file_system_home_folder import FileSystemHomeFolder
 from .file_system.file_system_view_log import FileSystemViewLog
@@ -45,6 +44,7 @@ from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
+from .organization_ip_restrictions import OrganizationIPRestrictions  # noqa: F401
 from .organization_notification_lock import OrganizationMemberNotificationLock
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
@@ -55,12 +55,10 @@ from .project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
-from products.event_definitions.backend.models import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
 from .resource_transfer.resource_transfer import ResourceTransfer
-from products.event_definitions.backend.models import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .scim_provisioned_user import SCIMProvisionedUser
 from .scim_request_log import SCIMRequestLog
 from .share_password import SharePassword
@@ -85,6 +83,7 @@ from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
     OAuthApplication,
+    OAuthDeviceGrant,
     OAuthGrant,
     OAuthIDToken,
     OAuthRefreshToken,
@@ -95,22 +94,18 @@ __all__ = [
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
+    "WorkloadTrustPolicy",
+    "WorkloadTrustPolicyRequest",
     "CIMDVerificationToken",
     "ColumnConfiguration",
     "CoreEvent",
-    "Dashboard",
     "DataDeletionRequest",
-    "DashboardTile",
-    "DashboardTemplate",
     "DataColorTheme",
     "DeletionType",
     "Element",
     "ElementGroup",
-    "Entity",
     "Event",
     "EventBuffer",
-    "EventDefinition",
-    "EventProperty",
     "FileSystem",
     "FileSystemHomeFolder",
     "FileSystemViewLog",
@@ -127,7 +122,6 @@ __all__ = [
     "MaterializedColumnSlot",
     "MaterializedColumnSlotState",
     "MessagingRecord",
-    "Notebook",
     "MigrationStatus",
     "NotificationViewed",
     "ObjectMediaPreview",
@@ -141,6 +135,7 @@ __all__ = [
     "OrganizationProvisioning",
     "OAuthAccessToken",
     "OAuthApplication",
+    "OAuthDeviceGrant",
     "OAuthGrant",
     "OAuthIDToken",
     "OAuthRefreshToken",
@@ -154,14 +149,10 @@ __all__ = [
     "ProductIntent",
     "Project",
     "Property",
-    "PropertyDefinition",
     "ProxyRecord",
     "QuickFilter",
     "RemoteConfig",
     "ResourceTransfer",
-    "EventSchema",
-    "SchemaPropertyGroup",
-    "SchemaPropertyGroupProperty",
     "SCIMProvisionedUser",
     "SCIMRequestLog",
     "SessionRecording",
@@ -173,6 +164,7 @@ __all__ = [
     "Tag",
     "TaggedItem",
     "Team",
+    "TeamEventsPlanDeletion",
     "TeamEventsRetentionConfig",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
@@ -192,9 +184,6 @@ __all__ = [
     "GitHubInstallRequest",
     "UserIntegration",
     "UserPushToken",
-    "DataWarehouseTable",
-    "WebAnalyticsFilterPreset",
-    "ScheduledChange",
     "Comment",
     "CommentSlackThread",
     # Deprecated models here for backwards compatibility

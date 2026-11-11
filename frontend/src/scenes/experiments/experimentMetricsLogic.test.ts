@@ -11,7 +11,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentStatus } from '~/types'
+import { AccessControlLevel, Experiment, ExperimentStatus } from '~/types'
 
 import type { ExperimentMetricsRecalculationRunApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -350,27 +350,47 @@ describe('experimentMetricsLogic', () => {
             jest.useRealTimers()
         })
 
-        it('surfaces per-metric errors when the latest run loaded on mount is a partial failure', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
-                        200,
-                        partialFailureRecalculation,
-                    ],
-                },
-            })
-            mountLogic()
+        it.each([
+            {
+                name: 'shows the error of a metric whose row failed',
+                primaryRow: partialFailureRecalculation.results[0],
+                expectedResult: null,
+                expectedError: { detail: 'boom', retriable: false },
+            },
+            {
+                name: 'shows the error of a metric whose failed calculation kept a completed row',
+                primaryRow: completedRecalculation.results[0],
+                expectedResult: primaryResult,
+                expectedError: { detail: 'boom', retriable: false },
+            },
+        ])(
+            '$name when the latest run loaded on mount is a partial failure',
+            async ({ primaryRow, expectedResult, expectedError }) => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            {
+                                ...partialFailureRecalculation,
+                                results: [primaryRow, partialFailureRecalculation.results[1]],
+                            },
+                        ],
+                    },
+                })
+                mountLogic()
 
-            await expectLogic(logic)
-                .toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
-                // Every metric has a result row, failed or not, so the failure alone must not start a new run.
-                .toNotHaveDispatchedActions(['triggerRecalculation'])
+                await expectLogic(logic)
+                    .toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
+                    // Every metric has a result row, failed or not, so the failure alone must not start a new run.
+                    .toNotHaveDispatchedActions(['triggerRecalculation'])
 
-            // The successful secondary metric loads its result.
-            expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
-            // The failed primary metric must keep its error for the in-row box, not be cleared by its null result.
-            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom', retriable: false })
-        })
+                // The successful secondary metric loads its result.
+                expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
+                // The failed primary metric must keep its error for the in-row box, not be cleared by its null result.
+                expect(logic.values.primaryMetricsResults[0]).toEqual(expectedResult)
+                expect(logic.values.primaryMetricsResultsErrors[0]).toEqual(expectedError)
+            }
+        )
 
         it('shows no error toast on 404 (a fresh recalc is triggered instead)', async () => {
             useMocks({
@@ -459,6 +479,26 @@ describe('experimentMetricsLogic', () => {
             // afterMount → loadLatestRecalculation → 404 → triggerRecalculation → create.
             await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
+        })
+
+        it('starts no run and shows no error for a user without edit access who has no run to show', async () => {
+            const createMock = jest.fn(() => [201, completedRecalculation2])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            logic = experimentMetricsLogic({
+                experiment: { ...EXPERIMENT, user_access_level: AccessControlLevel.Viewer } as Experiment,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
+
+            expect(createMock).not.toHaveBeenCalled()
+            expect(logic.values.isRecalculating).toBe(false)
+            expect(lemonToast.error).not.toHaveBeenCalled()
         })
 
         // Derive the extra metric from a real fixture metric so it stays fully typed; only the uuid differs.
@@ -589,9 +629,9 @@ describe('experimentMetricsLogic', () => {
             jest.useRealTimers()
         })
 
-        it('stops polling a run older than the staleness window instead of polling it forever', async () => {
+        it('stops polling a run older than the queued-run ceiling instead of polling it forever', async () => {
             // A worker that dies mid-run leaves the row in_progress permanently; the poll loop must give up
-            // once the run passes the backend's staleness threshold rather than hitting the by-id endpoint
+            // once the run passes the backend's 1-hour ceiling rather than hitting the by-id endpoint
             // (and its live-progress query) every tick until the tab closes.
             const retrieveMock = jest.fn(() => [200, { ...pendingRecalculation, status: 'in_progress' }])
             useMocks({
@@ -610,7 +650,7 @@ describe('experimentMetricsLogic', () => {
             expect(retrieveMock).toHaveBeenCalled()
 
             // Age the run past the cap: polling must stop and the in-flight tags must clear.
-            logic.cache.recalcStartMs = Date.now() - 31 * 60 * 1000
+            logic.cache.recalcStartMs = Date.now() - 61 * 60 * 1000
             await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
             retrieveMock.mockClear()
             await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 5)
@@ -622,23 +662,82 @@ describe('experimentMetricsLogic', () => {
             jest.useRealTimers()
         })
 
-        it('does not auto-trigger when the latest completed run is healthy', async () => {
-            // freshCompletedRecalculation has result_source 'recalculation' (a real run) with all metrics
-            // resolved, so neither the config-change heal path nor the timeseries-fallback path fires.
+        it.each([
+            // A page reload while the run waits in a queue: the server still reports it as the active run.
+            ['reloaded while queued', 40],
+            // A tab that stays open while the run crosses the backend's 30-minute staleness threshold.
+            ['open across the staleness threshold', 29],
+        ])('keeps polling a run that waits past 30 minutes until it completes (%s)', async (_, ageMinutes) => {
+            jest.useFakeTimers()
+            const startedAt = new Date(Date.now() - ageMinutes * 60 * 1000).toISOString()
+            const queuedRun = { ...inProgressRecalculation, created_at: startedAt, started_at: startedAt }
+            let completed = false
+            const retrieveMock = jest.fn(() => [200, completed ? completedRecalculation2 : queuedRun])
+            const createMock = jest.fn(() => [201, { ...manualPending, id: 'recalc-3' }])
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
                         200,
-                        freshCompletedRecalculation,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
                     ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': retrieveMock,
                 },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
             })
             mountLogic()
+            await expectLogic(logic).toDispatchActions(['loadLatestRecalculation', 'pollRecalculation'])
+            logic.actions.setQueuedRerun('manual')
 
-            await expectLogic(logic)
-                .toDispatchActions(['setCurrentRecalculation'])
-                .toNotHaveDispatchedActions(['triggerRecalculation'])
+            // Wait 20 minutes in the queue: the run passes 30 minutes, polling backs off and does not give up.
+            await jest.advanceTimersByTimeAsync(20 * 60 * 1000)
+            expect(logic.values.currentRecalculation?.status).toBe('in_progress')
+            expect(logic.values.isRecalculating).toBe(true)
+            expect(logic.values.queuedRerun).toBe('manual')
+            expect(retrieveMock.mock.calls.length).toBeLessThan(120)
+
+            completed = true
+            await jest.advanceTimersByTimeAsync(60 * 1000)
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            // The rerun queued during the wait fires once the run ends.
+            expect(createMock).toHaveBeenCalledTimes(1)
+            jest.useRealTimers()
         })
+
+        it.each([
+            { configurationStatus: 'current', ageLimitExceeded: false },
+            { configurationStatus: 'previous', ageLimitExceeded: false },
+            { configurationStatus: 'unknown', ageLimitExceeded: true },
+        ] as const)(
+            'displays $configurationStatus results without automatically recalculating',
+            async ({ configurationStatus, ageLimitExceeded }) => {
+                // freshCompletedRecalculation has result_source 'recalculation' (a real run) with all metrics
+                // resolved, so neither the config-change heal path nor the timeseries-fallback path fires.
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            {
+                                ...freshCompletedRecalculation,
+                                exceeds_recalculation_age_limit: ageLimitExceeded,
+                                results: freshCompletedRecalculation.results.map((result) => ({
+                                    ...result,
+                                    configuration_status: configurationStatus,
+                                })),
+                            },
+                        ],
+                    },
+                })
+                mountLogic()
+
+                await expectLogic(logic)
+                    .toDispatchActions(['setCurrentRecalculation'])
+                    .toNotHaveDispatchedActions(['triggerRecalculation'])
+                expect(logic.values.resultConfigurationNotice).toBe(
+                    configurationStatus === 'current' ? null : configurationStatus
+                )
+                expect(logic.values.recalculationAgeLimitExceeded).toBe(ageLimitExceeded)
+            }
+        )
 
         const staleCompletedRecalculation = { ...completedRecalculation, query_to: hoursAgo(13) }
 
@@ -673,9 +772,31 @@ describe('experimentMetricsLogic', () => {
                 expectedTriggers: [],
             },
             {
-                name: 'does not refresh stale results on a stopped experiment',
+                name: 'does not refresh a stopped experiment whose results reach the end date',
                 experiment: { ...EXPERIMENT, end_date: '2025-01-30T21:55:00Z' } as Experiment,
                 latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'refreshes a stopped experiment whose results stop well before the end date',
+                experiment: {
+                    ...EXPERIMENT,
+                    end_date: hoursAgo(24),
+                    user_access_level: AccessControlLevel.Editor,
+                } as Experiment,
+                latest: { ...completedRecalculation, query_to: hoursAgo(40) },
+                loads: 1,
+                expectedTriggers: ['stale_refresh'],
+            },
+            {
+                name: 'does not refresh stale results for a user without edit access',
+                experiment: {
+                    ...EXPERIMENT,
+                    end_date: hoursAgo(24),
+                    user_access_level: AccessControlLevel.Viewer,
+                } as Experiment,
+                latest: { ...completedRecalculation, query_to: hoursAgo(40) },
                 loads: 1,
                 expectedTriggers: [],
             },
@@ -913,6 +1034,8 @@ describe('experimentMetricsLogic', () => {
                 .toNotHaveDispatchedActions(['pollRecalculation'])
 
             expect(logic.values.recalculationRejectionMessage).toEqual(REJECTION_MESSAGE)
+            // The create response has no age limit field, so the rejection itself must mark the limit.
+            expect(logic.values.recalculationAgeLimitExceeded).toBe(true)
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
             expect(logic.values.primaryMetricsResultsErrors[0]).toBeNull()
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)

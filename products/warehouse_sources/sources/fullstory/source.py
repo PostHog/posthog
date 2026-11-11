@@ -1,0 +1,167 @@
+from typing import Optional, cast
+
+from products.warehouse_sources.sources.fullstory._config import FullStorySourceConfig
+from products.warehouse_sources.sources.fullstory.fullstory import (
+    FullStoryResumeConfig,
+    fullstory_source,
+    validate_credentials as validate_fullstory_credentials,
+)
+from products.warehouse_sources.sources.fullstory.settings import APPEND_ONLY_ENDPOINTS, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
+
+
+@SourceRegistry.register
+class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConfig]):
+    codebase_detection = detect(
+        env=("^FULLSTORY_", "^REACT_APP_FULLSTORY_ORG$"),
+        script_hosts=(
+            "edge.fullstory.com",
+            "edge.eu1.fullstory.com",
+            "rs.fullstory.com",
+            "rs.eu1.fullstory.com",
+            "guides.fullstory.com",
+            "guides-cdn.fullstory.com",
+            "guides.eu1.fullstory.com",
+            "guides-cdn.eu1.fullstory.com",
+        ),
+        npm=(
+            "@fullstory/browser",
+            "@fullstory/react-native",
+            "@fullstory/snippet",
+            "@fullstory/babel-plugin-react-native",
+            "@fullstory/babel-plugin-annotate-react",
+            "@fullstory/server-api-client",
+            "@fullstory/cordova-plugin",
+            "@fullstory/segment-react-native-plugin-fullstory",
+            "@fullstory/guides-and-surveys-react-native",
+            "@fullstory/react-library",
+            "@fullstory/form-core",
+            "@fullstory/form-react",
+            "@fullstory/eslint-plugin-annotate-react",
+            "react-fullstory",
+            "@sentry/fullstory",
+        ),
+        cocoapods=("FullStory",),
+        maven=(
+            "com.fullstory:gradle-plugin-local",
+            "com.fullstory:instrumentation-full",
+            "com.fullstory:guides-and-surveys",
+            "com.github.fullstorydev:fullstory-segment-middleware-android",
+        ),
+        pub=("fullstory_flutter", "fullstory_guides_and_surveys_flutter"),
+        swiftpm=(
+            "github.com/fullstorydev/fullstory-swift-package-ios",
+            "github.com/fullstorydev/fullstory-guides-and-surveys-swift-package-ios",
+            "github.com/fullstorydev/fullstory-swiftui-selectors-ios",
+        ),
+        alternative_to=(ProductKey.SESSION_REPLAY,),
+    )
+
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.fullstory.com"
+
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.FULLSTORY
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.sources.fullstory.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.fullstory.com": "Fullstory authentication failed. Please check your API key.",
+            "403 Client Error: Forbidden for url: https://api.fullstory.com": "Fullstory denied access. Please check that your API key has the required permissions.",
+        }
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.FULLSTORY,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            label="Fullstory",
+            caption="""Enter your Fullstory API key to pull your Fullstory users, segments, sessions, and events into the PostHog Data warehouse.
+
+You can create an API key in Fullstory under Settings > Integrations & API Keys > API Keys. A key with the Viewer permission level can sync users and segments. The sessions table needs the Admin or Architect level, and the events table needs the Segment Export add-on on your Fullstory plan.""",
+            iconPath="/static/services/fullstory.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/fullstory",
+            releaseStatus=ReleaseStatus.GA,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+        )
+
+    def get_schemas(
+        self,
+        config: FullStorySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, append_only=APPEND_ONLY_ENDPOINTS)
+
+    def validate_credentials(
+        self,
+        config: FullStorySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        if validate_fullstory_credentials(config.api_key):
+            return True, None
+
+        return False, "Invalid Fullstory API key"
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[FullStoryResumeConfig]:
+        return ResumableSourceManager[FullStoryResumeConfig](inputs, FullStoryResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: FullStorySourceConfig,
+        resumable_source_manager: ResumableSourceManager[FullStoryResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return fullstory_source(
+            api_key=config.api_key,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )

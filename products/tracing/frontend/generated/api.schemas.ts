@@ -1570,7 +1570,6 @@ export type TracingSpansAttributesRetrieveParams = {
     offset?: number
     /**
      * Search filter for attribute names.
-     * @minLength 1
      */
     search?: string
     /**
@@ -1653,7 +1652,6 @@ export type TracingSpansValuesRetrieveParams = {
     offset?: number
     /**
      * Search filter for attribute values.
-     * @minLength 1
      */
     value?: string
 }

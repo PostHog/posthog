@@ -122,6 +122,8 @@ class WizardProgram:
     tags: tuple[str, ...]
     required_programs: tuple[str, ...]
     supported_environments: tuple[WizardRunEnvironment, ...]
+    # None means cloud runs follow the latest context-mill release.
+    context_mill_version: str | None = None
 
 
 @frozen
@@ -241,16 +243,9 @@ class WizardInstallStatusDTO:
 @frozen
 class ListWizardRunsInput:
     team_id: int
-    offset: int
-    limit: int
     statuses: tuple[WizardRunStatus, ...] = ()
     created_after: datetime | None = None
-
-
-@frozen
-class WizardRunPage:
-    results: tuple[WizardRunDTO, ...]
-    count: int
+    created_by_id: int | None = None
 
 
 @frozen
@@ -327,3 +322,11 @@ class WizardScanResult:
     id: UUID
     # False when the session already reported this scan, so nothing was written.
     created: bool
+
+
+@frozen
+class WizardDetectedWarehouseSource:
+    kind: str
+    warehouse_source_type: str
+    first_seen_at: datetime
+    last_seen_at: datetime

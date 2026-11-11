@@ -17,7 +17,6 @@ from parameterized import parameterized
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import PropertyDefinition
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -28,6 +27,7 @@ from posthog.models.utils import generate_random_token_personal
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.event_definitions.backend.models import PropertyDefinition
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
 from products.workflows.backend.models import WorkflowIdea as WorkflowIdeaModel

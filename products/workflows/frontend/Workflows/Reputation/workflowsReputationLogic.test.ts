@@ -2,8 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -16,10 +16,8 @@ import { workflowsReputationLogic } from './workflowsReputationLogic'
 const allowance: EmailSendingAllowanceApi = {
     tier: 2,
     max_tier: 4,
-    emails_per_hour: 5000,
     emails_per_day: 50000,
     max_batch_audience: 25000,
-    emails_sent_last_hour: 1200,
     emails_sent_last_day: 18400,
     enforced: true,
 }

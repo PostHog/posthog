@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
+import { hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 import { IconCheckCircle, IconHide, IconLeave, IconPerson, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { canUnassignMe, hasOpenImplementationPr } from '../../utils/reportActions'
+import { canUnassignMe } from '../../utils/reportActions'
 import { isReportClaimable } from '../../utils/reportClaim'
 import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { openDismissReportDialog } from './DismissReportDialog'
@@ -23,6 +26,7 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
         useValues(inboxBulkActionsLogic)
     const { clearSelection, bulkClaim, bulkDismiss, bulkResolve, bulkUnassignMe } = useActions(inboxBulkActionsLogic)
     const { isScopedToMe } = useValues(inboxFiltersLogic)
+    const { user } = useValues(userLogic)
 
     if (selectedCount === 0) {
         return null
@@ -37,7 +41,9 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
     const unassignableIds = reports
         .filter((report) => selectedIds.has(report.id) && canUnassignMe(report, isScopedToMe))
         .map((report) => report.id)
-    const claimableIds = selectedReports.filter(isReportClaimable).map((report) => report.id)
+    const claimableIds = selectedReports
+        .filter((report) => isReportClaimable(report, user?.uuid ?? null))
+        .map((report) => report.id)
 
     return (
         <div className="flex items-center justify-between gap-3 flex-wrap rounded border border-accent bg-accent-highlight-secondary px-3 py-2">

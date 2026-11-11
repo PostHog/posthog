@@ -28,19 +28,22 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
+    WarehouseSuggestionSurface,
 )
-from products.warehouse_suggestions.backend.logic.access import can_take
+from products.warehouse_suggestions.backend.logic.access import can_take, surface_q
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
+from products.warehouse_suggestions.backend.logic.job import WaitingSuggestions, surface_more, waiting_suggestions
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
 from products.warehouse_suggestions.backend.logic.reads import SubjectReads, SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
-from products.warehouse_suggestions.backend.models import WarehouseSuggestion
+from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
 
 from .test_accept import REPORT
 
 NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
+FLAG = "products.warehouse_suggestions.backend.logic.assignment.is_warehouse_suggestions_enabled"
 CAN_TAKE = "products.warehouse_suggestions.backend.logic.assignment.can_take"
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
 READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12, "human_reads_per_month": 200.0}
@@ -81,6 +84,10 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
 
 
 class TestApplyRun(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.flag = self.enterContext(patch(FLAG, return_value=True))
+
     def _context(self, *view_ids: UUID, recent_days_with_data: int = 7) -> CandidateContext:
         return context(
             team_reads({}, recent_days_with_data=recent_days_with_data),
@@ -268,11 +275,18 @@ class TestApplyRun(BaseTest):
             ("creator_who_left_the_organization", "left", WarehouseSuggestionKind.MATERIALIZE, False),
             ("creator_who_cannot_edit_the_catalog", "catalog_viewer", WarehouseSuggestionKind.CERTIFY, False),
             ("no_creator", "none", WarehouseSuggestionKind.MATERIALIZE, False),
+            ("creator_on_a_team_without_the_flag", "member", WarehouseSuggestionKind.MATERIALIZE, True, False),
         ]
     )
     def test_assigns_surfaced_view_suggestions_to_a_creator_who_can_accept_them(
-        self, _name: str, creator_state: str, kind: WarehouseSuggestionKind, expect_assigned: bool
+        self,
+        _name: str,
+        creator_state: str,
+        kind: WarehouseSuggestionKind,
+        expect_assigned: bool,
+        flag_enabled: bool = True,
     ) -> None:
+        self.flag.return_value = flag_enabled
         creator = self._creator(creator_state)
         views = [
             DataWarehouseSavedQuery.objects.create(
@@ -297,7 +311,7 @@ class TestApplyRun(BaseTest):
         expected_assignee = creator.pk if expect_assigned and creator else None
         assert (assignee_ids, notified) == (
             {expected_assignee},
-            [str(expected_assignee)] if expect_assigned else [],
+            [str(expected_assignee)] if expect_assigned and flag_enabled else [],
         )
 
     @parameterized.expand([("kept_access_to_the_view", False), ("lost_access_to_the_view", True)])
@@ -581,3 +595,105 @@ class TestPickInTurns(SimpleTestCase):
         chosen = _pick_in_turns(WAITING, (MATERIALIZE, DEPRECATE, CERTIFY), slots, Counter(already_open), 3)
 
         assert chosen == [UUID(int=row_id) for row_id in expected_ids]
+
+
+class TestSurfaceMore(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch(FLAG, return_value=True))
+        self.notify = self.enterContext(patch(NOTIFY))
+        self.config = WarehouseSuggestionTeamConfig.objects.update_or_create(
+            team=self.team, defaults={"enabled": True, "eligible": True, "paused_reason": None}
+        )[0]
+
+    def _seed(
+        self, counts: dict[WarehouseSuggestionKind, int], *, surface: bool = True
+    ) -> tuple[CandidateContext, list[SuggestionDraft]]:
+        views = [
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"view_{index}",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                created_by=self.user,
+            )
+            for index in range(sum(counts.values()))
+        ]
+        ctx = context(team_reads({}), views=[view(saved_query.id) for saved_query in views], team_id=self.team.pk)
+        view_ids = iter(saved_query.id for saved_query in views)
+        drafts = [
+            CANDIDATES[kind].draft(ctx, view_subject(next(view_ids)), PAYLOADS[kind], score=1, score_inputs={})
+            for kind, count in counts.items()
+            for _ in range(count)
+        ]
+        apply_run(ctx, self.team, drafts, NOW, surface=surface)
+        return ctx, drafts
+
+    def _close_surfaced(self) -> None:
+        WarehouseSuggestion.objects.for_team(self.team.pk).filter(surfaced_at__isnull=False).update(
+            status=WarehouseSuggestionStatus.ACCEPTED
+        )
+
+    @parameterized.expand(
+        [
+            ("models_shows_only_its_kinds_three_per_kind", WarehouseSuggestionSurface.MODELS, {"materialize": 3}),
+            ("catalog_shows_only_its_kinds", WarehouseSuggestionSurface.CATALOG, {"certify": 1}),
+        ]
+    )
+    def test_shows_a_batch_past_the_daily_limit_for_the_surface_without_notifying(
+        self, _name: str, surface: WarehouseSuggestionSurface, expected: dict[str, int]
+    ) -> None:
+        self._seed({WarehouseSuggestionKind.CERTIFY: 4, WarehouseSuggestionKind.MATERIALIZE: 6})
+        self._close_surfaced()
+        self.notify.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            surfaced = surface_more(self.team, surface_q(surface), now=NOW + timedelta(hours=1))
+
+        assert (Counter(row.kind for row in surfaced), {row.assignee_id for row in surfaced}, self.notify.called) == (
+            expected,
+            {self.user.pk},
+            False,
+        )
+
+    @parameterized.expand(
+        [
+            ("nothing_waiting", {}, 0),
+            ("turned_off", {"enabled": False}, 2),
+            ("paused", {"paused_reason": "too_many_dismissals"}, 2),
+            ("not_eligible", {"eligible": False}, 2),
+        ]
+    )
+    def test_shows_nothing_when_the_daily_run_would_not(
+        self, _name: str, config: dict[str, object], materialize_waiting: int
+    ) -> None:
+        self._seed({WarehouseSuggestionKind.MATERIALIZE: 3 + materialize_waiting})
+        self._close_surfaced()
+        WarehouseSuggestionTeamConfig.objects.filter(team=self.team).update(**config)
+        waiting = surface_q(WarehouseSuggestionSurface.MODELS)
+
+        surfaced = surface_more(self.team, waiting, now=NOW + timedelta(hours=1))
+
+        assert (surfaced, waiting_suggestions(self.team.pk, waiting, now=NOW + timedelta(hours=1))) == (
+            [],
+            WaitingSuggestions(count=0, can_show_more=False),
+        )
+
+    def test_counts_waiting_rows_but_cannot_show_more_while_their_kind_is_full(self) -> None:
+        self._seed({WarehouseSuggestionKind.MATERIALIZE: 4})
+
+        waiting = waiting_suggestions(
+            self.team.pk, surface_q(WarehouseSuggestionSurface.MODELS), now=NOW + timedelta(hours=1)
+        )
+
+        assert waiting == WaitingSuggestions(count=1, can_show_more=False)
+
+    def test_the_daily_run_still_shows_its_batch_after_show_more_earlier_that_day(self) -> None:
+        ctx, drafts = self._seed(
+            {WarehouseSuggestionKind.CERTIFY: 6, WarehouseSuggestionKind.MATERIALIZE: 6}, surface=False
+        )
+        surface_more(self.team, surface_q(WarehouseSuggestionSurface.MODELS), now=NOW)
+        self._close_surfaced()
+
+        daily = apply_run(ctx, self.team, drafts, NOW + timedelta(hours=1), surface=True)
+
+        assert daily.surfaced == ctx.rules.lifecycle.max_surfaced_per_day

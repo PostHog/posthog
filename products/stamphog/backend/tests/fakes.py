@@ -23,6 +23,7 @@ import tarfile
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 from slack_sdk.errors import SlackApiError
@@ -114,6 +115,8 @@ _COLLABORATOR_PERMISSION_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/collabo
 _PR_REACTIONS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions$")
 _COMPARE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/compare/(?P<basehead>[^/]+)$")
 _PR_REACTION_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/reactions/(?P<rid>\d+)$")
+_REQUESTED_REVIEWERS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/requested_reviewers$")
+_ISSUE_LABELS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/labels$")
 
 _API_PREFIX = "https://api.github.com"
 
@@ -187,9 +190,23 @@ class GitHubRecorder:
         self.repo_files: dict[tuple[str, str], str] = {}
         # (repo, path) -> link target, for a symlink the contents API reports as a symlink object.
         self.repo_symlinks: dict[tuple[str, str], str] = {}
+        # (path, ref) -> text, for a file whose contents differ between two commits.
+        self.files_at_ref: dict[tuple[str, str], str] = {}
+        # The files every compare lists, for a caller that pins a PR's file list to two commits.
+        self.compare_files: list[dict] = []
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
+        # Reviewers GitHub refuses to request (`@login` or a team slug): a stale slug, or the author.
+        # Any request naming one answers 422 for the whole request, as GitHub does.
+        self.unrequestable_reviewers: set[str] = set()
+        # How many review requests answer 500 before GitHub takes them again.
+        self.reviewer_request_failures = 0
+        # How many label requests answer 500 before GitHub takes them again.
+        self.label_request_failures = 0
+        self.labels_refused = False
+        # How many times the ownership reader looked up the default branch head.
+        self.head_lookups = 0
         self.github_writes: list[dict[str, Any]] = []
         self._next_id = 90000
 
@@ -232,7 +249,9 @@ class GitHubRecorder:
         if method == "GET" and path == "/search/issues":
             return self._search_issues(params)
         if method == "GET" and _COMPARE_RE.match(path):
-            return FakeResponse(200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}})
+            return FakeResponse(
+                200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}, "files": self.compare_files}
+            )
         if method == "GET" and _CHECK_RUNS_RE.match(path):
             return FakeResponse(200, json_data={"check_runs": []})
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
@@ -249,7 +268,7 @@ class GitHubRecorder:
             return self._remove_reaction(m.group("repo"), int(m.group("number")), int(m.group("rid")))
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
             raw = "raw" in (kwargs.get("headers") or {}).get("Accept", "")
-            return self._get_contents(m.group("repo"), m.group("path"), raw=raw)
+            return self._get_contents(m.group("repo"), m.group("path"), raw=raw, ref=str(params.get("ref") or ""))
         if method == "POST" and path == "/graphql":
             return self._graphql(json_body or {})
         if method == "GET" and (m := _REVIEWS_RE.match(path)):
@@ -269,6 +288,19 @@ class GitHubRecorder:
             return self._record_write("issue_comment", m.group("repo"), int(m.group("number")), json_body)
         if method == "PATCH" and (m := _COMMENT_PATCH_RE.match(path)):
             return self._record_write("issue_comment_edit", m.group("repo"), 0, json_body)
+        if method == "DELETE" and (m := _COMMENT_PATCH_RE.match(path)):
+            self.github_writes.append({"kind": "delete_comment", "repo": m.group("repo"), "id": int(m.group("cid"))})
+            return FakeResponse(204)
+        if method == "POST" and (m := _REQUESTED_REVIEWERS_RE.match(path)):
+            return self._request_reviewers(m.group("repo"), int(m.group("number")), json_body or {})
+        if method == "POST" and (m := _ISSUE_LABELS_RE.match(path)):
+            if self.label_request_failures > 0:
+                self.label_request_failures -= 1
+                return FakeResponse(500, text="server error")
+            if self.labels_refused:
+                return FakeResponse(403, text="forbidden")
+            self._record_write("add_labels", m.group("repo"), int(m.group("number")), json_body)
+            return FakeResponse(200, json_data=[])
         if method == "PUT" and (m := _DISMISS_RE.match(path)):
             return self._dismiss_review(m.group("repo"), int(m.group("number")), int(m.group("rid")), json_body)
         if method == "DELETE" and (m := _LABEL_DELETE_RE.match(path)):
@@ -301,11 +333,11 @@ class GitHubRecorder:
         numbers = self.author_merged.get((repo, author), []) if page == 1 else []
         return FakeResponse(200, json_data={"items": [{"number": n} for n in numbers]})
 
-    def _get_contents(self, repo: str, path: str, *, raw: bool = True) -> FakeResponse:
+    def _get_contents(self, repo: str, path: str, *, raw: bool = True, ref: str = "") -> FakeResponse:
         if (repo, path) in self.repo_symlinks:
             target = self.repo_symlinks[(repo, path)]
             return FakeResponse(200, json_data={"type": "symlink", "path": path, "target": target})
-        content = self.repo_files.get((repo, path), self.policy_files.get(path))
+        content = self.files_at_ref.get((path, ref), self.repo_files.get((repo, path), self.policy_files.get(path)))
         if content is None:
             return FakeResponse(404, text="not found")
         if not raw:
@@ -335,6 +367,7 @@ class GitHubRecorder:
                 200, json_data={"data": {"minimizeComment": {"minimizedComment": {"isMinimized": True}}}}
             )
         if "defaultBranchRef" in query:
+            self.head_lookups += 1
             if f"{variables.get('owner', '')}/{variables.get('name', '')}" in self.empty_repositories:
                 return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": None}}})
             # The ownership reader caches blobs per commit, and the cache outlives one test. A commit
@@ -363,6 +396,10 @@ class GitHubRecorder:
         teams_data = {"data": {"organization": {"teams": {"nodes": [{"slug": s} for s in slugs]}}}}
         return FakeResponse(200, json_data=teams_data)
 
+    def _is_directory(self, repo: str, path: str) -> bool:
+        scripted = [*self.policy_files, *(file for owner, file in self.repo_files if owner == repo)]
+        return any(file.startswith(f"{path}/") for file in scripted)
+
     def _ownership_blobs(self, repo: str, query: str, variables: dict) -> FakeResponse:
         """The aliased blob lookups the shared ownership reader sends, served from the same files the
         contents API answers with. Each variable holds a ``<commit>:<path>`` expression."""
@@ -370,15 +407,31 @@ class GitHubRecorder:
         for name, expression in variables.items():
             if name in ("owner", "name"):
                 continue
-            path = str(expression).split(":", 1)[1]
+            commit, path = str(expression).split(":", 1)
             content = self.repo_files.get((repo, path), self.policy_files.get(path))
             if (repo, path) in self.repo_symlinks:
                 content = self.repo_symlinks[(repo, path)]
-            if content is None:
+            content = self.files_at_ref.get((path, commit), content)
+            if content is None and self._is_directory(repo, path):
+                # A directory is a Tree, which has no blob text to select.
+                field[f"f{name[1:]}"] = {} if "text" in query else {"__typename": "Tree"}
+            elif content is None:
                 field[f"f{name[1:]}"] = None
             else:
                 field[f"f{name[1:]}"] = {"text": content} if "text" in query else {"__typename": "Blob"}
         return FakeResponse(200, json_data={"data": {"repository": field}})
+
+    def _request_reviewers(self, repo: str, number: int, body: dict) -> FakeResponse:
+        if self.reviewer_request_failures > 0:
+            self.reviewer_request_failures -= 1
+            return FakeResponse(500, text="server error")
+        named = {f"@{user}" for user in body.get("reviewers", [])} | set(body.get("team_reviewers", []))
+        if named & self.unrequestable_reviewers:
+            self.github_writes.append(
+                {"kind": "request_reviewers_refused", "repo": repo, "number": number, "body": body}
+            )
+            return FakeResponse(422, json_data={"message": "Reviews may only be requested from collaborators."})
+        return self._record_write("request_reviewers", repo, number, body)
 
     def _record_write(self, kind: str, repo: str, number: int, body: dict | None) -> FakeResponse:
         new_id = self._alloc_id()
@@ -679,3 +732,42 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
                 raise self.destroy_error
 
     return _FakeSandbox
+
+
+# --- LLM fake at the routing step's Anthropic client seam ---
+
+
+class FakeCutModel:
+    """Stands in for the Anthropic client class the routing cut step builds.
+
+    Script ``answer`` (the JSON the model returns) or ``error`` (raised by the call), then read
+    ``calls`` for the requests it received.
+    """
+
+    def __init__(self) -> None:
+        self.answer: Any = {"cuts": []}
+        self.error: Exception | None = None
+        self.calls: list[dict[str, Any]] = []
+
+    def client(self, **_kwargs: Any) -> _FakeAnthropicClient:
+        return _FakeAnthropicClient(self)
+
+
+class _FakeAnthropicClient:
+    def __init__(self, model: FakeCutModel) -> None:
+        self._model = model
+        self.messages = self
+
+    def create(self, **kwargs: Any) -> SimpleNamespace:
+        self._model.calls.append(kwargs)
+        if self._model.error is not None:
+            raise self._model.error
+        text = self._model.answer if isinstance(self._model.answer, str) else json.dumps(self._model.answer)
+        return SimpleNamespace(
+            stop_reason="end_turn",
+            content=[SimpleNamespace(type="text", text=text)],
+            usage=SimpleNamespace(input_tokens=1200, output_tokens=40),
+        )
+
+    def close(self) -> None:
+        return None

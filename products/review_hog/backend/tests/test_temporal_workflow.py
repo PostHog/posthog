@@ -266,7 +266,7 @@ async def _run_full_review_pr_workflow(
         return PushGateDecision(
             skip=gate_skips,
             would_skip=gate_skips,
-            reason="merge_only" if gate_skips else "system_one_above_threshold",
+            reason="merge_only" if gate_skips else "no_rule_matched",
             delta_eligible=gate_delta_review,
             delta_review=gate_delta_review,
         )

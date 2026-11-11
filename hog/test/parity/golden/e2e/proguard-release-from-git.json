@@ -1,0 +1,66 @@
+{
+    "exitCode": 0,
+    "requests": [
+        {
+            "method": "GET",
+            "path": "/api/projects/1/error_tracking/releases/hash/1a090dd726e5233c41faaa8e3cdd0d85f295c741f72d295ca5bfac0b9a78d3bb86b23b73148563c49bd81c11d0b8782285a24420156dfddec37f4cb239e4705f",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "status": 404
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/releases",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"metadata\":{\"git\":{\"branch\":\"main\",\"commit_id\":\"c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00\",\"remote_url\":\"https://github.com/PostHog/example-app.git\",\"repo_name\":\"example-app\"}},\"hash_id\":\"1a090dd726e5233c41faaa8e3cdd0d85f295c741f72d295ca5bfac0b9a78d3bb86b23b73148563c49bd81c11d0b8782285a24420156dfddec37f4cb239e4705f\",\"version\":\"c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00\",\"project\":\"example-app\"}",
+            "status": 201
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"symbol_sets\":[{\"chunk_id\":\"map-release-from-git\",\"release_id\":\"36a34f25-35f2-5a0c-9248-4587b214cebe\",\"content_hash\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\",\"content_length\":222}],\"force\":false,\"skip_on_conflict\":false}",
+            "status": 200
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"symbol_sets\":[{\"chunk_id\":\"map-release-from-git\",\"release_id\":\"36a34f25-35f2-5a0c-9248-4587b214cebe\",\"content_hash\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\",\"content_length\":222}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":false,\"skip_on_conflict\":false}",
+            "status": 201
+        },
+        {
+            "method": "PUT",
+            "path": "/s3/put/symbolsets/0d737a1b-88b1-510c-8dbb-7a58a4f72db6?length=222",
+            "headers": {
+                "authorization": "<none>"
+            },
+            "upload": {
+                "sha512": "72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c",
+                "length": 222
+            },
+            "status": 200
+        },
+        {
+            "method": "POST",
+            "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+            "headers": {
+                "authorization": "Bearer phx_<key>",
+                "content-type": "application/json"
+            },
+            "body": "{\"content_hashes\":{\"0d737a1b-88b1-510c-8dbb-7a58a4f72db6\":\"72e221661b7a13caab866c5782dc0c99890c67d568fea7d4f9775d7917e1be3dbccca94b7e08ef7ed4ff6485f52db9c93f4fa209e9a82330bed1981bf99b495c\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+            "status": 201
+        }
+    ]
+}

@@ -3,6 +3,8 @@
 from decimal import Decimal
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 MAX_RECALCULATION_TIMES = 2
 # frontend/src/scenes/settings/environment/ExperimentRecalculationTime.tsx repeats this value, so change both together.
 MIN_RECALCULATION_GAP_HOURS = 6
@@ -11,6 +13,14 @@ MIN_RECALCULATION_GAP_HOURS = 6
 # stores two decimal places, so these bounds are that open range.
 MIN_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.01")
 MAX_DEFAULT_CONFIDENCE_LEVEL = Decimal("0.99")
+
+
+class ExposuresPath(StrEnum):
+    """Where a metric query read the exposures. Tagged on the query as `experiment_exposures_path`, and stored with a
+    failed metric in `metric_errors`."""
+
+    PRECOMPUTED = "precomputed"
+    DIRECT_SCAN = "direct_scan"
 
 
 class PrecomputeSkipReason(StrEnum):
@@ -26,3 +36,9 @@ class PrecomputeSkipReason(StrEnum):
     COHORT_NOT_CALCULATED = "cohort_not_calculated"
     DATA_WAREHOUSE = "data_warehouse"
     GROUP_AGGREGATION = "group_aggregation"
+
+
+class ExperimentResultConfigurationStatus(LabeledStrEnum):
+    CURRENT = "current", "Current settings"
+    PREVIOUS = "previous", "Earlier settings"
+    UNKNOWN = "unknown", "Settings not recorded"

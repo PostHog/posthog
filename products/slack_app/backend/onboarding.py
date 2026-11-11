@@ -12,13 +12,11 @@ from enum import StrEnum
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.integrations import IntegrationManager
-from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import SlackIntegration
-from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import channel_id_from_target
 
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.feature_flags import is_slack_app_onboarding_enabled
 from products.slack_app.backend.inbox_channel import (
     _get_team_channel,
     _is_channel_member,
@@ -26,6 +24,15 @@ from products.slack_app.backend.inbox_channel import (
     has_inbox_scopes,
     invite_user_to_inbox,
 )
+from products.slack_app.backend.logic.onboarding.checks import (
+    approve_ai_data_processing_for_team,
+    has_ai_approval as _has_ai_approval,
+    has_enabled_source as _has_enabled_source,
+    has_personal_github as _has_personal_github,
+    has_team_github as _has_team_github,
+    is_org_admin as _is_org_admin,
+)
+from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
 from products.slack_app.backend.services.slack_messages import context_block
 from products.slack_app.backend.services.slack_welcome_messages import (
     INBOX_CREATE_ACTION_ID,
@@ -68,42 +75,6 @@ def _replace_actions_with_context(blocks: list[dict], action_ids: set[str], text
 # =====================================================================
 # Status, delivery, completion
 # =====================================================================
-
-
-def _has_team_github(team_id: int) -> bool:
-    return IntegrationManager.github.oauth.exists(team_id)
-
-
-def _has_personal_github(user_id: int) -> bool:
-    return UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB).exists()
-
-
-def _has_ai_approval(team_id: int) -> bool:
-    org_approved = (
-        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
-    )
-    return bool(org_approved)
-
-
-def _is_org_admin(user_id: int, team_id: int) -> bool:
-    """Whether the user can toggle org settings (AI consent needs ADMIN+)."""
-    org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    if org_id is None:
-        return False
-    level = (
-        OrganizationMembership.objects.filter(organization_id=org_id, user_id=user_id)
-        .values_list("level", flat=True)
-        .first()
-    )
-    return level is not None and level >= OrganizationMembership.Level.ADMIN
-
-
-def _has_enabled_source(team_id: int) -> bool:
-    from products.signals.backend.facade.api import (
-        has_enabled_source,  # noqa: PLC0415 — keeps the signals stack off the slack import path
-    )
-
-    return has_enabled_source(team_id)
 
 
 def _resolve_onboarding_user(
@@ -255,18 +226,8 @@ def approve_ai_data_processing(integration: WorkspaceIntegration, slack_user_id:
     user_id = _resolve_onboarding_user(SlackIntegration(integration), integration, slack_user_id)
     if user_id is None or not _is_org_admin(user_id, integration.team_id):
         return False
-    org_id = Team.objects.filter(id=integration.team_id).values_list("organization_id", flat=True).first()
-    if org_id is None:
+    if not approve_ai_data_processing_for_team(integration.team_id):
         return False
-    from posthog.models.organization import Organization  # noqa: PLC0415
-
-    # Save the instance (not a queryset .update()) so ModelActivityMixin records the consent change
-    # in the activity log and updated_at is bumped.
-    organization = Organization.objects.filter(id=org_id).first()
-    if organization is None:
-        return False
-    organization.is_ai_data_processing_approved = True
-    organization.save(update_fields=["is_ai_data_processing_approved", "updated_at"])
     capture_slack_event(
         integration, EVENT_STEP_COMPLETED, slack_user_id=slack_user_id, step=str(OnboardingStep.AI_APPROVAL)
     )
@@ -289,4 +250,8 @@ def run_install_onboarding(integration: WorkspaceIntegration) -> None:
         return
     if channel is not None:
         invite_user_to_inbox(integration, channel[0], installer)
+    # The DM setup thread takes over the installer's setup, so it starts here in place of the old DM.
+    if is_slack_app_onboarding_enabled(integration):
+        request_onboarding(integration, installer, may_start=True)
+        return
     send_onboarding_dm(integration, installer)

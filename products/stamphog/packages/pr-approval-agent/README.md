@@ -83,10 +83,11 @@ Deny-list (hard gate)
   │
   ▼
 Size ceiling (hard gate)
-  - >800 substantive lines or >30 substantive files → too large for auto-review
-    (limits derived from 90 days of denial outcomes: the friction cluster of
-    denied-yet-merged-unchanged PRs sits at 500-750 substantive lines, and past
-    ~800 the merged-unchanged rate collapses, so escalation is genuinely right)
+  - >1200 substantive lines or >50 substantive files → too large for auto-review
+    (limits derived from 60 days of size-gate denials and git history: the share
+    of merged PRs that get a follow-up fix on the same files within 14 days rises
+    gently up to ~1200 substantive lines and jumps past it, and people already
+    stamp PRs this size in Slack within minutes)
   - A folder's AGENT_APPROVALS.md can raise either ceiling for its own files,
     within the `overrides` contract in policy.yml (see "Policy files" below)
   - The whole PR still has to fit the most generous ceiling in play, so
@@ -268,8 +269,8 @@ Resolution:
 Each scope's files are counted against that scope's own ceiling.
 A grant covers exactly the files that resolve to it, which is the nearest valid grant of that key on their chain, and nothing else.
 
-Example: with a folder ceiling of 50 files and a global ceiling of 20, a PR changing 30 files under that folder plus 19 files elsewhere passes, because each budget fits.
-Add a 21st global file and the PR is denied for the global budget, however much headroom the folder still has.
+Example: with a folder ceiling of 75 files and a global ceiling of 50, a PR changing 60 files under that folder plus 49 files elsewhere passes, because each budget fits.
+Add a 51st global file and the PR is denied for the global budget, however much headroom the folder still has.
 
 Files whose chain grants nothing count against the global budget, so splitting files across pseudo-scopes can never inflate the allowance.
 That covers a missing folder file, a prose-only file, and a file with only invalid grants.
@@ -280,9 +281,9 @@ A folder that raises only the line ceiling still counts its files against the on
 #### The roof bounds the whole PR
 
 Per-scope budgets alone would let a PR's total grow with the number of scopes it touches.
-A folder granting 1000 lines next to an 800-line global pool would allow 1800, and every further granting folder would add its own budget on top.
+A folder granting 1500 lines next to a 1200-line global pool would allow 2700, and every further granting folder would add its own budget on top.
 So each ceiling also carries a roof over the whole PR: the most generous ceiling in play for that key.
-A PR touching a folder that grants 1000 lines gets a 1000-line roof, whatever else it touches.
+A PR touching a folder that grants 1500 lines gets a 1500-line roof, whatever else it touches.
 
 The roof needs no separate number in `policy.yml`.
 Every grant is validated at or under the contract ceiling, and the global pool is always a scope, so the roof stays between the global default and the contract ceiling.
