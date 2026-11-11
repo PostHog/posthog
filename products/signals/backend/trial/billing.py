@@ -130,7 +130,7 @@ class TrialBilling:
 
 
 def trial_billing_status(team: Team, *, use_cache: bool = False) -> TrialBillingStatus:
-    # LOCAL ONLY, do not commit: no billing customer exists locally, so pretend a fresh unpaid org.
+    # A DEBUG stack has no billing service, so treat the organization as a fresh unpaid customer.
     if settings.DEBUG:
         return TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT)
     try:
