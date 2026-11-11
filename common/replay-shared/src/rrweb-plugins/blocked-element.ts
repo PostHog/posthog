@@ -9,9 +9,9 @@ const BLOCKED_ELEMENT_TITLE = 'Hidden from recording'
 const BLOCKED_ELEMENT_DESCRIPTION = "The site's settings block this element from being captured."
 
 const FONT = `font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"`
-const CARD = '#1d1f27'
-const TITLE = `<text x="195" y="27" text-anchor="middle" ${FONT} font-size="15" font-weight="600" fill="#ffffff">${BLOCKED_ELEMENT_TITLE}</text>`
-const DESCRIPTION = `<text x="195" y="50" text-anchor="middle" ${FONT} font-size="12.5" fill="#c9cbc4">${BLOCKED_ELEMENT_DESCRIPTION}</text>`
+const CARD = '#ffffff'
+const TITLE = `<text x="195" y="27" text-anchor="middle" ${FONT} font-size="15" font-weight="600" fill="#1d1f27">${BLOCKED_ELEMENT_TITLE}</text>`
+const DESCRIPTION = `<text x="195" y="50" text-anchor="middle" ${FONT} font-size="12.5" fill="#5f6168">${BLOCKED_ELEMENT_DESCRIPTION}</text>`
 
 function svgUrl(width: number, height: number, body: string): string {
     // The viewBox lets each label shrink inside its box while keeping its proportions.
@@ -31,7 +31,7 @@ const SMALL_LABEL = svgUrl(
     200,
     34,
     `<rect width="200" height="34" rx="17" fill="${CARD}"/>` +
-        `<text x="100" y="22" text-anchor="middle" ${FONT} font-size="13" font-weight="600" fill="#ffffff">${BLOCKED_ELEMENT_TITLE}</text>`
+        `<text x="100" y="22" text-anchor="middle" ${FONT} font-size="13" font-weight="600" fill="#1d1f27">${BLOCKED_ELEMENT_TITLE}</text>`
 )
 
 /** A background size that is `size` when the element is at least `min` along that axis, and 0 (not drawn) when smaller. */
