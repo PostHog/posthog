@@ -85,9 +85,9 @@ describe('DataTable', () => {
             />
         )
 
-        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Ada' }))
+        fireEvent.click(screen.getByLabelText('Select Ada'))
         onRowSelectionChange.mockClear()
-        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Margaret' }), { shiftKey: true })
+        fireEvent.click(screen.getByLabelText('Select Margaret'), { shiftKey: true })
 
         const next = onRowSelectionChange.mock.calls[0][0]
         expect(Object.keys(next).sort()).toEqual([...expected].sort())
