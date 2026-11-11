@@ -13,7 +13,7 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
-from products.data_modeling.backend.facade.contracts import Dependent
+from products.data_modeling.backend.facade.contracts import Dependent, HasDependentsError, _nameless_refusal
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.saved_query_reads import saved_query_node_ids
@@ -404,40 +404,6 @@ def adopt_saved_query_without_edges(team_id: int, saved_query_id: UUID, error: s
         node = Node.objects.select_for_update().get(pk=node.pk)
         node.mark_lineage_sync_failed(error)
         node.save(update_fields=["properties"])
-
-
-def _nameless_refusal(view_name: str) -> str:
-    return f"Can't delete {view_name} yet. Something else reads from it. Update or delete it first."
-
-
-class HasDependentsError(Exception):
-    """Raised when attempting to delete a saved query that has dependents.
-
-    Names no dependent. Only a caller that has filtered `dependents` through the reader's access
-    may name one, so a caller that logs or renders `str(err)` cannot disclose one by accident.
-    """
-
-    def __init__(
-        self,
-        view_name: str,
-        dependents: tuple[Dependent, ...] = (),
-        fallback_node_id: str | None = None,
-    ) -> None:
-        super().__init__(_nameless_refusal(view_name))
-        self.view_name = view_name
-        self.dependents = dependents
-        self.fallback_node_id = fallback_node_id
-
-
-class MissingDagNodeError(Exception):
-    """Raised when a saved query on a v2 team has no node to schedule through.
-
-    On v2 the node is the unit of execution: the DAG run materializes nodes, so a saved query
-    with no node is not reachable by any schedule. Without this the query would be left claiming
-    to be materialized while nothing refreshes it.
-    """
-
-    pass
 
 
 def _nodes_standing_for(saved_query: "DataWarehouseSavedQuery") -> QuerySet[Node]:

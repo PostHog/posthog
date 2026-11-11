@@ -11,14 +11,14 @@ from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
-from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
-from products.data_modeling.backend.logic.incremental import IncrementalConfig
+from products.data_modeling.backend.facade.contracts import (
+    IncrementalConfig,
+    SchedulingUnavailableError,
+    UnsatisfiableFrequencyError,
+)
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import (
-    DataWarehouseSavedQuery,
-    SchedulingUnavailableError,
-)
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import warehouse_source_node

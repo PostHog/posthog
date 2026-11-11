@@ -15,7 +15,6 @@ including non-associative ones that other systems have to reject.
 import json
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -24,7 +23,11 @@ from django.db import transaction
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clear_locations
 
-DEFAULT_LOOKBACK_SECONDS = 0
+from products.data_modeling.backend.facade.contracts import (
+    DEFAULT_LOOKBACK_SECONDS,
+    IncrementalConfig,
+    IncrementalState,
+)
 
 # Guards against a config that would make every run re-read most of history. Any larger window
 # is better served by a full refresh, which at least produces a table with no stale rows.
@@ -32,40 +35,6 @@ MAX_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
 
 # The incremental_state key under which the managed warehouse's Trino shadow keeps its own progress.
 TRINO_INCREMENTAL_SCOPE = "trino"
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class IncrementalConfig:
-    """The user-declared half of an incremental view."""
-
-    incremental_key: str
-    unique_key: tuple[str, ...]
-    lookback_seconds: int = DEFAULT_LOOKBACK_SECONDS
-
-    def canonical(self) -> dict[str, Any]:
-        """Fingerprint input. Order-insensitive for unique_key, since reordering it changes nothing.
-
-        Deliberately excludes lookback_seconds: it is operational, not definitional. It changes how
-        far future runs re-read, not what the stored rows mean, and rows arriving later than any
-        lookback are best-effort by design. Widening it does not repair past gaps either way; the
-        explicit rebuild action does.
-        """
-        return {
-            "incremental_key": self.incremental_key,
-            "unique_key": sorted(self.unique_key),
-        }
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class IncrementalState:
-    """The system-written half: how far the last successful run got."""
-
-    watermark: Any = None
-    watermark_type: Optional[str] = None
-    definition_fingerprint: Optional[str] = None
-    last_full_refresh_at: Optional[str] = None
-    last_run_mode: Optional[str] = None
-    has_incremental_history: bool = False
 
 
 def get_incremental_config(saved_query) -> Optional[IncrementalConfig]:
