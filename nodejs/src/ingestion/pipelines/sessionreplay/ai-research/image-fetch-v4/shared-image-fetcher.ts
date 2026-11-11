@@ -72,5 +72,5 @@ export class SharedImageFetcher implements ImageFetcher {
 
 /** A redirect depends on the hops a job has left, so only a direct image is shared. */
 function isShareable(result: ImageFetchResult): boolean {
-    return result.outcome === 'ok' && result.redirects === 0 && !!result.bytes
+    return result.outcome === 'ok' && result.redirects === 0
 }
