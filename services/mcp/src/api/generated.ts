@@ -16439,6 +16439,20 @@ export namespace Schemas {
       limit: number;
     }
 
+    /**
+     * * `off` - off
+     * * `preview` - preview
+     * * `on` - on
+     */
+    export type AutoQuarantineModeEnum = typeof AutoQuarantineModeEnum[keyof typeof AutoQuarantineModeEnum];
+
+
+    export const AutoQuarantineModeEnum = {
+      Off: 'off',
+      Preview: 'preview',
+      On: 'on',
+    } as const;
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -21999,6 +22013,15 @@ export namespace Schemas {
       readonly has_more: boolean;
       /** The most recently updated candidates, at most 100. */
       readonly results: readonly BroadcastConversionCandidate[];
+    }
+
+    export interface BroadcastOption {
+      /** ID of the broadcast. */
+      id: string;
+      /** Name of the broadcast. */
+      name: string;
+      /** Status of the broadcast, such as draft or active. */
+      status: string;
     }
 
     /**
@@ -64744,6 +64767,20 @@ export namespace Schemas {
       teams: LinearTeam[];
     }
 
+    export interface LinkedSendDTO {
+      id: string;
+      status: string;
+      created_at: string;
+    }
+
+    export interface LinkedBroadcastDTO {
+      /** The broadcast's most recent sends, newest first, at most 20. */
+      readonly recent_sends: readonly LinkedSendDTO[];
+      id: string;
+      name: string;
+      status: string;
+    }
+
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -75689,6 +75726,8 @@ export namespace Schemas {
       created_by?: UserBasicInfo | null;
       /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
       source_run?: QuarantineSourceRun | null;
+      /** Why visual review lifted this quarantine by itself, for example after 500 clean default-branch runs. Empty when a person, an agent, a merged fix, or the expiry ended it, and while it is active. */
+      readonly lift_reason: string;
       id: string;
       identifier: string;
       run_type: string;
@@ -75774,6 +75813,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
+      readonly broadcasts: readonly LinkedBroadcastDTO[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -75781,6 +75822,7 @@ export namespace Schemas {
       description: string;
       owner: ReleaseOwnerDTO | null;
       feature_flag_ids: number[];
+      broadcast_ids: string[];
       created_at: string;
     }
 
@@ -76150,6 +76192,7 @@ export namespace Schemas {
       baseline_file_paths: RepoBaselineFilePaths;
       enable_pr_comments: boolean;
       debt_digest_enabled: boolean;
+      auto_quarantine_mode: AutoQuarantineModeEnum;
       created_at: string;
     }
 
@@ -78392,7 +78435,7 @@ export namespace Schemas {
       readonly routing_mode: RoutingModeEnum;
       /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
       readonly routing_fork_labels: StamphogRepoConfigRoutingForkLabels;
-      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false. */
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       readonly review_on_clean_external_review: boolean;
       /**
          * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
@@ -78479,7 +78522,7 @@ export namespace Schemas {
     }
 
     export interface StamphogRoutingRunOwner {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
        *
        * * `requested` - Requested
        * * `labeled` - Labeled
@@ -78488,7 +78531,7 @@ export namespace Schemas {
        * * `not_requested` - Not requested
        * * `already_requested` - Already requested */
       readonly outcome: RoutingOwnerOutcomeEnum;
-      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
        *
        * * `sensitive` - Owns a sensitive path
        * * `new_path` - Owns a new path
@@ -91092,7 +91135,7 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
       /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
       routing_fork_labels?: PatchedStamphogRepoConfigWriteRoutingForkLabels;
-      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false. */
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
     }
 
@@ -92921,6 +92964,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     /**
@@ -92941,6 +92986,12 @@ export namespace Schemas {
          * @nullable
          */
       debt_digest_enabled?: boolean | null;
+      /** Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky, and lift a quarantine once the last 500 default-branch runs render the snapshot unchanged. `off` (the default) does nothing. `preview` logs each finding and changes nothing. `on` quarantines the snapshot for 14 days and notifies the owning team, and lifts clean quarantines.
+       *
+       * * `off` - off
+       * * `preview` - preview
+       * * `on` - on */
+      auto_quarantine_mode?: AutoQuarantineModeEnum | null;
     }
 
     /**
@@ -113351,7 +113402,7 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
       /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
       routing_fork_labels?: StamphogRepoConfigWriteRoutingForkLabels;
-      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false. */
+      /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
       review_on_clean_external_review?: boolean;
     }
 
@@ -113377,7 +113428,7 @@ export namespace Schemas {
     }
 
     export interface StamphogRoutingRunOwnerDetail {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned owner).
        *
        * * `requested` - Requested
        * * `labeled` - Labeled
@@ -113386,7 +113437,7 @@ export namespace Schemas {
        * * `not_requested` - Not requested
        * * `already_requested` - Already requested */
       readonly outcome: RoutingOwnerOutcomeEnum;
-      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved' (older runs only).
        *
        * * `sensitive` - Owns a sensitive path
        * * `new_path` - Owns a new path
@@ -118488,6 +118539,38 @@ export namespace Schemas {
       output: TraceMessagesSide | TraceJsonSide;
     }
 
+    /**
+     * The step's input value as ingested, or an empty object when it has none.
+     */
+    export type TraceNodeDatasetItemInput = { [key: string]: unknown } | unknown[] | string | number | boolean;
+
+    /**
+     * The step's output value as ingested, or null when it has none.
+     */
+    export type TraceNodeDatasetItemSourceOutput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    /**
+     * The step's custom event properties, without `$` names. Empty for the root.
+     */
+    export type TraceNodeDatasetItemMetadata = { [key: string]: unknown };
+
+    export interface TraceNodeDatasetItem {
+      /** An id that identifies the step among dataset items: the event's uuid, or the trace id for the root. */
+      clientItemId: string;
+      /** The id of the trace the step belongs to. */
+      sourceTraceId: string;
+      /** The step's event uuid, or the trace id for the root. */
+      sourceEventId: string;
+      /** When the trace happened, as given by the timestamp hint. */
+      sourceTimestamp: string;
+      /** The step's input value as ingested, or an empty object when it has none. */
+      input: TraceNodeDatasetItemInput;
+      /** The step's output value as ingested, or null when it has none. */
+      sourceOutput: TraceNodeDatasetItemSourceOutput;
+      /** The step's custom event properties, without `$` names. Empty for the root. */
+      metadata: TraceNodeDatasetItemMetadata;
+    }
+
     export interface TraceNodeMetadata {
       provider: string | null;
       temperature: number | null;
@@ -122465,6 +122548,8 @@ export namespace Schemas {
          * @items.maximum 2147483647
          */
       feature_flag_ids?: number[];
+      /** IDs of the broadcasts that announce the release. */
+      broadcast_ids?: string[];
     }
 
     export interface ZendeskImportError {
@@ -127892,6 +127977,13 @@ export namespace Schemas {
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesNodesDatasetItemRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Saved as the dataset item's source timestamp, and lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint: string;
     };
 
     export type AiObservabilityTracesNodesRawRetrieveParams = {
@@ -134638,6 +134730,11 @@ export namespace Schemas {
      */
     end: string;
     /**
+     * Comma-separated workflow IDs, at most 200. Only these workflows are returned.
+     * @minLength 1
+     */
+    ids?: string;
+    /**
      * Start of the shown range, inclusive, as an ISO 8601 datetime.
      */
     start: string;
@@ -138031,6 +138128,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ReleasesBroadcastSearchRetrieveParams = {
+    /**
+     * Part of the broadcast name to match.
+     * @maxLength 200
+     */
+    search?: string;
     };
 
     export type ReviewHogRepositoryOverviewRetrieveParams = {

@@ -5,10 +5,42 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.models import OrganizationMembership
 
-from ..facade.contracts import ReleaseDTO
+from ..facade.contracts import LinkedBroadcastDTO, LinkedSendDTO, ReleaseDTO
+
+
+class BroadcastSearchQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False, allow_blank=True, max_length=200, help_text="Part of the broadcast name to match."
+    )
+
+
+class BroadcastOptionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the broadcast.")
+    name = serializers.CharField(help_text="Name of the broadcast.")
+    status = serializers.CharField(help_text="Status of the broadcast, such as draft or active.")
+
+
+class LinkedSendSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = LinkedSendDTO
+
+
+class LinkedBroadcastSerializer(DataclassSerializer):
+    recent_sends = LinkedSendSerializer(
+        many=True, read_only=True, help_text="The broadcast's most recent sends, newest first, at most 20."
+    )
+
+    class Meta:
+        dataclass = LinkedBroadcastDTO
 
 
 class ReleaseSerializer(DataclassSerializer):
+    broadcasts = LinkedBroadcastSerializer(
+        many=True,
+        read_only=True,
+        help_text="ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out.",
+    )
+
     has_hidden_flags = serializers.BooleanField(
         read_only=True,
         help_text="True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids.",
@@ -32,6 +64,11 @@ class WriteReleaseSerializer(serializers.Serializer):
         child=serializers.IntegerField(min_value=1, max_value=2**31 - 1),
         required=False,
         help_text="IDs of the feature flags that control who gets the release.",
+    )
+    broadcast_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="IDs of the broadcasts that announce the release.",
     )
 
     def validate_owner_id(self, value: int | None) -> int | None:

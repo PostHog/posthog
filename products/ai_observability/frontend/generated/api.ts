@@ -19,6 +19,7 @@ import type {
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
+    AiObservabilityTracesNodesDatasetItemRetrieveParams,
     AiObservabilityTracesNodesRawRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesPullRequestRetrieveParams,
@@ -173,6 +174,7 @@ import type {
     TraceExportCreateApi,
     TraceExportFileApi,
     TraceFeedbackApi,
+    TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
     TraceNodeRawApi,
     TracePullRequestLookupApi,
@@ -880,6 +882,46 @@ export const aiObservabilityTracesNodesRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAiObservabilityTracesNodesDatasetItemRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params: AiObservabilityTracesNodesDatasetItemRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/dataset_item/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/dataset_item/`
+}
+
+/**
+ * One node of a trace as a dataset item: its input and output as ingested, and its custom properties as metadata. The root node gives the trace's input and output state with no metadata.
+ */
+export const aiObservabilityTracesNodesDatasetItemRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params: AiObservabilityTracesNodesDatasetItemRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeDatasetItemApi> => {
+    return apiMutator<TraceNodeDatasetItemApi>(
+        getAiObservabilityTracesNodesDatasetItemRetrieveUrl(projectId, id, nodeId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAiObservabilityTracesNodesRawRetrieveUrl = (
