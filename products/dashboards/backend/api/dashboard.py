@@ -314,9 +314,9 @@ def filed_entry(dashboard: Dashboard) -> FiledEntry | None:
     tile move and copy responses) all hand over. Those return a single dashboard, so the query cannot fan out
     over a list.
     """
-    if hasattr(dashboard, "_folder_path"):
+    if hasattr(dashboard, "_folder_id"):
         path = dashboard._folder_path
-        entry_id = dashboard._folder_id  # type: ignore[attr-defined]
+        entry_id = dashboard._folder_id
         return FiledEntry(id=str(entry_id), path=path) if path and entry_id else None
     row = dashboard_file_system_entries(dashboard.team_id, str(dashboard.id)).values("id", "path").first()
     return FiledEntry(id=str(row["id"]), path=row["path"]) if row else None
@@ -3347,8 +3347,11 @@ class DashboardsViewSet(
         # The default surface matches both NULL and "web" rows, so order by id to keep the picked path
         # stable when more than one non-shortcut entry exists for the same dashboard.
         entry_for_dashboard = dashboard_file_system_entries(OuterRef("team_id"), OuterRef("_ref_id"))
-        queryset = queryset.annotate(_ref_id=Cast(F("id"), output_field=CharField())).annotate(
-            _folder_path=Subquery(
+        queryset = queryset.annotate(
+            _ref_id=Cast(F("id"), output_field=CharField())
+        ).annotate(
+            # django-stubs reads this as a redefinition of the cache `FileSystemSyncMixin` declares; it fills that cache.
+            _folder_path=Subquery(  # type: ignore[no-redef]
                 entry_for_dashboard.values("path")[:1],
                 output_field=CharField(),
             ),

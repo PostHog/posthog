@@ -831,6 +831,8 @@ class TestFileSystemAPI(APIBaseTest):
         Creating a deep path 'a/b/c/d/e' should auto-create folder entries for
         'a', 'a/b', 'a/b/c', 'a/b/c/d', if they don't already exist.
         """
+        sibling_team = Team.objects.create(organization=self.organization, project=self.project)
+        FileSystem.objects.create(team=sibling_team, path="a", depth=1, type="folder")
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system/",
             {
@@ -846,12 +848,10 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(leaf.depth, 5)
         self.assertEqual(leaf.type, "doc-file")
 
-        # Check that folders exist
-        folder_paths = ["a", "a/b", "a/b/c", "a/b/c/d"]
-        for depth_index, folder_path in enumerate(folder_paths, start=1):
-            folder = FileSystem.objects.get(path=folder_path, team=self.team)
-            self.assertEqual(folder.depth, depth_index)
-            self.assertEqual(folder.type, "folder")
+        folders = FileSystem.objects.filter(team__project_id=self.team.project_id, type="folder")
+        self.assertCountEqual(
+            folders.values_list("path", "depth"), [("a", 1), ("a/b", 2), ("a/b/c", 3), ("a/b/c/d", 4)]
+        )
 
     @parameterized.expand(
         [

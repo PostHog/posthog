@@ -113,8 +113,8 @@ class FileSystemSyncMixin(Model):
                 surface=fs_data.surface,
                 create_parent_folders=True,
             )
-            move = FolderMove(before=None, after=folder, path=self.file_system_path() or "")
-        self._folder_path = move.path
+            move = FolderMove(before=None, after=folder)
+        self._folder_path = self.file_system_path()
         return move
 
     def file_system_path(self) -> Optional[str]:
@@ -125,9 +125,9 @@ class FileSystemSyncMixin(Model):
         return (
             FileSystem.objects.filter(
                 surface_q(fs_data.surface),
-                team=self.team,
+                team=self.team,  # type: ignore
                 type=fs_data.type,
-                ref=fs_data.ref,  # type: ignore
+                ref=fs_data.ref,
             )
             .exclude(shortcut=True)
             .order_by("id")

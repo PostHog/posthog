@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
@@ -10,7 +9,8 @@ from django.db.models.expressions import F
 from django.db.models.functions import Concat, Lower
 from django.utils import timezone
 
-from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.dataclasses import frozen
+from posthog.models.file_system.constants import DEFAULT_SURFACE, MAX_PATH_LENGTH, MAX_PATH_SEGMENTS, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -123,11 +123,10 @@ def create_or_update_file(
         )
 
 
-@dataclass(frozen=True)
+@frozen
 class FolderMove:
     before: Optional[str]
     after: str
-    path: str
 
 
 def move_file_to_folder(
@@ -144,29 +143,35 @@ def move_file_to_folder(
     An item can hold more than one non-shortcut entry (the default surface matches both NULL and "web" rows),
     so every one moves; otherwise the tree would show the item in two folders.
     """
-    existing_files = list(
-        FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref)
-        .exclude(shortcut=True)
-        .order_by("id")
-    )
-    if not existing_files:
-        return None
-    before = folder_of(existing_files[0].path)
     folder_segments = split_path(folder)
     with transaction.atomic():
-        for index, existing in enumerate(existing_files):
-            segments = [*folder_segments, split_path(existing.path)[-1]]
-            if index == 0:
-                assure_parent_folders(team, join_path(segments), created_by_id, surface)
-            existing.path = join_path(segments)
-            existing.depth = len(segments)
-            existing.save()
-    return FolderMove(before=before, after=folder, path=existing_files[0].path)
+        # Locked and saved by field so a concurrent sync signal's rename or meta update isn't written back stale.
+        existing_files = list(
+            FileSystem.objects.select_for_update()
+            .filter(surface_q(surface), team=team, type=file_type, ref=ref)
+            .exclude(shortcut=True)
+            .order_by("id")
+        )
+        if not existing_files:
+            return None
+        new_paths = [join_path([*folder_segments, split_path(existing.path)[-1]]) for existing in existing_files]
+        assure_parent_folders(team, new_paths[0], created_by_id, surface)
+        before = folder_of(existing_files[0].path)
+        for existing, new_path in zip(existing_files, new_paths):
+            existing.path = new_path
+            existing.depth = len(split_path(new_path))
+            existing.save(update_fields=["path", "depth"])
+    return FolderMove(before=before, after=folder)
 
 
 def assure_parent_folders(team: Team, path: str, created_by_id: Optional[int], surface: str = DEFAULT_SURFACE):
     """Create a folder entry for every ancestor of `path` that the project does not have yet."""
+    # Product serializers pass `_create_in_folder` through unvalidated, so the bound lives here, not in the API.
+    if len(path) > MAX_PATH_LENGTH:
+        raise ValueError(f"Path must be {MAX_PATH_LENGTH} characters or fewer.")
     segments = split_path(path)
+    if len(segments) > MAX_PATH_SEGMENTS:
+        raise ValueError(f"Path can be at most {MAX_PATH_SEGMENTS} levels deep.")
     for depth in range(1, len(segments)):
         parent_path = join_path(segments[:depth])
         if not FileSystem.objects.filter(
@@ -183,7 +188,6 @@ def assure_parent_folders(team: Team, path: str, created_by_id: Optional[int], s
 
 
 def folder_of(path: Optional[str]) -> Optional[str]:
-    """The folder part of an entry path: everything above the item's own name."""
     return join_path(split_path(path)[:-1]) if path else None
 
 

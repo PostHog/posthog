@@ -57,7 +57,7 @@ from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
 from posthog.exceptions import Conflict
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
-from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
+from posthog.models.file_system.constants import MAX_PATH_LENGTH, MAX_PATH_SEGMENTS, RETIRED_FILE_SYSTEM_TYPES
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -96,12 +96,6 @@ TAGGED_FILE_SYSTEM_TYPES: tuple[tuple[str, str, str, str], ...] = (
     ("insight", "product_analytics", "Insight", "short_id"),
 )
 UNDO_DELETE_REFUSED = "Couldn't restore this. It may already be restored, or you may not have access to it."
-
-# Paths the product itself builds are at most three segments deep ("Unfiled/Insights/<name>"), so
-# these leave ample headroom for hand-made trees while keeping the per-segment folder creation in
-# `_assure_parent_folders` (one existence check plus one insert each) bounded.
-MAX_PATH_LENGTH = 4000
-MAX_PATH_SEGMENTS = 50
 
 # `meta` is a free-form client blob, so it only needs a ceiling that keeps a single row from
 # dominating a page of list results.
@@ -213,30 +207,15 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         surface = self.context.get("file_system_surface", DEFAULT_SURFACE)
 
         full_path = validated_data["path"]
-        segments = split_path(full_path)
-
-        for depth_index in range(1, len(segments)):
-            parent_path = "/".join(segments[:depth_index])
-            folder_exists = FileSystem.objects.filter(surface_q(surface), team=team, path=parent_path).exists()
-            if not folder_exists:
-                FileSystem.objects.create(
-                    team=team,
-                    path=parent_path,
-                    depth=depth_index,
-                    type="folder",
-                    created_by=request.user,
-                    shortcut=False,
-                    surface=surface,
-                )
+        assure_parent_folders(team, full_path, request.user.id, surface)
 
         if validated_data.get("shortcut") is None:
             validated_data["shortcut"] = False
 
-        depth = len(segments)
         file_system = FileSystem.objects.create(
             team=team,
             created_by=request.user,
-            depth=depth,
+            depth=len(split_path(full_path)),
             surface=surface,
             **validated_data,
         )
@@ -1546,12 +1525,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    def _assure_parent_folders(self, path: str, created_by: User, team: Team | None = None) -> None:
-        """
-        Ensure that all parent folders for the given path exist for the provided team.
-        For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"
-        all exist as folder type FileSystem entries.
-        """
+    def _assure_parent_folders(self, path: str, created_by: User | None, team: Team | None = None) -> None:
         assure_parent_folders(
             team or self.team, path, created_by.id if created_by else None, surface=self.file_system_surface
         )

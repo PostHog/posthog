@@ -8,6 +8,12 @@ DEFAULT_SURFACE = "web"
 # registration and no page to open. The tree hides them, and a delete removes only the row.
 RETIRED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"link"})
 
+# Paths the product itself builds are at most three segments deep ("Unfiled/Insights/<name>"), so
+# these leave ample headroom for hand-made trees while keeping the per-segment folder creation in
+# `assure_parent_folders` (one existence check plus one insert each) bounded.
+MAX_PATH_LENGTH = 4000
+MAX_PATH_SEGMENTS = 50
+
 
 def surface_q(surface: str) -> Q:
     """Build the read filter for a surface. The default surface also matches legacy NULL rows."""

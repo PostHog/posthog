@@ -5,8 +5,10 @@ from parameterized import parameterized
 from posthog.models import Organization, Team, User
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
+    MAX_PATH_SEGMENTS,
     SEARCH_NAME,
     FileSystem,
+    FolderMove,
     create_or_update_file,
     delete_file,
     escape_path,
@@ -325,10 +327,11 @@ class TestFileSystemSurface(TestCase):
             meta={},
         )
 
-        move_file_to_folder(
+        move = move_file_to_folder(
             team=self.team, file_type="insight", ref="abc123", folder="Experiments/Q4", created_by_id=self.user.id
         )
 
+        self.assertEqual(move, FolderMove(before="Unfiled/Insights", after="Experiments/Q4"))
         moved = FileSystem.objects.get(team=self.team, type="insight", ref="abc123")
         self.assertEqual(moved.path, "Experiments/Q4/Weekly signups")
         self.assertEqual(moved.depth, 3)
@@ -338,3 +341,10 @@ class TestFileSystemSurface(TestCase):
             )
         )
         self.assertCountEqual(folder_paths, ["Experiments", "Experiments/Q4"])
+
+    def test_create_in_folder_beyond_segment_limit_creates_no_folders(self):
+        too_deep = "/".join(["s"] * (MAX_PATH_SEGMENTS + 1))
+
+        FeatureFlag.objects.create(team=self.team, key="deep", created_by=self.user, _create_in_folder=too_deep)
+
+        self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
