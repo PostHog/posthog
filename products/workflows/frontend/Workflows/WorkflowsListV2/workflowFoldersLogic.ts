@@ -18,7 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiError } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
-import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
+import { withTimeout } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemCreate, fileSystemList, fileSystemDestroy, fileSystemUnfiledRetrieve } from '~/generated/core/api'
@@ -364,23 +364,17 @@ function apiErrorDetail(error: unknown): string {
     return (error instanceof ApiError && error.detail) || 'Try again.'
 }
 
+// A folder change has no deadline. Giving up early would not stop the server from committing it, and the list would
+// show a guess. A slow change holds only its own folder, which shows why until the server answers.
 async function changeFolder(
     setFolderBusy: (folder: string, change: FolderChange | null) => void,
     folder: string,
     change: FolderChange,
-    request: Promise<unknown>,
-    reload: () => void
+    request: Promise<unknown>
 ): Promise<void> {
     setFolderBusy(folder, change)
     try {
-        await withTimeout(request, FOLDER_REQUEST_TIMEOUT_MS, `workflowFoldersLogic: folder ${change} timed out`)
-    } catch (error) {
-        if (error instanceof PromiseTimeoutError) {
-            // The request keeps running past the deadline, because aborting it would not stop the server from
-            // committing the change. The folders reload again when it answers, so a late commit shows up.
-            void request.then(reload, reload)
-        }
-        throw error
+        await request
     } finally {
         setFolderBusy(folder, null)
     }
@@ -1009,13 +1003,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
             const newPath = joinPath([...splitPath(parentPath(folder)), name.trim()])
             try {
-                await changeFolder(
-                    actions.setFolderBusy,
-                    folder,
-                    'rename',
-                    api.fileSystem.move(entry.id, newPath),
-                    actions.loadBrowser
-                )
+                await changeFolder(actions.setFolderBusy, folder, 'rename', api.fileSystem.move(entry.id, newPath))
                 projectTreeDataLogic.actions.movedItem(entry, folder, newPath)
             } catch (error) {
                 lemonToast.error(`Couldn't rename the folder. ${apiErrorDetail(error)}`)
@@ -1032,8 +1020,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     actions.setFolderBusy,
                     folder,
                     'delete',
-                    fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false }),
-                    actions.loadBrowser
+                    fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
                 )
                 projectTreeDataLogic.actions.deleteSavedItem(entry)
             } catch (error) {

@@ -664,7 +664,6 @@ describe('workflowFoldersLogic', () => {
             landed: (entries: FileSystemEntry[]) =>
                 entries.map((entry) => (entry.id === 'empty' ? { ...entry, path: 'Archive' } : entry)),
             shown: ['Archive'],
-            toast: "Couldn't rename the folder. Try again.",
         },
         {
             change: 'delete',
@@ -674,40 +673,61 @@ describe('workflowFoldersLogic', () => {
             }),
             landed: (entries: FileSystemEntry[]) => entries.filter((entry) => entry.id !== 'empty'),
             shown: [],
-            toast: "Couldn't delete the folder. Try again.",
         },
     ])(
-        'frees the folder and shows what the server saved when a $change commits after its deadline',
+        'keeps only the folder busy until a slow $change answers, then shows what the server saved',
         async (scenario) => {
             await expectLogic(logic).toFinishAllListeners()
             const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
             let answer: () => void = () => {}
             useMocks(scenario.stall(new Promise<void>((resolve) => (answer = resolve))))
             jest.useFakeTimers()
+            let changed: Promise<void> | undefined
             try {
-                const changed = scenario.run(logic)
-                await jest.advanceTimersByTimeAsync(0)
+                changed = scenario.run(logic)
+                await jest.advanceTimersByTimeAsync(10 * 60 * 1000)
                 expect(logic.values.folderBusyReason('Empty')).not.toBeNull()
-                await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
-                await changed
+                expect(logic.values.folderBusyReason('Billing')).toBeNull()
+                expect(errorToast).not.toHaveBeenCalled()
             } finally {
                 jest.useRealTimers()
             }
             try {
-                await expectLogic(logic).toFinishAllListeners()
-                expect(logic.values.folderBusyReason('Empty')).toBeNull()
-                expect(logic.values.folderPaths).toContain('Empty')
-                expect(errorToast.mock.calls.map(([message]) => message)).toEqual([scenario.toast])
-
                 serverEntries = scenario.landed(serverEntries)
                 answer()
+                await changed
                 await waitFor(() => expect(logic.values.folderPaths).not.toContain('Empty'))
+                expect(logic.values.folderBusyReason('Empty')).toBeNull()
                 expect(logic.values.folderPaths).toEqual(expect.arrayContaining(scenario.shown))
+                expect(errorToast).not.toHaveBeenCalled()
             } finally {
                 errorToast.mockRestore()
             }
         }
     )
+
+    it('shows what the server saved when a rename fails after the server already renamed the folder', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system/:id/move/': () => {
+                    serverEntries = serverEntries.map((entry) =>
+                        entry.id === 'empty' ? { ...entry, path: 'Archive' } : entry
+                    )
+                    return [504, {}]
+                },
+            },
+        })
+        try {
+            await logic.asyncActions.renameFolder('Empty', 'Archive')
+            await waitFor(() => expect(logic.values.folderPaths).toContain('Archive'))
+            expect(logic.values.folderPaths).not.toContain('Empty')
+            expect(errorToast).toHaveBeenCalledWith("Couldn't rename the folder. Try again.")
+        } finally {
+            errorToast.mockRestore()
+        }
+    })
 
     it('refuses a drop into a folder the project tree is deleting, and keeps other moves open', async () => {
         await expectLogic(logic).toFinishAllListeners()
