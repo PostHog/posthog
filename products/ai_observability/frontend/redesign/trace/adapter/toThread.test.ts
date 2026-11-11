@@ -1,5 +1,5 @@
-import { ConversationState, ConversationTurn, NodeLoad } from '../types'
-import { makeNodeDetail } from './testFixtures'
+import { ConversationState, ConversationTurn, NodeLoad, NodeSideContent } from '../types'
+import { makeMessage, makeNodeDetail } from './testFixtures'
 import { toThread } from './toThread'
 
 function readyTurns(thread: ConversationState): ConversationTurn[] {
@@ -10,29 +10,43 @@ function readyTurns(thread: ConversationState): ConversationTurn[] {
 }
 
 describe('toThread', () => {
-    const base = { traceId: 'trace-1', createdAt: '2026-09-01T10:15:00Z', teamId: 7 }
+    const base = { traceId: 'trace-1', createdAt: '2026-09-01T10:15:00Z' }
     const answered = (error: string | null = null): NodeLoad => ({
         status: 'ready',
         node: makeNodeDetail({
             id: 'gen-1',
             error,
-            properties: {
-                $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
-                $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
+            content: {
+                input: { kind: 'messages', messages: [makeMessage({ id: 'ask', role: 'user' })] },
+                output: { kind: 'messages', messages: [makeMessage({ id: 'answer', role: 'assistant' })] },
             },
-            ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
         }),
     })
 
     it('builds one turn for the trace from its thread node', () => {
         const thread = toThread({ ...base, load: answered() })
         expect(thread).toMatchObject({ status: 'ready', activeTurnId: 'trace-1' })
-        const turns = readyTurns(thread)
-        expect(turns[0].messages.map((message) => [message.role, message.sourceNodeId])).toEqual([
-            ['user', 'gen-1'],
-            ['assistant', 'gen-1'],
-        ])
-        expect(turns[0].error).toBeNull()
+        const [turn] = readyTurns(thread)
+        expect(turn).toMatchObject({
+            input: { kind: 'messages', messages: [{ id: 'ask', role: 'user' }] },
+            output: { kind: 'messages', messages: [{ id: 'answer', role: 'assistant' }] },
+            error: null,
+        })
+    })
+
+    it('keeps a side the server could not read as messages', () => {
+        const input: NodeSideContent = { kind: 'json', value: { question: 'Why did my invoice go up?' } }
+        const load: NodeLoad = {
+            status: 'ready',
+            node: makeNodeDetail({
+                id: 'gen-1',
+                content: {
+                    input,
+                    output: { kind: 'messages', messages: [makeMessage({ id: 'answer', role: 'assistant' })] },
+                },
+            }),
+        }
+        expect(readyTurns(toThread({ ...base, load }))[0].input).toEqual(input)
     })
 
     it('carries the error of a failed generation on its turn', () => {
@@ -53,6 +67,9 @@ describe('toThread', () => {
     })
 
     it('gives an empty turn when the trace has no thread node', () => {
-        expect(readyTurns(toThread({ ...base, load: null }))[0].messages).toEqual([])
+        expect(readyTurns(toThread({ ...base, load: null }))[0]).toMatchObject({
+            input: { kind: 'messages', messages: [] },
+            output: { kind: 'messages', messages: [] },
+        })
     })
 })

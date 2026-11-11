@@ -71,7 +71,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import patch_calculation_key_version, patch_exposure_event_flag
 from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -862,90 +862,29 @@ class TestExperimentService(APIBaseTest):
 
         assert expected_error in str(ctx.exception)
 
-    @parameterized.expand(
-        [
-            # (name, team default sequential, stats_config at create, quantile at create, update, rejected)
-            ("create_inline", False, _SEQUENTIAL_STATS_CONFIG, "inline", None, True),
-            ("create_linked_saved_with_team_default", True, {"method": "frequentist"}, "saved", None, True),
-            ("create_bayesian", True, {"method": "bayesian"}, "inline", None, False),
-            ("update_adds_inline", False, _SEQUENTIAL_STATS_CONFIG, None, "inline", True),
-            ("update_links_saved", False, _SEQUENTIAL_STATS_CONFIG, None, "saved", True),
-            ("update_enables_sequential_testing", False, {"method": "frequentist"}, "inline", "stats_config", True),
-            (
-                "update_keeps_existing_under_team_default",
-                False,
-                {"method": "frequentist"},
-                "inline",
-                "team_default",
-                False,
-            ),
-        ]
-    )
-    def test_percentile_metric_with_sequential_testing(
-        self,
-        _: str,
-        team_default_sequential: bool,
-        stats_config: dict,
-        quantile_at_create: str | None,
-        update: str | None,
-        rejected: bool,
-    ) -> None:
-        team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        team_config.default_sequential_testing_enabled = team_default_sequential
-        team_config.save()
+    def test_sequential_experiment_accepts_percentile_metrics(self) -> None:
         self._create_flag(key="quantile-sequential")
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team, name="Shared latency", query={**_QUANTILE_METRIC, "uuid": "saved-quantile-uuid"}
         )
-        inline_metrics = [{**_QUANTILE_METRIC, "uuid": "inline-quantile-uuid"}]
-        saved_links = [{"id": saved_metric.id, "metadata": {"type": "primary"}}]
         service = self._service()
 
-        def create() -> Experiment:
-            return service.create_experiment(
-                name="Latency experiment",
-                feature_flag_key="quantile-sequential",
-                stats_config=stats_config,
-                metrics=inline_metrics if quantile_at_create == "inline" else None,
-                saved_metrics_ids=saved_links if quantile_at_create == "saved" else None,
-                allow_unknown_events=True,
-            )
+        experiment = service.create_experiment(
+            name="Latency experiment",
+            feature_flag_key="quantile-sequential",
+            stats_config=_SEQUENTIAL_STATS_CONFIG,
+            metrics=[{**_QUANTILE_METRIC, "uuid": "inline-quantile-uuid"}],
+            allow_unknown_events=True,
+        )
+        service.update_experiment(
+            experiment,
+            {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}]},
+            allow_unknown_events=True,
+        )
 
-        def run() -> None:
-            if update is None:
-                create()
-                return
-            experiment = create()
-            if update == "team_default":
-                team_config.default_sequential_testing_enabled = True
-                team_config.save()
-                update_data: dict[str, Any] = {
-                    "metrics": [
-                        *(experiment.metrics or []),
-                        {
-                            "kind": "ExperimentMetric",
-                            "metric_type": "mean",
-                            "uuid": "mean-uuid",
-                            "source": {"kind": "EventsNode", "event": "app_ready"},
-                        },
-                    ]
-                }
-            else:
-                updates: dict[str, dict[str, Any]] = {
-                    "inline": {"metrics": inline_metrics},
-                    "saved": {"saved_metrics_ids": saved_links},
-                    "stats_config": {"stats_config": _SEQUENTIAL_STATS_CONFIG},
-                }
-                update_data = updates[update]
-            service.update_experiment(experiment, update_data, allow_unknown_events=True)
-
-        if rejected:
-            with self.assertRaisesMessage(
-                ValidationError, "Sequential testing isn't supported for percentile metrics yet."
-            ):
-                run()
-        else:
-            run()
+        experiment.refresh_from_db()
+        assert [metric["metric_type"] for metric in experiment.metrics or []] == ["quantile"]
+        assert [link.saved_metric_id for link in experiment.experimenttosavedmetric_set.all()] == [saved_metric.id]
 
     @parameterized.expand(
         [
@@ -2564,13 +2503,16 @@ class TestExperimentService(APIBaseTest):
         [
             ("name", {"name": "Renamed experiment"}, "name"),
             ("description", {"description": "A brand new hypothesis"}, "description"),
+            # Under key version 2 the credible interval feeds the key, so the update restamps every inline metric.
+            ("confidence", {"stats_config": {"method": "bayesian", "bayesian": {"ci_level": 0.9}}}, "stats_config"),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
-        experiment = self._create_draft_experiment()
-        service = self._service()
-        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+        with patch_calculation_key_version(2):
+            experiment = self._create_draft_experiment()
+            service = self._service()
+            service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
 
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
@@ -2578,6 +2520,14 @@ class TestExperimentService(APIBaseTest):
         # update pipeline internally re-touches existing inline metrics.
         assert "metrics" not in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
+        assert "metrics" not in logged_fields
+        assert "metrics_secondary" not in logged_fields
 
     @parameterized.expand(
         [
@@ -2625,6 +2575,12 @@ class TestExperimentService(APIBaseTest):
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
 
     @parameterized.expand(
         [

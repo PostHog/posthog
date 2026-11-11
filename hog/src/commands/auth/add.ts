@@ -1,4 +1,4 @@
-import { printPending, resumeApproval } from '@/core/approval'
+import { printPending, resumeApproval, waitIdentity } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { ADD_COMMAND, loginWait } from '@/posthog/login/flow'
@@ -35,9 +35,13 @@ export default defineCommand({
         }
         // The scope list is large, so commands that never step up don't load it.
         const { finishStepUp, stepUp } = await import('@/posthog/login/step-up')
+
         if (options.wait) {
-            return finishStepUp(ctx, await resumeApproval(ctx, loginWait(ctx.runtime, ADD_COMMAND)))
+            const { pending, value } = await resumeApproval(ctx, loginWait(ctx.runtime, waitIdentity(ADD_COMMAND)))
+            // A request an older hog started doesn't name its project, so the approved one counts.
+            return finishStepUp(ctx, value, { host: pending.host, projectId: pending.projectId ?? value.projectId })
         }
+
         if (args.scopes.length === 0) {
             throw new HogError(
                 'scopes_required',
@@ -46,6 +50,7 @@ export default defineCommand({
                 EXIT_USAGE
             )
         }
+
         const { parseScope } = await import('@/posthog/scopes')
         return stepUp(ctx, args.scopes.map(parseScope))
     },
@@ -59,15 +64,9 @@ export default defineCommand({
                 out.line(`Your login for ${result.host} already has these scopes.`)
                 return
             case 'added':
-                out.line(`${out.style('Scopes added', 'green', 'bold')} to your login for ${result.host}.`)
-                if (result.previousProjectId) {
-                    out.line(
-                        out.style(
-                            `You're now logged in to project ${result.projectId} instead of ${result.previousProjectId}.`,
-                            'yellow'
-                        )
-                    )
-                }
+                out.line(
+                    `${out.style('Scopes added', 'green', 'bold')} to your login for project ${result.projectId} on ${result.host}.`
+                )
                 if (result.replacedRevoked === false) {
                     out.line(
                         out.style(
