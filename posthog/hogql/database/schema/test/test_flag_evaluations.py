@@ -1757,12 +1757,15 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         )
 
         on_events = self._query_events(query, rewrite=False, union=union)
-        on_flag_evaluations = self._query_events(query, union=union).results
+        on_flag_evaluations = self._query_events(query, union=union)
 
-        assert on_events.clickhouse is not None
-        assert "lessOrEquals(timestamp" in on_events.clickhouse.split("ASOF LEFT JOIN")[1]
+        joined = [
+            (response.clickhouse or "").split("ASOF LEFT JOIN")[-1] for response in (on_events, on_flag_evaluations)
+        ]
+        assert all("lessOrEquals(timestamp" in subquery for subquery in joined)
+        assert "FROM flag_evaluations" in joined[1]
         assert [row for row in on_events.results if row[0]] == [("events-distinct-id", None)]
-        assert [row for row in on_flag_evaluations if row[0]] == [("probe-distinct-id", "variant-x")]
+        assert [row for row in on_flag_evaluations.results if row[0]] == [("probe-distinct-id", "variant-x")]
 
     @parameterized.expand(
         [
@@ -2095,14 +2098,14 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
-            ("properties_joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
-            ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
-            ("disabled", PersonsOnEventsMode.DISABLED),
+            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
+            ("properties_joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, True),
+            ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, False),
+            ("disabled", PersonsOnEventsMode.DISABLED, False),
         ]
     )
     def test_lazy_join_pushes_a_pin_through_a_person_id_key_or_raises(
-        self, _name: str, persons_on_events_mode: PersonsOnEventsMode
+        self, _name: str, persons_on_events_mode: PersonsOnEventsMode, moves: bool
     ):
         self._create_lazy_join_sources()
         create_person(team=self.team, uuid=str(self.person_id), distinct_ids=["probe-distinct-id"])
@@ -2110,13 +2113,14 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
         query = "SELECT calls_by_person.distinct_id FROM persons WHERE calls_by_person.event = '$feature_flag_called'"
 
-        # Whether flag_evaluations can stand in for this key depends on the persons-on-events mode. Either outcome is
-        # correct. Zero rows is not.
-        try:
-            results = self._query_events(
-                query, modifiers=HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode)
-            ).results
-        except QueryError as error:
-            assert re.search(_join_refusal("persons.calls_by_person", ""), str(error))
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode)
+
+        # Without overrides, events.person_id is a stored column and flag_evaluations.person_id reads the overrides.
+        if not moves:
+            with self.assertRaisesRegex(
+                QueryError,
+                _join_refusal("persons.calls_by_person", re.escape("a name in it would read a different column there")),
+            ):
+                self._query_events(query, modifiers=modifiers)
             return
-        assert "probe-distinct-id" in [row[0] for row in results]
+        assert self._query_events(query, modifiers=modifiers).results == [("probe-distinct-id",)]
