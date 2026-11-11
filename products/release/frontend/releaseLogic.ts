@@ -19,17 +19,14 @@ import type { ExperimentBasicApi } from 'products/experiments/frontend/generated
 import { featureFlagsList, scheduledChangesList } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import { hogFlowsList, hogFlowsRetrieve, hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
-import type {
-    HogFlowApi,
-    HogFlowMinimalApi,
-    SendCalendarFlowApi,
-} from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
 import type { PatchedUpdateReleaseApi, ReleaseDTOApi } from './generated/api.schemas'
 import {
     CALENDAR_DAYS_AFTER,
     CALENDAR_DAYS_BEFORE,
+    LinkCandidate,
     ReleaseRow,
     ReleaseStage,
     ScheduleIndex,
@@ -39,6 +36,8 @@ import {
     indexExperiments,
     indexFlags,
     indexSchedules,
+    nameTokens,
+    rankLinkSuggestions,
 } from './releaseUtils'
 
 interface ReleaseLogicValues {
@@ -64,8 +63,9 @@ interface ReleaseLogicValues {
     scheduledChanges: ScheduledChangeApi[]
     broadcasts: HogFlowApi[]
     broadcastSends: SendCalendarFlowApi[]
-    broadcastSearchResults: HogFlowMinimalApi[]
-    broadcastSearchResultsLoading: boolean
+    linkSearchResults: LinkCandidate[]
+    linkSearchResultsLoading: boolean
+    linkSuggestions: LinkCandidate[]
     broadcastsFailed: boolean
     search: string
     stageFilter: ReleaseStage | null
@@ -154,11 +154,13 @@ interface ReleaseLogicActions {
     loadBroadcastSends: () => void
     loadBroadcastSendsSuccess: (broadcastSends: SendCalendarFlowApi[]) => { broadcastSends: SendCalendarFlowApi[] }
     loadBroadcastSendsFailure: (error: string) => { error: string }
-    searchBroadcasts: (search: string) => string
-    searchBroadcastsSuccess: (broadcastSearchResults: HogFlowMinimalApi[]) => {
-        broadcastSearchResults: HogFlowMinimalApi[]
-    }
-    searchBroadcastsFailure: (error: string) => { error: string }
+    searchLinks: (search: string) => string
+    searchLinksSuccess: (linkSearchResults: LinkCandidate[]) => { linkSearchResults: LinkCandidate[] }
+    searchLinksFailure: (error: string) => { error: string }
+    loadLinkSuggestions: (releaseId: string) => string
+    loadLinkSuggestionsSuccess: (linkSuggestions: LinkCandidate[]) => { linkSuggestions: LinkCandidate[] }
+    loadLinkSuggestionsFailure: (error: string) => { error: string }
+    addLink: (id: string, candidate: LinkCandidate) => { id: string; candidate: LinkCandidate }
 }
 
 type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
@@ -174,6 +176,44 @@ type ListPage<T> = { results?: T[]; next?: string | null } | T[]
 function inRequestedOrder<T, K>(items: T[], ids: K[], idOf: (item: T) => K): T[] {
     const position = new Map(ids.map((id, index) => [id, index]))
     return [...items].sort((a, b) => (position.get(idOf(a)) ?? 0) - (position.get(idOf(b)) ?? 0))
+}
+
+async function findLinkCandidates(projectId: string, searches: string[]): Promise<LinkCandidate[]> {
+    const results = await Promise.allSettled(
+        searches.flatMap((search) => [
+            featureFlagsList(projectId, { search: search || undefined, limit: FLAG_SEARCH_LIMIT }).then((page) =>
+                (page.results ?? [])
+                    .filter((flag) => !flag.archived)
+                    .map((flag) => ({
+                        key: `flag:${flag.id}`,
+                        kind: 'flag' as const,
+                        id: String(flag.id),
+                        label: flag.key,
+                    }))
+            ),
+            hogFlowsList(projectId, {
+                broadcast_eligible: true,
+                search: search || undefined,
+                limit: FLAG_SEARCH_LIMIT,
+            }).then((page) =>
+                (page.results ?? []).map((broadcast) => ({
+                    key: `broadcast:${broadcast.id}`,
+                    kind: 'broadcast' as const,
+                    id: broadcast.id,
+                    label: broadcast.name || 'Untitled broadcast',
+                }))
+            ),
+        ])
+    )
+    const values = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+    if (!values.length && results.length) {
+        throw (results[0] as PromiseRejectedResult).reason
+    }
+    const unique = new Map<string, LinkCandidate>()
+    for (const candidate of values.flat()) {
+        unique.set(candidate.key, candidate)
+    }
+    return [...unique.values()]
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -252,6 +292,7 @@ export const releaseLogic = kea<releaseLogicType>([
         linkFlag: (id: string, flagId: number) => ({ id, flagId }),
         unlinkFlag: (id: string, flagId: number) => ({ id, flagId }),
         linkBroadcast: (id: string, broadcastId: string) => ({ id, broadcastId }),
+        addLink: (id: string, candidate: LinkCandidate) => ({ id, candidate }),
         unlinkBroadcast: (id: string, broadcastId: string) => ({ id, broadcastId }),
     }),
     loaders(({ values, actions }) => ({
@@ -466,18 +507,36 @@ export const releaseLogic = kea<releaseLogicType>([
                 },
             },
         ],
-        broadcastSearchResults: [
-            [] as HogFlowMinimalApi[],
+        linkSearchResults: [
+            [] as LinkCandidate[],
             {
-                searchBroadcasts: async (search: string, breakpoint) => {
+                searchLinks: async (search: string, breakpoint) => {
                     await breakpoint(250)
-                    const page = await hogFlowsList(String(values.currentProjectId), {
-                        broadcast_eligible: true,
-                        search: search || undefined,
-                        limit: FLAG_SEARCH_LIMIT,
-                    })
+                    const candidates = await findLinkCandidates(String(values.currentProjectId), [search])
                     breakpoint()
-                    return page.results ?? []
+                    return candidates
+                },
+            },
+        ],
+        linkSuggestions: [
+            [] as LinkCandidate[],
+            {
+                loadLinkSuggestions: async (releaseId: string, breakpoint) => {
+                    const release = values.releases.find((item) => item.id === releaseId)
+                    const tokens = release ? nameTokens(release.name).slice(0, 3) : []
+                    if (!release || !tokens.length) {
+                        return []
+                    }
+                    const candidates = await findLinkCandidates(String(values.currentProjectId), tokens)
+                    breakpoint()
+                    const linked = new Set([
+                        ...release.feature_flag_ids.map((id) => `flag:${id}`),
+                        ...release.broadcast_ids.map((id) => `broadcast:${id}`),
+                    ])
+                    return rankLinkSuggestions(
+                        release.name,
+                        candidates.filter((candidate) => !linked.has(candidate.key))
+                    )
                 },
             },
         ],
@@ -808,6 +867,14 @@ export const releaseLogic = kea<releaseLogicType>([
                     broadcast_ids: release.broadcast_ids.filter((item) => item !== broadcastId),
                 })
             }
+        },
+        addLink: ({ id, candidate }) => {
+            if (candidate.kind === 'flag') {
+                actions.linkFlag(id, Number(candidate.id))
+            } else {
+                actions.linkBroadcast(id, candidate.id)
+            }
+            actions.loadLinkSuggestionsSuccess(values.linkSuggestions.filter((item) => item.key !== candidate.key))
         },
         loadFlagsSuccess: () => {
             actions.loadExperiments()

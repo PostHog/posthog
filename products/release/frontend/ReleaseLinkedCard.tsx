@@ -36,8 +36,8 @@ import {
     getExperimentStatusLabel,
 } from 'products/experiments/frontend/scenes/experimentsLogic'
 
-import { ReleaseLinkBroadcastCombobox } from './ReleaseLinkBroadcastCombobox'
-import { ReleaseLinkFlagCombobox } from './ReleaseLinkFlagCombobox'
+import { ReleaseAddLinkCombobox } from './ReleaseAddLinkCombobox'
+import { ReleaseLinkSuggestions } from './ReleaseLinkSuggestions'
 import { releaseLogic } from './releaseLogic'
 import { ReleaseShowMore } from './ReleaseShowMore'
 import { ReleaseBadgeVariant, ReleaseRow, badgeVariantForTag } from './releaseUtils'
@@ -204,10 +204,8 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                     onChange={setVisible}
                     dataAttr="release-linked"
                 />
-                {row.flags.length > 0 && canEditReleases && (
-                    <ReleaseLinkFlagCombobox row={row} placeholder="Link another flag" />
-                )}
-                {row.flags.length > 0 && canEditReleases && <ReleaseLinkBroadcastCombobox row={row} />}
+                {canEditReleases && <ReleaseLinkSuggestions row={row} />}
+                {row.flags.length > 0 && canEditReleases && <ReleaseAddLinkCombobox row={row} />}
             </CardContent>
         </Card>
     )

@@ -1080,3 +1080,41 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         spans: releaseSpans(facts),
     }
 }
+
+export type LinkKind = 'flag' | 'broadcast'
+
+export interface LinkCandidate {
+    key: string
+    kind: LinkKind
+    id: string
+    label: string
+}
+
+const STOP_WORDS = new Set(['the', 'and', 'for', 'with', 'new', 'release', 'test', 'beta', 'launch', 'flag'])
+
+export function nameTokens(name: string): string[] {
+    return [
+        ...new Set(
+            name
+                .toLowerCase()
+                .split(/[^a-z0-9]+/)
+                .filter((token) => token.length >= 3 && !STOP_WORDS.has(token))
+        ),
+    ]
+}
+
+export function rankLinkSuggestions(releaseName: string, candidates: LinkCandidate[], limit = 5): LinkCandidate[] {
+    const wanted = new Set(nameTokens(releaseName))
+    if (!wanted.size) {
+        return []
+    }
+    return candidates
+        .map((candidate) => ({
+            candidate,
+            score: nameTokens(candidate.label).filter((token) => wanted.has(token)).length,
+        }))
+        .filter(({ score }) => score > 0)
+        .sort((a, b) => b.score - a.score || a.candidate.label.localeCompare(b.candidate.label))
+        .slice(0, limit)
+        .map(({ candidate }) => candidate)
+}

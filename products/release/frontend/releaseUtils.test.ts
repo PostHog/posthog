@@ -3,7 +3,7 @@ import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/a
 import type { HogFlowApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
-import { buildReleaseIndex, buildReleaseRow } from './releaseUtils'
+import { LinkCandidate, buildReleaseIndex, buildReleaseRow, rankLinkSuggestions } from './releaseUtils'
 
 const FLAG = {
     id: 1,
@@ -117,5 +117,29 @@ describe('buildReleaseRow', () => {
         expect(result.stage).toBe(stage)
         expect(result.nextStep?.title).toBe(nextStep)
         expect(result.needsDecision).toBe(needsDecision)
+    })
+})
+
+describe('rankLinkSuggestions', () => {
+    const candidate = (kind: LinkCandidate['kind'], label: string): LinkCandidate => ({
+        key: `${kind}:${label}`,
+        kind,
+        id: label,
+        label,
+    })
+
+    it('ranks candidates by the words they share with the release name', () => {
+        const ranked = rankLinkSuggestions('Quiet theme for long sessions', [
+            candidate('flag', 'dark-mode'),
+            candidate('broadcast', 'Quiet theme: launch email'),
+            candidate('flag', 'quiet-mode'),
+            candidate('flag', 'quiet-theme'),
+        ])
+
+        expect(ranked.map((item) => item.label)).toEqual(['Quiet theme: launch email', 'quiet-theme', 'quiet-mode'])
+    })
+
+    it('suggests nothing when the release name has no meaningful words', () => {
+        expect(rankLinkSuggestions('New release', [candidate('flag', 'new-release')])).toEqual([])
     })
 })
