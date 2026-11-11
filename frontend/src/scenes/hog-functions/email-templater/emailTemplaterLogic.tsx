@@ -836,8 +836,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // propsChanged must not load an external design over it (the flag below guards that).
             cache.pendingDesignEdit = true
             await breakpoint(500)
-            // flushPendingDesignEdit already saved this edit. The editor ref may now hold a remounted,
-            // still-empty canvas, and exporting it would overwrite the saved body with nothing.
             if (!cache.pendingDesignEdit) {
                 return
             }
@@ -954,8 +952,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         flushPendingDesignEdit: async () => {
             // A canvas edit made in the last 500ms is still inside designUpdated's debounce; closing the
             // editor or switching the step's sender unmounts it before it exports, silently dropping that
-            // edit. Flush it now, while the editor is still mounted. Clearing pendingDesignEdit stops the
-            // debounced continuation, which would otherwise export whatever editor is mounted when it wakes.
+            // edit. Flush it now, while the editor is still mounted.
             if (props.liveChanges && cache.pendingDesignEdit && values.isEmailEditorReady) {
                 const editor = values.emailEditorRef?.editor
                 if (editor) {
