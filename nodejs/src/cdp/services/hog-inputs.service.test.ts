@@ -496,9 +496,11 @@ describe('Hog Inputs', () => {
             }
         })
 
-        it('renders no further liquid leaf of an input once one leaf carries the clock past the deadline', async () => {
+        it('stops a liquid input of many leaves within one leaf of the deadline', async () => {
             const deadlineMs = 50
+            const leafMs = 2 * deadlineMs
             let now = performance.now()
+            const startedAt = now
             const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
             try {
                 const deadline = deadlineAfter(deadlineMs)
@@ -508,13 +510,11 @@ describe('Hog Inputs', () => {
                     inputs: { leaves: { value: { first: leaf, second: leaf, third: leaf }, templating: 'liquid' } },
                     inputs_schema: [],
                 })
-                const renderedLeaves: number[] = []
                 const properties = { ...globals.event.properties }
                 Object.defineProperty(properties, 'slow', {
                     enumerable: true,
                     get: () => {
-                        renderedLeaves.push(now)
-                        now += 2 * deadlineMs
+                        now += leafMs
                         return 'slow'
                     },
                 })
@@ -528,7 +528,7 @@ describe('Hog Inputs', () => {
                         deadline
                     )
                 ).rejects.toMatchObject({ name: 'TimeoutError' })
-                expect(renderedLeaves).toHaveLength(1)
+                expect(now - startedAt).toBeLessThan(deadlineMs + leafMs)
             } finally {
                 clock.mockRestore()
             }
