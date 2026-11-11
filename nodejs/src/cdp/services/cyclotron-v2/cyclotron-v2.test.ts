@@ -2606,8 +2606,12 @@ describe('Cyclotron V2', () => {
                 expect(await readTeamCounter(teamId)).toBe(1n)
             })
 
-            it("gives each team's concurrent reroutes into the email queue their own turn in fair order", async () => {
+            it("gives each established team's concurrent reroutes into the email queue their own turn in fair order", async () => {
                 const [teamA, teamB] = [41, 42]
+                await manager.bulkCreateJobs([
+                    { teamId: teamA, queueName: EMAIL_QUEUE },
+                    { teamId: teamB, queueName: EMAIL_QUEUE },
+                ])
                 await manager.bulkCreateJobs(
                     [teamA, teamA, teamA, teamB, teamB, teamB].map((teamId) => ({ teamId, queueName: 'hogflow' }))
                 )
@@ -2617,57 +2621,49 @@ describe('Cyclotron V2', () => {
                 await Promise.all(hogflowJobs.map((job) => job.reschedule({ queueName: EMAIL_QUEUE })))
 
                 const drained: number[] = []
-                for (let i = 0; i < 6; i++) {
+                for (let i = 0; i < 8; i++) {
                     const [emailJob] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
                     drained.push(emailJob.teamId)
                     await emailJob.ack()
                 }
-                expect(drained).toEqual([teamA, teamB, teamA, teamB, teamA, teamB])
-                expect(await readTeamCounter(teamA)).toBe(3n)
-                expect(await readTeamCounter(teamB)).toBe(3n)
+                expect(drained).toEqual([teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB])
+                expect(await readTeamCounter(teamA)).toBe(4n)
+                expect(await readTeamCounter(teamB)).toBe(4n)
             })
 
-            it("lets a team's email insert proceed while a reroute batch waits on another team's counter row", async () => {
-                const [lowTeam, highTeam] = [41, 42]
+            it("reroutes a team's job into the email queue while another team in the batch has its counter row locked", async () => {
+                const [lockedTeam, freeTeam] = [41, 42]
                 await manager.bulkCreateJobs([
-                    { teamId: lowTeam, queueName: EMAIL_QUEUE },
-                    { teamId: highTeam, queueName: EMAIL_QUEUE },
+                    { teamId: lockedTeam, queueName: EMAIL_QUEUE },
+                    { teamId: freeTeam, queueName: EMAIL_QUEUE },
                 ])
                 await manager.bulkCreateJobs([
-                    { teamId: highTeam, queueName: 'hogflow' },
-                    { teamId: lowTeam, queueName: 'hogflow' },
+                    { teamId: lockedTeam, queueName: 'hogflow' },
+                    { teamId: freeTeam, queueName: 'hogflow' },
                 ])
-                const hogflowJobs = await dequeueOneBatch(createWorker('hogflow'))
-                const highTeamFirst = [...hogflowJobs].sort((a, b) => b.teamId - a.teamId)
+                const hogflowJobs = await dequeueOneBatch(
+                    createWorker('hogflow', { pool: { dbUrl: `${DB_URL}?options=-c%20lock_timeout%3D500` } })
+                )
+                const lockedTeamJob = hogflowJobs.find((job) => job.teamId === lockedTeam)!
+                const freeTeamJob = hogflowJobs.find((job) => job.teamId === freeTeam)!
 
                 const holder = await assertPool.connect()
-                const lockTimeoutManager = createManager({
-                    pool: { dbUrl: `${DB_URL}?options=-c%20lock_timeout%3D500` },
-                })
-                await lockTimeoutManager.connect()
-                const holderPid = (await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid
                 await holder.query('BEGIN')
                 await holder.query('SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [
-                    lowTeam,
+                    lockedTeam,
                 ])
-                const reroutes = Promise.all(highTeamFirst.map((job) => job.reschedule({ queueName: EMAIL_QUEUE })))
                 try {
-                    await waitForExpect(async () => {
-                        const blocked = await assertPool.query(
-                            'SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
-                            [holderPid]
-                        )
-                        expect(blocked.rows.length).toBeGreaterThan(0)
-                    })
+                    const [lockedTeamReroute, freeTeamReroute] = await Promise.allSettled([
+                        lockedTeamJob.reschedule({ queueName: EMAIL_QUEUE }),
+                        freeTeamJob.reschedule({ queueName: EMAIL_QUEUE }),
+                    ])
 
-                    await expect(
-                        lockTimeoutManager.bulkCreateJobs([{ teamId: highTeam, queueName: EMAIL_QUEUE }])
-                    ).resolves.toHaveLength(1)
+                    expect(freeTeamReroute.status).toBe('fulfilled')
+                    expect(await readDequeueSeq(freeTeamJob.id)).toBe(BigInt(2 * 16_777_216) + BigInt(freeTeam))
+                    expect(lockedTeamReroute.status).toBe('rejected')
                 } finally {
                     await holder.query('ROLLBACK')
                     holder.release()
-                    await reroutes
-                    await lockTimeoutManager.disconnect()
                 }
             })
 

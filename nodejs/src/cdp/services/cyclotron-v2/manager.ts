@@ -49,8 +49,8 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
         return []
     }
 
-    const teamIdsInLockOrder = [...indicesByTeam.keys()].sort((a, b) => a - b)
-    const increments = teamIdsInLockOrder.map((id) => indicesByTeam.get(id)!.length)
+    const teamIds = [...indicesByTeam.keys()]
+    const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
 
     const upsertResult = await pool.query<{ team_id: number; counter: string }>(
         `WITH max_counter AS (
@@ -59,12 +59,11 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
          INSERT INTO cyclotron_email_team_seq (team_id, counter)
          SELECT team_id, increment + (SELECT m FROM max_counter)
          FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
-         ORDER BY team_id
          ON CONFLICT (team_id) DO UPDATE
             SET counter = cyclotron_email_team_seq.counter
                         + (EXCLUDED.counter - (SELECT m FROM max_counter))
          RETURNING team_id, counter`,
-        [teamIdsInLockOrder, increments]
+        [teamIds, increments]
     )
 
     const newCounters = new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
@@ -84,26 +83,37 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
 }
 
 export function batchEmailDequeueSeqs(pool: Pool): (teamId: number) => Promise<string> {
-    let pending: { teamId: number; resolve: (dequeueSeq: string) => void; reject: (error: unknown) => void }[] = []
-    const flush = async (): Promise<void> => {
-        const batch = pending
-        pending = []
+    type Waiter = { resolve: (dequeueSeq: string) => void; reject: (error: unknown) => void }
+    let waitersByTeam = new Map<number, Waiter[]>()
+    const allocateForTeam = async (teamId: number, waiters: Waiter[]): Promise<void> => {
         try {
             const dequeueSeqs = await allocateEmailDequeueSeqs(
                 pool,
-                batch.map(({ teamId }) => teamId)
+                waiters.map(() => teamId)
             )
-            batch.forEach(({ resolve }, i) => resolve(dequeueSeqs[i]))
+            waiters.forEach(({ resolve }, i) => resolve(dequeueSeqs[i]))
         } catch (error) {
-            batch.forEach(({ reject }) => reject(error))
+            waiters.forEach(({ reject }) => reject(error))
+        }
+    }
+    const flush = (): void => {
+        const batch = waitersByTeam
+        waitersByTeam = new Map()
+        for (const [teamId, waiters] of batch) {
+            void allocateForTeam(teamId, waiters)
         }
     }
     return (teamId) =>
         new Promise((resolve, reject) => {
-            if (pending.length === 0) {
-                setImmediate(() => void flush())
+            if (waitersByTeam.size === 0) {
+                setImmediate(flush)
             }
-            pending.push({ teamId, resolve, reject })
+            const waiters = waitersByTeam.get(teamId)
+            if (waiters) {
+                waiters.push({ resolve, reject })
+            } else {
+                waitersByTeam.set(teamId, [{ resolve, reject }])
+            }
         })
 }
 
