@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
+
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
 import type { InvariantResult, JournalEntry } from './judge'
@@ -20,9 +22,14 @@ const isAccepted = (status: number): boolean => status >= 200 && status < 300
 
 const isNotRetriedBySes = (status: number): boolean => status >= 400 && status < 500 && status !== TOO_MANY_REQUESTS
 
+const isNotRetriedByFetch = (status: number): boolean => status >= 400 && !RETRIABLE_STATUS_CODES.includes(status)
+
 function endedByTerminalFault(records: TruthRecord[]): boolean {
     const last = records.at(-1)
-    return last?.fault !== undefined && isNotRetriedBySes(last.status)
+    if (last?.fault === undefined) {
+        return false
+    }
+    return last.kind === 'webhook' ? isNotRetriedByFetch(last.status) : isNotRetriedBySes(last.status)
 }
 
 type DeliveryRecord = TruthRecord & { unitId: string; actionId: string }
@@ -30,7 +37,7 @@ type DeliveryRecord = TruthRecord & { unitId: string; actionId: string }
 const isDeliveryRecord = (record: TruthRecord): record is DeliveryRecord =>
     record.unitId !== undefined && record.actionId !== undefined
 
-const recordsByDelivery = (truth: readonly TruthRecord[]): Map<string, TruthRecord[]> =>
+const recordsByDelivery = (truth: readonly TruthRecord[]): Map<string, DeliveryRecord[]> =>
     Map.groupBy(truth.filter(isDeliveryRecord), ({ unitId, actionId }) => deliveryKey(unitId, actionId))
 
 export const atLeastOnce: InvariantDefinition = {
@@ -76,7 +83,7 @@ export const duplicateSends: InvariantDefinition = {
     check: ({ truth }, gate) => {
         const duplicated = [...recordsByDelivery(truth).values()]
             .map((records) => ({
-                record: records[0] as DeliveryRecord,
+                record: records[0],
                 extra: records.filter(({ status }) => isAccepted(status)).length - 1,
             }))
             .filter(({ extra }) => extra > 0)

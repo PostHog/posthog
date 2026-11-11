@@ -182,7 +182,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 const seeded = await seed(loaded, postgres)
                 await judge.open(seeded)
                 stopHealth = watchHealth(environment)
-                sampler = startSampler(
+                sampler = await startSampler(
                     CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
                 )
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, cdpApi, runId })

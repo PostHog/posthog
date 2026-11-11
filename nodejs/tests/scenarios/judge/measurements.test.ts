@@ -94,13 +94,10 @@ describe('measurements', () => {
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const { port } = server.address() as AddressInfo
         try {
-            const sampler = startSampler(
-                [
-                    { role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` },
-                    { role: 'cdp-api', metricsUrl: 'http://127.0.0.1:1/_metrics' },
-                ],
-                60_000
-            )
+            const sampler = await startSampler([
+                { role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` },
+                { role: 'cdp-api', metricsUrl: 'http://127.0.0.1:1/_metrics' },
+            ])
             const samples = await sampler.stop()
 
             expect(samples.map(({ role }) => role)).toEqual([ROLE, ROLE])
@@ -112,6 +109,36 @@ describe('measurements', () => {
                 rssBytes: expect.any(Number),
             })
             expect(samples.at(-1)!.rssBytes).toBeGreaterThan(0)
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    })
+
+    it('takes the baseline before it hands back, so work done right after start counts', async () => {
+        let cpuSeconds = 10
+        const server = http.createServer((_req, res) =>
+            res.end(
+                [
+                    'process_start_time_seconds 1700000000',
+                    `process_cpu_seconds_total ${cpuSeconds}`,
+                    'process_resident_memory_bytes 100',
+                ].join('\n')
+            )
+        )
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        try {
+            const sampler = await startSampler([{ role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` }])
+            cpuSeconds = 15
+            const samples = await sampler.stop()
+
+            expect(
+                measure(
+                    [{ name: 'role_cpu_seconds', params: {} }],
+                    evidence({ samples, sampledFrom: sampler.sampledFrom })
+                )
+            ).toEqual([{ name: 'role_cpu_seconds', key: ROLE, value: 5, unit: 's' }])
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))

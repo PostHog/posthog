@@ -115,10 +115,7 @@ export function sampleOf(role: string, at: number, text: string): MetricSample |
 
 export type Sampler = { sampledFrom: number; stop(): Promise<MetricSample[]> }
 
-export function startSampler(
-    targets: { role: string; metricsUrl: string }[],
-    intervalMs = SAMPLE_INTERVAL_MS
-): Sampler {
+export async function startSampler(targets: { role: string; metricsUrl: string }[]): Promise<Sampler> {
     const samples: MetricSample[] = []
     const stopped = new AbortController()
     const scrapeAll = async (): Promise<void> => {
@@ -136,10 +133,13 @@ export function startSampler(
         )
     }
     const sampledFrom = Date.now()
+    await scrapeAll()
     const sampling = (async () => {
         while (!stopped.signal.aborted) {
-            await scrapeAll()
-            await sleep(intervalMs, undefined, { signal: stopped.signal }).catch(() => undefined)
+            await sleep(SAMPLE_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
+            if (!stopped.signal.aborted) {
+                await scrapeAll()
+            }
         }
     })()
     let stopping: Promise<MetricSample[]> | undefined
