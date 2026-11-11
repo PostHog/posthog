@@ -1123,6 +1123,26 @@ class TestMaybeReconcileDag(BaseTest):
         delete.assert_not_called()
         update.assert_not_called()
 
+    def test_unreadable_plan_floor_keeps_a_tier_scheduled_after_the_graph_was_read(self):
+        dag = self._dag_with_target()
+        late = _saved_query_node(self.team, dag, "late", NodeType.MAT_VIEW)
+        late_tier = tier_schedule_id(str(dag.id), H6)
+        temporal = self._temporal_with_tier(late_tier, [str(late.id)])
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=RuntimeError("flags down")),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            self.assertRaises(PlanFloorUnavailableError),
+        ):
+            first_read = build_frequency_graph(dag)
+            set_declared_target(late, H6)
+            reconcile_dag_schedules(dag, graph=first_read)
+
+        delete.assert_not_called()
+        update.assert_not_called()
+
     def test_unreadable_plan_floor_still_takes_a_cleared_node_off_its_schedule(self):
         dag = self._dag_with_target()
         endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)

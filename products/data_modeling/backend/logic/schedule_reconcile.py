@@ -20,7 +20,7 @@ from django.conf import settings
 from django.db import transaction
 
 import structlog
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from temporalio.client import (
     Client,
     Schedule,
@@ -487,13 +487,11 @@ def reconcile_dag_schedules(
     if graph is None:
         graph = build_frequency_graph(dag)
     if not graph.plan_floor_evaluated:
-        effective, _clamped = scheduled_cadences(graph)
         _withdraw_unscheduled_nodes(
-            dag_id=str(dag.id),
+            dag=dag,
             team_id=team.pk,
             organization_id=str(team.organization_id),
             team_timezone=team.timezone,
-            scheduled={node_id for node_id, cadence in effective.items() if cadence is not None},
         )
         raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
 
@@ -778,20 +776,25 @@ async def _apply_reconciliation(
 @async_to_sync
 async def _withdraw_unscheduled_nodes(
     *,
-    dag_id: str,
+    dag: DAG,
     team_id: int,
     organization_id: str,
     team_timezone: str,
-    scheduled: set[str],
 ) -> None:
-    """Remove nodes outside `scheduled` from the DAG's tier schedules, keeping every schedule's cadence.
+    """Remove nodes with no cadence from the DAG's tier schedules, keeping every schedule's cadence.
 
+    The graph is read after the listing, so a tier that a concurrent reconcile wrote before the listing keeps
+    the nodes it scheduled. One written between the listing and this write can still lose a node, until the
+    first reconcile that reads the floor rewrites every tier.
     A whole-DAG legacy schedule stays, because it has no node list to narrow and deleting it stops every node.
     A tier that another reconcile deleted after the listing needs no change, so the loop moves on to the next one.
     """
+    dag_id = str(dag.id)
     temporal = await async_connect()
     search_attributes = dag_schedule_search_attributes(team_id=team_id, organization_id=organization_id, dag_id=dag_id)
-    for tier in await read_live_tiers(temporal, dag_id):
+    live_tiers = await read_live_tiers(temporal, dag_id)
+    scheduled = await sync_to_async(_scheduled_node_ids)(dag)
+    for tier in live_tiers:
         if tier.node_ids is None or tier.interval_seconds is None:
             continue
         kept = tier.node_ids & scheduled
@@ -810,6 +813,11 @@ async def _withdraw_unscheduled_nodes(
         except RPCError as error:
             if error.status != RPCStatusCode.NOT_FOUND:
                 raise
+
+
+def _scheduled_node_ids(dag: DAG) -> set[str]:
+    effective, _clamped = scheduled_cadences(build_frequency_graph(dag))
+    return {node_id for node_id, cadence in effective.items() if cadence is not None}
 
 
 async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:
