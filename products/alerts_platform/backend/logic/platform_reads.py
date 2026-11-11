@@ -5,7 +5,7 @@ outside the product, so they return views rather than rows and never change one.
 """
 
 import operator
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from functools import reduce
 from typing import Any
@@ -237,19 +237,28 @@ def native_configuration_team_id(*, configuration_id: UUID, source_kind: str) ->
     return rows.values_list("team_id", flat=True).first()
 
 
-def native_configuration_ids(
-    *, team_id: int, source_kind: str, source_config_key: str, values: Collection[Any]
+def owned_configuration_ids_without_source_rows(
+    *,
+    team_id: int,
+    source_kind: str,
+    source_config_key: str,
+    values: Collection[Any],
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
 ) -> tuple[UUID, ...]:
-    """Ids of the team's configurations of a kind with no source row whose `source_config[key]` is one of `values`."""
-    return tuple(
+    """Ids of the team's configurations of a kind the platform owns whose `source_config[key]` is one
+    of `values` and that have no source row: the ones that never had one, and copies whose row
+    `existing_source_ids` does not return."""
+    found = list(
         PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
         .filter(
             source_kind=source_kind,
-            legacy_configuration_id__isnull=True,
+            owner=PlatformAlertOwner.PLATFORM,
             **{f"source_config__{source_config_key}__in": list(values)},
         )
-        .values_list("id", flat=True)
+        .values_list("id", "legacy_configuration_id")
     )
+    existing = set(existing_source_ids([legacy_id for _, legacy_id in found if legacy_id is not None]))
+    return tuple(configuration_id for configuration_id, legacy_id in found if legacy_id not in existing)
 
 
 def count_configurations(

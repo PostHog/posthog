@@ -128,7 +128,7 @@ from products.alerts.backend.facade.destinations import (
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
 from products.alerts.backend.facade.platform import (
     close_moved_alert_firings,
-    delete_moved_alert_copy,
+    delete_alert_destinations_and_copy,
     enable_native_insight_alert,
     follow_insight_alert,
     hand_over_new_alert,
@@ -2003,8 +2003,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             close_moved_alert_firings(team_id=instance.team_id, alert_id=instance.id)
         # The copy and the alert go together, so a failed delete leaves no moved alert without its copy.
         with transaction.atomic():
-            if instance.platform_owned:
-                delete_moved_alert_copy(team_id=instance.team_id, alert_id=instance.id)
+            delete_alert_destinations_and_copy(team_id=instance.team_id, alert_id=instance.id)
             super().perform_destroy(instance)
 
     def list(self, request, *args, **kwargs):

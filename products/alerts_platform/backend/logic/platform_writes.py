@@ -458,7 +458,7 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
         raise PlatformAlertNotEditable(f"This alert is managed by the {source_kind} product. Delete it there.")
     spec = source_configs.spec(SourceKind(source_kind))
     if spec is not None and spec.native is not None and legacy_configuration_id is None:
-        _delete_native(team_id, configuration_id, spec.native)
+        delete_owned_configuration(team_id=team_id, configuration_id=configuration_id)
     elif spec is not None and spec.delete is not None and legacy_configuration_id is not None:
         spec.delete(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
     else:
@@ -466,30 +466,55 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     return True
 
 
-def _delete_native(team_id: int, configuration_id: UUID, native: NativeAlertLifecycle) -> None:
-    configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(id=configuration_id)
+def delete_owned_configuration(*, team_id: int, configuration_id: UUID) -> None:
+    """Deletes a configuration the platform owns whose source row is gone or never existed: closes
+    its firings, then removes its destinations and deletes it. Nothing happens when it is gone.
+
+    Runs outside any transaction, because the resolves go out first.
+    """
+    configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        id=configuration_id, owner=PlatformAlertOwner.PLATFORM
+    )
     # Before the destinations go, so an incident manager still gets the resolve for an open firing.
     _close_firings_now(lambda: configurations.select_for_update().first())
-    # In the delete's transaction, so a delete that fails keeps the alert's destinations. An
-    # `AlertDestination` row goes with its configuration, so there is nothing to remove first.
-    remove = native.remove_destinations
-    _delete_each(
-        configurations,
-        before_delete=None if remove is None else lambda: remove(team_id=team_id, configuration_id=configuration_id),
-    )
+    _delete_each(configurations, before_delete=lambda locked: _remove_owned_destinations(team_id, locked))
 
 
-def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> None:
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID, owner: PlatformAlertOwner | None = None) -> bool:
     """Deletes the copy of a source alert, with its instances and threads. With `owner`, only a copy
-    that stack owns.
+    that stack owns. True when the deleted copy was the platform's, whose destinations go with it.
 
     Call it with the source row's delete, in its transaction or after it commits. The copy has no
-    foreign key to that row, so nothing else removes it.
+    foreign key to that row, so nothing else removes it. A source removes the destinations itself
+    only when this returns False, so each alert's destinations are removed once.
     """
     copies = PlatformAlertConfiguration.objects.for_team(team_id).filter(
         legacy_configuration_id=legacy_configuration_id
     )
-    _delete_each(copies if owner is None else copies.filter(owner=owner))
+    removed = False
+
+    def remove_destinations(locked: list[PlatformAlertConfiguration]) -> None:
+        nonlocal removed
+        removed = _remove_owned_destinations(team_id, locked)
+
+    _delete_each(copies if owner is None else copies.filter(owner=owner), before_delete=remove_destinations)
+    return removed
+
+
+def _remove_owned_destinations(team_id: int, locked: Sequence[PlatformAlertConfiguration]) -> bool:
+    """Removes the HogFunction destinations of the configurations the platform owns, in the delete's
+    transaction, so a delete that fails keeps them. True when any configuration was the platform's.
+
+    A shadow copy's destinations are its source's, which removes them with its own row. An
+    `AlertDestination` row goes with its configuration, so there is nothing to remove for it.
+    """
+    owned = [configuration for configuration in locked if configuration.owner == PlatformAlertOwner.PLATFORM]
+    for configuration in owned:
+        spec = source_configs.spec(SourceKind(configuration.source_kind))
+        remove = None if spec is None or spec.native is None else spec.native.remove_destinations
+        if remove is not None:
+            remove(team_id=team_id, alert_id=configuration.destination_alert_id)
+    return bool(owned)
 
 
 def delete_orphaned_shadow_copies(
@@ -599,7 +624,9 @@ def _pages_by_id(
 
 
 def _delete_each(
-    configurations: QuerySet[PlatformAlertConfiguration], *, before_delete: Callable[[], None] | None = None
+    configurations: QuerySet[PlatformAlertConfiguration],
+    *,
+    before_delete: Callable[[list[PlatformAlertConfiguration]], object] | None = None,
 ) -> None:
     with transaction.atomic():
         # The configuration before its children, the order `record_outcomes` locks them in. The
@@ -607,7 +634,7 @@ def _delete_each(
         # through the model's own delete, because a queryset delete skips the activity log.
         locked = list(configurations.select_for_update())
         if before_delete is not None:
-            before_delete()
+            before_delete(locked)
         for configuration in locked:
             configuration.delete()
 
