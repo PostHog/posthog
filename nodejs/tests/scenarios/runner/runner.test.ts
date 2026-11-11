@@ -8,6 +8,8 @@ import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
 import { Registry, collectDefaultMetrics } from 'prom-client'
+// eslint-disable-next-line no-restricted-imports
+import { ProxyAgent } from 'undici'
 import { stringify } from 'yaml'
 
 import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
@@ -22,6 +24,7 @@ import {
     WARPSTREAM_INGESTION_PRODUCER,
 } from '~/cdp/outputs/producers'
 import { template as emailTemplate } from '~/cdp/templates/_destinations/email/email.template'
+import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
 import { CyclotronJobInvocation } from '~/cdp/types'
 import { convertToHogFunctionInvocationGlobals } from '~/cdp/utils'
 import { defaultConfig } from '~/common/config/config'
@@ -32,6 +35,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
+import { _fetch, fetch } from '~/common/utils/request'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
@@ -43,6 +47,11 @@ import { JournalEntry } from '../judge/judge'
 import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { RunResult, Runner, createRunner } from './runner'
+
+jest.mock('~/common/utils/request', () => {
+    const actual = jest.requireActual('~/common/utils/request')
+    return { ...actual, fetch: jest.fn(actual.fetch) }
+})
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
 const SMOKE = load(SMOKE_CARD)
@@ -239,6 +248,7 @@ const noGroups: GroupReadRepository = {
 async function startCdp(config: Partial<PluginsServerConfig>): Promise<Cdp> {
     const hub = await createHub(config)
     await insertHogFunctionTemplate(hub.postgres, emailTemplate)
+    await insertHogFunctionTemplate(hub.postgres, webhookTemplate)
     const deps: CdpConsumerBaseDeps = {
         postgres: hub.postgres,
         pubSub: hub.pubSub,
@@ -389,6 +399,7 @@ describe('runner through seed, drive and judge', () => {
     let cacheHome: string
     let env: NodeJS.ProcessEnv
     let edge: ProviderEdge
+    let throughTheEdge: ProxyAgent
     let api: FakeProjectApi
     let roles: DeliveringRoles | undefined
     let results: RunResult[]
@@ -484,7 +495,17 @@ describe('runner through seed, drive and judge', () => {
             CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
             ...api.credentials,
         }
-        edge = await startProviderEdge({ port: 0, trackingKeys: secretsOf(env).encryptionSaltKeys })
+        edge = await startProviderEdge({
+            port: 0,
+            trackingKeys: secretsOf(env).encryptionSaltKeys,
+            caDir: path.join(cacheHome, 'edge-ca'),
+        })
+        throughTheEdge = new ProxyAgent({
+            uri: edge.url,
+            proxyTunnel: true,
+            requestTls: { ca: readFileSync(edge.caCertPath!) },
+        })
+        jest.mocked(fetch).mockImplementation((url, options) => _fetch(url, options, throughTheEdge))
         results = []
         exits = []
         killExits = exitOfTheKill
@@ -503,6 +524,7 @@ describe('runner through seed, drive and judge', () => {
     })
 
     const cleanUp = async (): Promise<void> => {
+        await throughTheEdge.close()
         await edge.close()
         const teams = [
             ...new Set(
@@ -535,9 +557,13 @@ describe('runner through seed, drive and judge', () => {
 
     const run = async (
         delivering: Parameters<typeof environmentOf>[0],
-        valves: ValveEntry[] = []
+        valves: ValveEntry[] = [],
+        traffic?: string
     ): Promise<RunResult> => {
-        const result = await createRunner(environmentOf(delivering), env).run(shortSmoke(valves), NEVER_ABORTED)
+        const result = await createRunner(environmentOf(delivering), env).run(
+            shortSmoke(valves, traffic),
+            NEVER_ABORTED
+        )
         results.push(result)
         return result
     }
@@ -545,10 +571,11 @@ describe('runner through seed, drive and judge', () => {
     const deliveriesOf = (truth: TruthRecord[]): string[] =>
         truth.map(({ unitId, actionId, status }) => `${unitId}/${actionId}/${status}`).sort()
 
-    it.each<[string, Parameters<typeof environmentOf>[0], () => void, object, boolean]>([
+    it.each<[string, Parameters<typeof environmentOf>[0], string, () => void, object, string | undefined]>([
         [
             'passes when the roles deliver every unit and finish every job',
             'all',
+            'event_email',
             () => undefined,
             {
                 status: 'passed',
@@ -557,18 +584,28 @@ describe('runner through seed, drive and judge', () => {
                     expect.objectContaining({ name: 'delivery_latency_ms', key: 'p50', unit: 'ms' }),
                 ]),
             },
-            true,
+            'email',
+        ],
+        [
+            'passes when the roles deliver every webhook unit through the edge proxy',
+            'all',
+            'event_webhook',
+            () => undefined,
+            { status: 'passed', statusReason: 'every invariant held' },
+            'webhook',
         ],
         [
             'fails when a job stays unfinished after every unit was delivered',
             'all, leaving one job running',
+            'event_email',
             () => undefined,
             { status: 'failed', statusReason: 'not converged: 1 unfinished jobs, 0 units without a delivery record' },
-            true,
+            'email',
         ],
         [
             'fails with the undelivered units when no role delivers',
             'none',
+            'event_email',
             () => undefined,
             {
                 status: 'failed',
@@ -581,11 +618,12 @@ describe('runner through seed, drive and judge', () => {
                     { name: 'refused_at_intake', passed: true },
                 ],
             },
-            false,
+            undefined,
         ],
         [
             'joins the failed verdict and the producer that did not disconnect',
             'none',
+            'event_email',
             failNextDisconnect,
             {
                 status: 'invalid',
@@ -593,14 +631,14 @@ describe('runner through seed, drive and judge', () => {
                     /^not converged: .*; at_least_once failed: .*; the load producer did not disconnect: Local: Timed out$/
                 ),
             },
-            false,
+            undefined,
         ],
     ])(
         '%s',
-        async (_story, delivering, arrange, verdict, delivered) => {
+        async (_story, delivering, traffic, arrange, verdict, deliveredBy) => {
             arrange()
 
-            const result = await run(delivering)
+            const result = await run(delivering, [], traffic)
 
             const offered = (evidenceOf(result, 'journal.json') as JournalEntry[]).filter(
                 ({ answer }) => answer.accepted
@@ -616,7 +654,7 @@ describe('runner through seed, drive and judge', () => {
                 }),
             ])
             expect(deliveriesOf(evidenceOf(result, 'truth.json') as TruthRecord[])).toEqual(
-                delivered ? offered.map(({ unitId }) => `${unitId}/email/200`).sort() : []
+                deliveredBy ? offered.map(({ unitId }) => `${unitId}/${deliveredBy}/200`).sort() : []
             )
             expect(offered).not.toHaveLength(0)
         },

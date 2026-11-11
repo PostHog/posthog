@@ -159,7 +159,7 @@ describe('measurements', () => {
         ['refuses the scrape', (_request, response) => response.writeHead(503).end()],
         [
             'answers the scrape only after the budget',
-            (_request, response) => setTimeout(() => response.end(METRICS), 1000).unref(),
+            (_request, response) => setTimeout(() => response.end(METRICS), 1500).unref(),
         ],
     ])('refuses to start within its budget, naming only the role that %s', async (_story, silent) => {
         const server = http.createServer((request, response) =>
@@ -174,9 +174,9 @@ describe('measurements', () => {
                         { role: ROLE, metricsUrl: `${url}/answering` },
                         { role: 'cdp-api', metricsUrl: `${url}/silent` },
                     ],
-                    { baselineWithinMs: 600 }
+                    { baselineWithinMs: 1000 }
                 )
-            ).rejects.toThrow(/^No metrics baseline from cdp-api within 600 ms$/)
+            ).rejects.toThrow(/^No metrics baseline from cdp-api within 1000 ms$/)
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
