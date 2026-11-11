@@ -32762,13 +32762,6 @@ export namespace Schemas {
          * @maxLength 128
          */
       ai_model?: string;
-      /**
-         * AI author's confidence in the proposal, 0-1.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
       /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
       reasoning?: string;
       /** User who first created this metric. */
@@ -32935,13 +32928,6 @@ export namespace Schemas {
          * @maxLength 128
          */
       ai_model?: string;
-      /**
-         * AI author's confidence in the proposal, 0-1.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
       /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
       reasoning?: string;
       /** User who first created this metric. */
@@ -83979,13 +83965,6 @@ export namespace Schemas {
          * @maxLength 128
          */
       ai_model?: string;
-      /**
-         * AI author's confidence in the proposal, 0-1.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
       /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
       reasoning?: string;
       /** User who first created this metric. */
