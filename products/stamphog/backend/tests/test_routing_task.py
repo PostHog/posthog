@@ -544,7 +544,9 @@ def test_fallback_approval_requests_only_pinned_owners(
         ("stamphog_reviews_the_head", "review_run", False),
         # The trigger label starts a visible review, and its verdict routes the head.
         ("trigger_label", "label", False),
-        ("head_moved", "push", False),
+        # Nothing starts a silent review of a pushed head, so the report routes the live head now.
+        ("push_routes_the_live_head", "push", True),
+        ("push_to_a_head_stamphog_reviews", "push_reviewed", False),
         ("switch_turned_off", "switch_off", False),
     ],
 )
@@ -572,17 +574,17 @@ def test_the_clean_review_switch_waits_for_reviewhog(
     assert _stored(team.id)["status"] == "waiting"
 
     with team_scope(team.id):
-        if before_call == "review_run":
+        if before_call in ("push", "push_reviewed"):
+            _push(routing_chain, _HEAD_2)
+        if before_call in ("review_run", "push_reviewed"):
             ReviewRun.objects.for_team(team.id).create(
                 team_id=team.id,
                 pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
-                head_sha=HEAD_SHA,
+                head_sha=_HEAD_2 if before_call == "push_reviewed" else HEAD_SHA,
                 status=ReviewRunStatus.QUEUED,
             )
         elif before_call == "label":
             routing_chain.recorder.prs[(REPO, PR_NUMBER)]["labels"] = [{"name": "stamphog"}]
-        elif before_call == "push":
-            _push(routing_chain, _HEAD_2)
         elif before_call == "switch_off":
             StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(
                 review_on_clean_external_review=False
@@ -594,6 +596,7 @@ def test_the_clean_review_switch_waits_for_reviewhog(
     if expect_routed:
         assert _requested(routing_chain) == ({"carol"}, {"team-alpha"})
         assert (record["trigger"], record["scope"], record["status"]) == ("external_review", "full", "done")
+        assert record["head_sha"] == (_HEAD_2 if before_call == "push" else HEAD_SHA)
     else:
         assert routing_chain.recorder.github_writes == []
         assert record["status"] == "waiting"

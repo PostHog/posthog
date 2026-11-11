@@ -240,16 +240,19 @@ def _external_review_step(
         raise RoutingBusy(f"no routing record of PR {state.pr_number} waits on the reported head yet")
     if record.get("status") != STATUS_WAITING or record.get(FULL_ROUTED_HEAD):
         return None
-    if review_path.has_review(state.repo_config, state.pr_number, head_sha):
-        # Stamphog reviews this head after all, and its verdict routes it.
-        return None
     pr = _live_head(client, state.repo_config, state.pr_number)
-    if pr is None or _head_sha(pr) != head_sha:
+    if pr is None:
+        return None
+    # The live head, which can differ from the reported one. A push is not a ready event, so nothing starts a
+    # silent review of a newer head, and that head would otherwise wait for the safety net.
+    live_head_sha = _head_sha(pr)
+    if review_path.has_review(state.repo_config, state.pr_number, live_head_sha):
+        # Stamphog reviews this head after all, and its verdict routes it.
         return None
     if review_path.will_review(state.repo_config, pr, count_silent=False):
         # A visible review of this head comes anyway, such as for the trigger label, and its verdict routes it.
         return None
-    return _Step(pr=pr, head_sha=head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_EXTERNAL_REVIEW)
+    return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_EXTERNAL_REVIEW)
 
 
 def route_after_external_review(
