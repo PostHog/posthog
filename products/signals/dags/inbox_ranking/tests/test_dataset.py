@@ -34,7 +34,9 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     LABELS_SCHEMA,
     MODEL_DATA_SCHEMA,
     REVIEWERS_SCHEMA,
+    SCORED_FACTS_SCHEMA,
     USER_INTERACTIONS_SCHEMA,
+    Newborn,
     assemble_model_rows,
     assemble_user_interaction_rows,
     label_provenance_ok,
@@ -61,6 +63,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     hogql_rows,
     merge_label_streams,
     region_app_host,
+    report_facts_events,
     utc_bound,
     valid_report_uuids,
 )
@@ -550,6 +553,65 @@ def test_user_grain_keeps_one_row_per_person_and_only_consented_reports():
     }
 
 
+def _facts_event(
+    report_id: str, team_id: int, scored_at: str, **facts: Any
+) -> tuple[datetime.datetime, dict[str, Any]]:
+    properties = {"report_id": report_id, "team_id": team_id, "scored_at": scored_at, "facts_schema_version": 1}
+    return T1, {**properties, **facts}
+
+
+def test_scored_facts_keep_the_earliest_event_of_each_consenting_newborn():
+    newborns = {UUID_A: Newborn(team_id=2, created_at=T1), UUID_B: Newborn(team_id=7, created_at=T1)}
+    events = [
+        _facts_event(UUID_A, 2, "2026-07-29T10:30:00+00:00", signal_count=9, source_products=["github"]),
+        _facts_event(UUID_A, 2, "2026-07-29T10:05:00+00:00", signal_count=3, source_products=["error_tracking"]),
+        _facts_event(UUID_A, 2, "2026-07-29T10:20:00+00:00", signal_count=6, source_products=["github"]),
+        # A forged event that names another team is not the report's score, even when it is earlier.
+        _facts_event(UUID_A, 999, "2026-07-29T10:00:00+00:00", signal_count=1),
+        # Team 7 has not opted in to AI training.
+        _facts_event(UUID_B, 7, "2026-07-29T10:00:00+00:00", signal_count=4),
+        # A report not born on the day.
+        _facts_event(UUID_C, 2, "2026-07-29T10:00:00+00:00", signal_count=4),
+    ]
+
+    assembled = dag.scored_fact_rows(events, newborns, {2}, snapshot_date=SNAPSHOT_DATE)
+
+    assert [(row["report_id"], row["signal_count"], row["source_products"]) for row in assembled.rows] == [
+        (UUID_A, 3, ["error_tracking"])
+    ]
+    assert assembled.rows[0]["scored_at"] == datetime.datetime(2026, 7, 29, 10, 5, tzinfo=datetime.UTC)
+    assert assembled.tenant_mismatch_events == 1
+    assert set(assembled.rows[0]) == set(SCORED_FACTS_SCHEMA.names)
+
+
+def test_a_scored_fact_of_the_wrong_type_or_missing_is_null_and_never_fails_the_build():
+    newborns = {UUID_A: Newborn(team_id=2, created_at=T1)}
+    events = [
+        _facts_event(
+            UUID_A,
+            2,
+            "not a moment",
+            signal_count="3",
+            run_count=2**40,
+            total_weight=True,
+            user_authored=1,
+            priority=1,
+            source_products="github",
+            title_chars=12,
+        )
+    ]
+
+    rows = dag.scored_fact_rows(events, newborns, {2}, snapshot_date=SNAPSHOT_DATE).rows
+    row = pa.Table.from_pylist(rows, schema=SCORED_FACTS_SCHEMA).to_pylist()[0]
+
+    assert row["scored_at"] == T1
+    assert row["title_chars"] == 12
+    for column in ("signal_count", "run_count", "total_weight", "user_authored", "priority", "source_products"):
+        assert row[column] is None
+    # The event does not carry it, which is unknown and not 0.
+    assert row["chart_count"] is None
+
+
 class TestSpineInclusion(BaseTest):
     def _report(self, status, *, promoted_at=None, created_at=BEFORE_CUTOFF):
         report = SignalReport.objects.create(team=self.team, status=status, title="t", summary="s")
@@ -928,6 +990,31 @@ class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
         assert query.call_args.kwargs["settings"].max_execution_time == 600
         assert query.call_args.kwargs["workload"] == queries.etl_workload()
         assert [row[0] for row in rows] == [UUID_A]
+
+
+class TestReportFactsEvents(ClickhouseTestMixin, BaseTest):
+    def test_reads_only_this_deployments_facts_events_inside_the_day(self):
+        for event, environment, timestamp in (
+            ("inbox_ranking_report_facts_recorded", "US", T1),
+            ("inbox_ranking_report_facts_recorded", "EU", T1),
+            ("inbox_ranking_report_facts_recorded", "US", AFTER_SNAPSHOT_END),
+            ("inbox_ranking_report_scored", "US", T1),
+        ):
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id="inbox_ranking_scoring",
+                timestamp=timestamp,
+                properties={"report_id": UUID_A, "environment": environment, "source_products": ["github"]},
+            )
+
+        events = report_facts_events(
+            self.team, window_start=T1 - datetime.timedelta(hours=1), window_end=SNAPSHOT_END, environment="US"
+        )
+
+        assert [(properties["environment"], properties["source_products"]) for _, properties in events] == [
+            ("US", ["github"])
+        ]
 
 
 class TestStatusStream(ClickhouseTestMixin, BaseTest):
@@ -1516,6 +1603,7 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
             dag.inbox_engagement_export,
             dag.inbox_activity_summary_vectors,
             dag.inbox_activity_summary_profile_vectors,
+            dag.inbox_report_scored_facts,
         ]
     )
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
@@ -1528,6 +1616,7 @@ def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
         dag.ENGAGEMENT_EXPORT,
         dag.ACTIVITY_SUMMARY_VECTORS_TABLE,
         dag.ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
+        dag.SCORED_FACTS_TABLE,
     ):
         assert dagster.AssetKey(leaf) in selection
         assert leaf not in model_data_deps

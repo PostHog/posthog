@@ -22,6 +22,7 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
     REPORT_FACT_FEATURE_NAMES,
     REPORT_FACT_GROUPS,
+    REPORT_SCORED_FACTS_EXTRA,
     REPORT_SOURCES_EXTRA,
     report_fact_matrix,
 )
@@ -31,6 +32,8 @@ from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
     LABELS_TABLE,
+    SCORED_FACTS_SCHEMA,
+    SCORED_FACTS_TABLE,
     SIGNAL_EMBEDDINGS_SCHEMA,
     SIGNAL_EMBEDDINGS_TABLE,
     USER_INTERACTIONS_SCHEMA,
@@ -506,6 +509,36 @@ def _signal_log(signals: list[tuple[str, str, str, str]]) -> bytes:
     sink = pa.BufferOutputStream()
     pq.write_table(table, sink)
     return sink.getvalue().to_pybytes()
+
+
+def _scored_facts_day(rows: list[tuple[str, str]]) -> bytes:
+    table = pa.Table.from_pylist(
+        [
+            {"report_id": report_id, "scored_at": pd.Timestamp(scored_at).to_pydatetime()}
+            for report_id, scored_at in rows
+        ],
+        schema=SCORED_FACTS_SCHEMA,
+    )
+    sink = pa.BufferOutputStream()
+    pq.write_table(table, sink)
+    return sink.getvalue().to_pybytes()
+
+
+def test_the_scored_facts_side_input_reads_each_report_only_once_it_was_scored():
+    objects = {
+        partition_object_key(PREFIX, SCORED_FACTS_TABLE, "2026-10-19"): _scored_facts_day(
+            [("r0", "2026-10-19T10:00:00+00:00")]
+        ),
+        partition_object_key(PREFIX, SCORED_FACTS_TABLE, PARTITION): _scored_facts_day(
+            [("r1", "2026-10-20T10:00:00+00:00")]
+        ),
+    }
+
+    extras = load_side_inputs(_ModelStoreS3(objects), "bucket", PREFIX, PARTITION, [REPORT_SCORED_FACTS_EXTRA])
+
+    assert sorted(extras[REPORT_SCORED_FACTS_EXTRA]["report_id"]) == ["r0", "r1"]
+    moment = datetime.datetime(2026, 10, 20, tzinfo=datetime.UTC)
+    assert list(rows_as_of(extras, REPORT_SCORED_FACTS_EXTRA, moment)["report_id"]) == ["r0"]
 
 
 def test_a_late_signal_does_not_leak_into_an_earlier_row():
