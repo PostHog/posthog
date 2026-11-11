@@ -246,18 +246,18 @@ class TestMailgunImport(BaseTest):
         assert seen and all(url.startswith(US) for url in seen)
         assert len(self._suppressions()) == 4
 
-    def test_the_wrong_region_finishes_and_says_where_to_look(self) -> None:
-        run = self._run(["bounces", "domains"], region="us", key=EU_ONLY_KEY)
+    def test_a_region_with_no_domains_for_the_key_stops_before_any_run(self) -> None:
+        with self.assertRaisesRegex(ImportCredentialsInvalid, "no domains for this key in the US region"):
+            self._start(["bounces"], "us", EU_ONLY_KEY)
+        with self.assertRaisesRegex(ImportCredentialsInvalid, "in the US or EU region"):
+            self._start(ALL_STEPS, "both", EMPTY_KEY)
+        assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
+    def test_both_regions_say_which_one_has_no_domains(self) -> None:
+        run = self._run(["bounces", "domains"], region="both", key=EU_ONLY_KEY)
 
         assert run.status == "completed"
-        assert self._suppressions() == {}
         assert "no domains in the US region" in run.progress["domains"]["warnings"][0]
-
-    def test_an_empty_account_completes(self) -> None:
-        run = self._run(region="both", key=EMPTY_KEY)
-
-        assert run.status == "completed"
-        assert all(run.progress[step]["imported"] == 0 for step in ALL_STEPS)
 
     @parameterized.expand(
         [
@@ -392,6 +392,11 @@ class TestMailgunImport(BaseTest):
         assert self._preferences()["no-tags@example.com"] == {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_IN"}
         assert second.progress["templates"]["counts"].get("created", 0) == 0
         assert second.progress["bounces"]["counts"]["bounced"] == 0
+        for step in ("unsubscribes", "mailing_lists"):
+            assert second.progress[step]["counts"]["opted_out"] == 0
+            assert (
+                second.progress[step]["counts"]["already_opted_out"] == first.progress[step]["counts"]["opted_out"] > 0
+            )
 
     def test_domains_list_their_records_and_what_breaks(self) -> None:
         run = self._run(["domains"])
