@@ -48,7 +48,8 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
     return (
         // The accent fill is translucent, so the opaque wrapper stops cards showing through while pinned.
         // It overhangs the sides to also cover the ring that selected cards draw outside their box.
-        <div className="sticky top-0 z-10 -mx-1 -my-2 bg-primary px-1 py-2">
+        // z-20 keeps it above the z-10 PR badges on report cards that scroll underneath.
+        <div className="sticky top-0 z-20 -mx-1 -my-2 bg-primary px-1 py-2">
             <div className="flex items-center justify-between gap-3 flex-wrap rounded border border-accent bg-accent-highlight-secondary px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
                     <span className="font-medium text-sm shrink-0">{selectedCount} selected</span>
