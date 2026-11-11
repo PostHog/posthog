@@ -1138,17 +1138,28 @@ describe('EmailTrackingService', () => {
                 })
 
                 describe('when a suppression write fails', () => {
-                    const failHardBounceWriteOnce = (): void => {
-                        const realQuery = hub.postgres.query.bind(hub.postgres)
-                        let failed = false
-                        jest.spyOn(hub.postgres, 'query').mockImplementation(((...args: any[]) => {
-                            if (args[3] === 'recordHardBounces' && !failed) {
-                                failed = true
-                                return Promise.reject(new Error('Connection terminated unexpectedly'))
-                            }
-                            return (realQuery as any)(...args)
-                        }) as any)
+                    const failingConstraint = (): string => `test_fail_hard_bounce_${team.id}`
+
+                    const failHardBounceWrites = async (): Promise<void> => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `ALTER TABLE posthog_messagesuppression ADD CONSTRAINT ${failingConstraint()}
+                             CHECK (team_id <> ${team.id} OR identifier <> 'hard@example.com') NOT VALID`,
+                            [],
+                            'test-fail-hard-bounce-writes'
+                        )
                     }
+
+                    const fixHardBounceWrites = async (): Promise<void> => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `ALTER TABLE posthog_messagesuppression DROP CONSTRAINT IF EXISTS ${failingConstraint()}`,
+                            [],
+                            'test-fix-hard-bounce-writes'
+                        )
+                    }
+
+                    afterEach(fixHardBounceWrites)
 
                     const suppressionRows = async (): Promise<
                         { identifier: string; suppressed: boolean; transient_bounce_count: number }[]
@@ -1183,10 +1194,11 @@ describe('EmailTrackingService', () => {
                         hub.CDP_SES_SUPPRESSION_RETRY_TEAMS = String(team.id)
                         startApiAndConsumer()
                         const batch = await queueHardAndSoftBounce()
-                        failHardBounceWriteOnce()
+                        await failHardBounceWrites()
                         const retriedBefore = await writeFailures('retried')
 
                         await expect(consumer.processBatch(batch)).rejects.toThrow('hard_bounce')
+                        await fixHardBounceWrites()
                         await consumer.processBatch(batch)
 
                         expect(await suppressionRows()).toEqual([
@@ -1198,7 +1210,7 @@ describe('EmailTrackingService', () => {
 
                     it('drops the write and counts it for a team outside the retry switch', async () => {
                         const batch = await queueHardAndSoftBounce()
-                        failHardBounceWriteOnce()
+                        await failHardBounceWrites()
                         const droppedBefore = await writeFailures('dropped')
 
                         await consumer.processBatch(batch)

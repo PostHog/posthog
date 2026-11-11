@@ -248,8 +248,6 @@ export class EmailSuppressionService {
      * Record one or more soft (Transient) bounces. Increments each address's consecutive-bounce
      * counter and auto-suppresses it in the same statement once it reaches the threshold. Manual
      * entries keep their suppressed state untouched, and complaint entries keep their reason.
-     * A bounce whose `eventId` is among the recent ones counted for the address changes nothing,
-     * so a redelivered notification counts once.
      */
     public async recordTransientBounces(
         teamId: number,
