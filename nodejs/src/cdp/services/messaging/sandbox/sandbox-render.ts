@@ -28,6 +28,7 @@ export async function renderSandboxEmail(
             invocationId: invocation.id,
             workflowVersion: hogFlow.version,
         },
+        undefined,
         { recipientIdentifier: canonicalRecipient }
     )
     const parsed = SandboxRenderedEmailSchema.safeParse(globals.inputs.email)

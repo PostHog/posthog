@@ -13,6 +13,9 @@ MODEL_CONTEXT_TOKENS: dict[str, int] = {
     OpenAIModel.GPT_4O: 128_000,
     OpenAIModel.GPT_5_MINI: 400_000,
     OpenAIModel.GPT_5_NANO: 400_000,
+    OpenAIModel.GPT_6_LUNA: 1_050_000,
+    OpenAIModel.GPT_6_SOL: 1_050_000,
+    OpenAIModel.GPT_6_1_SOL: 1_050_000,
 }
 
 # Held back from the window for the system prompt and the model's own response.
