@@ -1,6 +1,7 @@
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from datetime import datetime
 from functools import reduce
 from operator import or_
@@ -1007,28 +1008,13 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         validated_data = self.validate(validated_data)
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
         resulting_enabled = validated_data.get("enabled", instance.enabled) is True
-        _admit_llm_alert_write(
-            self.context,
-            detector_config=validated_data.get("detector_config", instance.detector_config),
-            enabled=resulting_enabled,
-            calculation_interval=validated_data.get("calculation_interval", instance.calculation_interval),
-            instance=instance,
-        )
-        # The state before this update, which decides whether the update adds an active real-time alert.
-        previous = AlertConfiguration(
-            id=instance.id, calculation_interval=instance.calculation_interval, enabled=instance.enabled
-        )
+        previous = self._admitted(instance, validated_data, resulting_enabled=resulting_enabled)
         enable_now = enabled_changed and validated_data["enabled"]
         if enable_now:
             apply_enable(instance)
 
-        snoozed_until_param = validated_data.pop("snoozed_until", serializers.empty)
+        snoozed_until_param, snoozed_until = _popped_snooze(validated_data)
         snooze_changed = snoozed_until_param is not serializers.empty
-        snoozed_until = None
-        if snooze_changed and snoozed_until_param is not None:
-            snoozed_until = relative_date_parse(
-                snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
-            )
 
         conditions_or_threshold_changed = False
 
@@ -1111,28 +1097,17 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
         if instance.platform_owned:
-            try:
+            with _platform_write_errors():
                 write_moved_alert_edit(
                     team_id=instance.team_id,
                     alert_id=instance.id,
-                    snooze_changed=snoozed_until_param is not serializers.empty,
+                    snooze_changed=snooze_changed,
                     rescheduled=rescheduled,
                 )
-            except PlatformCannotOwn as error:
-                raise ValidationError(str(error)) from error
-            except InvalidPlatformAlertEdit as error:
-                raise ValidationError({error.field_name: str(error)}) from error
         # Again under the lock, because `validate` counted without it and another update can race. After
         # `write_moved_alert_edit`, because the platform locks a copy before this lock, and an update
         # that took them the other way round could deadlock with it.
-        if msg := AlertConfiguration.update_limit_error(
-            team_id=instance.team_id,
-            organization=self.context["get_organization"](),
-            calculation_interval=instance.calculation_interval,
-            enabled=instance.enabled,
-            existing=previous,
-        ):
-            raise ValidationError({"calculation_interval": [msg]})
+        self._recheck_real_time_limit(instance, previous)
 
         instance.report_updated(
             self.context["request"].user,
@@ -1171,26 +1146,13 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         self.instance = instance
         validated_data = self.validate(validated_data)
         resulting_enabled = validated_data.get("enabled", instance.enabled) is True
-        _admit_llm_alert_write(
-            self.context,
-            detector_config=validated_data.get("detector_config", instance.detector_config),
-            enabled=resulting_enabled,
-            calculation_interval=validated_data.get("calculation_interval", instance.calculation_interval),
-            instance=instance,
-        )
-        previous = AlertConfiguration(
-            id=instance.id, calculation_interval=instance.calculation_interval, enabled=instance.enabled
-        )
+        previous = self._admitted(instance, validated_data, resulting_enabled=resulting_enabled)
         enable_now = resulting_enabled and not instance.enabled
 
-        snoozed_until_param = validated_data.pop("snoozed_until", serializers.empty)
+        snoozed_until_param, snoozed_until = _popped_snooze(validated_data)
         snooze_changed = snoozed_until_param is not serializers.empty
         if snooze_changed:
-            instance.snoozed_until = (
-                relative_date_parse(snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True)
-                if snoozed_until_param is not None
-                else None
-            )
+            instance.snoozed_until = snoozed_until
 
         threshold_data = validated_data.pop("threshold", None)
         threshold_before = instance.threshold.configuration if instance.threshold else None
@@ -1231,7 +1193,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if target_insight:
             changes["insight_id"] = target_insight.id
 
-        try:
+        with _platform_write_errors():
             view = write_native_alert_edit(
                 team_id=instance.team_id,
                 alert_id=instance.id,
@@ -1239,11 +1201,35 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 snooze_changed=snooze_changed,
                 rescheduled=rescheduled,
             )
-        except PlatformCannotOwn as error:
-            raise ValidationError(str(error)) from error
-        except InvalidPlatformAlertEdit as error:
-            raise ValidationError({error.field_name: str(error)}) from error
         # After the platform locked its copy, as in `update`.
+        self._recheck_real_time_limit(instance, previous)
+        updated = AlertConfiguration.from_platform_view(view, team_id=instance.team_id) if view is not None else None
+        if updated is None:
+            raise Http404
+        _show_platform_status([updated], now=timezone.now())
+        updated.report_updated(
+            self.context["request"].user,
+            analytics_props=get_request_analytics_properties(self.context["request"]),
+        )
+        return updated
+
+    def _admitted(
+        self, instance: AlertConfiguration, validated_data: dict, *, resulting_enabled: bool
+    ) -> AlertConfiguration:
+        """Runs the AI detector's admission, and returns the state before this update, which decides
+        whether the update adds an active real-time alert."""
+        _admit_llm_alert_write(
+            self.context,
+            detector_config=validated_data.get("detector_config", instance.detector_config),
+            enabled=resulting_enabled,
+            calculation_interval=validated_data.get("calculation_interval", instance.calculation_interval),
+            instance=instance,
+        )
+        return AlertConfiguration(
+            id=instance.id, calculation_interval=instance.calculation_interval, enabled=instance.enabled
+        )
+
+    def _recheck_real_time_limit(self, instance: AlertConfiguration, previous: AlertConfiguration) -> None:
         if msg := AlertConfiguration.update_limit_error(
             team_id=instance.team_id,
             organization=self.context["get_organization"](),
@@ -1252,14 +1238,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             existing=previous,
         ):
             raise ValidationError({"calculation_interval": [msg]})
-        updated = AlertConfiguration.from_platform_view(view, team_id=instance.team_id) if view is not None else None
-        if updated is None:
-            raise Http404
-        updated.report_updated(
-            self.context["request"].user,
-            analytics_props=get_request_analytics_properties(self.context["request"]),
-        )
-        return updated
 
     def validate_schedule_start_time(self, value: str | None) -> str | None:
         try:
@@ -1460,6 +1438,24 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError({"calculation_interval": [msg]})
 
         return attrs
+
+
+def _popped_snooze(validated_data: dict) -> tuple[Any, datetime | None]:
+    """Takes `snoozed_until` out of the update, as sent (`serializers.empty` when absent) and parsed."""
+    param = validated_data.pop("snoozed_until", serializers.empty)
+    if param is serializers.empty or param is None:
+        return param, None
+    return param, relative_date_parse(param, ZoneInfo("UTC"), increase=True, always_truncate=True)
+
+
+@contextmanager
+def _platform_write_errors() -> Iterator[None]:
+    try:
+        yield
+    except PlatformCannotOwn as error:
+        raise ValidationError(str(error)) from error
+    except InvalidPlatformAlertEdit as error:
+        raise ValidationError({error.field_name: str(error)}) from error
 
 
 class AlertSimulateSerializer(serializers.Serializer):
@@ -2287,6 +2283,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         enabled = AlertConfiguration.from_platform_view(view, team_id=alert.team_id) if view is not None else None
         if enabled is None:
             raise Http404
+        _show_platform_status([enabled], now=timezone.now())
         return enabled
 
     @extend_schema(

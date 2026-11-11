@@ -216,14 +216,16 @@ def update_configuration(
             if spec is not None and legacy_configuration_id is None and not source_checked
             else None
         )
-        edit, pending = _apply(configuration, change, now=now, snoozing=snoozing, admit=True, guard=guard)
-        if snooze_changed:
-            platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
+        # The cadence goes first so the guard and admission judge the requested cadence, and the snooze
+        # goes last so the due time it defers is not overwritten by the cadence's.
         if cadence is not None:
             try:
                 platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
             except ValueError as error:
                 raise InvalidPlatformAlertEdit("check_interval_minutes", str(error)) from error
+        edit, pending = _apply(configuration, change, now=now, snoozing=snoozing, admit=True, guard=guard)
+        if snooze_changed:
+            platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)

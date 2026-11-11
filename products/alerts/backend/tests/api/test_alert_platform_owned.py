@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -612,6 +613,13 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             ),
             ("snooze", {"snoozed_until": "1d"}, status.HTTP_200_OK, lambda copy: copy.snooze_until is not None, True),
             (
+                "snooze_with_a_threshold",
+                {"snoozed_until": "1d", "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 200}}}},
+                status.HTTP_200_OK,
+                lambda copy: copy.next_check_at >= copy.snooze_until,
+                True,
+            ),
+            (
                 "investigation_without_a_detector",
                 {"investigation_agent_enabled": True},
                 status.HTTP_400_BAD_REQUEST,
@@ -654,6 +662,15 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert read(self._copy()) == expected
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
 
+    def test_renaming_a_firing_alert_insight_keeps_no_row_for_answers_with_its_state(self) -> None:
+        with team_scope(self.team.id):
+            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=timezone.now())
+        self._forget_the_insight_row()
+
+        response = self.client.patch(f"{self.url}/{self.copy_id}/", {"name": "Renamed"}, format="json")
+
+        assert (response.status_code, response.json()["state"]) == (status.HTTP_200_OK, "Firing"), response.json()
+
     def test_renaming_a_detector_alert_insight_keeps_no_row_for_keeps_it_without_a_threshold(self) -> None:
         insight = self.alert.insight
         insight.query = {**(insight.query or {}), "trendsFilter": {"display": "ActionsLineGraph"}}
@@ -693,10 +710,18 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert count == expected
 
-    def test_turning_on_a_real_time_alert_insight_keeps_no_row_for_does_not_count_it_against_itself(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts", "limit": 1}
+    @parameterized.expand(
+        [
+            ("does_not_count_it_against_itself", True, {}),
+            ("is_admitted_at_the_cadence_it_moves_to", False, {"calculation_interval": "hourly"}),
         ]
+    )
+    def test_turning_on_a_real_time_alert_insight_keeps_no_row_for(
+        self, _name: str, on_the_plan: bool, payload: dict[str, Any]
+    ) -> None:
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts", "limit": 1}] if on_the_plan else []
+        )
         self.organization.save()
         self._forget_the_insight_row()
         with team_scope(self.team.id):
@@ -709,7 +734,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                 created_by_id=self.user.id,
             )
 
-        response = self.client.patch(f"{self.url}/{self.copy_id}/", {"enabled": True}, format="json")
+        response = self.client.patch(f"{self.url}/{self.copy_id}/", {"enabled": True, **payload}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self._copy().enabled is True
