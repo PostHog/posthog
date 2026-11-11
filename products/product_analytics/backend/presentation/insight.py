@@ -189,6 +189,7 @@ from products.product_analytics.backend.facade.api import (
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
+    record_agent_insight_read,
     record_insight_view,
     record_insight_views,
     with_last_viewed_at,
@@ -1672,6 +1673,21 @@ class MCPInsightSerializer(InsightSerializer):
             raise serializers.ValidationError(f"This query can't be saved: {_pydantic_error_details(exc)}")
 
 
+def parse_property_names_param(raw: str) -> list[str]:
+    invalid = ValidationError({"properties": 'Pass a JSON list of property names, for example ["$browser"].'})
+    if not raw:
+        return []
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        raise invalid
+    if not isinstance(decoded, list):
+        raise invalid
+    # Old clients sent full property-filter dicts under this param. Only plain names filter, so those
+    # payloads stay a no-op.
+    return [item for item in decoded if isinstance(item, str) and item]
+
+
 # Insights can be looked up by either the numeric primary key or the 8-character `short_id`
 # (the alphanumeric code visible in URLs like `/insights/AaVQ8Ijw`). The resolution happens in
 # `InsightViewSet.safely_get_object`: a purely-numeric string is treated as the PK, otherwise it
@@ -1696,6 +1712,7 @@ INCLUDE_DASHBOARDS_PARAMETER = OpenApiParameter(
 
 
 INSIGHT_VIEWED_MAX_IDS = 2500
+AGENT_READ_SOURCES = frozenset({EventSource.MCP, EventSource.POSTHOG_AI, EventSource.POSTHOG_CODE, EventSource.WEBMCP})
 
 
 class InsightViewedRequestSerializer(serializers.Serializer):
@@ -2204,6 +2221,9 @@ class InsightViewSet(
         span.set_attribute("posthog.saved", str_to_bool(request.query_params.get("saved", "0")))
         span.set_attribute("posthog.order", request.query_params.get("order", ""))
         response = super().list(request, *args, **kwargs)
+        if request.query_params.get("short_id") and isinstance(response.data, dict):
+            found = [item["id"] for item in response.data.get("results", []) if "id" in item]
+            self._record_agent_reads(request, get_event_source(request), found)
         if request.query_params.get("search"):
             data = response.data if isinstance(response.data, dict) else {}
             results_len = data.get("count", len(data.get("results", [])))
@@ -2456,6 +2476,13 @@ class InsightViewSet(
                 events = json.loads(events_filter) if events_filter else []
                 for event in events:
                     queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
+            elif key == "properties":
+                property_names = parse_property_names_param(request.GET["properties"])
+                if property_names:
+                    # Containment on the whole column, so the GIN index on query_metadata applies.
+                    queryset = queryset.filter(
+                        query_metadata__contains={"properties": [{"name": name} for name in property_names]}
+                    )
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
@@ -2643,9 +2670,10 @@ When set, the specified dashboard's filters and date range override will be appl
 
         response = Response(serialized_data)
 
+        source = get_event_source(request)
         # Track non-web reads (API/MCP/wizard/…) as a distinct event so programmatic
         # reads are measurable without inflating the web-only `insight viewed` metric.
-        if get_event_source(request) != EventSource.WEB:
+        if source != EventSource.WEB:
             report_user_action(
                 request.user,
                 "insight read",
@@ -2655,8 +2683,15 @@ When set, the specified dashboard's filters and date range override will be appl
                 team=self.team,
                 request=request,
             )
+        self._record_agent_reads(request, source, [instance.id])
 
         return response
+
+    def _record_agent_reads(self, request: Request, source: EventSource, insight_ids: Sequence[int]) -> None:
+        if source not in AGENT_READ_SOURCES or not request.user.is_authenticated:
+            return
+        for insight_id in insight_ids:
+            record_agent_insight_read(team=self.team, user_id=request.user.id, insight_id=insight_id)
 
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def generate_metadata(self, request: Request, **kwargs) -> Response:

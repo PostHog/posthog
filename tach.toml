@@ -207,7 +207,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.aeo"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.authorization", "products.dashboards"]
 layer = "modules"
 
 [[interfaces]]
@@ -632,6 +632,7 @@ depends_on = [
     "products.engineering_analytics",
     # Trace feedback reads trace-linked survey responses through the surveys facade.
     "products.surveys",
+    "products.today",
 ]
 layer = "modules"
 
@@ -695,24 +696,11 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+# Retired product. The app keeps its models and migration history (other apps' squash
+# migrations depend on it) until a later migration drops its tables.
 path = "products.mcp_registry"
-depends_on = [
-    "posthog",
-    # Facade-only (enforced by mcp_registry's [[interfaces]] block): the measured-server
-    # aggregation reads new-SDK $mcp_tool_call grouping rules through mcp_analytics' facade.
-    "products.mcp_analytics",
-]
+depends_on = ["posthog"]
 layer = "modules"
-
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
-    "backend\\.routes.*",
-]
-from = [
-    "products.mcp_registry",
-]
 
 [[modules]]
 path = "products.mcp_store"
@@ -2079,4 +2067,18 @@ expose = [
 ]
 from = [
     "products.ui_customization",
+]
+
+[[modules]]
+path = "products.release"
+depends_on = ["posthog", "products.feature_flags"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.release",
 ]

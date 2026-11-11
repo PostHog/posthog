@@ -19,12 +19,12 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
-from . import model
+from . import model, row_writes
 
 if TYPE_CHECKING:
     from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
@@ -95,7 +95,8 @@ class EmailIntegration:
                 get_ses_mail_from_subdomain,
             )
 
-            if same_domain_integrations.exists():
+            domain_in_use = same_domain_integrations.exists()
+            if domain_in_use:
                 mail_from_subdomain = get_ses_mail_from_subdomain(domain) or mail_from_subdomain
 
             org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
@@ -104,6 +105,7 @@ class EmailIntegration:
                 mail_from_subdomain=mail_from_subdomain,
                 team_id=team_id,
                 org_team_ids=org_team_ids,
+                keep_existing_mail_from=domain_in_use,
             )
         elif provider == "maildev" and settings.DEBUG:
             pass
@@ -162,15 +164,38 @@ class EmailIntegration:
         }
         if setup_method := config.get("setup_method"):
             changes["setup_method"] = setup_method
-        # The row is reread under a lock so a concurrent verification write is not overwritten.
-        with transaction.atomic():
-            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
-            locked.config.update(changes)
-            locked.save(update_fields=["config"])
-        self.integration.config = locked.config
+        # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
+        self.integration = model.integration_model(
+            row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
+        )
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
+
+    def _adopt_mail_from_subdomain_ses_uses(self, stored_mail_from_subdomain: str) -> None:
+        from products.workflows.backend.facade.api import (
+            get_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+        )
+
+        domain = self.integration.config["domain"]
+        try:
+            ses_mail_from_subdomain = get_ses_mail_from_subdomain(domain)
+        except Exception as error:
+            capture_exception(error, {"team_id": self.integration.team_id, "domain": domain})
+            return
+        if not ses_mail_from_subdomain or ses_mail_from_subdomain == stored_mail_from_subdomain:
+            return
+        with transaction.atomic():
+            sender = (
+                model.Integration.objects.select_for_update()
+                .filter(team_id=self.integration.team_id, id=self.integration.id)
+                .first()
+            )
+            if sender is None or sender.config.get("mail_from_subdomain", "feedback") != stored_mail_from_subdomain:
+                return
+            sender.config["mail_from_subdomain"] = ses_mail_from_subdomain
+            sender.save()
+        self.integration = model.integration_model(row_writes.reread_row(self.integration))
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
@@ -187,6 +212,7 @@ class EmailIntegration:
             verification_result = verify_ses_email_domain(
                 domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
             )
+            self._adopt_mail_from_subdomain_ses_uses(mail_from_subdomain)
         elif provider == "maildev":
             from products.workflows.backend.facade.api import (
                 get_maildev_mock_dns_records,  # noqa: PLC0415 — keeps the workflows facade off the model import path
@@ -284,7 +310,7 @@ class EmailIntegration:
                 sender.config["verified"] = True
                 sender.save()
 
-        self.integration.config["verified"] = True
+        self.integration = model.integration_model(row_writes.reread_row(self.integration))
 
         from products.workflows.backend.facade.api import (
             set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path

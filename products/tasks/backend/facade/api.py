@@ -65,7 +65,8 @@ from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
-from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
+from posthog.scopes import scopes_not_covered
+from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, resolve_scopes
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -250,6 +251,8 @@ from . import contracts
 from .task_run_signals import hidden_task_ids, task_run_start_refusal
 
 if TYPE_CHECKING:
+    from posthog.temporal.oauth import PosthogMcpScopes
+
     from products.canvas.backend.facade.contracts import CanvasSummary
     from products.signals.backend.facade.self_driving import SelfDrivingQuotaGate
 
@@ -1491,14 +1494,14 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
                 origin_product=Task.OriginProduct.SIGNAL_REPORT,
                 repository__isnull=True,
                 repositories=[],
-                github_integration__isnull=True,
+                github_integration_id__isnull=True,
                 github_user_integration__isnull=True,
             )
             | Q(
                 origin_product=Task.OriginProduct.SIGNALS_CHAT,
                 repository__isnull=True,
                 repositories=[],
-                github_integration__isnull=True,
+                github_integration_id__isnull=True,
                 github_user_integration__isnull=True,
             )
             | Q(
@@ -3361,9 +3364,7 @@ def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
 
 
 def _task_run_queryset():
-    return TaskRun.objects.select_related(
-        "task", "task__created_by", "task__github_integration", "task__github_user_integration"
-    )
+    return TaskRun.objects.select_related("task", "task__created_by", "task__github_user_integration")
 
 
 def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | None) -> Task | None:
@@ -6881,16 +6882,12 @@ def _trigger_task_processing_workflow(
         WorkflowDispatchOptions,
         enqueue_or_start_workflow,
     )
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
-        mcp_scopes_for_run_source,
-        parse_run_state,
-    )
+    from products.tasks.backend.temporal.oauth import dispatched_run_scopes
     from products.tasks.backend.temporal.process_task.workflow import PendingFollowup  # noqa: PLC0415
 
     # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
     # via the task:write artefact tools.
-    run_source = parse_run_state(run.state).run_source
-    posthog_mcp_scopes = mcp_scopes_for_run_source(run_source)
+    posthog_mcp_scopes = dispatched_run_scopes(task, run.state)
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
         message = None
@@ -7066,7 +7063,7 @@ def resume_task_run_in_cloud(
         task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
         run = (
             TaskRun.objects.select_for_update(of=("self",))
-            .select_related("task", "task__created_by", "task__github_integration", "task__github_user_integration")
+            .select_related("task", "task__created_by", "task__github_user_integration")
             .get(pk=run.pk, task_id=task.id, team_id=team_id)
         )
         if not run.matches_task_ownership(task):
@@ -7211,9 +7208,7 @@ def is_internal_debug_team(team_id: int | None) -> bool:
 
 
 def _task_detail_queryset():
-    return Task.objects.select_related(
-        "created_by", "team", "github_integration", "github_user_integration"
-    ).prefetch_related("runs")
+    return Task.objects.select_related("created_by", "team", "github_user_integration").prefetch_related("runs")
 
 
 def _visible_task_qs(
@@ -8257,7 +8252,13 @@ def create_task(
         and validated_data["origin_product"] != Task.OriginProduct.SIGNAL_REPORT
     ):
         validated_data["repositories"] = channel.repositories
-        validated_data["github_integration"] = channel.github_integration
+        validated_data["github_integration"] = (
+            IntegrationManager.github.oauth.get_many(team.id, [channel.github_integration_id]).get(
+                channel.github_integration_id
+            )
+            if channel.github_integration_id is not None
+            else None
+        )
     if "repositories" in validated_data:
         repositories = validated_data["repositories"]
         validated_data["repository"] = repositories[0] if repositories else None
@@ -8310,6 +8311,7 @@ def create_task(
                 team_id,
                 user_id,
                 origin_product=validated_data["origin_product"],
+                posthog_mcp_scopes=profile.mcp_scopes if profile is not None else "full",
                 repository=validated_data.get("repository"),
                 repositories=validated_data.get("repositories", []),
                 github_integration_id=warm_github_integration_id,
@@ -9121,6 +9123,7 @@ def _find_idling_warm_run(
     user_id: int | None,
     *,
     origin_product: str,
+    posthog_mcp_scopes: "PosthogMcpScopes" = "full",
     repository: str | None,
     repositories: list[str] | None = None,
     github_integration_id: int | None,
@@ -9159,6 +9162,8 @@ def _find_idling_warm_run(
     if user_id is None:
         return None
     normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
+    from products.tasks.backend.temporal.oauth import dispatched_run_scopes
+
     repository_filter = {"task__repository__iexact": repository} if repository else {"task__repository__isnull": True}
     report_filter = source_q(SourceKind.SIGNAL_REPORT, [signal_report_id], via="task__") if signal_report_id else Q()
     candidates = (
@@ -9186,6 +9191,8 @@ def _find_idling_warm_run(
     )
     for run in candidates:
         state = run.state or {}
+        if dispatched_run_scopes(run.task, state) != posthog_mcp_scopes:
+            continue
         if state.get("cancel_requested_at"):
             continue
         have_repositories = [
@@ -9243,8 +9250,10 @@ def _warm_sandbox_selection_is_accessible(
     return True
 
 
-def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
+def _idling_warm_run_for_task(task: Task, posthog_mcp_scopes: "PosthogMcpScopes") -> TaskRun | None:
     """The task's latest run iff it is an idling pre-warmed Run (non-terminal, awaiting first message)."""
+    from products.tasks.backend.temporal.oauth import dispatched_run_scopes
+
     run = task.latest_run
     if run is None or run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         return None
@@ -9254,6 +9263,8 @@ def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
     ):
         return None
     if not (run.state or {}).get("await_user_message"):
+        return None
+    if dispatched_run_scopes(task, run.state) != posthog_mcp_scopes:
         return None
     return run
 
@@ -9646,6 +9657,7 @@ def warm_task_sandbox(
         team_id,
         user_id,
         origin_product=profile.origin_product,
+        posthog_mcp_scopes=profile.mcp_scopes,
         repository=repository,
         repositories=normalized_repositories,
         github_integration_id=github_integration_id,
@@ -9956,6 +9968,7 @@ def run_task(
         staged_artifacts_expire_by,
         tag_task_artifact,
     )
+    from products.tasks.backend.temporal.oauth import dispatched_run_scopes
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         RunSource,
@@ -10095,13 +10108,33 @@ def run_task(
                 attr="codex_model_access" if codex_model_access == "own-subscription" else "claude_model_access",
             )
         )
+    profile = task.stored_profile
+    source_scopes = mcp_scopes_for_run_source(run_source)
+    default_scopes = profile.mcp_scopes if profile is not None else source_scopes
+    if run_source == RunSource.AGENT and not scopes_not_covered(
+        resolve_scopes(default_scopes), resolve_scopes(source_scopes)
+    ):
+        default_scopes = source_scopes
+    posthog_mcp_scopes = dispatched_run_scopes(task, previous_run.state) if previous_run is not None else default_scopes
+    if (
+        profile is not None
+        and scopes_not_covered(resolve_scopes(profile.mcp_scopes), resolve_scopes(posthog_mcp_scopes))
+    ) or (
+        run_source == RunSource.AGENT
+        and scopes_not_covered(resolve_scopes(source_scopes), resolve_scopes(posthog_mcp_scopes))
+    ):
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="detail", detail="The run's MCP scopes exceed the task profile or run source permissions."
+            )
+        )
     warm_run = (
         None
         if pipeline_rerun
         or scheduled_at is not None
         or run_source == RunSource.AGENT
         or validated_data.get("client_platform") == "mobile"
-        else _idling_warm_run_for_task(task)
+        else _idling_warm_run_for_task(task, posthog_mcp_scopes)
     )
     # A warm sandbox was started before the plan choice, so it holds no run-scoped subscription token.
     if warm_run is not None and model_access.kind == "own-subscription":
@@ -10487,11 +10520,11 @@ def run_task(
                 team_id=task.team_id,
                 raise_on_error=True,
             )
-        extra_state["pending_dispatch"] = {
-            "user_id": user_id,
-            "create_pr": True,
-            "posthog_mcp_scopes": mcp_scopes_for_run_source(run_source),
-        }
+    extra_state["pending_dispatch"] = {
+        "user_id": user_id,
+        "create_pr": True,
+        "posthog_mcp_scopes": posthog_mcp_scopes,
+    }
     from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals depends on Tasks
 
     trial_admission = prepare_task_trial(

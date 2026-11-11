@@ -140,7 +140,10 @@ Use its source commit, run URL, staged build IDs/group and EAS message (`mobile-
 If nothing reached EAS, an operator may remove the draft receipt and rerun the original workflow.
 If publication happened, repair that receipt and production pointer from the verified EAS results, without resubmitting; retain the claim until reconciliation is complete.
 A partially submitted native release needs operator recovery of the unfinished platform using its recorded build ID, rather than a new automatic build.
-A corrective request may follow the last completed receipt only when the failed request was never claimed. Any sibling request with a receipt blocks that correction until its publication or production pointer has been reconciled.
+A corrective request may follow the last completed receipt when the failed request was never claimed or an operator reconciled and abandoned an unstaged native claim.
+Before abandoning a native claim, verify that the original run and both EAS builds are terminal, and that neither binary was submitted to a store.
+Keep the GitHub release as a draft with its original tag and receipt fields, and change only the receipt's `state` to `abandoned`. Include the original `tag_name` explicitly when updating the release through the API.
+The publisher accepts that state for a sibling draft without staged data, a result, or release assets. Rerunning the abandoned request still stops at its existing claim.
 These recovery operations require release access and are exceptional; routine publication stays in GitHub Actions.
 
 ## Store records this app uses
