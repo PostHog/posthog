@@ -4,5 +4,6 @@ from products.workflows.backend.admin import (  # noqa: F401
     hog_flow_admin,
     hog_flow_batch_job_admin,
     hog_flow_template_admin,
+    sandbox_sender_organization_block_admin,
     team_workflows_config_admin,
 )
