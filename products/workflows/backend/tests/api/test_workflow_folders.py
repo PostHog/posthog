@@ -6,7 +6,7 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import close_old_connections, connection, transaction
+from django.db import DatabaseError, close_old_connections, connection, transaction
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -454,6 +454,48 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "file",
+                "post",
+                "file_system/",
+                {"path": "Filed email", "type": "message_template", "ref": "{template_id}"},
+            ),
+            ("unlink", "delete", "file_system/{file_id}/", None),
+            ("move", "post", "file_system/{file_id}/move/", {"new_path": "Moved/Welcome"}),
+        ]
+    )
+    def test_a_key_without_the_workflow_write_scope_cannot_change_template_files(
+        self, _name: str, method: str, path: str, payload: dict | None
+    ) -> None:
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
+        ).json()["id"]
+        file = FileSystem.objects.get(team=self.team, type="message_template", ref=template_id)
+        original_path = file.path
+        FileSystem.objects.create(team=self.team, path="Copy email", depth=1, type="message_template", ref=template_id)
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="File system key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["file_system:read", "file_system:write"],
+        )
+        self.client.logout()
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/{path.format(file_id=file.id)}",
+            {key: value.format(template_id=template_id) for key, value in payload.items()} if payload else None,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        file.refresh_from_db()
+        self.assertEqual(file.path, original_path)
+        self.assertEqual(FileSystem.objects.filter(team=self.team, type="message_template", ref=template_id).count(), 2)
+
+    @parameterized.expand(
+        [
             ("file_system_scopes_only", ["file_system:read", "file_system:write"], 403, 404),
             ("with_write_scope", ["file_system:write", "hog_flow:write"], 200, 200),
         ]
@@ -690,6 +732,41 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
             ),
             ["Archive/Inbox/Report v2"] * 3,
         )
+
+    def test_a_folder_move_leaves_its_team_free_for_new_rows(self) -> None:
+        folder = FileSystem.objects.create(team=self.team, path="Inbox", depth=1, type="folder")
+        FileSystem.objects.create(team=self.team, path="Inbox/Reports", depth=2, type="folder")
+        outcomes: list[str] = []
+
+        def file_a_row_in_the_same_team() -> str:
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '500ms'")
+                    FileSystem.objects.create(team=self.team, path="Other", depth=1, type="folder")
+                return "filed"
+            except DatabaseError:
+                return "blocked"
+            finally:
+                close_old_connections()
+
+        def file_during_the_move(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
+            result = execute(sql, params, many, context)
+            if not outcomes and sql.startswith('UPDATE "posthog_filesystem"'):
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    outcomes.append(executor.submit(file_a_row_in_the_same_team).result(timeout=10))
+            return result
+
+        with connection.execute_wrapper(file_during_the_move):
+            moved = self.client.post(
+                f"/api/projects/{self.team.id}/file_system/{folder.id}/move/",
+                {"new_path": "Archive/Inbox"},
+                format="json",
+            )
+
+        self.assertEqual(moved.status_code, 200, moved.content)
+        self.assertEqual(outcomes, ["filed"])
 
     def test_a_failed_file_row_keeps_the_created_template(self) -> None:
         self._refuse_file_rows()

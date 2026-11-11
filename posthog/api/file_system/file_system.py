@@ -257,8 +257,11 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
         entry_type = attrs.get("type") or (self.instance.type if self.instance else None)
-        if attrs.get("ref") and entry_type:
-            attrs["ref"] = canonical_file_system_ref(entry_type, attrs["ref"])
+        ref = attrs.get("ref")
+        if "ref" not in attrs and "type" in attrs and self.instance:
+            ref = self.instance.ref
+        if ref and entry_type:
+            attrs["ref"] = canonical_file_system_ref(entry_type, ref)
         return attrs
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
@@ -424,6 +427,13 @@ def tokenize_search(search: str) -> list[str]:
             return search.split()
 
 
+CheckedRow = tuple[UUID, str, Optional[str]]
+
+
+def _checked_row(entry: FileSystem) -> CheckedRow:
+    return (entry.id, entry.type, entry.ref)
+
+
 @extend_schema(extensions={"x-product": "core"})
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
@@ -552,13 +562,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
             .exclude(shortcut=True)
         )
-        self._ensure_can_delete_objects(
-            [
-                (entry_type, ref, team_id)
-                for entry_type, ref, team_id in workflow_files.values_list("type", "ref", "team_id")
-                if ref
-            ]
-        )
+        entries = [
+            (entry_type, ref, team_id)
+            for entry_type, ref, team_id in workflow_files.values_list("type", "ref", "team_id")
+            if ref
+        ]
+        self._ensure_token_can_write_workflow_objects([entry_type for entry_type, _ref, _team_id in entries])
+        self._ensure_can_delete_objects(entries)
 
     def _ensure_token_can_write_workflow_objects(self, file_types: Iterable[str]) -> None:
         if any(file_type in WORKFLOW_FILE_SYSTEM_TYPES for file_type in file_types):
@@ -569,6 +579,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self, entry_type: Optional[str], ref: Optional[str], shortcut: Optional[bool], team_id: int
     ) -> None:
         if entry_type in WORKFLOW_FILE_SYSTEM_TYPES and ref and not shortcut:
+            self._ensure_token_can_write_workflow_objects([entry_type])
             scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
             if scoped_team_ids and team_id not in scoped_team_ids:
                 raise PermissionDenied(
@@ -1147,12 +1158,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
-    def _ensure_can_delete(self, entry: FileSystem) -> dict[UUID, bool]:
+    def _ensure_can_delete(self, entry: FileSystem) -> dict[CheckedRow, bool]:
         """Decide, and authorize, which of `entry`'s leaf rows carry the delete through to their
         backing object - and lock that decision so a concurrent request can't change it before
         `_delete_file_system_entry` acts on it (see the locking note below).
 
-        Returns a `{row_id: reaches_backing_object}` map that `destroy()` passes straight into
+        Returns a `{(row_id, type, ref): reaches_backing_object}` map that `destroy()` passes straight into
         `_delete_file_system_entry`, so the actual delete reuses this locked decision instead of
         recomputing an unlocked count of its own - two independent unlocked counts would let a
         second concurrent delete of a sibling row change the answer in between, deleting the
@@ -1188,6 +1199,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not entries_to_check:
             return {}
 
+        self._ensure_token_can_write_workflow_objects([entry.type for entry in entries_to_check])
         self._ensure_can_delete_objects(
             [
                 (entry.type, entry.ref, entry.team_id)
@@ -1223,7 +1235,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         objects_to_delete: builtins.list[tuple[str, str, int]] = []
-        reaches_backing_object: dict[UUID, bool] = {}
+        reaches_backing_object: dict[CheckedRow, bool] = {}
 
         # Sorted so concurrent requests whose cascades overlap on more than one object always
         # acquire the per-object locks in the same order - locking in traversal order (DFS over
@@ -1258,8 +1270,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # delete_file_system_object independently, running its hooks and activity logging
             # once per row instead of once for the object.
             for current in group:
-                reaches_backing_object[current.id] = False
-            reaches_backing_object[group[0].id] = remaining == 0
+                reaches_backing_object[_checked_row(current)] = False
+            reaches_backing_object[_checked_row(group[0])] = remaining == 0
 
             if not is_file_system_type_registered(file_type):
                 continue
@@ -1279,7 +1291,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return reaches_backing_object
 
     def _delete_file_system_entry(
-        self, entry: FileSystem, reaches_backing_object: dict[UUID, bool]
+        self, entry: FileSystem, reaches_backing_object: dict[CheckedRow, bool]
     ) -> builtins.list[dict[str, Any]]:
         deleted_objects: list[dict[str, Any]] = []
 
@@ -1300,9 +1312,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             entry.delete()
             return deleted_objects
 
-        # A workflow or template row that _ensure_can_delete never saw arrived after its editor
-        # check, so it stays in place. The folder repair in destroy() gives it a folder again.
-        if entry.type in WORKFLOW_FILE_SYSTEM_TYPES and entry.id not in reaches_backing_object:
+        # The map is keyed by the type and ref the check saw, so a row that arrived or was
+        # retargeted after _ensure_can_delete misses it. Such a workflow or template row stays in
+        # place, and the folder repair in destroy() gives it a folder again.
+        if entry.type in WORKFLOW_FILE_SYSTEM_TYPES and _checked_row(entry) not in reaches_backing_object:
             return deleted_objects
 
         if not is_file_system_type_registered(entry.type):
@@ -1311,7 +1324,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Reuses the locked decision from _ensure_can_delete rather than recounting - a row this
         # method discovers on its own (e.g. created after that pass ran) defaults to "leave the
         # backing object alone", the same safe outcome an unauthorized delete would get.
-        if not reaches_backing_object.get(entry.id, False):
+        if not reaches_backing_object.get(_checked_row(entry), False):
             entry.delete()
             return deleted_objects
 
@@ -1495,8 +1508,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     )
                 )
                 children = list(
-                    FileSystem.objects.select_for_update()
-                    .filter(team__project_id=self.team.project_id, pk__in=list(visible.values_list("pk", flat=True)))
+                    FileSystem.objects.select_for_update(of=("self",))
+                    .filter(
+                        team__project_id=self.team.project_id,
+                        path__startswith=f"{instance.path}/",
+                        pk__in=list(visible.values_list("pk", flat=True)),
+                    )
                     .order_by("id")
                 )
                 self._ensure_can_change_workflow_files(
