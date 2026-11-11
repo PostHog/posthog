@@ -48,7 +48,7 @@ const PLATFORM_KEYS: SigningKeys = { [WEB]: ['web-signing-key-fake'] }
 const platformLoader = {
     entries: () => Object.entries(PLATFORM_KEYS),
     allowedSecrets: () => null,
-} as SigningKeyLoader
+} as unknown as SigningKeyLoader
 
 const TEAM_A = 101
 const TEAM_B = 202
@@ -71,12 +71,12 @@ const logLines: string[] = []
 let jti = 0
 
 interface TokenOptions {
-    deployment?: string
-    team?: number | null
-    ops?: IntegrationOp[]
-    kinds?: string[]
-    refs?: string[]
-    userId?: number
+    deployment?: string | undefined
+    team?: number | null | undefined
+    ops?: IntegrationOp[] | undefined
+    kinds?: string[] | undefined
+    refs?: string[] | undefined
+    userId?: number | undefined
 }
 
 async function token(opts: TokenOptions = {}): Promise<string> {

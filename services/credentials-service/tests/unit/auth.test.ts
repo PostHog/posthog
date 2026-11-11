@@ -21,7 +21,10 @@ const KEYS: SigningKeys = {
 }
 
 function verifier(keys: SigningKeys = KEYS): JwtVerifier {
-    return new JwtVerifier({ entries: () => Object.entries(keys), allowedSecrets: () => null } as SigningKeyLoader)
+    return new JwtVerifier({
+        entries: () => Object.entries(keys),
+        allowedSecrets: () => null,
+    } as unknown as SigningKeyLoader)
 }
 
 async function mint(opts: {
@@ -153,7 +156,7 @@ describe('jwt verification', () => {
         const keys = {
             entries: () => Object.entries(KEYS),
             allowedSecrets: (deployment: string) => (deployment === DW ? allowed : null),
-        } as SigningKeyLoader
+        } as unknown as SigningKeyLoader
 
         expect((await new JwtVerifier(keys).verify(await mint({ key: DW_KEY_NEW }))).allowedKeys).toBe(allowed)
         expect((await new JwtVerifier(keys).verify(await mint({ key: DJANGO_KEY }))).allowedKeys).toBeNull()
