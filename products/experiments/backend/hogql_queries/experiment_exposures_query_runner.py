@@ -207,11 +207,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             )
 
         if self.window_start is not None:
-            window_end = ensure_utc(self.window_end_date or latest_allowed)
-            if window_end < ensure_utc(self.window_start):
+            window_start = ensure_utc(self.window_start).astimezone(UTC)
+            window_end = ensure_utc(self.window_end_date or latest_allowed).astimezone(UTC)
+            if window_end < window_start:
                 raise ValidationError("The experiment end date is before its start date.")
             # _fill_date_gaps counts team-local calendar days, which can span one more day than the UTC dates.
-            window_days = (window_end.date() - ensure_utc(self.window_start).date()).days + 2
+            window_days = (window_end.date() - window_start.date()).days + 2
             # The variants come from the request too, and _fill_date_gaps adds one more series for $multiple.
             if window_days * (len(self.variants) + 1) > MAX_DATE_BUCKETS:
                 raise ValidationError("The exposure query has too many variants for its date range.")

@@ -173,6 +173,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "before its start date",
             ),
             (
+                "many_variants_across_mixed_offsets",
+                "UTC",
+                "2024-01-03T00:00:00+14:00",
+                "2024-01-01T23:00:00-12:00",
+                "too many variants",
+                130_000,
+            ),
+            (
                 "many_variants_within_one_day",
                 "UTC",
                 "2024-01-01T00:00:00+00:00",
