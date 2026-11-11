@@ -155,6 +155,7 @@ class _Recorder:
         self.work_owners: list[str | None] = []
         self.candidate_checks = 0
         self.ready_result: bool | None = False
+        self.persist_research = False
         self.publications = 0
         # Auto-starts completed by the time the notification child made its first state check. The
         # child only waits for the implementation PR if the task already exists then, so a 0 here
@@ -236,6 +237,8 @@ async def _run_summary_workflow(
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
         recorder.work_owners.append(input.signal_id)
         recorder.researches += 1
+        if recorder.persist_research:
+            await SignalReport.objects.filter(id=report_id).aupdate(title=f"Research {recorder.researches}")
         return RunAgenticReportOutput(
             title="t",
             summary="s",
@@ -363,20 +366,33 @@ async def test_no_buffer_autostarts_immediately_at_settle():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_a_settled_report_reaches_destinations(ateam):
+@pytest.mark.parametrize(
+    "buffer_seconds,signal_during_buffer,ready_result,expected_titles",
+    [
+        (0, False, False, ["Research 1"]),
+        (120, True, False, ["Research 2"]),
+        (0, False, None, []),
+    ],
+    ids=["settled", "re-researched_during_buffer", "skipped"],
+)
+async def test_only_the_settled_summary_reaches_destinations(
+    ateam, buffer_seconds, signal_during_buffer, ready_result, expected_titles
+):
     report = await SignalReport.objects.acreate(
-        team=ateam, status=SignalReport.Status.READY, title="Checkout errors", summary="Summary"
+        team=ateam, status=SignalReport.Status.READY, title="Before research", summary="Summary"
     )
-    recorder = _Recorder(buffer_seconds=0, candidate_on_first_check=False)
+    recorder = _Recorder(buffer_seconds=buffer_seconds, candidate_on_first_check=signal_during_buffer)
+    recorder.ready_result = ready_result
+    recorder.persist_research = True
 
     with recorded_internal_events() as (sent, _):
         await _run_summary_workflow(
             recorder, team_id=ateam.id, report_id=str(report.id), emit_ready=emit_inbox_report_ready_activity
         )
 
-    assert [(event["report_id"], event["source_products"]) for event in inbox_report_ready_events(sent)] == [
-        (str(report.id), ["error_tracking"])
-    ]
+    assert [
+        (event["report_id"], event["title"], event["source_products"]) for event in inbox_report_ready_events(sent)
+    ] == [(str(report.id), title, ["error_tracking"]) for title in expected_titles]
 
 
 @pytest.mark.asyncio

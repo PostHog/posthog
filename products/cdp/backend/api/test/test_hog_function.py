@@ -3,11 +3,11 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, NonAtomicAPIBaseTest, QueryMatchingTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import UserSettingsHolder, settings
-from django.db import DatabaseError, connection
+from django.db import DEFAULT_DB_ALIAS, DatabaseError, connection, connections
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -1849,36 +1849,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == expected, response.json()
         stored.refresh_from_db()
         assert "$inbox_report_ready" in [event["id"] for event in (stored.filters or {}).get("events", [])]
-
-    def test_an_edit_checked_before_another_added_the_inbox_report_trigger_is_refused(self):
-        stored = HogFunction.objects.create(
-            team=self.team,
-            name="Activity webhook",
-            hog="return event",
-            type="internal_destination",
-            enabled=True,
-            filters={"source": "internal-events", "events": [{"id": "$activity_log_entry_created", "type": "events"}]},
-            inputs_schema=[],
-            inputs={},
-        )
-        other_edit_landed = False
-
-        def another_edit_lands_before_the_lock(execute, sql, params, many, context):
-            nonlocal other_edit_landed
-            if not other_edit_landed and "FOR UPDATE" in sql and HogFunction._meta.db_table in sql:
-                other_edit_landed = True
-                HogFunction.objects.filter(pk=stored.pk).update(filters=INBOX_REPORT_FILTERS)
-            return execute(sql, params, many, context)
-
-        with connection.execute_wrapper(another_edit_lands_before_the_lock):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_functions/{stored.id}/", data={"name": "Renamed"}
-            )
-
-        assert other_edit_landed
-        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        stored.refresh_from_db()
-        assert stored.name == "Activity webhook"
 
     def test_generates_filters_bytecode(self, *args):
         action = create_action(
@@ -4423,3 +4393,44 @@ class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "different types" in response.json()["detail"]
+
+
+class TestReadGatedTriggerRace(NonAtomicAPIBaseTest):
+    def test_an_edit_checked_before_another_added_the_inbox_report_trigger_is_refused(self):
+        stored = HogFunction.objects.create(
+            team=self.team,
+            name="Activity webhook",
+            hog="return event",
+            type="internal_destination",
+            enabled=True,
+            filters={"source": "internal-events", "events": [{"id": "$activity_log_entry_created", "type": "events"}]},
+            inputs_schema=[],
+            inputs={},
+        )
+        other_writer = connections.create_connection(DEFAULT_DB_ALIAS)
+        other_edit_landed = False
+
+        def another_edit_commits_before_the_lock(execute, sql, params, many, context):
+            nonlocal other_edit_landed
+            if not other_edit_landed and "FOR UPDATE" in sql and HogFunction._meta.db_table in sql:
+                other_edit_landed = True
+                with other_writer.cursor() as cursor:
+                    cursor.execute(
+                        f"UPDATE {HogFunction._meta.db_table} SET filters = %s::jsonb WHERE id = %s",
+                        [json.dumps(INBOX_REPORT_FILTERS), str(stored.pk)],
+                    )
+            return execute(sql, params, many, context)
+
+        try:
+            with connection.execute_wrapper(another_edit_commits_before_the_lock):
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_functions/{stored.id}/", data={"name": "Renamed"}
+                )
+        finally:
+            other_writer.close()
+
+        assert other_edit_landed
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        stored.refresh_from_db()
+        assert stored.name == "Activity webhook"
+        assert stored.filters == INBOX_REPORT_FILTERS
