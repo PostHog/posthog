@@ -100,6 +100,19 @@ class TestListEndpoints:
         assert result.params("cursor") == ["cur_9"]
         assert [row["id"] for row in result.rows] == ["sub_9"]
 
+    def test_refuses_a_redirect_so_the_api_key_stays_on_samcart(self) -> None:
+        result = _driver().run(
+            "Charges",
+            [
+                ScriptedResponse(status=302, headers={"Location": "https://attacker.example.com/v2/charges"}),
+                _page([{"id": "ch_1"}]),
+            ],
+        )
+
+        assert result.raised is not None
+        assert "refusing to follow" in str(result.raised)
+        assert [request.origin for request in result.requests] == ["https://api.samcart.com"]
+
 
 class TestOrders:
     def test_reads_each_listed_order_from_the_detail_endpoint_and_skips_deleted_ones(self) -> None:

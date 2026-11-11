@@ -70,6 +70,9 @@ def _client_config(api_key: str) -> ClientConfig:
         "base_url": BASE_URL,
         "headers": {"Accept": "application/json"},
         "auth": {"type": "api_key", "name": "sc-api", "api_key": api_key, "location": "header"},
+        # requests keeps the custom `sc-api` header on a cross-origin redirect, so a redirect could hand
+        # the key to another host. Cursor pagination never needs one.
+        "allow_redirects": False,
     }
 
 
