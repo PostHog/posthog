@@ -1203,8 +1203,8 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
         assert takeover.user == self.user
 
-    @parameterized.expand([("non_member", 400), ("inactive", 400), ("no_project_access", 400)])
-    def test_transfer_ownership_rejects_ineligible_owner(self, reason: str, expected_status: int) -> None:
+    @parameterized.expand(["non_member", "inactive", "no_project_access"])
+    def test_transfer_ownership_rejects_ineligible_owner(self, reason: str) -> None:
         subscription = self._disabled_subscription_of_a_former_member()
         previous_owner = subscription.created_by
         owner = User.objects.create_user(
@@ -1228,7 +1228,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             {"user_uuid": str(owner.uuid)},
         )
 
-        assert response.status_code == expected_status, response.content
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         subscription.refresh_from_db()
         assert subscription.created_by == previous_owner
         assert subscription.enabled is False
