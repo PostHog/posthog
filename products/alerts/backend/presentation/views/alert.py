@@ -2495,7 +2495,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             assert_creator_can_run(owner, alert.team, alert.insight)
         except (CreatorLeftOrganizationError, UserAccessControlError):
-            raise ValidationError("Can't take ownership: the new owner doesn't have access to this insight.") from None
+            subject = "you don't" if owner.pk == request.user.pk else "the new owner doesn't"
+            raise ValidationError(f"Can't take ownership: {subject} have access to this insight.") from None
         # The scheduled checks run as the owner, so an AI alert needs the new owner on the rollout.
         # An already enabled alert does not pass through the admission below, so it is checked here.
         _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config, owner=owner)

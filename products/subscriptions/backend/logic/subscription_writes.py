@@ -1061,6 +1061,8 @@ def take_subscription_ownership(
     subscription delivers, and the enable must pass its usual checks as the new owner.
     """
     owner = owner or user
+    owner_denial = "you don't" if owner.pk == user.pk else "the new owner doesn't"
+    owner_requirement = "You need" if owner.pk == user.pk else "The new owner needs"
     owner_access = viewer if owner.pk == user.pk else UserAccessControl(user=owner, team=team)
     instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
     if owner.pk != user.pk:
@@ -1074,7 +1076,7 @@ def take_subscription_ownership(
         assert_creator_can_run(owner, team, instance.dashboard, instance.insight)
     except (CreatorLeftOrganizationError, UserAccessControlError):
         raise SubscriptionRequestInvalidError(
-            "Can't take ownership: the new owner doesn't have access to this content."
+            f"Can't take ownership: {owner_denial} have access to this content."
         ) from None
     if (
         instance.dashboard_id
@@ -1085,7 +1087,7 @@ def take_subscription_ownership(
         raise SubscriptionRequestInvalidError(
             {
                 "dashboard_export_insights": [
-                    "The new owner needs viewer access to every selected insight. "
+                    f"{owner_requirement} viewer access to every selected insight. "
                     "Choose another owner or update their access."
                 ]
             }
@@ -1094,7 +1096,7 @@ def take_subscription_ownership(
         instance.resource_type == Subscription.ResourceType.AI_PROMPT
         and not owner_access.check_access_level_for_resource("query", "viewer")
     ):
-        raise SubscriptionRequestInvalidError("The new owner needs query access for AI prompt subscriptions.")
+        raise SubscriptionRequestInvalidError(f"{owner_requirement} query access for AI prompt subscriptions.")
     # The enable below only compiles the queries when it enables a disabled row, so an enabled one is
     # checked here, as the new owner.
     if instance.enabled:
@@ -1104,7 +1106,7 @@ def take_subscription_ownership(
         if denied_resources:
             denied_names = ", ".join(f"`{name}`" for name in denied_resources)
             raise SubscriptionRequestInvalidError(
-                f"Can't take ownership: the new owner doesn't have access to {denied_names}."
+                f"Can't take ownership: {owner_denial} have access to {denied_names}."
             )
     # The new owner is set in memory only: the re-enable check reads it off the instance, and the
     # enable's save persists it with `enabled`.
