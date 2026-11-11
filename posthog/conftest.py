@@ -27,9 +27,12 @@ from django.core.management.commands.flush import Command as FlushCommand
 from django.db import connections
 from django.test import TransactionTestCase
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import default_client
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.cloud_utils import is_ci
 from posthog.test import flush_lock_guard
 
@@ -221,6 +224,30 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
+def _create_test_clickhouse_database(keepdb: bool) -> None:
+    # The native client connects to the "system" database, because the test database can be missing.
+    # It also stays clear of tests that mock the requests library, which the HTTP client of infi uses.
+    try:
+        with default_client() as client:
+            if not keepdb:
+                client.execute(f"DROP DATABASE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`")
+            client.execute(f"CREATE DATABASE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`")
+    except (NetworkError, SocketTimeoutError) as error:
+        raise RuntimeError(
+            f"This test needs ClickHouse, but ClickHouse at {settings.CLICKHOUSE_HOST} is not reachable. "
+            "Start it with `hogli up -d`, or start only ClickHouse with "
+            "`docker compose -f docker-compose.dev.yml up -d clickhouse`. "
+            "Tests that do not use ClickHouse run without it."
+        ) from error
+
+    create_clickhouse_tables()
+
+
+def _drop_test_clickhouse_database() -> None:
+    with default_client() as client:
+        client.execute(f"DROP DATABASE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`")
+
+
 def _sqlx_error_output(error: subprocess.CalledProcessError) -> str:
     output = "\n".join(
         stream.decode(errors="replace") if isinstance(stream, bytes) else stream
@@ -392,27 +419,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     # Run sqlx migrations to create posthog_person_new and related tables
     run_persons_sqlx_migrations(keepdb=django_db_keepdb)
 
-    database = Database(
-        settings.CLICKHOUSE_DATABASE,
-        db_url=settings.CLICKHOUSE_HTTP_URL,
-        username=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        cluster=settings.CLICKHOUSE_CLUSTER,
-        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
-        randomize_replica_paths=True,
-        # don't use the egress proxy, clickhouse is internal
-        trust_env=False,
-    )
-
-    if not django_db_keepdb:
-        try:
-            database.drop_database()
-        except:
-            pass
-
-    database.create_database()  # Create database if it doesn't exist
-
-    create_clickhouse_tables()
+    clickhouse_test_setup.defer(partial(_create_test_clickhouse_database, django_db_keepdb))
 
     # Seed default data that historically lived in RunPython migrations. Squashed
     # migrations drop those ops, so without this tests relying on the defaults
@@ -433,6 +440,9 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     yield
 
+    if not clickhouse_test_setup.has_run:
+        return
+
     if django_db_keepdb:
         # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
         # Also allow skipping reset via environment variable for faster development iteration
@@ -440,7 +450,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         if not settings.IN_EVAL_TESTING and not skip_ch_reset:
             reset_clickhouse_tables()
     else:
-        database.drop_database()
+        _drop_test_clickhouse_database()
 
 
 @pytest.fixture(scope="package")
