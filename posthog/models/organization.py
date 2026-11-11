@@ -383,6 +383,16 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     __repr__ = sane_repr("name")
 
+    @property
+    def ip_restrictions(self) -> list[str]:
+        config = getattr(self, "ip_restrictions_config", None)
+        return config.ip_restrictions if config is not None else []
+
+    @property
+    def ip_restrictions_enabled(self) -> bool:
+        config = getattr(self, "ip_restrictions_config", None)
+        return bool(config.enabled) if config is not None else False
+
     @classmethod
     def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
         instance = super().from_db(db, field_names, values, **kwargs)
@@ -957,12 +967,9 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from products.alerts.backend.models.alert import AlertSubscription
+    from products.alerts.backend.facade.api import remove_member_subscriptions
 
-    deleted_count, _ = AlertSubscription.objects.filter(
-        user=instance.user,
-        alert_configuration__team__organization_id=instance.organization_id,
-    ).delete()
+    deleted_count = remove_member_subscriptions(user_id=instance.user_id, organization_id=instance.organization_id)
 
     if deleted_count > 0:
         logger.info(

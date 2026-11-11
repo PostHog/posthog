@@ -5,12 +5,14 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core import mail
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -720,13 +722,13 @@ class TestWarehouseAlerts(APIBaseTest):
             record_outcomes(self.team.id, list(evaluation.outcomes), self.cutoff)
         (delivery,) = evaluation.deliveries
 
-        with patch("products.alerts_platform.backend.delivery.email.EmailMessage") as email_message:
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(EMAIL_ENABLED=True):
             sent = platform_testing.deliver(delivery)
 
         assert sent == 1
         assert delivery.configuration_id == str(configuration_id)
-        assert "Sync failures" in email_message.call_args.kwargs["subject"]
-        assert [call.kwargs["email"] for call in email_message.return_value.add_recipient.call_args_list] == sorted(
+        assert all("Sync failures" in message.subject for message in mail.outbox)
+        assert sorted(address for message in mail.outbox for address in message.to) == sorted(
             [self.user.email, "member@example.com"]
         )
-        email_message.return_value.send.assert_called_once_with()

@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1110-web-analytics-live",
+    "kind": "ota",
+    "runtimeVersion": "1.11.0",
+    "previousRelease": "ota-1110-connectivity",
+    "notes": "See active users and recent events in Live, and explore graphs and breakdowns in Web Analytics. Pin either screen to navigation or set it as the start page. SQL charts support custom labels and mixed axes, and report links from the web can open the matching report in the app. Verify Live activity, date ranges in Web Analytics, and pinning and startup for both screens."
+}

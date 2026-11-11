@@ -109,6 +109,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
@@ -902,6 +903,11 @@ class UserSerializer(serializers.ModelSerializer):
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
+
+        request = self.context.get("request")
+        if request is not None and data.get("team") is not None:
+            if str(data["team"]["organization"]) in get_ip_blocked_organization_ids(request):
+                data["team"] = None
 
         # Backfill shortcut_position default for frontend if null
         with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):

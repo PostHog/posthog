@@ -33,6 +33,7 @@ from products.signals.backend.implementation_pr import ImplementationPr, fetch_i
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.task_profiles import INBOX
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.ai_run_defaults import resolve_ai_run_defaults
 
@@ -448,7 +449,8 @@ def task_create_data(report: SignalReport, prompt: str) -> dict:
         # A report title can be longer than a task title allows.
         "title": ((report.title or "").strip() or "Ask AI about report")[:TASK_TITLE_MAX_LENGTH],
         "description": prompt,
-        "origin_product": tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+        "origin_product": INBOX.origin_product,
+        "profile": INBOX.key,
         "signal_report": report,
         "signal_report_task_relationship": TASK_RUN_TYPE_DISCUSSION,
     }

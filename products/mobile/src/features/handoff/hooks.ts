@@ -76,7 +76,8 @@ export function useHandoffActions(reportId: string): HandoffActions {
     const demoUndo = useDemoMode((state) => state.undoAnswer)
     const queryClient = useQueryClient()
     const scope = useProjectScope()
-    const approval = useAiApproval('handoff', reportId)
+    // The hand-off and its answers run in the report's project, so its organization is the one that must approve AI.
+    const approval = useAiApproval('handoff', reportId, scope?.projectId ?? null)
 
     const refreshReport = (): void => {
         void queryClient.invalidateQueries({ queryKey: reportKeys.report(scope, reportId) })
@@ -180,6 +181,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
                 return
             }
             const started = await kickOffReportTask(reportId, {
+                scope,
                 run,
                 signal: approval.signal,
                 taskId: handoffEntry(reportId).unstartedTaskId,
@@ -243,7 +245,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
                 return
             }
             await deliverAnswer(question, input, { requestId, kind: live.pending.kind }, (signal) =>
-                deliverPermissionResponse(run, plan.params, { signal })
+                deliverPermissionResponse(scope, run, plan.params, { signal })
             )
             return
         }

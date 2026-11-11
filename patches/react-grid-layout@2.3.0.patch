@@ -1,0 +1,130 @@
+diff --git a/dist/chunk-CUP5Y2ZG.js b/dist/chunk-CUP5Y2ZG.js
+index 23399ca..3d8af96 100644
+--- a/dist/chunk-CUP5Y2ZG.js
++++ b/dist/chunk-CUP5Y2ZG.js
+@@ -334,6 +334,17 @@ function GridItemInner(props) {
+       }
+       const newPosition = { top, left };
+       dragPositionRef.current = newPosition;
++      if (node instanceof HTMLElement) {
++        Object.assign(
++          node.style,
++          createStyle({
++            top,
++            left,
++            width: chunkVJJIA3HC_js.calcGridItemWHPx(w, chunkVJJIA3HC_js.calcGridColWidth(positionParams), margin[0]),
++            height: chunkVJJIA3HC_js.calcGridItemWHPx(h, rowHeight, margin[1])
++          })
++        );
++      }
+       const rawPos = chunkVJJIA3HC_js.calcXYRaw(positionParams, top, left);
+       const { x: newX, y: newY } = chunkQAIA5KAO_js.applyPositionConstraints(
+         constraints,
+@@ -363,7 +374,8 @@ function GridItemInner(props) {
+       i,
+       constraints,
+       effectiveLayoutItem,
+-      getConstraintContext
++      getConstraintContext,
++      createStyle
+     ]
+   );
+   const onDragStop = React2.useCallback(
+@@ -430,6 +442,9 @@ function GridItemInner(props) {
+         };
+       }
+       resizePositionRef.current = updatedSize;
+       const containerHeight = node?.offsetParent?.clientHeight ?? 0;
++      if (elementRef.current instanceof HTMLElement) {
++        Object.assign(elementRef.current.style, createStyle(updatedSize));
++      }
+       const rawSize = chunkVJJIA3HC_js.calcWHRaw(
+         positionParams,
+@@ -464,7 +479,8 @@ function GridItemInner(props) {
+       i,
+       constraints,
+       effectiveLayoutItem,
+-      getConstraintContext
++      getConstraintContext,
++      createStyle
+     ]
+   );
+   const handleResizeStart = React2.useCallback(
+@@ -554,6 +570,12 @@ function GridItemInner(props) {
+     dragging ? dragPositionRef.current : null,
+     resizing ? resizePositionRef.current : null
+   );
++  React2.useLayoutEffect(() => {
++    const node = elementRef.current;
++    if (node instanceof HTMLElement) {
++      Object.assign(node.style, createStyle(pos));
++    }
++  }, [dragging, resizing]);
+   const child = React2__default.default.Children.only(children);
+   const colWidth = chunkVJJIA3HC_js.calcGridColWidth(positionParams);
+   const minConstraints = [
+diff --git a/dist/chunk-Z6CWRR74.mjs b/dist/chunk-Z6CWRR74.mjs
+index 5d3ee00..604e3d7 100644
+--- a/dist/chunk-Z6CWRR74.mjs
++++ b/dist/chunk-Z6CWRR74.mjs
+@@ -327,6 +327,17 @@ function GridItemInner(props) {
+       }
+       const newPosition = { top, left };
+       dragPositionRef.current = newPosition;
++      if (node instanceof HTMLElement) {
++        Object.assign(
++          node.style,
++          createStyle({
++            top,
++            left,
++            width: calcGridItemWHPx(w, calcGridColWidth(positionParams), margin[0]),
++            height: calcGridItemWHPx(h, rowHeight, margin[1])
++          })
++        );
++      }
+       const rawPos = calcXYRaw(positionParams, top, left);
+       const { x: newX, y: newY } = applyPositionConstraints(
+         constraints,
+@@ -356,7 +367,8 @@ function GridItemInner(props) {
+       i,
+       constraints,
+       effectiveLayoutItem,
+-      getConstraintContext
++      getConstraintContext,
++      createStyle
+     ]
+   );
+   const onDragStop = useCallback(
+@@ -423,6 +435,9 @@ function GridItemInner(props) {
+         };
+       }
+       resizePositionRef.current = updatedSize;
+       const containerHeight = node?.offsetParent?.clientHeight ?? 0;
++      if (elementRef.current instanceof HTMLElement) {
++        Object.assign(elementRef.current.style, createStyle(updatedSize));
++      }
+       const rawSize = calcWHRaw(
+         positionParams,
+@@ -457,7 +472,8 @@ function GridItemInner(props) {
+       i,
+       constraints,
+       effectiveLayoutItem,
+-      getConstraintContext
++      getConstraintContext,
++      createStyle
+     ]
+   );
+   const handleResizeStart = useCallback(
+@@ -547,6 +563,12 @@ function GridItemInner(props) {
+     dragging ? dragPositionRef.current : null,
+     resizing ? resizePositionRef.current : null
+   );
++  useLayoutEffect(() => {
++    const node = elementRef.current;
++    if (node instanceof HTMLElement) {
++      Object.assign(node.style, createStyle(pos));
++    }
++  }, [dragging, resizing]);
+   const child = React2.Children.only(children);
+   const colWidth = calcGridColWidth(positionParams);
+   const minConstraints = [

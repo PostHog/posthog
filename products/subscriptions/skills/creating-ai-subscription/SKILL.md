@@ -120,6 +120,22 @@ returns). Build it in three steps:
    to one specific Slack integration so reconnections elsewhere don't accidentally
    re-route deliveries.
 
+## Slack report formatting
+
+Prompt subscriptions send report Markdown in a Slack `markdown` block. Slack reads a table row only when the row starts on its own line. A pipe-separated table written as one line appears as plain text.
+
+When a Slack report needs a table, state the column names and require a Markdown header, separator, and one data row per line. Require every row to use the same number and order of cells as the header. Put a blank line before and after the table, and do not wrap it in a code fence.
+
+Use this shape in the prompt as a concrete example:
+
+```markdown
+| Alert type   | Latest orgs | WoW change | Direction |
+| ------------ | ----------: | ---------: | --------- |
+| Example type |         123 | +4 (+3.2%) | increase  |
+```
+
+Keep related values in the same cell. For example, put the absolute and percentage change together in one `WoW change` cell. Do not add cells that have no matching header.
+
 ## Teams target
 
 `target_value` must be the full webhook URL of the channel you want reports in. The user adds the

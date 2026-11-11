@@ -67,7 +67,7 @@ export function QuillDebugReplayButton(): JSX.Element {
         return (
             <>
                 <Button
-                    size="xs"
+                    size="sm"
                     onClick={() => setPromptModalOpen(true)}
                     loading={debugRecordingPreparing}
                     tooltip={
@@ -89,7 +89,7 @@ export function QuillDebugReplayButton(): JSX.Element {
         <>
             <ButtonGroup>
                 <Button
-                    size="xs"
+                    size="sm"
                     onClick={() => openDebugChat(sessionRecordingId)}
                     loading={openingDebugChat || debugRecordingPreparing}
                     tooltip={debugRecordingPreparing ? PREPARING : debugChatTooltip(debugChatSummary)}
@@ -102,7 +102,7 @@ export function QuillDebugReplayButton(): JSX.Element {
                     <DropdownMenuTrigger
                         render={
                             <Button
-                                size="icon-xs"
+                                size="icon-sm"
                                 aria-label="More debug options"
                                 disabledReason={debugRecordingPreparing ? PREPARING : undefined}
                                 data-attr="replay-debug-chat-more"

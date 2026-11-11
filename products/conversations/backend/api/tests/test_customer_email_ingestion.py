@@ -18,6 +18,7 @@ from parameterized import parameterized
 from posthog.ingress.contracts import DeliveryOwnership
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.user import User
 
 from products.conversations.backend.api.tests.mailgun_signing import (
@@ -678,6 +679,8 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
         assert EmailThread.objects.for_team(self.team.id).exists()
 
     def test_the_sender_status_endpoint_answers_only_a_signed_caller(self) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
         unsigned = self.client.post("/api/conversations/v1/email/sender-status", {"sender": self.channel.from_email})
         active = post_mailgun(
             self.client, "/api/conversations/v1/email/sender-status", {"sender": self.channel.from_email}

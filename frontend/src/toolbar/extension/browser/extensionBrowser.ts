@@ -1,3 +1,4 @@
+import { APP_MESSAGE_OPEN_URL, APP_MESSAGE_PING, OpenUrlResponse, PingResponse } from '../messaging/appMessages'
 import { PAGE_TOOLBAR_PORT, PageToolbarTokens } from '../messaging/pageToolbarBridge'
 
 // Chrome exposes the promise-based `chrome.*` namespace to Manifest V3 extensions.
@@ -11,6 +12,17 @@ interface ExtensionTab {
 type RuntimeMessageListener = (
     message: unknown,
     sender: unknown,
+    sendResponse: (response: unknown) => void
+) => boolean | void
+
+interface ExternalMessageSender {
+    origin?: string
+    tab?: { windowId?: number }
+}
+
+type ExternalMessageListener = (
+    message: unknown,
+    sender: ExternalMessageSender,
     sendResponse: (response: unknown) => void
 ) => boolean | void
 
@@ -81,6 +93,7 @@ interface ExtensionBrowserApi {
             addListener: (listener: RuntimeMessageListener) => void
         }
         onConnect: ExtensionEvent<(port: ExtensionPort) => void>
+        onMessageExternal: ExtensionEvent<ExternalMessageListener>
         getURL: (path: string) => string
     }
     permissions: {
@@ -92,6 +105,7 @@ interface ExtensionBrowserApi {
     }
     sidePanel: {
         setPanelBehavior: (behavior: { openPanelOnActionClick: boolean }) => Promise<void>
+        open: (options: { windowId: number }) => Promise<void>
     }
 }
 
@@ -107,6 +121,72 @@ const CONTENT_SCRIPT_FILE = 'content.js'
 
 export function openPanelFromToolbarButton(): void {
     void extensionBrowser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+}
+
+/** Answers the PostHog app, which the manifest lets message the extension through `externally_connectable`. */
+export function listenForAppMessages(): void {
+    extensionBrowser.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+        const response = respondToAppMessage(message, sender)
+        if (!response) {
+            return false
+        }
+        void response.then(sendResponse)
+        return true
+    })
+}
+
+/** `undefined` for a message this version doesn't know, so it ignores what a newer app build sends. */
+export function respondToAppMessage(
+    message: unknown,
+    sender: ExternalMessageSender
+): Promise<PingResponse | OpenUrlResponse> | undefined {
+    if (typeof message !== 'object' || message === null) {
+        return undefined
+    }
+    const { type, url } = message as { type?: unknown; url?: unknown }
+    if (type === APP_MESSAGE_PING) {
+        return Promise.resolve({ installed: true })
+    }
+    if (type === APP_MESSAGE_OPEN_URL && typeof url === 'string' && isWebUrl(url)) {
+        // The panel signs in to the host the user opened it from, for example EU Cloud on a fresh install.
+        if (sender.origin) {
+            void setStoredUiHost(sender.origin)
+        }
+        const windowId = sender.tab?.windowId
+        // Called before any await, so Chrome can still count the click in the app as the user action it requires.
+        const panelOpened =
+            windowId === undefined
+                ? Promise.resolve(false)
+                : withTimeout(
+                      extensionBrowser.sidePanel.open({ windowId }).then(
+                          () => true,
+                          () => false
+                      ),
+                      PANEL_OPEN_TIMEOUT_MS,
+                      false
+                  )
+        return extensionBrowser.tabs.create({ url }).then(
+            async () => ({ opened: true, panelOpened: await panelOpened }),
+            async () => ({ opened: false, panelOpened: await panelOpened })
+        )
+    }
+    return undefined
+}
+
+// The app gives up after a few seconds, so a slow panel must not hold back the answer that the tab opened.
+const PANEL_OPEN_TIMEOUT_MS = 1000
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+    return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs))])
+}
+
+function isWebUrl(url: string): boolean {
+    try {
+        const { protocol } = new URL(url)
+        return protocol === 'https:' || protocol === 'http:'
+    } catch {
+        return false
+    }
 }
 
 export async function getActiveTab(): Promise<ExtensionTab | null> {

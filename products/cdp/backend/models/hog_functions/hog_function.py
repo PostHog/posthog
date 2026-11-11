@@ -81,6 +81,8 @@ TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionTy
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 # Types that run sequentially during ingestion and are ordered by execution_order
 TYPES_WITH_EXECUTION_ORDER = (HogFunctionType.TRANSFORMATION, HogFunctionType.TRANSFORMATION_LOG)
+# Upper bound of the `execution_order` column, a PositiveSmallIntegerField
+MAX_EXECUTION_ORDER = 32767
 
 # Function types a cyclotron worker actually executes, so a "rerun" — which re-enqueues
 # the stored invocation onto the cyclotron hog queue — can run to completion. Every other

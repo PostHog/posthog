@@ -7,6 +7,7 @@ from products.messaging.backend.services.transactional_email_log import (
     list_transactional_emails,
     transactional_email_results,
     transactional_email_stats,
+    transactional_email_stats_over_time,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "list_transactional_emails",
     "transactional_email_results",
     "transactional_email_stats",
+    "transactional_email_stats_over_time",
 ]

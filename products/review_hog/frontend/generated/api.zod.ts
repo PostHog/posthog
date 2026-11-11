@@ -117,7 +117,7 @@ export const ReviewHogProjectSettingsPeopleCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it.
+ * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it. Project members can only turn reviews up: include a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.
  * @summary Save a repository's settings
  */
 export const reviewHogRepositoriesCreateBodyInstallationIdMax = 64
@@ -166,7 +166,7 @@ export const ReviewHogRepositoriesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Add a project member to the 'listed' or 'excepted' list of the repository exception.
+ * Add a project member to the 'listed' or 'excepted' list of the repository exception. A project member who is not an admin can only add themselves to the 'listed' list.
  * @summary Add a person to a repository exception list
  */
 export const ReviewHogRepositoriesPeopleCreateBody = /* @__PURE__ */ zod.object({

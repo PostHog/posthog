@@ -5,6 +5,7 @@ import requests
 from google.auth.exceptions import RefreshError
 
 from products.warehouse_sources.sources.google_analytics._config import GoogleAnalyticsSourceConfig
+from products.warehouse_sources.sources.google_analytics.google_analytics import google_analytics_source
 from products.warehouse_sources.sources.google_analytics.settings import (
     GOOGLE_ANALYTICS_REPORT_SCHEMAS,
     CustomReportError,
@@ -269,3 +270,27 @@ def test_retryable_errors_cover_connection_drops(error_msg):
     # three are the truncated-body shapes `requests` raises as `ChunkedEncodingError`.
     patterns = GoogleAnalyticsSource().get_retryable_errors()
     assert error_message_matches(error_msg, patterns)
+
+
+@pytest.mark.parametrize(
+    "custom_reports",
+    [
+        None,
+        "",
+        '[{"name": "renamed_report", "dimensions": ["sessionSource"], "metrics": ["sessions"]}]',
+    ],
+)
+def test_removed_custom_report_is_non_retryable(custom_reports):
+    # A table whose custom report was removed or renamed in the source settings stays enabled until
+    # schema discovery next runs, so the sync must stop instead of retrying the same failure.
+    with pytest.raises(ValueError) as exc:
+        google_analytics_source(
+            config=_config(custom_reports=custom_reports),
+            resource_name="paid_campaigns",
+            team_id=1,
+            resumable_source_manager=mock.MagicMock(),
+        )
+
+    source = GoogleAnalyticsSource()
+    assert error_message_matches(str(exc.value), source.get_non_retryable_errors())
+    assert not error_message_matches(str(exc.value), source.get_retryable_errors())

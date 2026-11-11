@@ -8,7 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { type FeatureFlagsSet, featureFlagLogic, revokePostHogAIAccess } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { stashPendingAiPrompt } from '~/layout/ai/pendingAiPrompt'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
@@ -61,7 +62,7 @@ import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic, type RunContinuationHandoff } from '../../logics/runInteractionLogic'
 import { taskDefaultsLogic } from '../../logics/taskDefaultsLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
-import { hasTasksFlag, tasksLogic } from '../../logics/tasksLogic'
+import { tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
@@ -512,6 +513,30 @@ export type taskTrackerSceneLogicType = MakeLogicType<
     TaskTrackerSceneLogicProps,
     taskTrackerSceneLogicMeta
 >
+
+/**
+ * The server refused 2.0 to a page that still shows it, such as one rendered before a flag outage.
+ * Classic PostHog AI takes over for the rest of the session, with the user's message as its draft.
+ */
+function moveToClassicPostHogAI(featureFlags: FeatureFlagsSet, message: string, panelId: string | undefined): void {
+    revokePostHogAIAccess()
+    // A side panel or the AI scene swaps to classic in place, so its host takes the message. The message never
+    // goes in the URL, because pageview events record the full URL.
+    const swapsInPlace = !!panelId || removeProjectIdIfPresent(router.values.location.pathname) === urls.ai()
+    if (message.trim()) {
+        if (swapsInPlace) {
+            runnerPanelLogic({ panelId }).actions.handOffToClassic(message)
+        } else {
+            stashPendingAiPrompt(message)
+        }
+    }
+    // featureFlagLogic applies the revocation when it computes the flags, so resending the current flags applies it.
+    const currentFlags: Record<string, string | boolean> = JSON.parse(JSON.stringify(featureFlags))
+    featureFlagLogic.findMounted()?.actions.setFeatureFlags(Object.keys(currentFlags), currentFlags)
+    if (!swapsInPlace) {
+        router.actions.push(urls.ai())
+    }
+}
 
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
@@ -993,6 +1018,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // The backend strips `pending_user_message`, and the live echo carries that stripped text. The
             // optimistic bubble must match it exactly, or the echo renders as a second copy of the message.
             const description = values.newTaskData.description.trim()
+            const onTaskCreated = props.onTaskCreated
             const { permissionMode } = values.newTaskData
             const repositoryConfig = values.effectiveRepositoryConfig
             const composerAdapter = values.composerAdapter
@@ -1273,7 +1299,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.loadRepositories()
                 // Every composer submits through here, so this is the one place that reaches all of them.
                 todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
-                props.onTaskCreated?.(newTask.id)
+                onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
                     return
@@ -1299,6 +1325,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                         })
                     }
                     actions.clearActiveCreation()
+                }
+                if (error instanceof ApiError && error.code === 'task_unavailable') {
+                    moveToClassicPostHogAI(values.featureFlags, values.newTaskData.description, props.panelId)
                 }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
@@ -1423,9 +1452,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.clearActiveCreation()
             }
         }
-        // Only the list and composer fall back to classic PostHog AI. Inbox task links need neither flag.
+        // Only the list and composer fall back to classic PostHog AI. Inbox task links need no 2.0 access.
         const redirectedWithoutAccess = (taskId?: string): boolean => {
-            if (props.panelId || hasTasksFlag(values.featureFlags) || (taskId && taskId !== 'new')) {
+            if (props.panelId || values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] || (taskId && taskId !== 'new')) {
                 return false
             }
             router.actions.replace(urls.ai())

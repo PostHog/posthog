@@ -550,6 +550,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
         },
+        "$conversation_ticket_tag_added": {
+            "label": "Conversation ticket tag added",
+            "description": "Fires when a tag is added to a support conversation ticket.",
+        },
         "$slack_message_received": {
             "label": "Slack message received",
             "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
@@ -564,10 +568,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$workflows_email_delivered": {
             "label": "Workflow email delivered",
             "description": "Fires when a workflow email reaches the recipient's inbox, confirmed by their mail server accepting it.",
-        },
-        "$workflows_email_delivery_delayed": {
-            "label": "Workflow email delivery delayed",
-            "description": "Fires when the recipient's mail server has not accepted a workflow email yet and the email provider keeps retrying. A later delivered or bounced event follows for the same email.",
         },
         "$workflows_email_failed": {
             "label": "Workflow email failed",

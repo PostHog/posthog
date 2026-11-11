@@ -23,7 +23,7 @@ from products.ai_observability.backend.api.taggers import TaggerModelConfigurati
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
@@ -249,6 +249,37 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             else {}
         )
         mock_validate.assert_called_once_with(provider, "sk-test-key-12345", team_id=self.team.id, **expected_config)
+
+    @parameterized.expand(
+        [
+            (
+                "unknown_model",
+                404,
+                "system_one_model",
+                "The endpoint returned 404 for this model ID. Check the model ID, and that the base URL ends before /systemone.",
+            ),
+            ("rejected_token", 401, "api_key", "The endpoint rejected this credential. Check the bearer token."),
+        ]
+    )
+    @mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"])
+    @patch("httpx.AsyncHTTPTransport.handle_async_request")
+    def test_system_one_validation_error_names_the_field_to_fix(
+        self, _name: str, endpoint_status: int, expected_attr: str, expected_detail: str, request: Mock, _dns: Mock
+    ) -> None:
+        request.return_value = httpx.Response(endpoint_status, stream=httpx.ByteStream(b""))
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {
+                "provider": "system_one",
+                "name": "Custom",
+                "api_key": "example-token",
+                "base_url": "https://decisions.example.com/v1",
+                "system_one_model": "example-model",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual((response.json()["attr"], response.json()["detail"]), (expected_attr, expected_detail))
+        self.assertFalse(LLMProviderKey.objects.exists())
 
     @mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"])
     @patch("httpx.AsyncHTTPTransport.handle_async_request")
@@ -1417,6 +1448,26 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+    @parameterized.expand([("key_in_the_url_project", True, 200), ("key_from_another_project", False, 404)])
+    def test_models_follow_the_project_in_the_url(self, _name: str, key_in_url_project: bool, expected: int) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        key = LLMProviderKey.objects.create(
+            team=other_team if key_in_url_project else self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test-key"},
+        )
+        # The user's current project stays self.team, as when a second tab switched it.
+        with patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=["gpt-5-mini"]):
+            response = self.client.get(
+                f"/api/environments/{other_team.id}/llm_analytics/provider_keys/{key.id}/models/"
+            )
+
+        self.assertEqual(response.status_code, expected, response.json())
+        if expected == 200:
+            self.assertIn("gpt-5-mini", [model["id"] for model in response.json()])
+
     def test_dependent_configs_returns_evaluations_using_key(self):
         key = LLMProviderKey.objects.create(
             team=self.team,
@@ -1439,6 +1490,9 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
             evaluation_config={"prompt": "Is this good?"},
             output_type="boolean",
             model_configuration=model_config,
+            enabled=False,
+            status=EvaluationStatus.ERROR,
+            status_reason="provider_key_quota_exceeded",
         )
 
         response = self.client.get(
@@ -1448,6 +1502,52 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         self.assertEqual(len(response.data["evaluations"]), 1)
         self.assertEqual(response.data["evaluations"][0]["id"], str(evaluation.id))
         self.assertEqual(response.data["evaluations"][0]["name"], "Test Evaluation")
+        # The settings page offers to turn back on the evaluations this key's problem turned off.
+        self.assertEqual(response.data["evaluations"][0]["enabled"], False)
+        self.assertEqual(response.data["evaluations"][0]["status_reason"], "provider_key_quota_exceeded")
+
+    @parameterized.expand(
+        [
+            ("active_key", True, True, ["Keyless"]),
+            ("not_the_active_key", False, True, []),
+            ("no_evaluation_access", True, False, []),
+        ]
+    )
+    def test_dependent_configs_lists_errored_evaluations_on_the_active_key(
+        self, _name: str, is_active: bool, evaluation_access: bool, expected: list[str]
+    ) -> None:
+        if not evaluation_access:
+            _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test-key"},
+        )
+        if is_active:
+            EvaluationConfig.objects.update_or_create(team=self.team, defaults={"active_provider_key": key})
+        keyless_config = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        for name, status_value in (("Keyless", EvaluationStatus.ERROR), ("Paused keyless", EvaluationStatus.PAUSED)):
+            Evaluation.objects.create(
+                team=self.team,
+                name=name,
+                evaluation_type="llm_judge",
+                evaluation_config={"prompt": "Is this good?"},
+                output_type="boolean",
+                model_configuration=keyless_config,
+                enabled=False,
+                status=status_value,
+                status_reason="provider_key_quota_exceeded" if status_value == EvaluationStatus.ERROR else None,
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/dependent_configs/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([evaluation["name"] for evaluation in response.data["active_key_evaluations"]], expected)
+        self.assertEqual(response.data["evaluations"], [])
 
     def test_dependent_configs_excludes_deleted_evaluations(self):
         key = LLMProviderKey.objects.create(

@@ -8,7 +8,7 @@ This replaces committing and pushing on every iteration, or editing over Remote-
 ```bash
 hogli devbox:start                  # the box must be running
 hogli devbox:sync                   # create the mirror; re-running does nothing, so use --status
-hogli devbox:exec -- bash -lc 'cd ~/posthog && pnpm --filter=@posthog/frontend typescript:check'
+hogli devbox:exec --flox -- pnpm --filter=@posthog/frontend typescript:check
 hogli devbox:sync --json            # sync state as JSON, for scripts and agents
 hogli devbox:sync --flush           # push pending changes now
 hogli devbox:sync --pause           # stop mirroring; --resume starts it again

@@ -11,7 +11,8 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationNotFound
+from posthog.models.integration import SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
@@ -19,13 +20,11 @@ from products.slack_app.backend.feature_flags import is_slack_app_forking_enable
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
 from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
 from products.slack_app.backend.logic.reply_suggestions import (
-    ReplySuggestionAttribution,
-    SuggestedReply,
     clear_open_suggestions,
     remember_open_suggestions,
     reply_suggestions_block,
     reply_suggestions_fallback_text,
-    suggest_replies,
+    slack_reply_attribution,
 )
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -44,6 +43,12 @@ from products.slack_app.backend.services.slack_messages import (
     turn_feedback_block,
 )
 from products.slack_app.backend.services.task_notifications import task_slack_notifications_muted
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    slack_row_reader,
+    with_teams,
+)
+from products.tasks.backend.facade.reply_suggestions import SuggestedReply, suggest_replies
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -175,9 +180,12 @@ class SlackThreadContext:
     mentioning_slack_user_id: str | None = None
     # The mention that opened the run. Only the run's first turn answers it.
     person_message: str | None = None
+    # Absent in payloads stored before the field existed. `SlackThreadHandler.team_id` then reads it from the thread mapping.
+    team_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
+            "team_id": self.team_id,
             "integration_id": self.integration_id,
             "channel": self.channel,
             "thread_ts": self.thread_ts,
@@ -193,6 +201,7 @@ class SlackThreadContext:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SlackThreadContext":
         return cls(
+            team_id=data.get("team_id"),
             integration_id=data["integration_id"],
             channel=data["channel"],
             thread_ts=data["thread_ts"],
@@ -206,6 +215,7 @@ class SlackThreadContext:
         cls, mapping: "SlackThreadTaskMapping", user_message_ts: str | None = None
     ) -> "SlackThreadContext":
         return cls(
+            team_id=mapping.team_id,
             integration_id=mapping.integration_id,
             channel=mapping.channel,
             thread_ts=mapping.thread_ts,
@@ -260,7 +270,8 @@ class SlackThreadHandler:
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
-        self._integration: Integration | None = None
+        self._integration: WorkspaceIntegration | None = None
+        self._team_id_looked_up = False
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
@@ -323,10 +334,33 @@ class SlackThreadHandler:
             )
         return self._muted_cache[key]
 
-    def _get_integration(self) -> Integration:
+    @property
+    def team_id(self) -> int | None:
+        """The project of the install. An old context without it reads the project from the thread mapping."""
+        if self.context.team_id is None and not self._team_id_looked_up:
+            from products.slack_app.backend.models import (
+                SlackThreadTaskMapping,  # noqa: PLC0415 — models import this module's package
+            )
+
+            self._team_id_looked_up = True
+            self.context.team_id = (
+                SlackThreadTaskMapping.objects.filter(
+                    integration_id=self.context.integration_id,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                )
+                .values_list("team_id", flat=True)
+                .first()
+            )
+        return self.context.team_id
+
+    def _get_integration(self) -> WorkspaceIntegration:
         if self._integration is None:
-            # nosemgrep: idor-lookup-without-team (internal context, ID from Slack event mapping)
-            self._integration = Integration.objects.get(id=self.context.integration_id)
+            team_id = self.team_id
+            if team_id is None:
+                logger.warning("slack_thread_missing_team", integration_id=self.context.integration_id)
+                raise IntegrationNotFound(f"No project known for Slack integration {self.context.integration_id}")
+            self._integration = with_teams([slack_row_reader().get(team_id, self.context.integration_id)])[0]
         return self._integration
 
     @property
@@ -1012,7 +1046,10 @@ class SlackThreadHandler:
     def _suggestions_block(self, answer_markdown: str) -> tuple[list[SuggestedReply], dict[str, Any]] | None:
         integration = self._get_integration()
         posthog_user = self._actor_posthog_user
-        attribution = ReplySuggestionAttribution(
+        from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
+
+        attribution = slack_reply_attribution(
+            privacy_mode=is_privacy_mode_enabled(integration.team),
             trace_id=self.turn_trace_id,
             session_id=self._session_id(),
             distinct_id=posthog_user.distinct_id if posthog_user else None,

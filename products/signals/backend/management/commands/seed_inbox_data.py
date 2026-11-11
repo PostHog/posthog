@@ -42,9 +42,11 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportRefund
 from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.task_profiles import INBOX
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.agentic.report import _persist_agentic_report_artefacts
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import SourceKind, TaskSource
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[2] / "report_generation" / "fixtures"
@@ -321,13 +323,12 @@ class Command(BaseCommand):
                 team=team,
                 title=report.title or "Investigate inbox report",
                 description=report.summary or "Synthetic implementation task seeded for the inbox.",
-                origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=INBOX,
+                source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(report.id)),
                 user_id=user_id,
                 repository=repository,
                 create_pr=False,
                 start_workflow=False,
-                signal_report_id=str(report.id),
-                internal=False,
             )
         except Exception as e:
             self.stdout.write(self.style.WARNING(f"    skipped task run (task creation failed: {e})"))

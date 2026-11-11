@@ -28,6 +28,8 @@ REQUEST_TIMEOUT_SECONDS = 60
 # the re-scan doesn't fail the sync, while still bounding the work.
 MAX_CURSOR_RESTARTS = 3
 
+OFFSET_PAGE_SIZE = 1000
+
 
 class SquarespaceRetryableError(Exception):
     pass
@@ -44,6 +46,9 @@ class SquarespaceResumeConfig:
     # resuming from it continues the same window. An empty string means "start over"
     # (merge dedupes the re-pulled rows on the primary key).
     cursor: str
+    # Offset-paginated endpoints: the next offset. Fan-out endpoints: how many parents on the
+    # parent page at `cursor` are already done.
+    offset: int = 0
 
 
 def _is_invalid_cursor_error(response: requests.Response) -> bool:
@@ -125,8 +130,11 @@ def validate_credentials(
     specific schema.
     """
     config = SQUARESPACE_ENDPOINTS.get(schema_name) if schema_name else None
+    if config is not None and config.parent is not None:
+        # A fan-out path needs a parent id. The parent list needs the same API key permission.
+        config = SQUARESPACE_ENDPOINTS[config.parent]
     if config is not None:
-        url = f"{SQUARESPACE_BASE_URL}/{config.api_version}{config.path}"
+        url = _endpoint_url(config)
     else:
         url = f"{SQUARESPACE_BASE_URL}/1.0/commerce/orders"
 
@@ -141,6 +149,155 @@ def validate_credentials(
     return response.status_code == 200, False
 
 
+@retry_with_deadline(
+    retry=retry_if_exception_type((SquarespaceRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _fetch_page(
+    session: requests.Session,
+    url: str,
+    params: dict[str, str],
+    headers: dict[str, str],
+    endpoint: str,
+    logger: FilteringBoundLogger,
+) -> dict[str, Any]:
+    response = session.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise SquarespaceRetryableError(f"Squarespace API error (retryable): status={response.status_code}, url={url}")
+
+    if _is_invalid_cursor_error(response):
+        raise SquarespaceInvalidCursorError(f"Squarespace rejected the pagination cursor for {endpoint}")
+
+    if not response.ok:
+        logger.error(f"Squarespace API error: status={response.status_code}, body={response.text}, url={url}")
+        response.raise_for_status()
+
+    return response.json()
+
+
+def _extract_rows(data: dict[str, Any], data_key: str) -> list[dict[str, Any]]:
+    """Read the row list at a dotted key, e.g. `addressBook.addressBookEntries`."""
+    value: Any = data
+    for part in data_key.split("."):
+        value = value.get(part) if isinstance(value, dict) else None
+    return value or []
+
+
+def _next_cursor(data: dict[str, Any]) -> Optional[str]:
+    pagination = data.get("pagination") or {}
+    raw_next_cursor = pagination.get("nextPageCursor")
+    if not pagination.get("hasNextPage") or not raw_next_cursor:
+        return None
+    return str(raw_next_cursor)
+
+
+def _endpoint_url(config: SquarespaceEndpointConfig) -> str:
+    return f"{SQUARESPACE_BASE_URL}/{config.api_version}{config.path}"
+
+
+def get_offset_rows(
+    api_key: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SquarespaceResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    config = SQUARESPACE_ENDPOINTS[endpoint]
+    headers = _get_headers(api_key)
+    url = _endpoint_url(config)
+    session = make_tracked_session()
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    offset = resume_config.offset if resume_config else 0
+
+    while True:
+        params = {**config.extra_params, "offset": str(offset), "limit": str(OFFSET_PAGE_SIZE)}
+        data = _fetch_page(session, url, params, headers, endpoint, logger)
+        items = _extract_rows(data, config.data_key)
+        has_next = bool(data.get("hasNextPage")) and bool(items)
+
+        if items:
+            if has_next:
+                resumable_source_manager.save_state(SquarespaceResumeConfig(cursor="", offset=offset + len(items)))
+            yield items
+
+        if not has_next:
+            break
+
+        offset += len(items)
+
+
+def get_fan_out_rows(
+    api_key: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SquarespaceResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    config = SQUARESPACE_ENDPOINTS[endpoint]
+    assert config.parent is not None and config.parent_id_field is not None
+    parent_id_field = config.parent_id_field
+    parent_config = SQUARESPACE_ENDPOINTS[config.parent]
+    headers = _get_headers(api_key)
+    parent_url = _endpoint_url(parent_config)
+    session = make_tracked_session()
+
+    # The resume state names the parent page in progress (`cursor`, empty for the first page)
+    # and how many parents on it are done (`offset`), so a resumed run skips only finished parents.
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    parent_cursor: Optional[str] = resume_config.cursor if resume_config and resume_config.cursor else None
+    parents_done = resume_config.offset if resume_config else 0
+
+    restarts_remaining = MAX_CURSOR_RESTARTS
+    while True:
+        params = {"cursor": parent_cursor} if parent_cursor else dict(parent_config.extra_params)
+        try:
+            parent_data = _fetch_page(session, parent_url, params, headers, config.parent, logger)
+        except SquarespaceInvalidCursorError:
+            if parent_cursor is None or restarts_remaining <= 0:
+                raise
+            restarts_remaining -= 1
+            logger.warning(f"Squarespace: cursor for {endpoint} was rejected, restarting from the first parent")
+            parent_cursor, parents_done = None, 0
+            continue
+
+        for index, parent in enumerate(_extract_rows(parent_data, parent_config.data_key)):
+            parent_id = parent.get("id")
+            if index < parents_done or not parent_id:
+                continue
+
+            child_url = _endpoint_url(config).replace("{parent_id}", str(parent_id))
+            child_rows: list[dict[str, Any]] = []
+            child_cursor: Optional[str] = None
+            while True:
+                child_params = {"cursor": child_cursor} if child_cursor else {}
+                try:
+                    child_data = _fetch_page(session, child_url, child_params, headers, endpoint, logger)
+                except requests.HTTPError as e:
+                    # The parent was deleted after the parent page was read.
+                    if e.response is not None and e.response.status_code == 404:
+                        break
+                    raise
+                child_rows.extend(
+                    {**row, parent_id_field: parent_id} for row in _extract_rows(child_data, config.data_key)
+                )
+                child_cursor = _next_cursor(child_data)
+                if child_cursor is None:
+                    break
+
+            resumable_source_manager.save_state(SquarespaceResumeConfig(cursor=parent_cursor or "", offset=index + 1))
+            if child_rows:
+                yield child_rows
+            else:
+                resumable_source_manager.safe_point()
+
+        next_parent_cursor = _next_cursor(parent_data)
+        if next_parent_cursor is None:
+            break
+        parent_cursor, parents_done = next_parent_cursor, 0
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -151,7 +308,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = SQUARESPACE_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    url = f"{SQUARESPACE_BASE_URL}/{config.api_version}{config.path}"
+    url = _endpoint_url(config)
     session = make_tracked_session()
 
     # Captured once so the window stays stable across pages and restarts. Rows modified
@@ -166,28 +323,8 @@ def get_rows(
     if cursor:
         logger.debug(f"Squarespace: resuming {endpoint} from saved cursor")
 
-    @retry_with_deadline(
-        retry=retry_if_exception_type((SquarespaceRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
     def fetch_page(params: dict[str, str]) -> dict[str, Any]:
-        response = session.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise SquarespaceRetryableError(
-                f"Squarespace API error (retryable): status={response.status_code}, url={url}"
-            )
-
-        if _is_invalid_cursor_error(response):
-            raise SquarespaceInvalidCursorError(f"Squarespace rejected the pagination cursor for {endpoint}")
-
-        if not response.ok:
-            logger.error(f"Squarespace API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
+        return _fetch_page(session, url, params, headers, endpoint, logger)
 
     restarts_remaining = MAX_CURSOR_RESTARTS
     while True:
@@ -239,16 +376,23 @@ def squarespace_source(
 ) -> SourceResponse:
     config = SQUARESPACE_ENDPOINTS[endpoint]
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
+    def items() -> Iterator[list[dict[str, Any]]]:
+        if config.parent is not None:
+            return get_fan_out_rows(api_key, endpoint, logger, resumable_source_manager)
+        if config.pagination == "offset":
+            return get_offset_rows(api_key, endpoint, logger, resumable_source_manager)
+        return get_rows(
             api_key=api_key,
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        )
+
+    return SourceResponse(
+        name=endpoint,
+        items=items,
         primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,
         partition_count=1,
