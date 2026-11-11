@@ -1518,12 +1518,14 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(bounds["frequency_mode"], "tiered")
         self.assertTrue(bounds["options"])
 
-    def _floor_free_plans(self, payload: dict | None) -> Any:
-        self.organization.has_active_subscription = False
-        self.organization.save(update_fields=["has_active_subscription"])
+    def _six_hour_plan_floor(self, payload: dict | None) -> Any:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
 
-        def evaluate(key, distinct_id, *, person_properties=None, **_kwargs):
-            enabled = payload is not None and (person_properties or {}).get("organization_plan") == "free"
+        def evaluate(key, distinct_id, **_kwargs):
+            enabled = payload is not None
             return FeatureFlagResult(key=key, enabled=enabled, variant=None, payload=payload, reason=None)
 
         return patch(
@@ -1534,7 +1536,7 @@ class TestSavedQuery(APIBaseTest):
     @parameterized.expand(
         [
             ("consumer_ceiling", timedelta(hours=6), None, "consumer"),
-            ("plan_floor", timedelta(days=30), {"min_interval": "6hour"}, "plan"),
+            ("plan_floor", timedelta(days=30), {}, "plan"),
         ]
     )
     def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(
@@ -1543,7 +1545,7 @@ class TestSavedQuery(APIBaseTest):
         # The whole point of serving bounds is that the picker and the write path cannot
         # disagree. Walk every option the API offered and hold the PATCH to that promise.
         upstream = self._create_view_with_a_consumer(consumer_target=consumer_target)
-        with self._floor_free_plans(plan_floor):
+        with self._six_hour_plan_floor(plan_floor):
             options = self._read_frequency_bounds(upstream["id"])["options"]
             self.assertTrue(any(option["allowed"] for option in options))
             self.assertIn(blocked_by, {option["blocked_by"] for option in options if not option["allowed"]})
@@ -1560,11 +1562,11 @@ class TestSavedQuery(APIBaseTest):
         [
             (
                 "clamped",
-                {"min_interval": "6hour", "clamp_existing": True},
+                {"clamp_existing": True},
                 "6 hours",
                 {"cadence": "6hour", "reason": "plan"},
             ),
-            ("kept_until_clamped", {"min_interval": "6hour"}, "6 hours", {"cadence": "15min", "reason": None}),
+            ("kept_until_clamped", {}, "6 hours", {"cadence": "15min", "reason": None}),
             ("not_floored", None, None, {"cadence": "15min", "reason": None}),
         ]
     )
@@ -1578,7 +1580,7 @@ class TestSavedQuery(APIBaseTest):
         saved_query = self._create_saved_query_for_frequency_tests()
         set_declared_target(Node.objects.get(saved_query_id=saved_query["id"]), timedelta(minutes=15))
 
-        with self._floor_free_plans(plan_floor):
+        with self._six_hour_plan_floor(plan_floor):
             response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}")
 
         self.assertEqual(response.status_code, 200, response.json())

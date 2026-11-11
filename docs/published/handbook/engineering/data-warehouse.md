@@ -38,11 +38,18 @@ This reservation does not add qualified names to existing models or require a na
 
 ## Model refresh minimums
 
-The `data-modeling-refresh-floor` flag evaluates locally using `organization_plan` (`free`, `paid`, or `unknown`) and `organization_package` (`paid`, `none`, or `unknown`). Billing sync reads the package from the `billing_plan` that billing sends: `teams`, `boost`, `scale`, or `enterprise` reads as `paid`, and so does an active trial of one of those. A `billing_plan` of `free` or `paid` reads as `none`. A status without a `billing_plan` keeps the last known package. Organizations that no billing status has named a plan for remain `unknown`, so run `sync_from_billing` before you target `organization_package`.
+Billing sets each plan's minimum as the `limit`, in minutes, of the `data_modeling_refresh_interval` product feature, the same way it grants `high_frequency_alerts`.
+Billing sync stores the feature in `available_product_features`.
+An organization without the feature, or with a feature that has no `limit`, has no minimum.
+The `limit` must be one of the cadences an endpoint can use, from `15` to `10080` (7 days); any other value counts as invalid, and reconciles then leave existing schedules alone.
 
-The proposed rollout targets free organizations with a `1hour` minimum and paid organizations with `organization_package=none` with a `30min` minimum. Paid organizations with a package retain the existing `15min` minimum. Do not target an unknown plan or unknown paid-package status with the no-package rule. These are flag targeting rules and payloads, not hardcoded defaults.
+The proposed limits are `60` for free organizations, `30` for paid organizations without a package, and `15` for Teams, Boost, Scale, and Enterprise.
 
-Each variant payload contains `min_interval` and `clamp_existing`. A matched variant without a payload applies no minimum. `min_interval` can't be coarser than `7day`, the coarsest cadence an endpoint can use, and a coarser value counts as an invalid payload. With `clamp_existing: false`, existing faster cadences keep running. With `clamp_existing: true`, schedules run at the minimum while preserving the saved cadence. Deploying the code alone does not enable the rollout.
+The `data-modeling-refresh-floor` flag rolls the minimum out, and no minimum applies while the flag is off for an organization.
+Its payload sets `clamp_existing`, which defaults to `false`.
+With `clamp_existing: false`, existing faster cadences keep running.
+With `clamp_existing: true`, schedules run at the minimum while preserving the saved cadence.
+Deploying the code alone does not enable the rollout.
 
 ## Model materialization usage
 
