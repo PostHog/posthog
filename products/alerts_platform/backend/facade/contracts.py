@@ -1110,6 +1110,8 @@ class PlatformAlertConfigurationEdit:
     cooldown_minutes: int
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
+    # Only a native create reads it, because an edit never moves the schedule. None takes the kind's default.
+    check_interval_minutes: int | None = None
 
 
 class InvalidPlatformAlertEdit(ValueError):
@@ -1222,6 +1224,9 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
+    # Each cadence a create may choose, with the calendar unit it repeats on, since a month is not a fixed
+    # number of minutes. None for a kind with one fixed cadence.
+    check_intervals: Mapping[int, str | None] | None = None
     # The most alerts of the kind a team can have, or None for no cap.
     max_per_team: int | None = None
     # Removes the HogFunction destinations of any deleted alert the platform owns. None for a kind
