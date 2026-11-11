@@ -9,6 +9,7 @@ import { workflowImportsCreate } from 'products/workflows/frontend/generated/api
 import { WorkflowImportResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { WorkflowImportResultApi } from '../../generated/api.schemas'
+import { workflowsListV2Logic } from '../WorkflowsListV2/workflowsListV2Logic'
 import { workflowsLogic } from '../workflowsLogic'
 import { ParsedCustomerioFile, parseCustomerioFiles } from './customerioImportFile'
 
@@ -208,6 +209,7 @@ export const customerioImportLogic = kea<customerioImportLogicType>([
         runImportSuccess: ({ results }) => {
             if (results && !results.dryRun) {
                 workflowsLogic.findMounted()?.actions.loadWorkflows()
+                workflowsListV2Logic.findMounted()?.actions.refreshWorkflows()
             }
         },
         runImportFailure: ({ error }) => {
