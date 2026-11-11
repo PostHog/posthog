@@ -27,6 +27,9 @@ import { WorkflowsScene } from './WorkflowsScene'
 const shownRowNames = (): string[] =>
     Array.from(document.querySelectorAll('[data-attr="workflows-list-v2-name"]')).map((el) => el.textContent ?? '')
 
+const shownHeaders = (): (string | null)[] =>
+    Array.from(document.querySelectorAll('[data-attr="workflows-list-v2"] th')).map((th) => th.textContent)
+
 describe('WorkflowsScene', () => {
     let listRequests: string[]
     let answeredSearches: string[]
@@ -217,10 +220,36 @@ describe('WorkflowsScene', () => {
         )
 
         await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
-        const headers = Array.from(document.querySelectorAll('[data-attr="workflows-list-v2"] th')).map(
-            (th) => th.textContent
-        )
-        expect(headers).toEqual(expectedHeaders)
+        expect(shownHeaders()).toEqual(expectedHeaders)
+    })
+
+    it('keeps the columns picked in List options after the list reopens, until they are reset', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        const openList = async (): Promise<void> => {
+            render(
+                <Provider>
+                    <WorkflowsScene />
+                </Provider>
+            )
+            await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
+        }
+        const chooseFromListOptions = async (item: string): Promise<void> => {
+            fireEvent.click(document.querySelector('[data-attr="workflows-list-v2-options"]')!)
+            await waitFor(() => expect(document.querySelector(`[data-attr="${item}"]`)).not.toBeNull())
+            fireEvent.click(document.querySelector(`[data-attr="${item}"]`)!)
+        }
+
+        await openList()
+        await chooseFromListOptions('workflows-list-v2-column-health')
+        await chooseFromListOptions('workflows-list-v2-column-owner')
+        await waitFor(() => expect(shownHeaders()).toEqual(['Name', 'Status', 'Health', 'Updated', '', '']))
+
+        cleanup()
+        await openList()
+        expect(shownHeaders()).toEqual(['Name', 'Status', 'Health', 'Updated', '', ''])
+
+        await chooseFromListOptions('workflows-list-v2-reset-columns')
+        await waitFor(() => expect(shownHeaders()).toEqual(['Name', 'Status', 'Owner', 'Updated', '', '']))
     })
 
     it.each([
