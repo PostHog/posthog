@@ -59,6 +59,7 @@ from products.stamphog.backend.logic.review_trigger import derive_review_trigger
 from products.stamphog.backend.logic.reviewer import parse_reviewer_output
 from products.stamphog.backend.logic.routing.service import RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
+    FinishedReview,
     ReviewPath,
     route_after_external_review,
     route_after_verdict,
@@ -2030,15 +2031,17 @@ def _live_runs_of_head(repo_config: StamphogRepoConfig, pr_number: int, head_sha
     )
 
 
-def _finished_review_outcome(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> str | None:
-    """The routing outcome of stamphog's latest review of this head, or None while it has none.
+def _finished_review(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> FinishedReview | None:
+    """Stamphog's latest finished review of this head, or None while it has none.
 
     A queued or running review counts as none, so the head waits for it.
     """
     run = _live_runs_of_head(repo_config, pr_number, head_sha).order_by("-created_at").first()
     if run is None or run.status not in TERMINAL_STATUSES:
         return None
-    return verdict_outcome(ReviewRunStatus(run.status), ReviewVerdict(run.verdict))
+    return FinishedReview(
+        outcome=verdict_outcome(ReviewRunStatus(run.status), ReviewVerdict(run.verdict)), silent=run.is_silent
+    )
 
 
 def _has_review_of_head(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> bool:
@@ -2048,7 +2051,7 @@ def _has_review_of_head(repo_config: StamphogRepoConfig, pr_number: int, head_sh
 _ROUTING_REVIEW_PATH = ReviewPath(
     will_review=_stamphog_will_review,
     schedule_safety_net=_schedule_routing_safety_net,
-    finished_outcome=_finished_review_outcome,
+    finished_review=_finished_review,
     has_review=_has_review_of_head,
 )
 

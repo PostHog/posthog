@@ -547,6 +547,8 @@ def test_fallback_approval_requests_only_pinned_owners(
         # Nothing starts a silent review of a pushed head, so the report routes the live head now.
         ("push_routes_the_live_head", "push", True),
         ("push_to_a_head_stamphog_reviews", "push_reviewed", False),
+        # The author pushed before the opening event read the PR, so the record waits on the newer head.
+        ("push_before_the_opening_event", "push_first", True),
         ("switch_turned_off", "switch_off", False),
     ],
 )
@@ -569,6 +571,8 @@ def test_the_clean_review_switch_waits_for_reviewhog(
             route_reviewers_after_external_review.apply(kwargs=report, throw=True)
         assert isinstance(retry.value.exc, RoutingBusy)
         assert retry.value.when == ROUTING_BUSY_RETRY_SECONDS
+    if before_call == "push_first":
+        _push(routing_chain, _HEAD_2)
     _route()
     assert routing_chain.recorder.github_writes == []
     assert _stored(team.id)["status"] == "waiting"
@@ -596,7 +600,7 @@ def test_the_clean_review_switch_waits_for_reviewhog(
     if expect_routed:
         assert _requested(routing_chain) == ({"carol"}, {"team-alpha"})
         assert (record["trigger"], record["scope"], record["status"]) == ("external_review", "full", "done")
-        assert record["head_sha"] == (_HEAD_2 if before_call == "push" else HEAD_SHA)
+        assert record["head_sha"] == (_HEAD_2 if before_call in ("push", "push_first") else HEAD_SHA)
     else:
         assert routing_chain.recorder.github_writes == []
         assert record["status"] == "waiting"
@@ -649,14 +653,25 @@ def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
 
 
 @pytest.mark.parametrize(
-    "name,verdict,changed_files,expected_trigger,expected_requests,expected_nets",
+    "name,verdict,silent,changed_files,expected_trigger,expected_requests,expected_nets",
     [
-        ("approval", ReviewVerdict.APPROVED, None, "verdict:approved", (set(), {"team-alpha"}), 0),
-        ("refusal", ReviewVerdict.REFUSED, None, "verdict:refused", ({"carol"}, {"team-alpha", "team-beta"}), 0),
+        ("approval", ReviewVerdict.APPROVED, False, None, "verdict:approved", (set(), {"team-alpha"}), 0),
+        (
+            "refusal",
+            ReviewVerdict.REFUSED,
+            False,
+            None,
+            "verdict:refused",
+            ({"carol"}, {"team-alpha", "team-beta"}),
+            0,
+        ),
+        # Nothing reviews again after a silent WAIT, so the opening event routes it in full instead of waiting.
+        ("silent_wait", ReviewVerdict.WAIT, True, None, "verdict:wait", ({"carol"}, {"team-alpha", "team-beta"}), 0),
         # The pins come from a partial file list, so the head still owes a full routing from the safety net.
         (
             "approval_on_a_truncated_file_list",
             ReviewVerdict.APPROVED,
+            False,
             5000,
             "verdict:approved",
             (set(), {"team-alpha"}),
@@ -668,6 +683,7 @@ def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
 def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
     name: str,
     verdict: ReviewVerdict,
+    silent: bool,
     changed_files: int | None,
     expected_trigger: str,
     expected_requests: tuple[set[str], set[str]],
@@ -684,9 +700,14 @@ def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
             team_id=team.id, repo_config=repo_config, pr_number=PR_NUMBER
         )
         ReviewRun.objects.for_team(team.id).create(
-            team_id=team.id, pull_request=pr_obj, head_sha=HEAD_SHA, status=ReviewRunStatus.COMPLETED, verdict=verdict
+            team_id=team.id,
+            pull_request=pr_obj,
+            head_sha=HEAD_SHA,
+            status=ReviewRunStatus.COMPLETED,
+            verdict=verdict,
+            output={"review_trigger": "reviewhog_clean"} if silent else {},
         )
-    _finish_review(repo_config, ReviewRunStatus.COMPLETED, verdict)
+    _finish_review(repo_config, ReviewRunStatus.COMPLETED, verdict, silent=silent)
     assert routing_chain.recorder.github_writes == []
 
     _route()

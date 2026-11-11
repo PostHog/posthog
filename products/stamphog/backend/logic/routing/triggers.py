@@ -59,14 +59,24 @@ class WillReview(Protocol):
 
 
 @frozen
+class FinishedReview:
+    """The latest finished review of one head, as routing reads it."""
+
+    # The routing outcome: see `verdict_outcome`.
+    outcome: str
+    # Whether the run was silent. Nothing reviews a head again after a silent WAIT.
+    silent: bool
+
+
+@frozen
 class ReviewPath:
     """What routing needs from the review path. The task module owns these and passes them in."""
 
     will_review: WillReview
     # Schedules the safety net for (repo_config, pr_number).
     schedule_safety_net: Callable[[StamphogRepoConfig, int], None]
-    # The routing outcome of the latest finished review of (repo_config, pr_number, head_sha), or None.
-    finished_outcome: Callable[[StamphogRepoConfig, int, str], str | None]
+    # The latest finished review of (repo_config, pr_number, head_sha), or None.
+    finished_review: Callable[[StamphogRepoConfig, int, str], FinishedReview | None]
     # Whether (repo_config, pr_number, head_sha) has a review that is not superseded, finished or not.
     has_review: Callable[[StamphogRepoConfig, int, str], bool]
 
@@ -76,6 +86,11 @@ def verdict_outcome(status: ReviewRunStatus, verdict: ReviewVerdict) -> str:
     if status in (ReviewRunStatus.FAILED, ReviewRunStatus.GATED):
         return status.value
     return verdict.value
+
+
+def _reviews_again(outcome: str, *, silent: bool) -> bool:
+    # Stamphog re-reviews after a visible WAIT. Nothing re-reviews after a silent one, so it routes like a refusal.
+    return outcome == ReviewVerdict.WAIT and not silent
 
 
 @frozen
@@ -215,8 +230,9 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
     if wait:
         # A fast verdict can land before this task stores a record, and the verdict task drops it as a PR that
         # opened before routing was on. So a head that already has a verdict routes by it instead of waiting.
-        outcome = review_path.finished_outcome(repo_config, state.pr_number, head_sha)
-        if outcome is not None and outcome != ReviewVerdict.WAIT:
+        finished = review_path.finished_review(repo_config, state.pr_number, head_sha)
+        if finished is not None and not _reviews_again(finished.outcome, silent=finished.silent):
+            outcome = finished.outcome
             scope = SCOPE_PINNED if outcome == ReviewVerdict.APPROVED else SCOPE_FULL
             return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=verdict_trigger(outcome), scope=scope)
     return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=action, wait=wait)
@@ -251,14 +267,19 @@ def _external_review_step(
     client: StamphogGitHubClient, state: _State, *, head_sha: str, review_path: ReviewPath
 ) -> _Step | None:
     record = state.record
-    if record is None or record.get("head_sha") != head_sha:
+    if record is None:
         # ReviewHog reports from the same delivery as the opening event, so the report can come before the
         # event saves its waiting record. The task tries again soon.
-        raise RoutingBusy(f"no routing record of PR {state.pr_number} waits on the reported head yet")
+        raise RoutingBusy(f"no routing record of PR {state.pr_number} yet")
     if record.get("status") != STATUS_WAITING or record.get(FULL_ROUTED_HEAD):
         return None
     pr = _live_head(client, state.repo_config, state.pr_number)
     if pr is None:
+        return None
+    # The record waits on the reported head, or on the live head because the author pushed before the opening
+    # event read the pull request. Nothing starts a silent review of a pushed head in either case. A record on
+    # any other head belongs to another report.
+    if record.get("head_sha") not in (head_sha, _head_sha(pr)):
         return None
     return _full_step_on_live_head(pr, state, trigger=TRIGGER_EXTERNAL_REVIEW, review_path=review_path)
 
@@ -346,8 +367,7 @@ def _verdict_step(
     if at_head is not None and at_head.get("status") != STATUS_WAITING and not _upgrades_pinned(at_head, outcome):
         # Another task already routed or claimed this head.
         return None
-    # Stamphog re-reviews after a visible WAIT. Nothing re-reviews after a silent one, so it routes like a refusal.
-    wait = outcome == ReviewVerdict.WAIT and not silent
+    wait = _reviews_again(outcome, silent=silent)
     if wait and at_head is not None:
         # The safety net already covers this head.
         return None
