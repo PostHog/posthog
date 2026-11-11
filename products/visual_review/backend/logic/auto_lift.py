@@ -96,7 +96,9 @@ class _Window:
 
 
 def _window(run: Run, default_branch: str) -> _Window | None:
-    """The window that starts at the `AUTO_LIFT_CLEAN_RUNS`th newest full default-branch run, or None."""
+    """The `AUTO_LIFT_CLEAN_RUNS` full default-branch runs up to and including `run`, or None."""
+    # Runs newer than `run` stay out, because the lift records `run`'s commit and the evidence must
+    # describe that commit, also when the task runs late.
     newest = list(
         Run.objects.using(WRITER_DB)
         .filter(
@@ -107,6 +109,7 @@ def _window(run: Run, default_branch: str) -> _Window | None:
             is_partial=False,
             branch=default_branch,
             pr_number__isnull=True,
+            created_at__lte=run.created_at,
         )
         .order_by("-created_at")
         .values_list("id", "commit_sha", "created_at")[:AUTO_LIFT_CLEAN_RUNS]
@@ -179,7 +182,9 @@ def _clean_streaks(
 ) -> dict[str, CleanStreak]:
     identifiers = list(quarantined)
     run_ids = list(
-        auto_quarantine.trusted_runs_since(run, default_branch, window.started_at).values_list("id", flat=True)
+        auto_quarantine.trusted_runs_since(run, default_branch, window.started_at)
+        .filter(created_at__lte=run.created_at)
+        .values_list("id", flat=True)
     )
     hard_rows = _hard_rows(run, run_ids, identifiers)
     default_branch_renders = _render_counts(run, window.default_branch_run_ids, identifiers)
@@ -266,6 +271,14 @@ def release_clean_quarantines(run_id: UUID) -> None:
     quarantined = _newest_active_quarantines(run, now)
     if not quarantined:
         return
+    # The branch name and commit come from the client, and the lift writes the commit as
+    # `lifted_at_sha`. An off-branch commit there would keep the quarantine on every real
+    # default-branch run, so GitHub must confirm the commit is on the default branch. The check
+    # runs before the evidence read, so a run that completes during the GitHub request is still
+    # read before the write. This costs one GitHub lookup per hourly check, also when nothing lifts.
+    if not _is_on_default_branch(repo, run.commit_sha):
+        logger.warning("visual_review.auto_lift_commit_not_on_default_branch", repo_id=str(repo.id), run_id=str(run.id))
+        return
     window = _window(run, run.branch)
     if window is None:
         return
@@ -274,19 +287,6 @@ def release_clean_quarantines(run_id: UUID) -> None:
         for identifier, streak in _clean_streaks(run, run.branch, window, quarantined).items()
         if is_clean(streak)
     }
-    if not clean:
-        return
-    # The branch name and commit come from the client, and the lift writes the commit as
-    # `lifted_at_sha`. An off-branch commit there would keep the quarantine on every real
-    # default-branch run, so GitHub must confirm the commit is on the default branch.
-    if not _is_on_default_branch(repo, run.commit_sha):
-        logger.warning(
-            "visual_review.auto_lift_commit_not_on_default_branch",
-            repo_id=str(repo.id),
-            run_id=str(run.id),
-            clean_quarantines=len(clean),
-        )
-        return
     reason = lift_reason(window.first_run_sha)
     with ph_scoped_capture() as capture_ph_event:
         for identifier, streak in clean.items():

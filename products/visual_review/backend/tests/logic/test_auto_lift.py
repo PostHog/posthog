@@ -149,6 +149,21 @@ class TestReleaseCleanQuarantines:
                 "Lifted automatically: unchanged in the last 3 default-branch runs, since aaaaaaa",
             )
 
+    def test_a_late_check_reads_the_window_up_to_its_own_run(self, repo, capture):
+        entry = _quarantine(repo, hours_ago=72)
+        _run(repo, "master", "a" * 40, SnapshotResult.UNCHANGED, hours_ago=48)
+        _run(repo, "master", "b" * 40, SnapshotResult.UNCHANGED, hours_ago=24)
+        finishing = _run(repo, "master", _FINISHING_SHA, SnapshotResult.UNCHANGED, hours_ago=6)
+        _run(repo, "master", "n" * 40, SnapshotResult.CHANGED)
+
+        auto_lift.release_clean_quarantines(finishing.id)
+
+        entry.refresh_from_db()
+        assert (entry.lifted_at_sha, entry.lift_reason) == (
+            _FINISHING_SHA,
+            "Lifted automatically: unchanged in the last 3 default-branch runs, since aaaaaaa",
+        )
+
     @pytest.mark.parametrize(
         "queue_result,quarantined_hours_ago,on_default_branch",
         [

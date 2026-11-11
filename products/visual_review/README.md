@@ -180,6 +180,7 @@ Visual review lifts a quarantine by itself once trusted runs render its story cl
 When a full default-branch run without a pull request finishes, a Celery task, `release clean quarantines`, checks every active quarantine of the run's type, whoever opened it.
 The task runs at most once an hour per repository and run type, and it checks with GitHub that the run is on the default branch.
 The window starts at the `AUTO_LIFT_CLEAN_RUNS`th newest completed full default-branch run, so it adapts to how busy the repository is.
+It ends at the finishing run, and newer runs stay out, because the lift records the finishing run's commit.
 With fewer default-branch runs than that, nothing lifts.
 A quarantine lifts when all of these hold:
 
