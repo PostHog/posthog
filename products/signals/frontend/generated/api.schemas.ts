@@ -1908,6 +1908,13 @@ export interface ReportMetricListApi {
      * @nullable
      */
     series?: number[] | null
+    /**
+     * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+     * @maxItems 14
+     * @nullable
+     * @items.maxLength 32
+     */
+    series_buckets?: string[] | null
     /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
      *
      * * `number` - number
@@ -1958,6 +1965,11 @@ export interface ReportMetricListApi {
      * @nullable
      */
     minimum_data_points?: number | null
+    /**
+     * Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`; `day` when the stored query names none, as in Trends. Null when the query smooths its buckets into moving averages, whose values mix neighbouring buckets, or is not a Trends query.
+     * @nullable
+     */
+    readonly interval: string | null
 }
 
 /**
@@ -2406,6 +2418,179 @@ export interface ReportPlanApi {
     readonly steps: readonly ReportPlanStepApi[]
 }
 
+/**
+ * * `not_on_track` - Not on track
+ * * `on_track` - On track
+ * * `awaiting_reading` - Awaiting first reading
+ * * `readings_hidden` - Readings hidden
+ * * `final_check_only` - Final check only
+ * * `window_ended` - Window ended
+ */
+export type MonitoringSummaryStateEnumApi =
+    (typeof MonitoringSummaryStateEnumApi)[keyof typeof MonitoringSummaryStateEnumApi]
+
+export const MonitoringSummaryStateEnumApi = {
+    NotOnTrack: 'not_on_track',
+    OnTrack: 'on_track',
+    AwaitingReading: 'awaiting_reading',
+    ReadingsHidden: 'readings_hidden',
+    FinalCheckOnly: 'final_check_only',
+    WindowEnded: 'window_ended',
+} as const
+
+export type CheckComparisonOperatorEnumApi =
+    (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
+
+export const CheckComparisonOperatorEnumApi = {
+    Lte: 'lte',
+    Gte: 'gte',
+    Between: 'between',
+} as const
+
+export interface CheckThresholdBoundsApi {
+    lower: number
+    upper: number
+}
+
+/**
+ * What the measured value must satisfy for the check to pass.
+ *
+ * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
+ * would need a second comparison engine for a distinction a soak window does not make, so they are
+ * not offered: "stays at or below 10 a day" is the same expectation.
+ */
+export interface CheckComparisonApi {
+    /** `lte`, `gte`, or `between`. */
+    operator: CheckComparisonOperatorEnumApi
+    /** The bound for `lte` and `gte`; unused by `between`. */
+    value?: number | null
+    /** The inclusive range for `between`; unused by `lte` and `gte`. */
+    bounds?: CheckThresholdBoundsApi | null
+}
+
+export type MonitoringMetricConfigPurposeEnumApi =
+    (typeof MonitoringMetricConfigPurposeEnumApi)[keyof typeof MonitoringMetricConfigPurposeEnumApi]
+
+export const MonitoringMetricConfigPurposeEnumApi = {
+    Expectation: 'expectation',
+    MinimumEvidence: 'minimum_evidence',
+} as const
+
+export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
+
+export const ThresholdScalingEnumApi = {
+    Linear: 'linear',
+    Fixed: 'fixed',
+} as const
+
+export interface MonitoringMetricConfigApi {
+    /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
+    purpose?: MonitoringMetricConfigPurposeEnumApi
+    /**
+     * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
+     * @maximum 527040
+     * @exclusiveMinimum 0
+     */
+    reference_period_minutes: number
+    /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
+    threshold_scaling: ThresholdScalingEnumApi
+    /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
+    baseline_period_minutes?: number | null
+}
+
+export interface MonitoringReadingApi {
+    /** When this interim reading was measured. */
+    measured_at: string
+    /**
+     * Whether the reading met the target at that point in the window. Null when the measurement failed or this viewer may not read the check's data.
+     * @nullable
+     */
+    matches: boolean | null
+    /**
+     * Value measured from Monitoring start to `measured_at`. Null when the measurement failed or this viewer may not read the check's data.
+     * @nullable
+     */
+    observed_value: number | null
+    /**
+     * Target the reading was compared with, scaled to elapsed time when the check scales linearly. Null for a `between` target, a failed measurement, or a viewer who may not read the check's data.
+     * @nullable
+     */
+    threshold: number | null
+}
+
+export interface MonitoringLeadCheckApi {
+    /** The follow-up check this summary is drawn from. */
+    check_id: string
+    /** The check's short label. */
+    title: string
+    /**
+     * The report metric the check measures, matching `metrics[].metric_id`. Null when the check names none, or the report metric with that id no longer runs the check's query.
+     * @nullable
+     */
+    metric_id: string | null
+    /** What the measured value means, when the check names it.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    metric_kind: ReportMetricKindEnumApi | null
+    /** How to format measured values, matching a report metric's `value_format`.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format: ValueFormatEnumApi | null
+    /**
+     * Optional value suffix, such as `users`.
+     * @nullable
+     */
+    unit: string | null
+    /** What the measured value must satisfy over the reference period. */
+    readonly comparison: CheckComparisonApi
+    /** The target's reference period and whether it scales with elapsed time. */
+    readonly monitoring: MonitoringMetricConfigApi
+    /**
+     * The value before the fix, over `monitoring.baseline_period_minutes`. Null when absent or redacted.
+     * @nullable
+     */
+    baseline_value: number | null
+    /** End of this check's observation window. */
+    ends_at: string
+    /**
+     * When the next interim reading is scheduled, if one falls inside the window.
+     * @nullable
+     */
+    next_measurement_at: string | null
+    /** Interim readings in this Monitoring period, oldest first. */
+    readings: MonitoringReadingApi[]
+}
+
+export interface ReportMonitoringSummaryApi {
+    /** Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. `awaiting_reading`: a metric check has no interim reading yet. `readings_hidden`: this viewer may not read the data of a metric check whose readings would decide the state. `on_track`: every metric check's latest reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome waits for the final checks. `window_ended`: every observation window has ended and final verification is due or running.
+     *
+     * * `not_on_track` - Not on track
+     * * `on_track` - On track
+     * * `awaiting_reading` - Awaiting first reading
+     * * `readings_hidden` - Readings hidden
+     * * `final_check_only` - Final check only
+     * * `window_ended` - Window ended */
+    state: MonitoringSummaryStateEnumApi
+    /** When this Monitoring period started. */
+    started_at: string
+    /** When the last open check's observation window ends. */
+    ends_at: string
+    /** The metric check that best stands for the report: the first one this viewer can see is off track, otherwise the first metric check that takes interim readings. Null when none does. */
+    lead_check: MonitoringLeadCheckApi | null
+}
+
 export interface SignalReportListApi {
     readonly id: string
     /** @nullable */
@@ -2560,6 +2745,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly personal_reason: string | null
+    /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with open follow-up checks. */
+    readonly monitoring_summary: ReportMonitoringSummaryApi | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -2981,6 +3168,13 @@ export interface ReportMetricApi {
      * @nullable
      */
     series?: number[] | null
+    /**
+     * The Trends bucket label of each `series` point, oldest first, such as `2026-11-09` or `2026-11-09 10:00:00` in the project's timezone. Null when the snapshot did not record them or `series` is null for this viewer.
+     * @maxItems 14
+     * @nullable
+     * @items.maxLength 32
+     */
+    series_buckets?: string[] | null
     /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
      *
      * * `number` - number
@@ -6062,66 +6256,6 @@ export const SignalReportCheckStatusEnumApi = {
     Expired: 'expired',
     Cancelled: 'cancelled',
 } as const
-
-export type MonitoringMetricConfigPurposeEnumApi =
-    (typeof MonitoringMetricConfigPurposeEnumApi)[keyof typeof MonitoringMetricConfigPurposeEnumApi]
-
-export const MonitoringMetricConfigPurposeEnumApi = {
-    Expectation: 'expectation',
-    MinimumEvidence: 'minimum_evidence',
-} as const
-
-export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
-
-export const ThresholdScalingEnumApi = {
-    Linear: 'linear',
-    Fixed: 'fixed',
-} as const
-
-export interface MonitoringMetricConfigApi {
-    /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
-    purpose?: MonitoringMetricConfigPurposeEnumApi
-    /**
-     * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
-     * @maximum 527040
-     * @exclusiveMinimum 0
-     */
-    reference_period_minutes: number
-    /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
-    threshold_scaling: ThresholdScalingEnumApi
-    /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
-    baseline_period_minutes?: number | null
-}
-
-export type CheckComparisonOperatorEnumApi =
-    (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
-
-export const CheckComparisonOperatorEnumApi = {
-    Lte: 'lte',
-    Gte: 'gte',
-    Between: 'between',
-} as const
-
-export interface CheckThresholdBoundsApi {
-    lower: number
-    upper: number
-}
-
-/**
- * What the measured value must satisfy for the check to pass.
- *
- * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
- * would need a second comparison engine for a distinction a soak window does not make, so they are
- * not offered: "stays at or below 10 a day" is the same expectation.
- */
-export interface CheckComparisonApi {
-    /** `lte`, `gte`, or `between`. */
-    operator: CheckComparisonOperatorEnumApi
-    /** The bound for `lte` and `gte`; unused by `between`. */
-    value?: number | null
-    /** The inclusive range for `between`; unused by `lte` and `gte`. */
-    bounds?: CheckThresholdBoundsApi | null
-}
 
 /**
  * How to draw this measurement; copied from a referenced metric.
