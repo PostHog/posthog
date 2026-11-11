@@ -152,22 +152,6 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
-        it.each([
-            [
-                'two valid hrefs',
-                `<a href="https://example.com/a" href='https://example.com/b'>x</a>`,
-                'https://example.com/b',
-            ],
-            [
-                'a javascript: href after a valid one',
-                '<a href="https://example.com/a" href="javascript:x">x</a>',
-                'https://example.com/a',
-            ],
-            ['a quoted href holding a >', '<a href="https://example.com/?a>b">x</a>', 'https://example.com/?a>b'],
-        ])('redirects to the last trackable href of %s', (_, anchor, expected) => {
-            expect(extractTarget(addTrackingToEmail(`<body>${anchor}</body>`, invocation, signer))).toBe(expected)
-        })
-
         const sensitiveInvocation = { ...invocation, hogFunction: { metadata: { sensitive: true } } }
 
         it.each([
@@ -442,6 +426,32 @@ describe('EmailTrackingService', () => {
                 expect(res.headers.location).toBe('https://example.com/?a=1&b=2')
 
                 await expectLinkClickedMetrics(1)
+            })
+
+            it.each([
+                [
+                    'two valid hrefs',
+                    `<a href="https://example.com/a" href='https://example.com/b'>x</a>`,
+                    'https://example.com/b',
+                ],
+                [
+                    'a javascript: href after a valid one',
+                    '<a href="https://example.com/a" href="javascript:x">x</a>',
+                    'https://example.com/a',
+                ],
+                ['a quoted href holding a >', '<a href="https://example.com/?a>b">x</a>', 'https://example.com/?a%3Eb'],
+            ])('should redirect a tracked link in %s to its last trackable href', async (_name, anchor, expected) => {
+                const html = addTrackingToEmail(
+                    `<body>${anchor}</body>`,
+                    { functionId: hogFunction.id, id: invocationId, teamId: team.id, state: {} } as any,
+                    signer
+                )
+                const link = new URL(html.match(/href="([^"]+\/public\/m\/redirect[^"]+)"/)![1])
+
+                const res = await supertest(app).get(`${link.pathname}${link.search}`)
+
+                expect(res.status).toBe(302)
+                expect(res.headers.location).toBe(expected)
             })
 
             it.each([
