@@ -194,6 +194,46 @@ describe('workflowsOnboardingWizardLogic', () => {
         expect(router.values.searchParams).toMatchObject({ templateId: WELCOME_TEMPLATE.id })
     })
 
+    it.each<[string, string, string, string | null, string | null]>([
+        ['waits for the picked journey to load', 'test', WELCOME_TEMPLATE.id, 'Loading your journey', null],
+        [
+            'sends a missing journey back to the pick',
+            'test',
+            'gone',
+            'Loading your journey',
+            'Go back and pick your first journey',
+        ],
+        ['leaves the control arm free to continue to its pick', 'control', 'gone', null, null],
+    ])('%s when a person reloads the sending rules', async (_, variant, template, whileLoading, afterLoading) => {
+        let releaseTemplates: () => void = () => {}
+        const templatesHeld = new Promise<void>((resolve) => {
+            releaseTemplates = resolve
+        })
+        const heldTemplates = async (): Promise<[number, unknown]> => {
+            await templatesHeld
+            return [200, page([WELCOME_TEMPLATE])]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flow_templates/': heldTemplates,
+                '/api/environments/:team_id/hog_flow_templates/': heldTemplates,
+            },
+        })
+        setJourneyFirstVariant(variant)
+        logic = workflowsOnboardingWizardLogic()
+        logic.mount()
+
+        router.actions.push(onboardingWizardUrl('messaging', { step: 'sending-rules', template }))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.currentStep).toBe('sending-rules')
+        expect(logic.values.continueDisabledReason).toBe(whileLoading)
+        releaseTemplates()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).delay(1)
+
+        expect(logic.values.continueDisabledReason).toBe(afterLoading)
+    })
+
     it('keeps the arm for the run when the flags change mid-run', async () => {
         setJourneyFirstVariant('test')
         logic = workflowsOnboardingWizardLogic()

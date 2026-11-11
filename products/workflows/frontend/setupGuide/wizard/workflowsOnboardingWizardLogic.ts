@@ -68,6 +68,19 @@ function journeyFirstForRun(
     return run.initialized && path === run.wizardPath ? run.journeyFirst : isJourneyFirst(path, featureFlags)
 }
 
+function finishWithoutPickReason(run: {
+    journeyFirst: boolean
+    wizardPath: WorkflowsOnboardingPath
+    selectedTemplate: HogFlowTemplate | null
+    startsBlank: boolean
+    workflowTemplatesLoading: boolean
+}): string | null {
+    if (!run.journeyFirst || run.wizardPath !== 'messaging' || run.selectedTemplate || run.startsBlank) {
+        return null
+    }
+    return run.workflowTemplatesLoading ? 'Loading your journey' : 'Go back and pick your first journey'
+}
+
 function resumedStep(
     path: WorkflowsOnboardingPath,
     steps: readonly WizardStepKey[],
@@ -329,7 +342,10 @@ export interface workflowsOnboardingWizardLogicMeta {
             selectedTemplate: HogFlowTemplate | null,
             startsBlank: boolean,
             frequencyCapError: string | null,
-            currentTeamLoading: boolean
+            currentTeamLoading: boolean,
+            journeyFirst: boolean,
+            wizardPath: WorkflowsOnboardingPath,
+            workflowTemplatesLoading: boolean
         ) => string | null
     }
 }
@@ -712,6 +728,9 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 s.startsBlank,
                 s.frequencyCapError,
                 s.currentTeamLoading,
+                s.journeyFirst,
+                s.wizardPath,
+                s.workflowTemplatesLoading,
             ],
             (
                 currentStep: WizardStepKey,
@@ -719,13 +738,25 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 selectedTemplate: HogFlowTemplate | null,
                 startsBlank: boolean,
                 frequencyCapError: string | null,
-                currentTeamLoading: boolean
+                currentTeamLoading: boolean,
+                journeyFirst: boolean,
+                wizardPath: WorkflowsOnboardingPath,
+                workflowTemplatesLoading: boolean
             ): string | null => {
                 if (currentStep === 'sending-rules') {
                     if (currentTeamLoading) {
                         return 'Saving your sending rules'
                     }
-                    return frequencyCapError ? 'Fix the frequency cap to continue' : null
+                    if (frequencyCapError) {
+                        return 'Fix the frequency cap to continue'
+                    }
+                    return finishWithoutPickReason({
+                        journeyFirst,
+                        wizardPath,
+                        selectedTemplate,
+                        startsBlank,
+                        workflowTemplatesLoading,
+                    })
                 }
                 if (currentStep === 'broadcast') {
                     return null
