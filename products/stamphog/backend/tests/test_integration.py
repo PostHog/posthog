@@ -2342,7 +2342,10 @@ def test_silent_review_posts_nothing_but_an_approval(
     assert run.verdict_withheld is not approved
     assert (run.verdict_posted_at is not None) is approved
     summarize.assert_not_called()
-    assert routing_delay.called is approved
+    # FALLBACK routing hears every outcome, withheld ones included, because the head waits for this run.
+    assert routing_delay.call_args.kwargs["outcome"] == (
+        "gated" if expect_status == ReviewRunStatus.GATED else expect_verdict.value
+    )
     # Dismissing a review also hides it as outdated, so both belong to the sweep.
     writes = [w["kind"] for w in recorder.github_writes if w["kind"] not in ("dismiss_review", "minimize_review")]
     assert writes == (["approve_review"] if approved else [])

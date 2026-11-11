@@ -202,6 +202,11 @@ Do not return early before them, or a silent refusal leaves an older approval st
 Every path that writes to the PR asks `ReviewRun.may_publish`, so the approval exception is decided in one place.
 Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty (`ReviewRun.verdict_withheld`), so the verdict a run computed is never read as one the PR saw.
 
+FALLBACK routing is the one consumer of a withheld verdict, and the one PR write that does not ask `may_publish`: `_notify_finished_review` queues routing for every outcome of a silent run, because with the switch on `_stamphog_will_review` counts the head as reviewed and it waits for this run.
+Routing writes review requests and a comment that names cuts or the approval, never a withheld verdict, so keep it that way: a routing comment that names the outcome would publish what the run withheld.
+When ReviewHog will not start a silent review of a head (findings, a failed turn, or no automatic turn), it calls `facade/tasks.py::queue_routing_after_external_review`. The task routes in full only while the record waits on that head, the repo is FALLBACK with the switch on, the head is current, and no non-superseded stamphog run covers the head, with writer-pinned reads and the same claim as every other routing trigger. Anything else is a no-op, so the 30-minute safety net stays only a backstop for failures.
+The switch needs label mode: the write serializer refuses it with `review_mode=all`, and a save that sets `all` turns it off. A repository without ReviewHog automatic turns must leave it off, or every head waits for the safety net.
+
 A silent run never covers a visible request. `_queue_review_at_head` ignores a silent run whose verdict is unpublished unless the request is silent too, so a manual request supersedes a silent run in flight, as the label webhook always did.
 A visible request (the trigger label, or a manual request) creates its own run as always, so a caller polling that run follows it to the real outcome.
 When the head's latest run withheld a REFUSED or ESCALATE verdict (`_reusable_withheld_run`, asked by `_queue_review_at_head` for every visible request and by the webhook for the trigger label), the new run carries `withheld_run_id`.

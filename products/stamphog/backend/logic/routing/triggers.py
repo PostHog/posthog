@@ -26,6 +26,7 @@ from products.stamphog.backend.logic.routing.service import (
     SCOPE_PINNED,
     STATUS_DONE,
     STATUS_WAITING,
+    TRIGGER_EXTERNAL_REVIEW,
     TRIGGER_SAFETY_NET,
     RoutingBusy,
     claim_routing,
@@ -57,6 +58,8 @@ class ReviewPath:
     schedule_safety_net: Callable[[StamphogRepoConfig, int], None]
     # The routing outcome of the latest finished review of (repo_config, pr_number, head_sha), or None.
     finished_outcome: Callable[[StamphogRepoConfig, int, str], str | None]
+    # Whether (repo_config, pr_number, head_sha) has a review that is not superseded, finished or not.
+    has_review: Callable[[StamphogRepoConfig, int, str], bool]
 
 
 def verdict_outcome(status: ReviewRunStatus, verdict: ReviewVerdict) -> str:
@@ -346,4 +349,41 @@ def route_on_safety_net(
     if _resume(client, state):
         return
     step = _safety_net_step(client, state)
+    _execute(client, state, step, review_path, retry_when_busy=False)
+
+
+def _external_review_step(
+    client: StamphogGitHubClient, state: _State, *, head_sha: str, review_path: ReviewPath
+) -> _Step | None:
+    record = state.record
+    if record is None or record.get("status") != STATUS_WAITING or record.get("head_sha") != head_sha:
+        return None
+    if record.get(FULL_ROUTED_HEAD):
+        return None
+    if review_path.has_review(state.repo_config, state.pr_number, head_sha):
+        # Stamphog reviews this head after all, and its verdict routes it.
+        return None
+    pr = _live_head(client, state.repo_config, state.pr_number)
+    if pr is None or _head_sha(pr) != head_sha:
+        return None
+    return _Step(pr=pr, head_sha=head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_EXTERNAL_REVIEW)
+
+
+def route_after_external_review(
+    repo_config: StamphogRepoConfig, *, pr_number: int, head_sha: str, task_id: str, review_path: ReviewPath
+) -> None:
+    """Route a waiting FALLBACK head in full, because ReviewHog will not start a silent review of it.
+
+    With the clean-review switch on, a head waits for that silent review. Without this call it waits
+    for the safety net. Any other state means another trigger already decides the head, so this does
+    nothing. ``task_id`` is the Celery task id, which a retry of the same task keeps.
+    """
+    if repo_config.routing_mode != RoutingMode.FALLBACK or not repo_config.review_on_clean_external_review:
+        return
+    client = StamphogGitHubClient(repo_config.installation_id)
+    state = _load_state(repo_config, pr_number, task_id)
+    if _resume(client, state):
+        return
+    step = _external_review_step(client, state, head_sha=head_sha, review_path=review_path)
+    # A record that changed since the read is no longer waiting on this head, so another task decides it.
     _execute(client, state, step, review_path, retry_when_busy=False)

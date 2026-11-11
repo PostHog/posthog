@@ -2132,10 +2132,10 @@ def _notify_finished_review(
             hook(finished)
         except Exception:
             activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
-    # Routing requests reviewers and can comment on the PR, which a silent run may only do for an
-    # approval. The callbacks above still hear every outcome.
-    if not run.may_publish(finished.verdict):
-        return
+    # A silent run routes on a withheld verdict too. FALLBACK routing exists for the heads stamphog does
+    # not approve, and with the clean-review switch on the head waits for this run. The routing comment
+    # never names the verdict, so the verdict itself stays off the PR.
+    #
     # Stamphog's own follow-up, called directly rather than registered, because registering it at
     # app-ready would pull the task module onto the django.setup() path. It only queues a task.
     queue_routing_after_verdict(

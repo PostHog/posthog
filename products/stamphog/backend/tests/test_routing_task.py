@@ -14,7 +14,7 @@ from posthog.models.scoping import team_scope
 from posthog.ownership.github_files import OwnershipUnavailable
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
-from products.stamphog.backend.facade.tasks import route_pull_request_reviewers
+from products.stamphog.backend.facade.tasks import queue_routing_after_external_review, route_pull_request_reviewers
 from products.stamphog.backend.logic.routing.claims import CLAIM_STALE_AFTER
 from products.stamphog.backend.logic.routing.comment import ROUTING_COMMENT_MARKER
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL
@@ -437,21 +437,56 @@ def test_fallback_routes_at_once_when_stamphog_will_not_review(
     assert (record["mode"], record["trigger"], record["status"]) == ("fallback", "opened", "done")
 
 
+_HELD_BACK = ("not_requested", "model_kept", "")
+_CUT_SKIPPED_HELD_BACK = ("not_requested", "cut_skipped", "")
+_BETA_CUT = ("cut", "model_cut", "Only renames an import.")
+
+
 @pytest.mark.parametrize(
-    "name,with_addition,expected_teams,expect_comment",
+    "name,with_addition,model_error,expected_teams,expect_comment,expected_log",
     [
-        # The new directory pins team-alpha, so only it is requested and the comment says why.
-        ("pinned_owner", True, {"team-alpha"}, True),
+        # The new directory pins team-alpha, so only it is requested and the comment says why. The log
+        # shows who full routing would have asked: the owners the model kept, not the one it cut.
+        (
+            "pinned_owner",
+            True,
+            None,
+            {"team-alpha"},
+            True,
+            {"team-alpha": ("requested", "new_path", ""), "team-beta": _BETA_CUT, "@carol": _HELD_BACK},
+        ),
         # Nobody is pinned: nobody is requested and an earlier routing comment goes away.
-        ("nothing_pinned", False, set(), False),
+        (
+            "nothing_pinned",
+            False,
+            None,
+            set(),
+            False,
+            {"team-alpha": _HELD_BACK, "team-beta": _BETA_CUT, "@carol": _HELD_BACK},
+        ),
+        # A model failure cuts nobody, as in full routing, so every unpinned owner would have been asked.
+        (
+            "model_error",
+            True,
+            RuntimeError("gateway down"),
+            {"team-alpha"},
+            True,
+            {
+                "team-alpha": ("requested", "new_path", ""),
+                "team-beta": _CUT_SKIPPED_HELD_BACK,
+                "@carol": _CUT_SKIPPED_HELD_BACK,
+            },
+        ),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_fallback_approval_requests_only_pinned_owners(
     name: str,
     with_addition: bool,
+    model_error: Exception | None,
     expected_teams: set[str],
     expect_comment: bool,
+    expected_log: dict[str, tuple[str, str, str]],
     team,
     user,
     routing_chain,
@@ -459,6 +494,8 @@ def test_fallback_approval_requests_only_pinned_owners(
 ) -> None:
     repo_config = _open_fallback(routing_chain, team, user, with_addition=with_addition)
     _seed_routing_comment(routing_chain, repo_config)
+    routing_chain.cut_model.answer = _CUT_BETA
+    routing_chain.cut_model.error = model_error
 
     assert routing_chain.recorder.github_writes == []
     assert safety_net.call_args.kwargs["countdown"] == ROUTING_SAFETY_NET_SECONDS
@@ -466,19 +503,19 @@ def test_fallback_approval_requests_only_pinned_owners(
 
     _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED)
 
-    assert routing_chain.cut_model.calls == []
+    assert [call["model"] for call in routing_chain.cut_model.calls] == [CUT_MODEL]
     assert _requested(routing_chain) == (set(), expected_teams)
     record = _stored(team.id)
     assert (record["trigger"], record["status"]) == ("verdict:approved", "done")
-    # The owners the approval does not ask are logged as such, so they can tell why nobody asked them.
-    not_asked = ("not_requested", "stamphog_approved", "")
-    pinned = {"team-alpha": ("requested", "new_path", "")} if with_addition else {}
-    assert _run_log(team.id) == {"team-alpha": not_asked, "team-beta": not_asked, "@carol": not_asked, **pinned}
+    assert record["llm_skipped"] == ("no_answer" if model_error else None)
+    assert _run_log(team.id) == expected_log
     edits = _writes(routing_chain, "issue_comment_edit")
     deletes = _writes(routing_chain, "delete_comment")
     if expect_comment:
         assert len(edits) == 1 and deletes == []
-        assert "Stamphog approved this pull request" in edits[0]["body"]["body"]
+        body = edits[0]["body"]["body"]
+        assert "Stamphog approved this pull request" in body
+        assert "team-beta" not in body
     else:
         assert edits == [] and [delete["id"] for delete in deletes] == [555]
 
@@ -486,6 +523,56 @@ def test_fallback_approval_requests_only_pinned_owners(
     _fire_safety_net(safety_net)
     _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED)
     assert len(_writes(routing_chain, "request_reviewers")) == (1 if expected_teams else 0)
+
+
+@pytest.mark.parametrize(
+    "name,before_call,expect_routed",
+    [
+        ("routes_the_waiting_head_in_full", None, True),
+        # A silent review started after all, and its verdict routes the head.
+        ("stamphog_reviews_the_head", "review_run", False),
+        ("head_moved", "push", False),
+        ("switch_turned_off", "switch_off", False),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_the_clean_review_switch_waits_for_reviewhog(
+    name: str, before_call: str | None, expect_routed: bool, team, user, routing_chain, safety_net
+) -> None:
+    # Label mode without the label: only a silent review after a clean PostHog Review can review this head.
+    repo_config = _setup(routing_chain, team, user, routing_mode="fallback", review_mode=ReviewMode.LABEL)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(
+            review_on_clean_external_review=True
+        )
+    _route()
+    assert routing_chain.recorder.github_writes == []
+    assert _stored(team.id)["status"] == "waiting"
+    routing_chain.cut_model.answer = _CUT_BETA
+
+    with team_scope(team.id):
+        if before_call == "review_run":
+            ReviewRun.objects.for_team(team.id).create(
+                team_id=team.id,
+                pull_request=PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER),
+                head_sha=HEAD_SHA,
+                status=ReviewRunStatus.QUEUED,
+            )
+        elif before_call == "push":
+            _push(routing_chain, _HEAD_2)
+        elif before_call == "switch_off":
+            StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(
+                review_on_clean_external_review=False
+            )
+    queue_routing_after_external_review(team_id=team.id, repository=REPO, pr_number=PR_NUMBER, head_sha=HEAD_SHA)
+
+    record = _stored(team.id)
+    if expect_routed:
+        assert _requested(routing_chain) == ({"carol"}, {"team-alpha"})
+        assert (record["trigger"], record["scope"], record["status"]) == ("external_review", "full", "done")
+    else:
+        assert routing_chain.recorder.github_writes == []
+        assert record["status"] == "waiting"
 
 
 @pytest.mark.parametrize(
@@ -762,7 +849,6 @@ def test_a_later_approval_requests_only_the_pins_no_routing_requested_yet(
     record = _stored(team.id)
     assert (record["head_sha"], record["pinned_routed_head"]) == (_HEAD_2, _HEAD_2)
     assert set(record["requested_owners"]) == {"team-alpha", *(["@carol"] if expected_second_request else [])}
-    assert routing_chain.cut_model.calls == []
 
 
 def _seed_claim(

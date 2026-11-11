@@ -60,6 +60,7 @@ from products.stamphog.backend.logic.reviewer import parse_reviewer_output
 from products.stamphog.backend.logic.routing.service import RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
     ReviewPath,
+    route_after_external_review,
     route_after_verdict,
     route_on_pull_request_event,
     route_on_safety_net,
@@ -2070,6 +2071,9 @@ def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -
     """
     if not repo_config.enabled or _review_skip_reason(pr) is not None:
         return False
+    if repo_config.review_on_clean_external_review:
+        # ReviewHog either starts a silent review of this head or tells routing that it will not.
+        return True
     label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
     return repo_config.review_mode != ReviewMode.LABEL or repo_config.trigger_label in label_names
 
@@ -2100,10 +2104,23 @@ def _finished_review_outcome(repo_config: StamphogRepoConfig, pr_number: int, he
     return verdict_outcome(ReviewRunStatus(run.status), ReviewVerdict(run.verdict))
 
 
+def _has_review_of_head(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> bool:
+    """Whether a review of this head exists that no newer delivery superseded. Writer-pinned, because it decides
+    whether routing runs now."""
+    return (
+        ReviewRun.objects.for_team(repo_config.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request__repo_config=repo_config, pull_request__pr_number=pr_number, head_sha=head_sha)
+        .exclude(status=ReviewRunStatus.SUPERSEDED)
+        .exists()
+    )
+
+
 _ROUTING_REVIEW_PATH = ReviewPath(
     will_review=_stamphog_will_review,
     schedule_safety_net=_schedule_routing_safety_net,
     finished_outcome=_finished_review_outcome,
+    has_review=_has_review_of_head,
 )
 
 
@@ -2198,6 +2215,39 @@ def route_reviewers_safety_net(self: Task, team_id: int, repo_config_id: str, pr
     )
 
 
+def _route_after_external_review(team_id: int, repository: str, pr_number: int, head_sha: str, task_id: str) -> None:
+    # Writer-pinned like every read that gates a GitHub write. Routing runs for a disabled repo too, so
+    # this reads any config bound to an installation.
+    repo_config = (
+        StamphogRepoConfig.objects.for_team(resolve_effective_team_id(team_id))
+        .using(router.db_for_write(StamphogRepoConfig))
+        .filter(provider="github", repository__iexact=repository)
+        .exclude(installation_id="")
+        .order_by("created_at", "id")
+        .first()
+    )
+    if repo_config is None:
+        return
+    route_after_external_review(
+        repo_config, pr_number=pr_number, head_sha=head_sha, task_id=task_id, review_path=_ROUTING_REVIEW_PATH
+    )
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
+def route_reviewers_after_external_review(
+    self: Task, team_id: int, repository: str, pr_number: int, head_sha: str
+) -> None:
+    """Route a FALLBACK pull request in full when ReviewHog will not start a silent review of ``head_sha``.
+
+    Only a head that waits for that silent review routes, and only while no stamphog review of it exists.
+    """
+    _run_routing_step(
+        self,
+        lambda: _route_after_external_review(team_id, repository, pr_number, head_sha, self.request.id or ""),
+        pr_number=pr_number,
+    )
+
+
 def queue_routing_after_verdict(
     repo_config: StamphogRepoConfig, *, pr_number: int, head_sha: str, status: ReviewRunStatus, verdict: ReviewVerdict
 ) -> None:
@@ -2212,6 +2262,23 @@ def queue_routing_after_verdict(
             pr_number=pr_number,
             head_sha=head_sha,
             outcome=verdict_outcome(status, verdict),
+        )
+    except Exception:
+        logger.exception("stamphog_reviewer_routing_queue_failed", pr_number=pr_number)
+
+
+def queue_routing_after_external_review(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> None:
+    """Tell routing that ReviewHog will not start a silent review of ``head_sha``, without waiting.
+
+    For review_hog, when its review of a head that opened or was marked ready is not clean, failed,
+    or never started. Stamphog decides whether anything happens: only a FALLBACK repo with the
+    ``review_on_clean_external_review`` switch on, whose routing record waits on this head while no
+    stamphog review of it exists, routes in full now. Any other call is a no-op. Never raises.
+    ``team_id`` may be an environment.
+    """
+    try:
+        route_reviewers_after_external_review.delay(
+            team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha
         )
     except Exception:
         logger.exception("stamphog_reviewer_routing_queue_failed", pr_number=pr_number)
