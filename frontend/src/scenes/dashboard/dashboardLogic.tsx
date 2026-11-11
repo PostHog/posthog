@@ -238,12 +238,14 @@ function reportDashboardTileRefreshed(
     refreshDurationMs: number,
     individualRefresh: boolean,
     requestTiming: ApiRequestTiming | undefined,
-    filterChange?: PendingFilterChange
+    filterChange?: PendingFilterChange,
+    isAutomatic = false
 ): void {
     const insight = tile.insight
     const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
 
     posthog.capture('dashboard insight refreshed', {
+        ...(isAutomatic ? { $update_person_last_seen_at: false } : {}),
         dashboard_id: dashboardId,
         insight_id: insight?.id,
         insight_short_id: insight?.short_id,
@@ -293,6 +295,7 @@ interface InsightTileRefresh {
     variables: Record<string, HogQLVariable>
     urlFilters: DashboardFilter
     forceRefresh: boolean
+    isAutomatic?: boolean
     settings: DashboardSettings
     signal: AbortSignal
     queue: TaskQueue
@@ -335,6 +338,7 @@ async function refreshInsightTile(
         variables,
         urlFilters,
         forceRefresh,
+        isAutomatic,
         settings,
         signal: refreshSignal,
         queue,
@@ -383,7 +387,9 @@ async function refreshInsightTile(
             variables,
             Math.floor(performance.now() - queryStartTime),
             false,
-            requestTiming
+            requestTiming,
+            undefined,
+            isAutomatic
         )
         return refreshedInsight.is_cached ? 'cached' : 'refreshed'
     } catch (e: any) {
@@ -1259,10 +1265,12 @@ export interface dashboardLogicActions {
     refreshDashboardItems: (payload: {
         action: DashboardLoadAction | RefreshDashboardItemsAction
         forceRefresh?: boolean
+        isAutomatic?: boolean
         previewUnsavedFilters?: boolean
     }) => {
         action: DashboardLoadAction | RefreshDashboardItemsAction
         forceRefresh?: boolean | undefined
+        isAutomatic?: boolean | undefined
         previewUnsavedFilters?: boolean | undefined
     }
     refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
@@ -1642,8 +1650,8 @@ export interface dashboardLogicActions {
     toggleTileGroup: (groupKey: string) => {
         groupKey: string
     }
-    triggerDashboardRefresh: () => {
-        value: true
+    triggerDashboardRefresh: (isAutomatic?: boolean) => {
+        isAutomatic: boolean
     }
     triggerDashboardUpdate: (payload: any) => {
         payload: any
@@ -2225,8 +2233,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        /** Manually refresh the entire dashboard. */
-        triggerDashboardRefresh: true,
+        triggerDashboardRefresh: (isAutomatic: boolean = false) => ({ isAutomatic }),
         /**
          * If the latest tile data is older than SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
          * queue a single force-blocking refresh on the next microtask. Reads
@@ -2240,6 +2247,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             action: RefreshDashboardItemsAction | DashboardLoadAction
             forceRefresh?: boolean
             previewUnsavedFilters?: boolean
+            isAutomatic?: boolean
         }) => payload,
         refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
         toggleTileGroup: (groupKey: string) => ({ groupKey }),
@@ -4854,6 +4862,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (refreshStatus?.timer) {
                 const loadingMilliseconds = new Date().getTime() - refreshStatus.timer.getTime()
                 posthog.capture('insight refresh time', {
+                    $update_person_last_seen_at: false,
                     loadingMilliseconds: loadingMilliseconds,
                     insightShortId: shortId,
                 })
@@ -4863,6 +4872,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.loadTimer) {
                 const loadingMilliseconds = new Date().getTime() - values.loadTimer.getTime()
                 posthog.capture('dashboard loading time', {
+                    $update_person_last_seen_at: false,
                     loadingMilliseconds: loadingMilliseconds,
                     dashboardId: props.id,
                 })
@@ -5606,15 +5616,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             cache.lastAutoForcedFor = currentRefreshKey
             queueMicrotask(() => {
-                void actions.triggerDashboardRefresh()
+                void actions.triggerDashboardRefresh(true)
             })
         },
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
-        triggerDashboardRefresh: () => {
+        triggerDashboardRefresh: ({ isAutomatic }) => {
             // The refresh loads every open widget again, and an older load must not land over the new one.
             abortWidgetLoads(cache)
             actions.resetInterval()
-            actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
+            actions.refreshDashboardItems({
+                action: RefreshDashboardItemsAction.Refresh,
+                forceRefresh: true,
+                isAutomatic,
+            })
             if (values.placement !== DashboardPlacement.Export && values.placement !== DashboardPlacement.Public) {
                 const widgetTileIds = values.widgetTiles
                     .filter((tile) => !values.collapsedTileIds.has(tile.id))
@@ -5713,7 +5727,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setRefreshError(insight.short_id, e)
             }
         },
-        refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
+        refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters, isAutomatic }, breakpoint) => {
             cache.disposables.dispose('openGroupReload')
             abortGroupLoads(cache)
             const groupSignal = (cache.groupAbortController = new AbortController()).signal
@@ -5830,6 +5844,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     variables: urlVariables,
                     urlFilters,
                     forceRefresh: !!forceRefresh,
+                    isAutomatic,
                     settings: settingsToRefresh,
                     signal: cache.abortController.signal,
                     queue: tileLoadQueue(cache),
@@ -5873,6 +5888,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ? filterChange.remainingInsightIds.size === 0
                     : tilesRefreshedCount === totalTileCount && tilesErroredCount === 0 && tilesAbortedCount === 0
                 posthog.capture(`dashboard refreshed`, {
+                    ...(isAutomatic ? { $update_person_last_seen_at: false } : {}),
                     dashboard_id: dashboardId,
                     filters: filtersForAnalytics(urlFilters),
                     variables: urlVariables,
@@ -6481,6 +6497,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.refreshDashboardItems({
                         action: RefreshDashboardItemsAction.Refresh,
                         forceRefresh: true,
+                        isAutomatic: true,
                     })
                 }
                 cache.disposables.add(() => {
@@ -6488,6 +6505,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.refreshDashboardItems({
                             action: RefreshDashboardItemsAction.Refresh,
                             forceRefresh: true,
+                            isAutomatic: true,
                         })
                     }, values.autoRefresh.interval * 1000)
                     return () => clearInterval(intervalId)

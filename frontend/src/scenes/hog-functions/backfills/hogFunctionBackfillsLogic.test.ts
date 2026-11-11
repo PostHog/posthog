@@ -1,4 +1,7 @@
+import { render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
+import { ToastContainer } from 'react-toastify'
 
 import api from 'lib/api'
 
@@ -86,16 +89,19 @@ describe('hogFunctionBackfillsLogic', () => {
         expect(mockApi.enableBackfills).not.toHaveBeenCalled()
     })
 
-    it('does not throw when enableBackfills API fails', async () => {
+    it('shows an error when enabling fails, then opens backfills once a reload brings the batch export', async () => {
         mockApi.get.mockResolvedValue(makeHogFunction())
         mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
 
         logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['enableHogFunctionBackfills']).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
 
-        // The error is caught gracefully — logic stays mounted and isn't in a broken state
-        expect(mockApi.enableBackfills).toHaveBeenCalled()
-        expect(logic.isMounted()).toBeTruthy()
+        render(createElement(ToastContainer))
+        await screen.findByText('Failed to enable backfills for this destination.')
+
+        mockApi.get.mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
+        logic.actions.loadHogFunction()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ isReady: true })
     })
 })
