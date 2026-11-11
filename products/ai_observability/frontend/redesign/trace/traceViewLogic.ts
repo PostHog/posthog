@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { shouldReportApiFailure } from 'lib/api-error'
-import { urls } from 'scenes/urls'
 
 import {
     aiObservabilityTracesEvaluationsRetrieve,
@@ -20,8 +19,8 @@ import type {
     TraceNodeRawApi,
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
-import { TraceSummaryBarProps } from './components/TraceSummaryBar'
 import { encodeTraceIdSegment } from './traceIdSegment'
+import { traceViewTracking } from './traceViewTracking'
 import type { LoadFailure, NodeLoad, NodeLoadTrigger, RawLoad } from './types'
 
 export interface TraceViewLogicProps {
@@ -35,7 +34,6 @@ export type TraceViewStatus = 'loading' | 'error' | 'ready'
 export interface traceViewLogicValues {
     createdAt: string | null
     defaultNodeId: string
-    errorMessage: string
     evaluationResults: TraceEvaluationResultsApi | null
     evaluationResultsFailed: boolean
     evaluationResultsLoading: boolean
@@ -43,20 +41,16 @@ export interface traceViewLogicValues {
     nodeIdsByAlias: Record<string, string>
     nodes: Record<string, NodeLoad>
     nodesMissedWithoutHint: Record<string, NodeLoadTrigger>
-    personLabel: string | null
     rawNodes: Record<string, RawLoad>
     sessionId: string | null
     status: TraceViewStatus
-    summary: TraceSummaryBarProps | null
     threadNodeIds: string[]
     timeline: {
         rows: TraceTimelineRowApi[]
         totalMs: number
     }
     trace: TraceApi | null
-    traceHasError: boolean
     traceLoading: boolean
-    traceName: string
     tree: TraceNodeApi[]
 }
 
@@ -154,16 +148,11 @@ export interface traceViewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         status: (trace: TraceApi | null, loadFailure: LoadFailure | null) => TraceViewStatus
-        errorMessage: (loadFailure: LoadFailure | null) => string
         tree: (trace: TraceApi | null) => TraceNodeApi[]
         timeline: (trace: TraceApi | null) => {
             rows: TraceTimelineRowApi[]
             totalMs: number
         }
-        traceName: (trace: TraceApi | null) => string
-        traceHasError: (trace: TraceApi | null) => boolean
-        personLabel: (trace: TraceApi | null) => string | null
-        summary: (trace: TraceApi | null) => TraceSummaryBarProps | null
         threadNodeIds: (trace: TraceApi | null) => string[]
         createdAt: (trace: TraceApi | null) => string | null
         sessionId: (trace: TraceApi | null) => string | null
@@ -302,13 +291,6 @@ export const traceViewLogic = kea<traceViewLogicType>([
             (trace: TraceApi | null, loadFailure: LoadFailure | null): TraceViewStatus =>
                 trace ? 'ready' : loadFailure ? 'error' : 'loading',
         ],
-        errorMessage: [
-            (s) => [s.loadFailure],
-            (loadFailure: LoadFailure | null): string =>
-                loadFailure === 'failed'
-                    ? 'Something went wrong while loading it. Try again in a moment.'
-                    : 'It may have been deleted, or it is outside the retention period.',
-        ],
         tree: [(s) => [s.trace], (trace: TraceApi | null): TraceNodeApi[] => trace?.tree ?? []],
         timeline: [
             (s) => [s.trace],
@@ -316,23 +298,6 @@ export const traceViewLogic = kea<traceViewLogicType>([
                 rows: trace?.timeline ?? [],
                 totalMs: trace?.totalMs ?? 0,
             }),
-        ],
-        traceName: [(s) => [s.trace], (trace: TraceApi | null): string => trace?.name || 'Untitled trace'],
-        traceHasError: [(s) => [s.trace], (trace: TraceApi | null): boolean => trace?.hasError ?? false],
-        personLabel: [(s) => [s.trace], (trace: TraceApi | null): string | null => trace?.person?.label ?? null],
-        summary: [
-            (s) => [s.trace],
-            (trace: TraceApi | null): TraceSummaryBarProps | null =>
-                trace
-                    ? {
-                          traceId: trace.id,
-                          timestamp: trace.createdAt,
-                          person: trace.person
-                              ? { label: trace.person.label, href: urls.personByDistinctId(trace.person.distinctId) }
-                              : null,
-                          totals: trace.totals,
-                      }
-                    : null,
         ],
         threadNodeIds: [(s) => [s.trace], (trace: TraceApi | null): string[] => trace?.threadNodeIds ?? []],
         createdAt: [(s) => [s.trace], (trace: TraceApi | null): string | null => trace?.createdAt ?? null],
@@ -360,11 +325,8 @@ export const traceViewLogic = kea<traceViewLogicType>([
 
         return {
             loadTraceSuccess: ({ trace }) => {
-                posthog.capture('llma trace view loaded', {
-                    trace_load_ms: elapsedMs(cache.traceRequestedAt),
-                    // The timeline lists every step but the root.
-                    node_count: trace.timeline.length + 1,
-                })
+                // The timeline lists every step but the root.
+                traceViewTracking.viewLoaded(elapsedMs(cache.traceRequestedAt), trace.timeline.length + 1)
                 for (const nodeId of trace.threadNodeIds) {
                     actions.loadNode(nodeId, 'thread')
                 }
@@ -414,7 +376,7 @@ export const traceViewLogic = kea<traceViewLogicType>([
                 const loadMs = elapsedMs(firstRequestedAt)
                 const waitedMs = waitedSince === undefined ? null : elapsedMs(waitedSince)
                 actions.loadNodeSuccess(nodeId, result.value)
-                posthog.capture('llma trace node loaded', { load_ms: loadMs, trigger, waited_ms: waitedMs })
+                traceViewTracking.nodeLoaded(trigger, loadMs, waitedMs)
             },
             loadRawNode: ({ nodeId }) => {
                 const status = values.rawNodes[nodeId]?.status

@@ -1,53 +1,44 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
-import { cn } from '@posthog/quill'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 
+import { TodayMoreMenu } from './TodayMoreMenu'
 import { TODAY_PANES } from './todayRailItems'
-import { TODAY_RAIL_PANES, todayShellLogic } from './todayShellLogic'
-
-const TAB_CLASS =
-    'flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md text-xxs font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset [&_svg]:size-5'
+import { todayShellLogic } from './todayShellLogic'
+import { TodayTabBarTab } from './TodayTabBarTab'
 
 export function TodayTabBar(): JSX.Element {
-    const { activePane } = useValues(todayShellLogic)
+    const { activePane, railPanes } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
 
     return (
         <div className="TodayTabBar" data-quill>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
-                {TODAY_RAIL_PANES.map((pane) => {
-                    const { label, icon } = TODAY_PANES[pane]
+                {railPanes.map((pane) => {
                     const active = activePane === pane
                     return (
-                        <button
+                        <TodayTabBarTab
                             key={pane}
-                            type="button"
+                            label={TODAY_PANES[pane].label}
+                            icon={TODAY_PANES[pane].icon}
+                            active={active}
                             aria-current={active ? 'page' : undefined}
-                            data-attr={`today-rail-${pane}`}
+                            dataAttr={`today-rail-${pane}`}
                             onClick={() => clickRailPane(pane)}
-                            className={cn(
-                                TAB_CLASS,
-                                active ? 'bg-fill-selected text-foreground' : 'text-muted-foreground'
-                            )}
-                        >
-                            {icon}
-                            <span className="max-w-full truncate">{label}</span>
-                        </button>
+                        />
                     )
                 })}
-                <button
-                    type="button"
-                    data-attr="today-rail-search"
+                <TodayTabBarTab
+                    label="Search"
+                    icon={<IconSearch />}
+                    active={false}
+                    dataAttr="today-rail-search"
                     onClick={() => toggleCommand('nav-search-button')}
-                    className={cn(TAB_CLASS, 'text-muted-foreground')}
-                >
-                    <IconSearch />
-                    <span className="max-w-full truncate">Search</span>
-                </button>
+                />
+                <TodayMoreMenu placement="tab-bar" />
             </nav>
         </div>
     )
