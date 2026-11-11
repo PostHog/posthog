@@ -10,6 +10,7 @@ from disposable_email_domains import blocklist as disposable_email_domains_list
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import EmailIntegration, Integration
 from posthog.models.integration.email import lock_sender_domain
 from posthog.models.organization import Organization
@@ -273,6 +274,15 @@ class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
         mock_delete_identity.assert_called_once_with("partner.com")
 
     @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_sdk_delete_cleans_up_ses_identity_once(self, mock_delete_identity):
+        integration = self._create_email_integration("owner@partner.com", self.team.id, str(self.organization.id))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            IntegrationManager.any.delete(self.team.id, integration.id, ignore_usages=True)
+
+        mock_delete_identity.assert_called_once_with("partner.com")
+
+    @patch("posthog.tasks.integrations.delete_ses_identity")
     @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
     def test_cascade_delete_skips_ses_cleanup_while_domain_still_in_use(
         self, _mock_get_mail_from, mock_delete_identity
@@ -309,11 +319,16 @@ class TestEmailIntegrationDefaultSender(BaseTest):
 
         assert self._default_sender_id() == first.id
 
+    @parameterized.expand([("model_delete", False), ("sdk_delete", True)])
     @patch("posthog.models.integration.email.reload_integrations_on_workers")
-    def test_deleting_the_default_sender_clears_it(self, _reload):
+    def test_deleting_the_default_sender_clears_it(self, _name, through_sdk, _reload):
         sender = self._create_sender("hello@first.example.com")
         EmailIntegration(sender).verify()
+        assert self._default_sender_id() == sender.id
 
-        sender.delete()
+        if through_sdk:
+            IntegrationManager.any.delete(self.team.id, sender.id, ignore_usages=True)
+        else:
+            sender.delete()
 
         assert self._default_sender_id() is None
