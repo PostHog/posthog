@@ -2585,7 +2585,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return
                 }
 
-                // Backend `cdc_available` only reflects the team flag — clear it when the
+                // Backend `cdc_available` only reflects table support — clear it when the
                 // user didn't toggle CDC on for this source in step 1.
                 const sourceCdcEnabled = !!values.source.payload?.cdc_enabled
                 if (!sourceCdcEnabled) {

@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sta
     aretry_staged_delete,
     aretry_staged_read,
     aretry_staged_write,
+    is_transient_staged_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
@@ -51,6 +52,16 @@ CDP_PRODUCER_FILES_TOTAL = Counter(
     "Staged CDP files read from S3 and produced to Kafka, by outcome",
     labelnames=["team_id", "outcome"],
 )
+
+CDP_PRODUCER_READ_RETRIES_TOTAL = Counter(
+    "warehouse_cdp_producer_read_retries_total",
+    "Staged CDP file reads that broke on a transient object-store error and were resumed",
+    labelnames=["team_id"],
+)
+
+# A staged file is read once per attempt, so this bounds how often one object-store blip can
+# interrupt the same file before the activity fails and Temporal resumes it from the heartbeat.
+_STAGED_READ_MAX_ATTEMPTS = 3
 
 CDP_PRODUCER_ROWS_TOTAL = Counter(
     "warehouse_cdp_producer_rows_total",
@@ -391,42 +402,61 @@ class CDPProducer:
                     return await asyncio.to_thread(fs.open_input_file, path)
 
                 try:
-                    input_file = await aretry_staged_read(_open_staged_file, path=file_path, logger=self.logger)
-                    with input_file as f:
-                        pf = pq.ParquetFile(f)
+                    read_attempt = 0
+                    while True:
+                        read_attempt += 1
+                        row_offset = 0
+                        try:
+                            input_file = await aretry_staged_read(_open_staged_file, path=file_path, logger=self.logger)
+                            with input_file as f:
+                                pf = pq.ParquetFile(f)
 
-                        for batch in pf.iter_batches(batch_size=10_000):
-                            if row_offset + batch.num_rows <= skip:
-                                row_offset += batch.num_rows
-                                continue
-                            for row in batch.to_pylist():
-                                if row_offset < skip:
-                                    row_offset += 1
-                                    continue
-                                event_id = self._build_event_id(row)
-                                if emitted_rows.is_repeat(event_id):
-                                    suppressed_rows += 1
-                                else:
-                                    if throttle is not None:
-                                        await throttle.acquire_row()
-                                    row_as_props = {
-                                        "team_id": self.team_id,
-                                        "table_name": dot_notated_table_name,
-                                        "table_type": self.table.kind,
-                                        "event_id": event_id,
-                                        "properties": row,
-                                    }
-                                    delivery = await kafka_producer.produce(
-                                        topic=KAFKA_DWH_CDP_RAW_TABLE,
-                                        data=row_as_props,
-                                        value_serializer=self._serialize_json,
-                                    )
-                                    window_futures.append(delivery)
-                                    emitted_rows.record_on_delivery(event_id, delivery)
-                                    row_index += 1
-                                row_offset += 1
-                                if len(window_futures) >= 10_000 or time.monotonic() - last_checkpoint >= 30:
-                                    last_checkpoint = await checkpoint(file_path, row_offset, window_futures)
+                                for batch in pf.iter_batches(batch_size=10_000):
+                                    if row_offset + batch.num_rows <= skip:
+                                        row_offset += batch.num_rows
+                                        continue
+                                    for row in batch.to_pylist():
+                                        if row_offset < skip:
+                                            row_offset += 1
+                                            continue
+                                        event_id = self._build_event_id(row)
+                                        if emitted_rows.is_repeat(event_id):
+                                            suppressed_rows += 1
+                                        else:
+                                            if throttle is not None:
+                                                await throttle.acquire_row()
+                                            row_as_props = {
+                                                "team_id": self.team_id,
+                                                "table_name": dot_notated_table_name,
+                                                "table_type": self.table.kind,
+                                                "event_id": event_id,
+                                                "properties": row,
+                                            }
+                                            delivery = await kafka_producer.produce(
+                                                topic=KAFKA_DWH_CDP_RAW_TABLE,
+                                                data=row_as_props,
+                                                value_serializer=self._serialize_json,
+                                            )
+                                            window_futures.append(delivery)
+                                            emitted_rows.record_on_delivery(event_id, delivery)
+                                            row_index += 1
+                                        row_offset += 1
+                                        if len(window_futures) >= 10_000 or time.monotonic() - last_checkpoint >= 30:
+                                            last_checkpoint = await checkpoint(file_path, row_offset, window_futures)
+                            break
+                        except Exception as e:
+                            if read_attempt >= _STAGED_READ_MAX_ATTEMPTS or not is_transient_staged_error(e):
+                                raise
+                            # Settle every row already sent before reading the file again, so the
+                            # new read skips exactly those rows and sends none of them twice.
+                            skip = max(skip, row_offset)
+                            last_checkpoint = await checkpoint(file_path, skip, window_futures)
+                            CDP_PRODUCER_READ_RETRIES_TOTAL.labels(team_id=str(self.team_id)).inc()
+                            await self.logger.awarning(
+                                f"Transient object-store error reading staged file {file_path} "
+                                f"(attempt {read_attempt}/{_STAGED_READ_MAX_ATTEMPTS}), resuming at row {skip}: {e}"
+                            )
+                            await asyncio.sleep(2**read_attempt)
 
                     await checkpoint(file_path, row_offset, window_futures)
                     await self.logger.adebug(f"Deleting file {file_path}")
