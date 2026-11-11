@@ -23,17 +23,19 @@ export const ContentAutopilotAnswerText = ({
                   ? text
                   : mentions.segments.map((segment, index) =>
                         segment.brandKey ? (
-                            <mark
+                            <span
                                 key={index}
                                 className={clsx(
-                                    'rounded-sm px-0.5 text-primary border-b-2',
+                                    'rounded-sm px-1 font-semibold',
+                                    // Solid fills in the colors of the "You" and "Competitor" tags beside the answer. A span, not
+                                    // <mark>, because the base styles force a pale background on every <mark>.
                                     ownKeys.has(segment.brandKey)
-                                        ? 'bg-success-highlight border-success'
-                                        : 'bg-warning-highlight border-warning'
+                                        ? 'bg-[var(--success)] text-white'
+                                        : 'bg-[var(--warning)] text-black'
                                 )}
                             >
                                 {segment.text}
-                            </mark>
+                            </span>
                         ) : (
                             <span key={index}>{segment.text}</span>
                         )
