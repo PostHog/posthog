@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib import admin
 from django.contrib.admin import AdminSite
-from django.http import QueryDict
 from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
@@ -257,26 +256,25 @@ class TestOrganizationMemberInlineConfig(SimpleTestCase):
 class TestOrganizationIPRestrictionsForm(SimpleTestCase):
     @parameterized.expand(
         [
-            ([" 192.0.2.1 ", "2001:db8::/32", "192.0.2.1", ""], ["192.0.2.1", "2001:db8::/32"]),
-            ([""], []),
+            (" 192.0.2.1 , 2001:db8::/32,192.0.2.1", ["192.0.2.1", "2001:db8::/32"]),
+            ("", []),
         ],
     )
-    def test_rows_are_normalized(self, entries: list[str], expected: list[str]) -> None:
-        data = QueryDict(mutable=True)
-        data.setlist("ip_restrictions", entries)
-        form = OrganizationIPRestrictionsForm(data=data)
+    def test_entries_are_normalized(self, entries: str, expected: list[str]) -> None:
+        form = OrganizationIPRestrictionsForm(data={"ip_restrictions": entries})
 
         assert form.is_valid(), form.errors
         assert form.cleaned_data["ip_restrictions"] == expected
 
-    def test_invalid_row_is_rejected(self) -> None:
-        form = OrganizationIPRestrictionsForm(data={"ip_restrictions": ["invalid"]})
+    @parameterized.expand([("invalid",), ("192.0.2.1,invalid",), ("192.0.2.1,",)])
+    def test_invalid_entry_is_rejected(self, entries: str) -> None:
+        form = OrganizationIPRestrictionsForm(data={"ip_restrictions": entries})
 
         assert not form.is_valid()
         assert "ip_restrictions" in form.errors
 
     def test_blank_extra_form_is_unchanged(self) -> None:
-        form = OrganizationIPRestrictionsForm(data={"enabled": "on", "ip_restrictions": [""]})
+        form = OrganizationIPRestrictionsForm(data={"enabled": "on", "ip_restrictions": ""})
 
         assert not form.has_changed()
 

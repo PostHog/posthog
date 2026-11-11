@@ -5,27 +5,7 @@ from posthog.ip_restrictions import validate_ip_restrictions
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 
 
-class IPRestrictionsWidget(forms.SelectMultiple):
-    template_name = "admin/widgets/ip_restrictions.html"
-
-    class Media:
-        js = ("admin/js/ip_restrictions.js",)
-
-
-class IPRestrictionsField(forms.Field):
-    def to_python(self, value: list[str] | None) -> list[str]:
-        return [entry.strip() for entry in value or [] if entry.strip()]
-
-
 class OrganizationIPRestrictionsForm(forms.ModelForm):
-    ip_restrictions = IPRestrictionsField(
-        required=False,
-        initial=list,
-        widget=IPRestrictionsWidget,
-        label="IP restrictions",
-        help_text=OrganizationIPRestrictions._meta.get_field("ip_restrictions").help_text,
-    )
-
     class Meta:
         model = OrganizationIPRestrictions
         fields = ("enabled", "ip_restrictions")
