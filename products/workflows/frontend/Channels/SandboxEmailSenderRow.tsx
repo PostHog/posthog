@@ -24,8 +24,8 @@ export function SandboxEmailSenderRow(): JSX.Element | null {
 
     return (
         <LemonCard hoverEffect={false} className="p-2 @container" data-attr="sandbox-email-sender">
-            <div className="flex flex-col gap-3 ml-2 @lg:flex-row @lg:items-center">
-                <div className="flex flex-1 gap-4 items-start min-w-0">
+            <div className="flex flex-col items-start gap-3 ml-2 @lg:flex-row @lg:items-center">
+                <div className="flex flex-1 gap-4 items-start w-full min-w-0">
                     <IconLetter className="w-8 h-8 shrink-0" />
                     <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex flex-wrap gap-2 items-center">
@@ -44,7 +44,7 @@ export function SandboxEmailSenderRow(): JSX.Element | null {
                     type="secondary"
                     size="small"
                     icon={<IconPlus />}
-                    className="shrink-0 self-start @lg:self-center"
+                    className="shrink-0"
                     onClick={() => startChannelSetup('email')}
                     disabledReason={restrictedReason}
                     data-attr="sandbox-email-sender-add-own"
