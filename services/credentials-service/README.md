@@ -32,7 +32,7 @@ optional allowlist (see "Auth") shrinks what it is entitled to read.
 GET  /_liveness          200 always
 GET  /_readiness         200 once the pod holds credentials (and, with a database, once it has reached it)
 POST /v1/secrets/resolve
-     /v1/integrations/*  customer integrations, with a database and a KMS only (see "Integrations API")
+     /v1/integrations/*  customer integrations, with a database, a KMS, and integration public keys (see "Integrations API")
 
 GET  /metrics            prometheus text, on its own port (CREDENTIALS_SERVICE_METRICS_PORT)
 ```
@@ -111,7 +111,7 @@ private key) that only the provider code inside the service reads.
 
 ### Integration tokens
 
-The future `/v1/integrations/*` routes use the audience `posthog:credentials_service:integrations` and a separate key registry.
+The `/v1/integrations/*` routes use the audience `posthog:credentials_service:integrations` and a separate key registry.
 Each caller deployment signs with its own **Ed25519** private key, mounted as a file on that deployment.
 The service holds only the public keys, so a leak of the service's secret does not let anyone sign as a caller.
 
@@ -154,8 +154,8 @@ openssl pkey -in posthog-web-django.key -pubout -out posthog-web-django.pub   # 
 - A rejected token gets a bare 401. A valid token that does not allow the request gets a 403 with `forbidden_op`, `forbidden_kind` or `forbidden_ref`.
 
 **Replay store.** `src/auth/replay.ts` defines `ReplayStore`.
-The in-memory store is per pod. The tests and the mode with no database use it.
-The database PR adds the Postgres store: a table `auth_jti (deployment, jti, expires_at)` with an insert that rejects a conflict, so a replay to another pod also fails.
+The in-memory store is per pod. Standalone verifiers, including unit tests, use it by default.
+The integration routes use the Postgres store. Its `auth_jti (deployment, jti, expires_at)` table rejects a repeated token id across pods.
 A store error refuses the token.
 
 Deployments match by exact name. There is no prefix, family match or default.
@@ -375,8 +375,9 @@ Rows that land in the default partition stop pg_partman from making a partition 
 
 ## Integrations API
 
-The routes exist only when both `CREDENTIALS_SERVICE_DATABASE_URL` and `CREDENTIALS_SERVICE_KMS_PROVIDER` are set.
-With one of them, the service logs `integrations:disabled` and serves platform secrets only.
+The routes exist only when `CREDENTIALS_SERVICE_DATABASE_URL`, `CREDENTIALS_SERVICE_KMS_PROVIDER`, and `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` are set.
+If any value is missing, the service serves platform secrets only. With a database or KMS, it also logs `integrations:disabled`.
+The service loads integration public keys before it mounts these routes. An invalid key directory prevents startup.
 Every route needs an integrations token (see "Integration tokens") that holds the route's op.
 Every query binds the owner from the token.
 
@@ -427,7 +428,7 @@ Idempotency keys are scoped by deployment, owner and operation.
 
 `PATCH /:ref` and the upsert of an existing row refuse changes to identity fields: `integration_id`, and the config keys `installation_id`, `instance_url` and `region`. They answer `validation`. Set these keys when you create the row. `identityConfigKeys(kind)` in `src/integrations/identity.ts` returns the list.
 
-`src/auth/replay-postgres.ts` holds a Postgres store for token ids, on the `auth_jti` table. The token verifier does not use it yet: it needs the replay store interface from the auth PR.
+`src/auth/replay-postgres.ts` holds the Postgres replay store for token ids on the `auth_jti` table.
 
 ## Isolation
 
@@ -500,7 +501,7 @@ Its wrapped keys go into the same columns. The service refuses it when `CREDENTI
 | `CREDENTIALS_SERVICE_SECRET_NAMESPACE`     | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
 | `CREDENTIALS_SERVICE_RELOAD_SECONDS`       | `30`                          | Re-read interval; a safety re-list next to the watch    |
 | `CREDENTIALS_SERVICE_METRICS_PORT`         | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
-| `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` | unset | Ed25519 `<deployment>.pub` files for the integrations audience; unset accepts no integrations token |
+| `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` | unset | Ed25519 `<deployment>.pub` files; unset disables the integrations routes |
 | `CREDENTIALS_SERVICE_LOG_LEVEL`            | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
 | `PORT`                                     | `8004`                        |                                                         |
 | `HOST`                                     | `0.0.0.0`                     |                                                         |

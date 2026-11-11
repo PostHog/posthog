@@ -3,13 +3,16 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import type { Hono } from 'hono'
 import { SignJWT } from 'jose'
-import { randomBytes } from 'node:crypto'
+import { type KeyObject, generateKeyPairSync, randomBytes } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { IntegrationKeyLoader } from '@/auth/integration-keys'
 import { IntegrationVerifier, MAX_TOKEN_LIFETIME_SECONDS } from '@/auth/integrations'
 import { JwtVerifier } from '@/auth/jwt'
 import type { IntegrationOp } from '@/auth/policy'
+import type { ReplayStore } from '@/auth/replay'
+import { PostgresReplayStore } from '@/auth/replay-postgres'
 import type { SigningKeyLoader } from '@/auth/registry'
 import { INTEGRATIONS_AUDIENCE, type SigningKeys } from '@/auth/types'
 import { Envelope } from '@/crypto/envelope'
@@ -27,16 +30,28 @@ import { register } from '@/metrics'
 const WEB = 'posthog-web-django'
 const WORKER = 'temporal-worker-data-warehouse'
 const CDP = 'cdp-api'
-const KEYS: SigningKeys = {
-    [WEB]: ['web-signing-key-fake'],
-    [WORKER]: ['worker-signing-key-fake'],
-    [CDP]: ['cdp-signing-key-fake'],
-}
-const loader = { entries: () => Object.entries(KEYS) } as unknown as SigningKeyLoader
+const DEPLOYMENTS = [WEB, WORKER, CDP]
+const PAIRS: Record<string, { privateKey: KeyObject; publicKey: KeyObject }> = Object.fromEntries(
+    DEPLOYMENTS.map((deployment) => [deployment, generateKeyPairSync('ed25519')])
+)
+const integrationLoader = new IntegrationKeyLoader('test')
+integrationLoader.loadFrom(
+    Object.fromEntries(
+        DEPLOYMENTS.map((deployment) => [
+            `${deployment}.pub`,
+            PAIRS[deployment]!.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+        ])
+    )
+)
+const PLATFORM_KEYS: SigningKeys = { [WEB]: ['web-signing-key-fake'] }
+const platformLoader = {
+    entries: () => Object.entries(PLATFORM_KEYS),
+    allowedSecrets: () => null,
+} as SigningKeyLoader
 
 const TEAM_A = 101
 const TEAM_B = 202
-const ALL_OPS: IntegrationOp[] = ['read', 'write', 'delete', 'resolve']
+const REF_PATTERN = /^(0|[1-9][0-9]{0,18}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
 
 // Obviously fake values. The tests search every response and log line for them.
 const ACCESS_TOKEN = 'fake-access-token-a1b2c3'
@@ -66,7 +81,7 @@ async function token(opts: TokenOptions = {}): Promise<string> {
     const deployment = opts.deployment ?? WEB
     const claims: Record<string, unknown> = {
         jti: `e2e-token-${String(jti).padStart(10, '0')}`,
-        ops: opts.ops ?? ALL_OPS,
+        ops: opts.ops ?? ['read'],
         caller: 'integrations-e2e',
     }
     if (opts.team !== null) {
@@ -83,11 +98,11 @@ async function token(opts: TokenOptions = {}): Promise<string> {
     }
     const now = Math.floor(Date.now() / 1000)
     return new SignJWT(claims)
-        .setProtectedHeader({ alg: 'HS256' })
+        .setProtectedHeader({ alg: 'EdDSA' })
         .setAudience(INTEGRATIONS_AUDIENCE)
         .setIssuedAt(now)
         .setExpirationTime(now + MAX_TOKEN_LIFETIME_SECONDS)
-        .sign(new TextEncoder().encode(KEYS[deployment]![0]!))
+        .sign(PAIRS[deployment]!.privateKey)
 }
 
 interface CallOptions extends TokenOptions {
@@ -109,7 +124,37 @@ const responses: { path: string; text: string }[] = []
 async function call(method: string, path: string, opts: CallOptions = {}): Promise<CallResult> {
     const headers: Record<string, string> = { ...opts.headers }
     if (!opts.noToken) {
-        headers['Authorization'] = `Bearer ${await token(opts)}`
+        const route = path.split(/[/?]/)[1]
+        const bodyRefs =
+            typeof opts.body === 'object' && opts.body !== null && 'refs' in opts.body ? opts.body.refs : undefined
+        const requestedRefs =
+            route === 'batch-get' || route === 'resolve'
+                ? bodyRefs
+                : route && !['upsert', 'list-across-teams'].includes(route)
+                  ? [route]
+                  : undefined
+        const refs =
+            Array.isArray(requestedRefs) &&
+            requestedRefs.length > 0 &&
+            requestedRefs.length <= 200 &&
+            requestedRefs.every((ref) => typeof ref === 'string' && REF_PATTERN.test(ref))
+                ? (requestedRefs as string[])
+                : route === 'batch-get' || route === 'resolve'
+                  ? ['1']
+                  : undefined
+        const op: IntegrationOp =
+            route === 'list-across-teams'
+                ? 'list_across_teams'
+                : route === 'batch-get'
+                  ? 'read'
+                  : route === 'resolve'
+                    ? 'resolve'
+                    : method === 'DELETE'
+                      ? 'delete'
+                      : method === 'GET'
+                        ? 'read'
+                        : 'write'
+        headers['Authorization'] = `Bearer ${await token({ ...opts, ops: opts.ops ?? [op], refs: opts.refs ?? refs })}`
     }
     const init: RequestInit = { method, headers }
     if (opts.body !== undefined) {
@@ -147,13 +192,16 @@ async function create(overrides: Record<string, unknown> = {}, opts: CallOptions
     return res.json
 }
 
-function buildApp(kms: Kms): Hono {
+function buildApp(kms: Kms, replay?: ReplayStore): Hono {
+    const verifier = replay
+        ? new IntegrationVerifier(integrationLoader, { replay })
+        : new IntegrationVerifier(integrationLoader)
     return createApp({
-        verifier: new JwtVerifier(loader),
+        verifier: new JwtVerifier(platformLoader),
         lifecycle: { ready: true, shuttingDown: false },
         secrets: () => null,
         integrations: {
-            verifier: new IntegrationVerifier(loader),
+            verifier,
             service: new IntegrationsService({ pool, envelope: new Envelope(kms), audit }),
         },
     })
@@ -482,6 +530,21 @@ describe('team isolation', () => {
 })
 
 describe('authorization', () => {
+    it('rejects token replay in one app and across apps that share Postgres', async () => {
+        const kms = new LocalKms([randomBytes(32)])
+        const first = buildApp(kms, new PostgresReplayStore(pool))
+        const second = buildApp(kms, new PostgresReplayStore(pool))
+        const sameAppToken = await token({ ops: ['read'] })
+        const crossAppToken = await token({ ops: ['read'] })
+        const request = (target: Hono, bearer: string): Response | Promise<Response> =>
+            target.request('/v1/integrations', { headers: { Authorization: `Bearer ${bearer}` } })
+
+        expect((await request(first, sameAppToken)).status).toBe(200)
+        expect((await request(first, sameAppToken)).status).toBe(401)
+        expect((await request(first, crossAppToken)).status).toBe(200)
+        expect((await request(second, crossAppToken)).status).toBe(401)
+    })
+
     it.each([
         ['POST', '/', newIntegration()],
         ['PUT', '/upsert', newIntegration()],
@@ -495,7 +558,7 @@ describe('authorization', () => {
         const withRef = (value: string): string => value.replace('REF', created.id)
         const res = await call(method, withRef(path), {
             deployment: CDP,
-            ops: ['read', 'write', 'delete', 'resolve'],
+            ops: [method === 'DELETE' ? 'delete' : method === 'GET' || path === '/batch-get' ? 'read' : 'write'],
             body: body === undefined ? undefined : JSON.parse(withRef(JSON.stringify(body))),
         })
         expect(res.status).toBe(403)
@@ -690,16 +753,16 @@ describe('batch limits', () => {
     const uuid = (i: number): string => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`
 
     it.each([
-        ['no refs', { refs: [] }],
-        ['201 refs', { refs: Array.from({ length: 201 }, (_, i) => uuid(i)) }],
-        ['a ref that is not a legacy id or a UUID', { refs: ['01'] }],
-        ['an upper-case UUID', { refs: ['0B8A3A8E-4E0A-4F5E-9D7A-1C2B3D4E5F60'] }],
-        ['an extra field', { refs: ['1'], team_id: TEAM_B }],
-    ])('rejects %s', async (_label, body) => {
+        ['no refs', { refs: [] }, 403, 'forbidden_ref'],
+        ['201 refs', { refs: Array.from({ length: 201 }, (_, i) => uuid(i)) }, 403, 'forbidden_ref'],
+        ['a ref that is not a legacy id or a UUID', { refs: ['01'] }, 403, 'forbidden_ref'],
+        ['an upper-case UUID', { refs: ['0B8A3A8E-4E0A-4F5E-9D7A-1C2B3D4E5F60'] }, 403, 'forbidden_ref'],
+        ['an extra field', { refs: ['1'], team_id: TEAM_B }, 400, 'validation'],
+    ])('rejects %s', async (_label, body, status, code) => {
         for (const path of ['/batch-get', '/resolve']) {
             const res = await call('POST', path, { body })
-            expect(res.status).toBe(400)
-            expect(res.json.error.code).toBe('validation')
+            expect(res.status).toBe(status)
+            expect(res.json.error.code).toBe(code)
         }
     })
 
