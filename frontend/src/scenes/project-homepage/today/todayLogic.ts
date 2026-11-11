@@ -51,6 +51,7 @@ import {
     type TodayForYouRows,
     type TodayProductPush,
 } from './todayForYouRows'
+import { greetingFor } from './todayGreeting'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { JumpBackObject, jumpBackObjectsForHome } from './todayRecentObjects'
 import { type TodayReportPreview, reportPreview } from './todayReportPreviews'
@@ -117,20 +118,6 @@ export function reportIdFromPath(pathname: string): string | null {
 
 export function isTodayPath(pathname: string): boolean {
     return /^\/(home(\/reports\/[^/]+)?\/?)?$/.test(removeProjectIdIfPresent(pathname))
-}
-
-export function greetingForHour(hour: number, name: string | null | undefined): string {
-    const suffix = name ? `, ${name}.` : '.'
-    if (hour < 5) {
-        return `You’re up late${suffix}`
-    }
-    if (hour < 12) {
-        return `Morning${suffix}`
-    }
-    if (hour < 17) {
-        return `Afternoon${suffix}`
-    }
-    return `Evening${suffix}`
 }
 
 /**
@@ -203,7 +190,6 @@ export interface todayLogicValues {
     frequentObjectsLoading: boolean
     greeting: string
     homeScrollTop: number | null
-    hour: number
     isNewProject: boolean
     listExpanded: Record<TodayList, boolean>
     loadedMoreReports: SignalReport[]
@@ -380,8 +366,7 @@ export interface todayLogicMeta {
         reportId: (location: { hash: string; pathname: string; search: string }) => string | null
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
-        hour: (now: number) => number
-        greeting: (hour: number, user: UserType | null) => string
+        greeting: (now: number, user: UserType | null) => string
         recentObjects: (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]) => JumpBackObject[]
         shownReportIds: (reports: SignalReport[]) => string[]
         currentMoreReports: (
@@ -659,10 +644,9 @@ export const todayLogic = kea<todayLogicType>([
             (topReports: TodayReports | null): number =>
                 topReports ? Math.max(topReports.count - topReports.results.length, 0) : 0,
         ],
-        hour: [(s) => [s.now], (now: number): number => new Date(now).getHours()],
         greeting: [
-            (s) => [s.hour, s.user],
-            (hour: number, user: UserType | null): string => greetingForHour(hour, user?.first_name),
+            (s) => [s.now, s.user],
+            (now: number, user: UserType | null): string => greetingFor(new Date(now), user?.first_name),
         ],
         recentObjects: [
             (s) => [s.recents, s.frequentObjects],

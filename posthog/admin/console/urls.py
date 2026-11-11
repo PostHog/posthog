@@ -1,9 +1,9 @@
 from collections.abc import Callable
 from uuid import UUID
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.admin.utils import unquote
-from django.http import Http404, HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import path, re_path
 
 from posthog.admin.console import views
@@ -96,6 +96,21 @@ def legal_document_redirect(request: HttpRequest, object_id: str, target: str) -
     return MovedToConsole.record_redirect("organizations", target)(request, organization_id, query.urlencode())
 
 
+def _moved_to_managed_warehouse_panel(what: str) -> Callable[..., HttpResponse]:
+    # The old pages asked for the organization in their form, so their URLs name none. The actions are now
+    # operations on each organization's page.
+    def view(request: HttpRequest) -> HttpResponse:
+        messages.info(
+            request,
+            f"{what} moved to the Managed warehouse panel on the organization's page in PostHog Admin. Look up a "
+            "team of the organization, then open its organization.",
+        )
+        query = request.META.get("QUERY_STRING", "")
+        return HttpResponseRedirect("/admin/console/" + (f"?{query}" if query else ""))
+
+    return view
+
+
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view
 # adds the staff check, the login redirect and CSRF protection. The console needs no auth of its own.
 urlpatterns = [
@@ -118,6 +133,11 @@ urlpatterns = [
             ),
         )
     ],
+    path(
+        "admin/console/results/<slug:result_id>/",
+        admin.site.admin_view(views.operation_result),
+        name="admin_console_result",
+    ),
     path(
         "admin/console/tools/<slug:tool_key>/",
         admin.site.admin_view(views.tool_page),
@@ -187,9 +207,54 @@ urlpatterns = [
             "Creating a deletion request", "/admin/console/tools/new-deletion-request/create/"
         ),
     ),
+    *[
+        path(
+            f"admin/experiments/experiment/<int:object_id>/{old}/",
+            MovedToConsole.page_redirect(
+                "This experiment action", "/admin/console/tools/experiments/?experiment={object_id}"
+            ),
+        )
+        for old in ("migrate", "fix-properties", "start-recalculation")
+    ],
+    path(
+        "admin/experiments/experimentsavedmetric/<int:object_id>/migrate/",
+        MovedToConsole.page_redirect(
+            "Migrating a shared metric", "/admin/console/tools/experiments/?saved_metric={object_id}"
+        ),
+    ),
+    *[
+        path(
+            f"admin/experiments/experimentmetricsrecalculation/<uuid:object_id>/{old}/",
+            MovedToConsole.page_redirect(
+                "This recalculation action", "/admin/console/tools/experiment-recalculations/?run={object_id}"
+            ),
+        )
+        for old in ("mark-failed", "mark-completed", "start", "retry-failures")
+    ],
+    path(
+        "admin/account_audits/accountauditcredential/add/",
+        MovedToConsole.page_redirect(
+            "Creating an account audit credential", "/admin/console/tools/account-audit-credentials/create/"
+        ),
+    ),
     path(
         "admin/posthog/team/<int:pk>/view-cache/",
         MovedToConsole.page_redirect("The cached config view", "/admin/console/tools/remote-config-cache/?team={pk}"),
+    ),
+    *[
+        path(
+            f"admin/managed_warehouse/duckgresserver/<uuid:server_id>/{old}/",
+            admin.site.admin_view(_moved_duckgres_server_action(target)),
+        )
+        for old, target in MOVED_DUCKGRES_SERVER_ACTIONS.items()
+    ],
+    path(
+        "admin/managed_warehouse/duckgresserver/provision/",
+        admin.site.admin_view(_moved_to_managed_warehouse_panel("Provisioning a managed warehouse")),
+    ),
+    path(
+        "admin/managed_warehouse/managedwarehouseviewtranslationjob/add/",
+        admin.site.admin_view(_moved_to_managed_warehouse_panel("Starting a view translation job")),
     ),
     *[
         path(
@@ -245,6 +310,18 @@ urlpatterns = [
         "admin/legal_documents/legaldocument/<path:object_id>/delete/",
         admin.site.admin_view(legal_document_redirect),
         {"target": "legal-documents/delete/"},
+    ),
+    path(
+        "admin/posthog_ai/conversation/<uuid:pk>/compact/",
+        MovedToConsole.page_redirect(
+            "Compacting a conversation", "/admin/console/tools/ai-conversation-checkpoints/compact/?conversation={pk}"
+        ),
+    ),
+    path(
+        "admin/tasks/taskrun/<uuid:pk>/download-logs/",
+        MovedToConsole.page_redirect(
+            "Downloading task run logs", "/admin/console/tools/task-run-logs/download/?run={pk}"
+        ),
     ),
     path(
         "admin/posthog/organization/send-usage-report/",
