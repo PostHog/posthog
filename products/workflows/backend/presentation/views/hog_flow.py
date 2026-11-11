@@ -1244,24 +1244,37 @@ def _has_exact_string_filter(filters: dict, key: str) -> bool:
     return False
 
 
-def _sender_step_key(action: dict) -> tuple[str, str, str]:
+@frozen
+class _SenderStep:
+    """Which step a stored email sender belongs to: a sender only stays approved on the same step."""
+
+    step_id: str
+    step_type: str
+    template_id: str
+
+
+def _sender_step_key(action: dict) -> _SenderStep:
     step_type = action.get("type")
     if not isinstance(step_type, str):
         step_type = ""
     template_id = (action.get("config") or {}).get("template_id") or _FIXED_TEMPLATE_IDS.get(step_type)
-    return (str(action.get("id") or ""), step_type, template_id if isinstance(template_id, str) else "")
+    return _SenderStep(
+        step_id=str(action.get("id") or ""),
+        step_type=step_type,
+        template_id=template_id if isinstance(template_id, str) else "",
+    )
 
 
 def _existing_email_from_by_step(
     instance: WorkflowEditState, *, include_draft: bool = True
-) -> dict[tuple[str, str, str], list[dict]]:
+) -> dict[_SenderStep, list[dict]]:
     """Stored email sender overrides keyed by step id, type and template, live and draft variants both kept.
 
     Which variant a save should be compared against depends on how the request routes (a
     builder save targets the draft, a raw API write targets live), so validation grandfathers
     a value matching either - both are values already stored on the workflow.
     """
-    result: dict[tuple[str, str, str], list[dict]] = {}
+    result: dict[_SenderStep, list[dict]] = {}
     draft = instance.draft if isinstance(instance.draft, dict) and include_draft else {}
     for actions in (instance.actions, draft.get("actions")):
         for stored_action in actions or []:
