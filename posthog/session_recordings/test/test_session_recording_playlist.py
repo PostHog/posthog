@@ -1747,6 +1747,7 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         [
             ("soft_deleted", {"deleted": True}, {}),
             ("expired", {}, {"start_time": datetime.now(UTC) - timedelta(days=31)}),
+            ("expired_without_start_time", {"created_at": datetime.now(UTC) - timedelta(days=31)}, {}),
         ]
     )
     def test_gone_items_excluded_from_count_and_watched(
@@ -1754,7 +1755,12 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
     ) -> None:
         playlist = self._make_playlist("gone")
         rec = SessionRecording.objects.create(team=self.team, session_id="gone-1", **recording_kwargs)
-        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec, **item_kwargs)
+        item_created_at = item_kwargs.get("created_at")
+        item = SessionRecordingPlaylistItem.objects.create(
+            playlist=playlist, recording=rec, **{k: v for k, v in item_kwargs.items() if k != "created_at"}
+        )
+        if item_created_at:
+            SessionRecordingPlaylistItem.objects.filter(pk=item.pk).update(created_at=item_created_at)
         kept = SessionRecording.objects.create(
             team=self.team, session_id="kept-1", start_time=datetime.now(UTC) - timedelta(days=29)
         )

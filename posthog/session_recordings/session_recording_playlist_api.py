@@ -162,7 +162,11 @@ def live_playlist_items(
     items: QuerySet[SessionRecordingPlaylistItem], team: Team
 ) -> QuerySet[SessionRecordingPlaylistItem]:
     cutoff = now() - timedelta(days=retention_period_in_days(team.session_recording_retention_period))
-    return items.exclude(deleted=True).exclude(recording__start_time__lt=cutoff)
+    # Pinning creates the SessionRecording row without a start_time, so for those
+    # we fall back to when the item was added: the recording cannot have started later than that
+    return items.exclude(deleted=True).exclude(
+        Q(recording__start_time__lt=cutoff) | Q(recording__start_time__isnull=True, created_at__lt=cutoff)
+    )
 
 
 def count_collection_recordings(
