@@ -13,7 +13,7 @@ from posthog.dataclasses import frozen
 
 from .adapters import REFUSALS, REPEAT_THRESHOLD, REPEATED_TOOL_CALLS, SENSITIVE_DATA, UNRECOVERED_ERRORS, AdaptedCheck
 from .catalog import EvalTemplate
-from .coverage import EvalFix
+from .coverage import DEAD_LOOKBACK, EvalFix
 from .profile import StructuredGap
 
 FREE = "No AI provider cost, and you see results on recent traffic right away."
@@ -151,15 +151,44 @@ def code_check_text(check: AdaptedCheck, failure_rate: float, segment: str | Non
     return CardText(headline=headline, outcome=f"{words.checks.replace('{scope}', scope)} {FREE}", reason=words.reason)
 
 
-def gap_text(gap: StructuredGap, cost: str) -> CardText:
+@frozen
+class EvalText:
+    name: str
+    description: str
+
+
+@frozen
+class _GapWords:
+    # How the card says the items carry the values: `labeled "bug"`, `marked urgent`.
+    marked: str
+    # What the judge checks, without a closing full stop.
+    checks: str
+
+
+def _gap_words(gap: StructuredGap) -> _GapWords:
     items = f"{_plain(gap.segment_value)} {gap.items}"
     values = _either(gap.values)
     if gap.meaning == "label":
-        marked, checks = f"labeled {values}", f"Checks whether {items} labeled {values} are labeled correctly."
-    elif gap.meaning == "urgency" and all(URGENT_VALUE.match(value) for value in gap.values):
-        marked, checks = "marked urgent", f"Checks whether {items} marked urgent deserve it."
-    else:
-        marked, checks = f"marked {values}", f"Checks whether {items} marked {values} are marked correctly."
+        return _GapWords(
+            marked=f"labeled {values}", checks=f"Checks whether {items} labeled {values} are labeled correctly"
+        )
+    if gap.meaning == "urgency" and all(URGENT_VALUE.match(value) for value in gap.values):
+        return _GapWords(marked="marked urgent", checks=f"Checks whether {items} marked urgent deserve it")
+    return _GapWords(marked=f"marked {values}", checks=f"Checks whether {items} marked {values} are marked correctly")
+
+
+def gap_eval_text(gap: StructuredGap) -> EvalText:
+    """The name and description of the judge a gap card drafts, in the card's own words."""
+    words = _gap_words(gap)
+    return EvalText(
+        name=_sentence_start(f"{_plain(gap.segment_value)} {gap.items} {words.marked}"), description=words.checks
+    )
+
+
+def gap_text(gap: StructuredGap, cost: str) -> CardText:
+    items = f"{_plain(gap.segment_value)} {gap.items}"
+    words = _gap_words(gap)
+    marked, checks = words.marked, f"{words.checks}."
     ratio = gap.segment_rate / gap.other_rate if gap.other_rate else math.inf
     headline = (
         f"{_sentence_start(items)} are {marked} {round(ratio)}× more often"
@@ -188,6 +217,7 @@ def judge_text(template: EvalTemplate, target: str, cost: str) -> CardText:
 
 def fix_text(fix: EvalFix) -> CardText:
     name = fix.evaluation_name
+    lookback = f"{DEAD_LOOKBACK.days} days"
     if fix.problem == "one_outcome":
         return CardText(
             headline=f'Your "{name}" eval gives the same answer almost every time',
@@ -196,13 +226,34 @@ def fix_text(fix: EvalFix) -> CardText:
                 if fix.evaluation_type == "llm_judge"
                 else "Check that its code can return both answers."
             ),
-            reason=fix.reason,
+            reason=(
+                f"It returned {fix.dominant_outcome} on {fix.dominant_share:.0%} of {fix.graded_runs:,} graded runs "
+                f"in {lookback}, and gives the same reasoning for both answers."
+            ),
         )
+    headline = f'Your "{name}" eval stopped running'
+    if not fix.has_conditions:
+        return CardText(
+            headline=headline,
+            outcome="It has no trigger conditions, so it runs on nothing. Add a condition to choose what it checks.",
+            reason=f"It is enabled but has no condition sets, and it has no runs in {lookback}.",
+        )
+    window = f"{fix.window_days} days" if fix.window_days != 1 else "day"
     change = fix.filter_change
-    outcome = (
-        f"Its filter looks for {change.key} = {change.old_value}, which your traffic stopped sending. "
-        f"The fix changes it to {change.key} = {change.new_value}, so the eval runs again."
-        if change
-        else "Its filters match none of your AI events from the last 7 days, so it checks nothing until they change."
+    if change:
+        return CardText(
+            headline=headline,
+            outcome=(
+                f"Its filter looks for {change.key} = {change.old_value}, which your traffic stopped sending. "
+                f"The fix changes it to {change.key} = {change.new_value}, so the eval runs again."
+            ),
+            reason=(
+                f"It has no runs in {lookback}. No AI event from the last {window} has "
+                f"{change.key} = {change.old_value}, and the closest value sent is {change.new_value}."
+            ),
+        )
+    return CardText(
+        headline=headline,
+        outcome=f"Its filters match none of your AI events from the last {window}, so it checks nothing until they change.",
+        reason=f"It has no runs in {lookback}.",
     )
-    return CardText(headline=f'Your "{name}" eval stopped running', outcome=outcome, reason=fix.reason)

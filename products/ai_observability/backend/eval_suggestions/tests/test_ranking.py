@@ -7,6 +7,7 @@ from posthog.schema import LLMTrace
 from products.ai_observability.backend.eval_suggestions import adapters, ranking
 from products.ai_observability.backend.eval_suggestions.measure import Measurement, Outcome, SampledTrace, TraceSample
 from products.ai_observability.backend.eval_suggestions.profile import FieldMeaning, StructuredGap, TeamProfile
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 
 
 def _sampled(trace_id: str, product: str, held_out: bool = False, earlier: tuple[str, ...] = ()) -> SampledTrace:
@@ -17,7 +18,6 @@ def _sampled(trace_id: str, product: str, held_out: bool = False, earlier: tuple
         segments={"ai_product": product},
         segment_values={"ai_product": frozenset({product, *earlier})},
         raw_segment_values={"ai_product": frozenset({product, *earlier})},
-        raw_segments={"ai_product": product},
         final_text="answer",
         turn_text="",
         user_messages=1,
@@ -48,7 +48,6 @@ PROFILE = TeamProfile(
     tool_counts={},
     dispatcher_tools=(),
     session_share=0.0,
-    error_share=0.01,
     mean_input_tokens=1200.0,
     models=(),
     error_prefixes=(),
@@ -151,6 +150,8 @@ class TestFilterRule:
         assert bool(proposal.filters) is filtered
         assert (proposal.measured_failure_rate, proposal.sample_size) == (failed / sample_size, sample_size)
         assert all(evidence.trace_id.startswith("in") for evidence in proposal.evidence) is filtered
+        in_scope = segment_size if filtered else segment_size + 240
+        assert proposal.estimated_weekly_runs == round(PROFILE.traces * in_scope / (segment_size + 240))
 
 
 def _proposal(kind: str, score: float, key: str) -> ranking.Proposal:
@@ -253,6 +254,10 @@ def test_a_long_dedupe_key_is_bounded_and_stable() -> None:
     assert len(bounded) <= ranking.MAX_DEDUPE_KEY
     assert bounded == ranking.bounded_key(key) != ranking.bounded_key(key + "x")
     assert ranking.bounded_key("gap:lens=security:findings[].priority") == "gap:lens=security:findings[].priority"
+
+
+def test_every_provider_default_model_has_a_price() -> None:
+    assert set(DEFAULT_MODEL_BY_PROVIDER.values()) <= set(ranking.MODEL_PRICES)
 
 
 @parameterized.expand([("urgency", "deserves that level"), ("status", "in that state"), ("label", "fits that label")])

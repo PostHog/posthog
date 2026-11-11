@@ -19,8 +19,9 @@ from posthog.hogql import ast
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
-from products.ai_observability.backend.evaluation_conditions import build_condition_filter
+from products.ai_observability.backend.evaluation_conditions import build_condition_filter, runs_on_traffic
 from products.ai_observability.backend.models.eval_suggestions import EvalSuggestion, EvalSuggestionStatus
+from products.ai_observability.backend.models.evaluation_outcomes import APPLICABLE_PREDICATE, NOT_SKIPPED_PREDICATE
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 from . import catalog
@@ -38,6 +39,11 @@ SUSPICIOUS_MIN_RUNS = 200
 SHARED_REASONING_SHARE = 0.1
 DISMISSAL_MEMORY = timedelta(days=90)
 MIN_REPLACEMENT_SIMILARITY = 0.6
+# A live value that contains the stale one, or sits inside it, qualifies however different its length, and edges out
+# an equally similar value. It never beats a closer one.
+CONTAINMENT_BOOST = 0.05
+# Similarity between a few characters means nothing: `3` and `13` share a digit, not a meaning.
+MIN_REPLACEMENT_LENGTH = 3
 
 FixProblem = Literal["no_runs", "one_outcome"]
 
@@ -78,12 +84,19 @@ class EvalFix:
     evaluation_name: str
     evaluation_type: str
     problem: FixProblem
-    reason: str
     # PATCH body for the evaluation, when the fix is a filter value that matches traffic again.
     patch: dict[str, Any] | None
     weekly_units: int
+    # Days of traffic the filters were matched against.
+    window_days: int
     # The filter value the patch replaces, when there is a patch.
     filter_change: FilterChange | None = None
+    # False for an enabled evaluation saved without condition sets, which the scheduler never runs.
+    has_conditions: bool = True
+    # For a one-outcome evaluation: the answer it keeps giving, on what share of how many graded runs.
+    dominant_outcome: str = ""
+    dominant_share: float = 0.0
+    graded_runs: int = 0
 
 
 @frozen
@@ -199,7 +212,7 @@ def covers(existing: ExistingEval, target: str, filters: Sequence[Mapping[str, A
         return False
     # A condition set at 0% rollout matches but never runs, so it covers nothing.
     return any(
-        _live(condition)
+        runs_on_traffic(condition)
         and all(
             any(_same_or_wider(prop, candidate) for candidate in filters) for prop in condition.get("properties") or []
         )
@@ -207,7 +220,8 @@ def covers(existing: ExistingEval, target: str, filters: Sequence[Mapping[str, A
     )
 
 
-_EVAL_RUNS_SQL = """
+_EVAL_RUNS_SQL = (
+    """
 SELECT
     toString(properties.$ai_evaluation_id) AS evaluation_id,
     count() AS runs,
@@ -217,9 +231,15 @@ FROM events
 WHERE event = '$ai_evaluation'
   AND timestamp >= {start}
   AND toString(properties.$ai_evaluation_id) IN {evaluation_ids}
+  AND """
+    + NOT_SKIPPED_PREDICATE
+    + " AND "
+    + APPLICABLE_PREDICATE
+    + """
 GROUP BY evaluation_id
 LIMIT 10000
 """
+)
 
 # Runs whose reasoning text, word for word, also explains the opposite outcome somewhere else.
 _SHARED_REASONING_SQL = """
@@ -259,16 +279,25 @@ LIMIT 50
 
 
 def best_replacement(old: str, values: Mapping[str, int]) -> str | None:
-    """The live value a stale filter value most likely became, such as `signals` -> `signals_scout`."""
+    """The live value a stale filter value most likely became, such as `signals` -> `signals_scout`.
+
+    The most similar value wins and traffic only breaks ties, so `checkout_v2` becomes `checkout_v3`, not the
+    busier `checkout`, which would point the evaluation at a wider segment.
+    """
     lowered = old.lower()
-    contains = [
-        value for value in values if value.lower() != lowered and (lowered in value.lower() or value.lower() in lowered)
-    ]
-    if contains:
-        return max(contains, key=lambda value: values[value])
-    scored = [(difflib.SequenceMatcher(None, lowered, value.lower()).ratio(), values[value], value) for value in values]
-    similar = [entry for entry in scored if entry[0] >= MIN_REPLACEMENT_SIMILARITY]
-    return max(similar)[2] if similar else None
+    if len(lowered) < MIN_REPLACEMENT_LENGTH:
+        return None
+
+    scored = []
+    for value in values:
+        other = value.lower()
+        if other == lowered or len(other) < MIN_REPLACEMENT_LENGTH:
+            continue
+        ratio = difflib.SequenceMatcher(None, lowered, other).ratio()
+        contains = lowered in other or other in lowered
+        if contains or ratio >= MIN_REPLACEMENT_SIMILARITY:
+            scored.append((ratio + (CONTAINMENT_BOOST if contains else 0.0), values[value], value))
+    return max(scored)[2] if scored else None
 
 
 def _exact_values(prop: Mapping[str, Any]) -> list[str]:
@@ -288,7 +317,8 @@ def _clean_conditions(conditions: Iterable[Mapping[str, Any]]) -> list[dict[str,
 
 
 def _count_matching(team: Team, conditions: list[dict[str, Any]], start: datetime, end: datetime) -> int:
-    condition = build_condition_filter(conditions, team)
+    # A set paused at 0% matches events but grades none, so it never counts as matching traffic.
+    condition = build_condition_filter([c for c in conditions if runs_on_traffic(c)], team)
     # The scheduler runs an evaluation with no condition sets on nothing.
     if condition is None:
         return 0
@@ -323,7 +353,7 @@ def _filter_fix(
     conditions = _clean_conditions(existing.conditions)
     for condition in conditions:
         # A condition set at 0% rollout runs on nothing whatever its filter matches.
-        if not _live(condition):
+        if not runs_on_traffic(condition):
             continue
         for prop in condition.get("properties") or []:
             key = str(prop["key"])
@@ -367,10 +397,6 @@ def fix_dedupe_key(evaluation_id: str, problem: FixProblem) -> str:
     return f"fix:{evaluation_id}:{problem}"
 
 
-def _live(condition: dict[str, Any]) -> bool:
-    return (condition.get("rollout_percentage") or 0) > 0
-
-
 def find_fixes(
     team: Team,
     evals: Sequence[ExistingEval],
@@ -400,47 +426,45 @@ def find_fixes(
             for evaluation_id, existing in enabled.items()
             if evaluation_id not in runs
             and fix_dedupe_key(evaluation_id, "no_runs") not in dismissed
-            and (not existing.conditions or any(_live(condition) for condition in existing.conditions))
+            and (not existing.conditions or any(runs_on_traffic(condition) for condition in existing.conditions))
             and now - existing.created_at >= MIN_EVALUATION_AGE
             and now - existing.updated_at >= MIN_QUIET_AFTER_EDIT
         ),
         key=lambda item: item[1].updated_at,
         reverse=True,
     )[:MAX_SILENT_EVALUATIONS]
+    window_days = max(round((window_end - window_start) / timedelta(days=1)), 1)
     for evaluation_id, existing in silent:
+        if not existing.conditions:
+            fixes.append(
+                EvalFix(
+                    evaluation_id=evaluation_id,
+                    evaluation_name=existing.name,
+                    evaluation_type=existing.evaluation_type,
+                    problem="no_runs",
+                    patch=None,
+                    weekly_units=0,
+                    window_days=window_days,
+                    has_conditions=False,
+                )
+            )
+            continue
         # Conditions that match traffic mean the evaluation stopped for another reason, such as its key.
         if _count_matching(team, _clean_conditions(existing.conditions), window_start, window_end) > 0:
             continue
         fix = _filter_fix(team, existing, window_start, window_end, values_by_key)
-        if fix is not None:
-            change = fix.change
-            fixes.append(
-                EvalFix(
-                    evaluation_id=evaluation_id,
-                    evaluation_name=existing.name,
-                    evaluation_type=existing.evaluation_type,
-                    problem="no_runs",
-                    reason=(
-                        f"It triggers on {change.key} = {change.old_value}. Your traffic now sends "
-                        f"{change.new_value}, so the filter matches nothing."
-                    ),
-                    patch=fix.patch,
-                    weekly_units=fix.weekly_units,
-                    filter_change=change,
-                )
+        fixes.append(
+            EvalFix(
+                evaluation_id=evaluation_id,
+                evaluation_name=existing.name,
+                evaluation_type=existing.evaluation_type,
+                problem="no_runs",
+                patch=fix.patch if fix else None,
+                weekly_units=fix.weekly_units if fix else 0,
+                window_days=window_days,
+                filter_change=fix.change if fix else None,
             )
-        else:
-            fixes.append(
-                EvalFix(
-                    evaluation_id=evaluation_id,
-                    evaluation_name=existing.name,
-                    evaluation_type=existing.evaluation_type,
-                    problem="no_runs",
-                    reason="Its filters match none of your AI events from the last 7 days.",
-                    patch=None,
-                    weekly_units=0,
-                )
-            )
+        )
 
     # Runs before an edit judged an older version, so an evaluation edited within the window waits for clean runs.
     suspicious = {
@@ -463,19 +487,18 @@ def find_fixes(
         for evaluation_id, (total, true_runs, false_runs) in suspicious.items():
             if shared.get(evaluation_id, 0) / total < SHARED_REASONING_SHARE:
                 continue
-            outcome = "true" if true_runs >= false_runs else "false"
             fixes.append(
                 EvalFix(
                     evaluation_id=evaluation_id,
                     evaluation_name=enabled[evaluation_id].name,
                     evaluation_type=enabled[evaluation_id].evaluation_type,
                     problem="one_outcome",
-                    reason=(
-                        f"It returned {outcome} on {max(true_runs, false_runs) / total:.0%} of {total:,} runs in 30 days, "
-                        "and gives the same reasoning for both answers."
-                    ),
                     patch=None,
-                    weekly_units=total // 4,
+                    weekly_units=round(total * 7 / DEAD_LOOKBACK.days),
+                    window_days=window_days,
+                    dominant_outcome="true" if true_runs >= false_runs else "false",
+                    dominant_share=max(true_runs, false_runs) / total,
+                    graded_runs=total,
                 )
             )
     return fixes

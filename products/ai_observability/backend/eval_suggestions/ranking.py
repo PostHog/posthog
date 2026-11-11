@@ -15,6 +15,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.run_session_evaluation import JUDGE_SESSION_MAX_CHARS
 from posthog.temporal.ai_observability.run_trace_evaluation import JUDGE_TRACE_MAX_CHARS
 
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.eval_suggestions import EvalSuggestionKind
 
 from . import cards, catalog
@@ -54,15 +55,23 @@ SEVERITY: dict[str, float] = {
 }
 FIX_SEVERITY = 1.0
 
-# ponytail: list prices of the default judge model per provider, read for estimates only. Model prices
-# live in the Node ingestion package, which the Python image does not ship; move this to a shared file
-# when a second Python caller needs prices.
-JUDGE_INPUT_PRICE_PER_TOKEN: dict[str, float] = {
-    "gpt-5-mini": 0.25e-6,
-    "claude-haiku-4-5": 1e-6,
-    "gemini-2.5-flash": 0.3e-6,
+
+@frozen
+class ModelPrice:
+    input_per_token: float
+    output_per_token: float
+
+
+# ponytail: list prices of each provider's default model, read for estimates only. Model prices live in the
+# Node ingestion package, which the Python image does not ship; move this to a shared file when a caller
+# outside eval suggestions needs prices. A test keeps every provider default priced here.
+MODEL_PRICES: dict[str, ModelPrice] = {
+    "gpt-5-mini": ModelPrice(input_per_token=0.25e-6, output_per_token=2e-6),
+    "claude-haiku-4-5": ModelPrice(input_per_token=1e-6, output_per_token=5e-6),
+    "gemini-2.5-flash": ModelPrice(input_per_token=0.3e-6, output_per_token=2.5e-6),
 }
-DEFAULT_JUDGE_MODEL = "gpt-5-mini"
+# What a judge runs on when the team has no provider key yet: the evaluator's OpenAI default.
+DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
 
 @frozen
@@ -103,7 +112,8 @@ class JudgeCost:
 
 
 def judge_input_price(model: str) -> float | None:
-    return JUDGE_INPUT_PRICE_PER_TOKEN.get(model)
+    price = MODEL_PRICES.get(model)
+    return price.input_per_token if price else None
 
 
 def judge_cost(weekly_units: float, mean_input_tokens: float | None, model: str) -> JudgeCost:
@@ -309,6 +319,7 @@ def code_check_proposal(
             judge=False,
             similar=similar_evaluation_id is not None,
         ),
+        estimated_weekly_runs=round(profile.traces * _scope_share(filters, sample.main)),
         similar_evaluation_id=similar_evaluation_id,
     )
 
@@ -351,14 +362,16 @@ def gap_proposal(
 ) -> Proposal:
     items, field = gap.items, gap.field_name
     values_text = " or ".join(gap.values)
-    name = f"{gap.segment_value.capitalize()} {items} marked {values_text}"
+    eval_text = cards.gap_eval_text(gap)
     prompt = GAP_PROMPTS[gap.meaning].format(items=items, field=field, values=values_text)
     filters = [segment_filter(gap.segment_key, gap.segment_value, sample.traces)]
     weekly_units = profile.traces * _scope_share(filters, sample.traces)
     unit_tokens = mean_unit_tokens("trace", profile, sample)
     cost = judge_cost(weekly_units, unit_tokens, judge_model)
-    sample_traces = max(len(sample.traces), 1)
-    excess_per_week = (gap.segment_rate - gap.other_rate) * gap.segment_items * profile.traces / sample_traces
+    # Gaps are counted on the main sample only, like code checks, so both weigh the same week of traffic.
+    excess_per_week = (
+        (gap.segment_rate - gap.other_rate) * gap.segment_items * profile.traces / max(len(sample.main), 1)
+    )
     text = cards.gap_text(gap, cards.cost_clause(cost.weekly_cost_usd, free=False))
     return Proposal(
         kind=EvalSuggestionKind.NEW_LLM_JUDGE,
@@ -368,8 +381,8 @@ def gap_proposal(
         outcome=text.outcome,
         reason=text.reason,
         draft={
-            "name": name,
-            "description": f"Checks whether {items} marked {values_text} deserve that {field}",
+            "name": eval_text.name,
+            "description": eval_text.description,
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": prompt},
             "output_type": "boolean",

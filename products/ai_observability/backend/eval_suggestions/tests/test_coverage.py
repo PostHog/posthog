@@ -71,6 +71,8 @@ def _existing(**overrides: Any) -> ExistingEval:
         ),
         ("no_condition_sets_match_nothing", _existing(conditions=[]), [], False),
         ("zero_rollout_never_runs", _existing(conditions=[{**ALL_TRAFFIC[0], "rollout_percentage": 0}]), [], False),
+        # The API saves a set without a rollout as running on all its traffic.
+        ("missing_rollout_runs_everywhere", _existing(conditions=[{"id": "all", "properties": []}]), [], True),
     ]
 )
 def test_covers(_name: str, existing: ExistingEval, filters: list[dict[str, Any]], expected: bool) -> None:
@@ -80,8 +82,13 @@ def test_covers(_name: str, existing: ExistingEval, filters: list[dict[str, Any]
 @parameterized.expand(
     [
         ("renamed_with_a_suffix", "signals", {"signals_scout": 900, "billing": 50}, "signals_scout"),
+        # Far apart by length, but the live value holds the stale one whole.
+        ("renamed_with_a_long_suffix", "chat", {"chat_assistant": 900, "billing": 50}, "chat_assistant"),
         ("close_spelling", "checkout", {"chekout": 40, "search": 900}, "chekout"),
         ("nothing_similar", "signals", {"billing": 900, "search": 50}, None),
+        # The busier base value would widen the eval to every checkout, so the closer version wins.
+        ("versioned_value", "checkout_v2", {"checkout": 900, "checkout_v3": 40}, "checkout_v3"),
+        ("short_values_never_match", "3", {"13": 900, "4": 50}, None),
     ]
 )
 def test_best_replacement(_name: str, old: str, values: dict[str, int], expected: str | None) -> None:
@@ -178,9 +185,48 @@ class TestFetchCoverage(ClickhouseTestMixin, APIBaseTest):
 
         coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
 
-        assert sorted((fix.evaluation_id, fix.patch) for fix in coverage.fixes) == sorted(
-            [(str(no_match.id), None), (str(no_conditions.id), None)]
+        assert sorted((fix.evaluation_id, fix.patch, fix.has_conditions) for fix in coverage.fixes) == sorted(
+            [(str(no_match.id), None, True), (str(no_conditions.id), None, False)]
         )
+
+    @parameterized.expand(
+        [
+            ("skipped", {"$ai_evaluation_skipped": "true"}),
+            ("not_applicable", {"$ai_evaluation_applicable": False}),
+        ]
+    )
+    def test_runs_that_graded_nothing_leave_an_evaluation_silent(self, _name: str, run: dict[str, Any]) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        self._generations(end, ("billing",))
+        silent = self._evaluation("Voice answers are grounded", "voice")
+        _create_event(
+            team=self.team,
+            event="$ai_evaluation",
+            distinct_id="user-1",
+            timestamp=end - timedelta(hours=1),
+            properties={"$ai_evaluation_id": str(silent.id), **run},
+        )
+
+        coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
+
+        assert [fix.evaluation_id for fix in coverage.fixes] == [str(silent.id)]
+
+    def test_a_set_paused_at_zero_rollout_does_not_count_as_matching_traffic(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        self._generations(end, ("signals_scout", "billing"))
+        evaluation = self._evaluation("Scout findings are grounded", "signals")
+        paused = {
+            "id": "paused",
+            "rollout_percentage": 0,
+            "properties": [{"key": "ai_product", "value": ["billing"], "operator": "exact", "type": "event"}],
+        }
+        Evaluation.objects.filter(pk=evaluation.pk).update(conditions=[*evaluation.conditions, paused])
+
+        coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
+
+        [fix] = coverage.fixes
+        assert fix.filter_change is not None
+        assert fix.filter_change.new_value == "signals_scout"
 
     @parameterized.expand(
         [

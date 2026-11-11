@@ -1,7 +1,7 @@
 from parameterized import parameterized
 
 from products.ai_observability.backend.eval_suggestions import adapters, cards
-from products.ai_observability.backend.eval_suggestions.coverage import EvalFix
+from products.ai_observability.backend.eval_suggestions.coverage import EvalFix, FilterChange
 from products.ai_observability.backend.eval_suggestions.profile import FieldMeaning, StructuredGap
 
 
@@ -82,15 +82,62 @@ def test_gap_headline(
     ]
 )
 def test_one_outcome_card_advice_fits_the_eval_type(_name: str, evaluation_type: str, advice: str) -> None:
-    reason = "It returned true on 99% of 1,200,000 runs in 30 days, and gives the same reasoning for both answers."
     fix = EvalFix(
         evaluation_id="e1",
         evaluation_name="Grounded",
         evaluation_type=evaluation_type,
         problem="one_outcome",
-        reason=reason,
         patch=None,
         weekly_units=0,
+        window_days=7,
+        dominant_outcome="true",
+        dominant_share=0.99,
+        graded_runs=1_200_000,
     )
     text = cards.fix_text(fix)
-    assert (text.outcome, text.reason) == (advice, reason)
+    assert (text.outcome, text.reason) == (
+        advice,
+        "It returned true on 99% of 1,200,000 graded runs in 30 days, and gives the same reasoning for both answers.",
+    )
+
+
+@parameterized.expand(
+    [
+        (
+            "stale_value",
+            True,
+            FilterChange(key="ai_product", old_value="signals", new_value="signals_scout"),
+            "Its filter looks for ai_product = signals, which your traffic stopped sending. "
+            "The fix changes it to ai_product = signals_scout, so the eval runs again.",
+        ),
+        (
+            "no_match",
+            True,
+            None,
+            "Its filters match none of your AI events from the last 14 days, so it checks nothing until they change.",
+        ),
+        (
+            "no_condition_sets",
+            False,
+            None,
+            "It has no trigger conditions, so it runs on nothing. Add a condition to choose what it checks.",
+        ),
+    ]
+)
+def test_a_silent_eval_card_names_why_it_stopped(
+    _name: str, has_conditions: bool, change: FilterChange | None, outcome: str
+) -> None:
+    fix = EvalFix(
+        evaluation_id="e1",
+        evaluation_name="Grounded",
+        evaluation_type="llm_judge",
+        problem="no_runs",
+        patch=None,
+        weekly_units=0,
+        window_days=14,
+        filter_change=change,
+        has_conditions=has_conditions,
+    )
+    text = cards.fix_text(fix)
+    assert text.outcome == outcome
+    assert text.outcome not in text.reason
