@@ -15,7 +15,7 @@ import { RawClickHouseEvent } from '~/types'
 import { LoadedCard, Profile, load } from '../cards'
 import { Environment } from '../environment/environment'
 import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
-import { cyclotronUrlOf, withPostgres } from '../environment/stack'
+import { cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
 import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
 import { RunResult, Runner, createRunner } from './runner'
@@ -50,6 +50,7 @@ describe('runner', () => {
     const environment: Environment = {
         up: () => Promise.resolve(),
         reset: () => Promise.resolve(duringReset()),
+        edgeUrl: () => 'http://127.0.0.1:1',
         role: (name) => ({ name, metricsUrl: '' }),
         health: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
@@ -238,7 +239,12 @@ async function startDeliveringRoles(specs: RoleSpec[], leaveOneJobRunning: boole
         { 'auto.offset.reset': 'earliest' }
     )
     await new Promise<void>((resolve, reject) => consumer.connect({}, (error) => (error ? reject(error) : resolve())))
-    consumer.assign([{ topic, partition: 0, offset: 0 }])
+    const end = await new Promise<number>((resolve, reject) =>
+        consumer.queryWatermarkOffsets(topic, 0, 5000, (error, offsets) =>
+            error ? reject(error) : resolve(offsets.highOffset)
+        )
+    )
+    consumer.assign([{ topic, partition: 0, offset: end }])
     consumer.on('data', ({ value }) => {
         work = work
             .then(() => deliver(parseJSON(value!.toString()) as RawClickHouseEvent))
@@ -261,8 +267,10 @@ async function startDeliveringRoles(specs: RoleSpec[], leaveOneJobRunning: boole
 }
 
 describe('runner through seed, drive and judge', () => {
-    const jobsSchema = `scenario_runner_${process.pid}`
-    const cyclotronUrl = `${defaultConfig.CYCLOTRON_NODE_DATABASE_URL}${defaultConfig.CYCLOTRON_NODE_DATABASE_URL!.includes('?') ? '&' : '?'}options=${encodeURIComponent(`-c search_path=${jobsSchema}`)}`
+    const jobsSchema = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_runner_${process.pid}`, [
+        'cyclotron_jobs',
+    ])
+    const cyclotronUrl = jobsSchema.url
     const topic = createKafkaTestTopicName('scenario_runner_events')
     let cacheHome: string
     let env: NodeJS.ProcessEnv
@@ -282,6 +290,7 @@ describe('runner through seed, drive and judge', () => {
                           delivering !== 'all'
                       )
         },
+        edgeUrl: () => edge.url,
         role: (name) => ({ name, metricsUrl: '' }),
         health: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
@@ -321,18 +330,11 @@ describe('runner through seed, drive and judge', () => {
 
     beforeAll(async () => {
         await ensureKafkaTopics([topic])
-        await withPostgres(async (client) => {
-            await client.query(`DROP SCHEMA IF EXISTS ${jobsSchema} CASCADE`)
-            await client.query(`CREATE SCHEMA ${jobsSchema}`)
-            await client.query(`CREATE TABLE ${jobsSchema}.cyclotron_jobs (LIKE public.cyclotron_jobs INCLUDING ALL)`)
-        }, defaultConfig.CYCLOTRON_NODE_DATABASE_URL)
+        await jobsSchema.create()
     })
 
     afterAll(async () => {
-        await withPostgres(
-            (client) => client.query(`DROP SCHEMA IF EXISTS ${jobsSchema} CASCADE`),
-            defaultConfig.CYCLOTRON_NODE_DATABASE_URL
-        )
+        await jobsSchema.drop()
         await deleteKafkaTopics([topic])
     })
 
@@ -351,8 +353,16 @@ describe('runner through seed, drive and judge', () => {
 
     afterEach(async () => {
         jest.restoreAllMocks()
-        await roles?.stop()
-        roles = undefined
+        try {
+            await cleanUp()
+        } finally {
+            const stopping = roles
+            roles = undefined
+            await stopping?.stop()
+        }
+    })
+
+    const cleanUp = async (): Promise<void> => {
         await edge.close()
         const teams = [
             ...new Set(
@@ -380,13 +390,10 @@ describe('runner through seed, drive and judge', () => {
             await client.query('DELETE FROM posthog_organization WHERE id = ANY($1)', [organizations])
         }, defaultConfig.DATABASE_URL)
         rmSync(cacheHome, { recursive: true, force: true })
-    })
+    }
 
     const run = async (delivering: Parameters<typeof environmentOf>[0]): Promise<RunResult> => {
-        const result = await createRunner(environmentOf(delivering), env, { edgeUrl: edge.url }).run(
-            shortSmoke(),
-            NEVER_ABORTED
-        )
+        const result = await createRunner(environmentOf(delivering), env).run(shortSmoke(), NEVER_ABORTED)
         results.push(result)
         return result
     }

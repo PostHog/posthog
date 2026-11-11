@@ -44,7 +44,6 @@ const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
 const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
 const EDGE_PORT = 4566
-export const EDGE_URL = `http://127.0.0.1:${EDGE_PORT}`
 const TEMPLATES_WITHIN_MS = 120_000
 const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
@@ -203,7 +202,7 @@ export function createEnvironment({
         }
         await terminate(plan, STOP_GRACE_MS)
         await startStack(hogli, stateDir, env)
-        const specs = roleSpecs(env, EDGE_URL, secrets, {}, sesRateLimiterValkey)
+        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets, {}, sesRateLimiterValkey)
         await refuseHeldPorts(specs.map((spec) => spec.role))
         const groups = consumerGroupsOf(specs)
         await waitForExpect(

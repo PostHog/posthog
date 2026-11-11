@@ -1,11 +1,12 @@
 import { defaultConfig } from '~/common/config/config'
 
-import { withPostgres } from '../environment/stack'
+import { scratchSchema, withPostgres } from '../environment/stack'
 import { createCyclotronProbe } from './cyclotron-probe'
 
-const SCHEMA = `scenario_probe_${process.pid}`
-const CYCLOTRON_URL = defaultConfig.CYCLOTRON_NODE_DATABASE_URL!
-const PROBE_URL = `${CYCLOTRON_URL}${CYCLOTRON_URL.includes('?') ? '&' : '?'}options=${encodeURIComponent(`-c search_path=${SCHEMA}`)}`
+const SCHEMA = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_probe_${process.pid}`, [
+    'cyclotron_jobs',
+])
+const PROBE_URL = SCHEMA.url
 const OURS = 9999101
 const THEIRS = 9999102
 
@@ -13,15 +14,11 @@ type Job = { team: number; queue: string; status: string }
 
 describe('cyclotron probe', () => {
     beforeAll(async () => {
-        await withPostgres(async (client) => {
-            await client.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`)
-            await client.query(`CREATE SCHEMA ${SCHEMA}`)
-            await client.query(`CREATE TABLE ${SCHEMA}.cyclotron_jobs (LIKE public.cyclotron_jobs INCLUDING ALL)`)
-        }, CYCLOTRON_URL)
+        await SCHEMA.create()
     })
 
     afterAll(async () => {
-        await withPostgres((client) => client.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`), CYCLOTRON_URL)
+        await SCHEMA.drop()
     })
 
     beforeEach(async () => {
