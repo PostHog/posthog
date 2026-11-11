@@ -255,6 +255,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("failed", "provider_error"),
         ]
 
+    def test_looks_past_email_status_only_for_a_recent_keyed_send(self, _flag):
+        # Missing from email_status hours after it was queued, a send is gone, not waiting on a lagging consumer.
+        message_id = self._send(180, "jane@example.com", [("sent", 1, "")], keyed=True, status_consumer_behind=True)
+
+        response = self.client.get(self._url(f"{message_id}/"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
     def test_a_status_delivered_twice_shows_once(self, _flag):
         message_id = self._send(
             10, "jane@example.com", [("sent", 1, ""), ("clicked", 2, ""), ("clicked", 2, ""), ("clicked", 3, "")]

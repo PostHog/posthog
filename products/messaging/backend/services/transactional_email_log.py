@@ -39,7 +39,6 @@ from products.messaging.backend.models.email_status_sql import (
     EMAIL_ENGAGEMENT_STATUSES,
     EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_RETENTION_DAYS,
-    EMAIL_STATUS_TABLE,
 )
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
@@ -97,9 +96,7 @@ def _window(date_from: datetime | None, date_to: datetime | None) -> _Period:
 def _message_created_at(team_id: int, message_id: UUID) -> datetime | None:
     # The log reads email_status_events, which its own consumer fills, so a send the email_status consumer has not
     # reached yet is still found.
-    return message_created_at(
-        team_id, message_id, Workload.ONLINE, tables=(EMAIL_STATUS_TABLE, EMAIL_STATUS_EVENTS_TABLE)
-    )
+    return message_created_at(team_id, message_id, Workload.ONLINE, lag_fallback_table=EMAIL_STATUS_EVENTS_TABLE)
 
 
 def _execute(team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None) -> list[tuple]:

@@ -18,6 +18,7 @@ from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETE
 # The Node API stamps the send's ID with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
 _RETENTION = timedelta(days=EMAIL_STATUS_RETENTION_DAYS)
+_CONSUMER_LAG = timedelta(hours=2)
 # Every row of a message carries the message's own created_at, so the window prunes to its partition.
 _EMAIL_STATUS_QUERY = f"""
 SELECT argMax(status, version), argMax(status_at, version), argMax(reason, version)
@@ -52,28 +53,38 @@ def is_keyed_message_id(message_id: UUID) -> bool:
 
 
 def message_created_at(
-    team_id: int, message_id: UUID, workload: Workload, tables: tuple[str, ...] = (EMAIL_STATUS_TABLE,)
+    team_id: int, message_id: UUID, workload: Workload, lag_fallback_table: str | None = None
 ) -> datetime | None:
     """When the send was queued, or None when no send the tables still keep can have this ID.
 
-    A keyed ID is looked up in each table in turn, so a reader can fall back to the table it reads itself.
+    A keyed ID is looked up in email_status. A reader that reads another table can name it as `lag_fallback_table`,
+    so a recent send the email_status consumer has not reached yet is still found there.
     """
     if not is_keyed_message_id(message_id):
         return queued_at(message_id)
-    for table in tables:
-        tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
-        rows = cast(
-            list,
-            sync_execute(
-                _KEYED_CREATED_AT_QUERY.format(table=table),
-                {"team_id": team_id, "message_id": str(message_id), "start": datetime.now(UTC) - _RETENTION},
-                workload=workload,
-                team_id=team_id,
-            ),
-        )
-        if rows:
-            return rows[0][0].replace(tzinfo=UTC)
-    return None
+    now = datetime.now(UTC)
+    found = _keyed_created_at(team_id, message_id, workload, EMAIL_STATUS_TABLE, since=now - _RETENTION)
+    if found is None and lag_fallback_table is not None:
+        # The fallback table's sort key leads with created_at, so a miss scans every row it reads. Consumer lag is
+        # minutes, so a short window keeps a missing ID cheap.
+        found = _keyed_created_at(team_id, message_id, workload, lag_fallback_table, since=now - _CONSUMER_LAG)
+    return found
+
+
+def _keyed_created_at(
+    team_id: int, message_id: UUID, workload: Workload, table: str, since: datetime
+) -> datetime | None:
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    rows = cast(
+        list,
+        sync_execute(
+            _KEYED_CREATED_AT_QUERY.format(table=table),
+            {"team_id": team_id, "message_id": str(message_id), "start": since},
+            workload=workload,
+            team_id=team_id,
+        ),
+    )
+    return rows[0][0].replace(tzinfo=UTC) if rows else None
 
 
 def queued_at(message_id: UUID) -> datetime | None:
