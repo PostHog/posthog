@@ -39,6 +39,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
+from posthog.hogql.database.schema.integrations import integrations
 from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -53,7 +54,8 @@ if TYPE_CHECKING:
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from products.aeo.backend.facade.hogql import aeo_citation_checks
+from products.aeo.backend.facade.hogql import aeo_brands, aeo_citation_checks
+from products.annotations.backend.facade.hogql import annotations
 from products.customer_analytics.backend.facade.customer_tasks_hogql import customer_tasks
 from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
@@ -119,7 +121,7 @@ batch_export_backfills: PostgresTable = PostgresTable(
     description="Batch export backfill history; one row per backfill that re-exports a historical time range for a batch export.",
     fields={
         "id": StringDatabaseField(name="id", description="Backfill UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "batch_export_id": StringDatabaseField(
             name="batch_export_id", description="Batch export this backfill belongs to; joins to batch_exports.id."
         ),
@@ -154,7 +156,7 @@ batch_exports: PostgresTable = PostgresTable(
     description="Configured batch exports that periodically ship event/person data to external destinations; one row per batch export.",
     fields={
         "id": StringDatabaseField(name="id", description="Batch export UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="User-given name of the batch export."),
         "model": StringDatabaseField(
             name="model", nullable=True, description="Data model exported, e.g. 'events' or 'persons'."
@@ -202,7 +204,7 @@ batch_export_on_demands: PostgresTable = PostgresTable(
     description="Batch exports triggered on demand rather than on a schedule; one row per on-demand export.",
     fields={
         "id": StringDatabaseField(name="id", description="On-demand batch export UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "destination_id": StringDatabaseField(
             name="destination_id", description="Identifier of the destination config the export writes to."
         ),
@@ -303,7 +305,7 @@ alerts: PostgresTable = PostgresTable(
     description="Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert.",
     fields={
         "id": StringDatabaseField(name="id", description="Alert UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="User-given name of the alert."),
         "insight_id": IntegerDatabaseField(
             name="insight_id", description="Insight the alert watches; joins to insights.id."
@@ -349,7 +351,7 @@ cohort_calculation_history: PostgresTable = PostgresTable(
     description="History of cohort membership recalculations; one row per calculation run for a cohort.",
     fields={
         "id": StringDatabaseField(name="id", description="Calculation run UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "cohort_id": IntegerDatabaseField(
             name="cohort_id", description="Cohort that was recalculated; joins to cohorts.id."
         ),
@@ -370,7 +372,7 @@ cohorts: PostgresTable = PostgresTable(
     description="Cohorts: named groups of people defined by filters or as a static list; one row per cohort.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Cohort id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Cohort name."),
         "description": StringDatabaseField(name="description", description="Cohort description."),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
@@ -411,7 +413,7 @@ dashboards: PostgresTable = PostgresTable(
     description="Dashboards: collections of insight tiles; one row per dashboard.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Dashboard id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Dashboard name."),
         "description": StringDatabaseField(name="description", description="Dashboard description."),
         "created_by_id": IntegerDatabaseField(
@@ -440,7 +442,7 @@ dashboard_tiles: PostgresTable = PostgresTable(
     description="Tiles placed on dashboards (insight, text, or button tiles) with their layout; one row per tile.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Tile id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "dashboard_id": IntegerDatabaseField(
             name="dashboard_id", description="Dashboard the tile belongs to; joins to dashboards.id."
         ),
@@ -486,7 +488,7 @@ datasets: PostgresTable = PostgresTable(
     description="AI observability datasets used to curate inputs and expected outputs; one row per dataset.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Dataset UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Dataset name."),
         "description": StringDatabaseField(name="description", description="What the dataset contains."),
         "metadata": StringJSONDatabaseField(name="metadata", description="JSON dataset metadata."),
@@ -517,7 +519,7 @@ dataset_revisions: PostgresTable = PostgresTable(
     description="Immutable snapshots of dataset contents; one row per committed dataset revision.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Dataset revision UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
         "revision": IntegerDatabaseField(name="revision", description="Monotonic revision number within the dataset."),
         "expired_at": DateTimeDatabaseField(
@@ -540,7 +542,7 @@ dataset_items: PostgresTable = PostgresTable(
     description="Stable identities for versioned dataset items; one row per item.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Stable dataset item UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
         "client_item_id": StringDatabaseField(
             name="external_id",
@@ -568,7 +570,7 @@ dataset_item_versions: PostgresTable = PostgresTable(
     description="Immutable content versions of dataset items; one row per item version.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Dataset item version UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
         "dataset_item_id": UUIDDatabaseField(
             name="dataset_item_id", description="Stable item; joins to dataset_items.id."
@@ -612,7 +614,7 @@ insights: PostgresTable = PostgresTable(
     fields={
         "id": IntegerDatabaseField(name="id", description="Insight id."),
         "short_id": StringDatabaseField(name="short_id", description="Short URL-safe id used in insight links."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Insight name."),
         "description": StringDatabaseField(name="description", description="Insight description."),
         "filters": StringJSONDatabaseField(name="filters", description="Legacy JSON filter-based insight definition."),
@@ -664,7 +666,7 @@ experiments: PostgresTable = PostgresTable(
     description="A/B test experiments; one row per experiment, linked to the feature flag that controls variant assignment.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Experiment id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Experiment name."),
         "description": StringDatabaseField(name="description", description="Experiment description/hypothesis."),
         "created_by_id": IntegerDatabaseField(
@@ -713,7 +715,7 @@ data_warehouse_sources: PostgresTable = PostgresTable(
             name="id",
             description="Source UUID. Pass it as a query's connection id to live-query a direct connection.",
         ),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "source_type": StringDatabaseField(
             name="source_type", description="Source connector type, e.g. 'Stripe', 'Postgres', 'Hubspot'."
         ),
@@ -801,7 +803,7 @@ data_modeling_views: PostgresTable = PostgresTable(
     description="Saved queries / data-modeling views built on top of warehouse data; one row per view, optionally materialized.",
     fields={
         "id": StringDatabaseField(name="id", description="View UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="View name, used to reference it in queries."),
         "status": StringDatabaseField(
             name="status", description="Materialization status, e.g. Running, Completed, Failed."
@@ -858,7 +860,7 @@ data_warehouse_tables: _DataWarehouseTablesTable = _DataWarehouseTablesTable(
     "instead, using the source id as the query's connection id.",
     fields={
         "id": StringDatabaseField(name="id", description="Warehouse table UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Warehouse table name (includes the source prefix)."),
         "columns": StringJSONDatabaseField(name="columns", description="JSON schema of the table's columns."),
         "row_count": IntegerDatabaseField(name="row_count", description="Approximate number of rows in the table."),
@@ -892,7 +894,7 @@ source_schemas: PostgresTable = PostgresTable(
     description="Per-table sync configuration within a data warehouse source (which table to import and how); one row per source table.",
     fields={
         "id": StringDatabaseField(name="id", description="Schema UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Name of the table/endpoint in the external source."),
         "source_id": StringDatabaseField(
             name="source_id", description="Parent source; joins to data_warehouse_sources.id."
@@ -934,7 +936,7 @@ source_sync_jobs: PostgresTable = PostgresTable(
     description="Data warehouse sync job runs; one row per sync attempt of a source schema, with rows synced and outcome.",
     fields={
         "id": StringDatabaseField(name="id", description="Sync job UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "pipeline_id": StringDatabaseField(
             name="pipeline_id", description="Source whose pipeline ran; joins to data_warehouse_sources.id."
         ),
@@ -977,7 +979,7 @@ endpoint_versions: _EndpointVersionsTable = _EndpointVersionsTable(
     description="Versioned query definitions for data-modeling endpoints (saved, callable HogQL queries); one row per endpoint version.",
     fields={
         "id": StringDatabaseField(name="id", description="Endpoint version UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "endpoint_id": StringDatabaseField(
             name="endpoint_id", description="Parent endpoint; joins to data_modeling_endpoints.id."
         ),
@@ -1039,7 +1041,7 @@ endpoints: PostgresTable = PostgresTable(
     description="Data-modeling endpoints: named, callable saved queries; one row per endpoint (deleted endpoints are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Endpoint UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Endpoint name, used to call it."),
         "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
         "is_active": ExpressionField(
@@ -1096,7 +1098,7 @@ feature_flags: PostgresTable = PostgresTable(
     description="Feature flags; one row per flag, with its targeting filters and rollout configuration.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Flag id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "key": StringDatabaseField(name="key", description="Flag key used by SDKs to evaluate the flag."),
         "name": StringDatabaseField(name="name", description="Human-readable flag name/description."),
         "filters": StringJSONDatabaseField(
@@ -1125,7 +1127,7 @@ groups: PostgresTable = PostgresTable(
     description="Group analytics entities (e.g. companies, projects); one row per group instance.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Internal group row id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "group_key": StringDatabaseField(
             name="group_key", description="Identifier of the group within its type, e.g. a company id."
         ),
@@ -1146,7 +1148,7 @@ autoresearch_pipelines: PostgresTable = PostgresTable(
     description="Autoresearch pipelines; one row per standing prediction question (a target event, a population, and a horizon).",
     fields={
         "id": UUIDDatabaseField(name="id", description="Pipeline UUID."),
-        "team_id": IntegerDatabaseField(name="team_id", description="Team the pipeline belongs to."),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True, description="Team the pipeline belongs to."),
         "name": StringDatabaseField(name="name", description="Human-readable name."),
         "description": StringDatabaseField(name="description", description="Free-text description; blank when unset."),
         "target_event": StringDatabaseField(
@@ -1196,7 +1198,7 @@ autoresearch_training_runs: PostgresTable = PostgresTable(
     description="Autoresearch training runs; one row per bounded agent session that searches for a better model for a pipeline.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Training run UUID."),
-        "team_id": IntegerDatabaseField(name="team_id", description="Team the training run belongs to."),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True, description="Team the training run belongs to."),
         "pipeline_id": UUIDDatabaseField(
             name="pipeline_id", description="Pipeline the run trains for; joins to autoresearch_pipelines.id."
         ),
@@ -1258,7 +1260,7 @@ autoresearch_iterations: PostgresTable = PostgresTable(
     description="Autoresearch iterations; one row per model attempt inside a training run.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Iteration UUID."),
-        "team_id": IntegerDatabaseField(name="team_id", description="Team the iteration belongs to."),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True, description="Team the iteration belongs to."),
         "pipeline_id": UUIDDatabaseField(
             name="pipeline_id", description="Pipeline of the iteration; joins to autoresearch_pipelines.id."
         ),
@@ -1306,7 +1308,7 @@ autoresearch_models: PostgresTable = PostgresTable(
     description="Autoresearch models; one row per trained model of a pipeline, with role champion, challenger, or archived.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Model UUID."),
-        "team_id": IntegerDatabaseField(name="team_id", description="Team the model belongs to."),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True, description="Team the model belongs to."),
         "pipeline_id": UUIDDatabaseField(
             name="pipeline_id", description="Pipeline of the model; joins to autoresearch_pipelines.id."
         ),
@@ -1368,7 +1370,7 @@ group_type_mappings: PostgresTable = PostgresTable(
     description="Mapping of group type indexes (0-4) to their names; one row per configured group type.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Mapping row id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "group_type": StringDatabaseField(
             name="group_type", description="Name of the group type, e.g. 'company' or 'project'."
         ),
@@ -1381,27 +1383,6 @@ group_type_mappings: PostgresTable = PostgresTable(
     },
 )
 
-integrations: PostgresTable = PostgresTable(
-    name="integrations",
-    postgres_table_name="posthog_integration",
-    access_scope="integration",
-    description="Third-party integrations connected to the project (Slack, GitHub, etc.); one row per integration.",
-    fields={
-        "id": IntegerDatabaseField(name="id", description="Integration id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "kind": StringDatabaseField(name="kind", description="Integration type, e.g. 'slack', 'github', 'salesforce'."),
-        "integration_id": StringDatabaseField(
-            name="integration_id", description="Identifier of the account/workspace in the external system."
-        ),
-        "config": StringJSONDatabaseField(name="config", description="JSON non-sensitive integration config."),
-        "errors": StringDatabaseField(
-            name="errors", description="Most recent error encountered using the integration."
-        ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the integration was connected."),
-        "created_by_id": IntegerDatabaseField(name="created_by_id", description="User who connected the integration."),
-    },
-)
-
 integration_repository_cache: PostgresTable = PostgresTable(
     name="integration_repository_cache",
     postgres_table_name="posthog_integrationrepositorycacheentry",
@@ -1409,7 +1390,7 @@ integration_repository_cache: PostgresTable = PostgresTable(
     description="Cached metadata about GitHub repositories accessible via an integration; one row per repository.",
     fields={
         "id": StringDatabaseField(name="id", description="Cache entry UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "integration_id": IntegerDatabaseField(
             name="integration_id",
             nullable=True,
@@ -1447,7 +1428,7 @@ insight_variables: PostgresTable = PostgresTable(
     description="Reusable insight/dashboard template variables; one row per variable.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Variable id (UUID)."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Display name of the variable."),
         "type": StringDatabaseField(name="type", description="Variable type, e.g. 'String', 'Number', 'List', 'Date'."),
         "code_name": StringDatabaseField(
@@ -1476,7 +1457,7 @@ session_recording_playlists: PostgresTable = PostgresTable(
             name="derived_name", description="Auto-generated name used when no name is set."
         ),
         "description": StringDatabaseField(name="description", description="Playlist description."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "_pinned": BooleanDatabaseField(name="pinned", hidden=True),
         "pinned": ExpressionField(
             name="pinned",
@@ -1516,7 +1497,7 @@ session_recordings: PostgresTable = PostgresTable(
         "session_id": StringDatabaseField(
             name="session_id", description="Session identifier; matches events.$session_id."
         ),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "distinct_id": StringDatabaseField(name="distinct_id", description="Distinct id of the user/device recorded."),
         "duration": IntegerDatabaseField(
             name="duration", description="Total recording length in seconds (active + inactive)."
@@ -1568,7 +1549,7 @@ replay_scanners: PostgresTable = PostgresTable(
             name="id",
             description="Scanner UUID. Cast with toString(id) to join on a string property such as scanner_id.",
         ),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "origin": StringDatabaseField(name="origin", hidden=True),
         "name": StringDatabaseField(name="name", description="Scanner name, unique within the project."),
         "description": StringDatabaseField(name="description", description="Free-text description; blank when unset."),
@@ -1632,7 +1613,7 @@ surveys: PostgresTable = PostgresTable(
     description="In-app surveys; one row per survey, including its questions and display configuration.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Survey id (UUID)."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Survey name."),
         "type": StringDatabaseField(name="type", description="Survey delivery type, e.g. 'popover', 'api', 'widget'."),
         "questions": StringJSONDatabaseField(name="questions", description="JSON array of the survey's questions."),
@@ -1658,7 +1639,7 @@ survey_response_archives: PostgresTable = PostgresTable(
     description="Archived survey responses; one row per response hidden from survey results. Survey responses themselves are events, so join response_uuid to events.uuid.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Archive record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "survey_id": UUIDDatabaseField(
             name="survey_id", description="Survey the archived response belongs to; joins to surveys.id."
         ),
@@ -1677,7 +1658,7 @@ revenue_analytics_config: PostgresTable = PostgresTable(
     "No row means revenue analytics was never configured.",
     fields={
         "id": IntegerDatabaseField(name="team_id", description="Alias of team_id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "events": StringJSONDatabaseField(
             name="events",
             description="JSON array of configured revenue events, one object per event with its eventName and "
@@ -1698,7 +1679,9 @@ teams: PostgresTable = PostgresTable(
     description="Projects/teams (a PostHog 'team' is a project); typically just the caller's own team.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Team/project id."),
-        "team_id": IntegerDatabaseField(name="id", description="Alias of id for consistency with other tables."),
+        "team_id": IntegerDatabaseField(
+            name="id", hidden=True, description="Alias of id for consistency with other tables."
+        ),
         "name": StringDatabaseField(name="name", description="Project name."),
         "timezone": StringDatabaseField(name="timezone", description="Project timezone used for date bucketing."),
         "test_account_filters": StringJSONDatabaseField(
@@ -1757,7 +1740,7 @@ exports: PostgresTable = PostgresTable(
     description="One-off exported assets (CSV/PNG/PDF of insights, etc.); one row per exported asset.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Exported asset id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "export_format": StringDatabaseField(
             name="export_format", description="MIME type of the export, e.g. 'text/csv', 'image/png'."
         ),
@@ -1777,7 +1760,7 @@ file_system: PostgresTable = PostgresTable(
     description="The project's virtual file tree backing the navigation/'products' UI; one row per node (folder or item) addressed by path.",
     fields={
         "id": StringDatabaseField(name="id", description="File-system node UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "path": StringDatabaseField(name="path", description="Slash-delimited path of the node in the tree."),
         "depth": IntegerDatabaseField(name="depth", nullable=True, description="Number of path segments (tree depth)."),
         "type": StringDatabaseField(name="type", description="Node type, e.g. a folder or a specific item kind."),
@@ -1829,7 +1812,7 @@ activity_logs: _ActivityLogsTable = _ActivityLogsTable(
     description="Audit trail of changes to objects (insights, flags, dashboards, etc.); one row per logged activity.",
     fields={
         "id": StringDatabaseField(name="id", description="Activity log entry UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "activity": StringDatabaseField(
             name="activity", description="Action performed, e.g. 'created', 'updated', 'deleted'."
         ),
@@ -1864,7 +1847,7 @@ actions: PostgresTable = PostgresTable(
     description="Actions: named event matchers that group raw events into meaningful user actions; one row per action.",
     fields={
         "id": IntegerDatabaseField(name="id", description="Action id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Action name."),
         "description": StringDatabaseField(name="description", description="Action description."),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
@@ -1884,51 +1867,6 @@ actions: PostgresTable = PostgresTable(
     },
 )
 
-annotations: PostgresTable = PostgresTable(
-    name="annotations",
-    postgres_table_name="posthog_annotation",
-    access_scope="annotation",
-    description="Annotations: dated notes overlaid on insight/dashboard charts; one row per annotation.",
-    fields={
-        "id": IntegerDatabaseField(name="id", description="Annotation id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "content": StringDatabaseField(name="content", nullable=True, description="Annotation text."),
-        "scope": StringDatabaseField(
-            name="scope",
-            description="Where the annotation applies: 'project', 'organization', 'dashboard', 'dashboard_item' (insight), or 'recording'.",
-        ),
-        "creation_type": StringDatabaseField(
-            name="creation_type", description="How the annotation was created, e.g. user-created vs GitHub."
-        ),
-        "date_marker": DateTimeDatabaseField(
-            name="date_marker", nullable=True, description="The point in time the annotation marks on a chart."
-        ),
-        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
-        "deleted": ExpressionField(
-            name="deleted",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
-            description="1 if the annotation has been deleted, 0 otherwise.",
-        ),
-        "dashboard_item_id": IntegerDatabaseField(
-            name="dashboard_item_id",
-            nullable=True,
-            description="Insight this annotation is scoped to; joins to insights.id.",
-        ),
-        "dashboard_id": IntegerDatabaseField(
-            name="dashboard_id",
-            nullable=True,
-            description="Dashboard this annotation is scoped to; joins to dashboards.id.",
-        ),
-        "created_by_id": IntegerDatabaseField(
-            name="created_by_id", nullable=True, description="User who created the annotation."
-        ),
-        "created_at": DateTimeDatabaseField(
-            name="created_at", nullable=True, description="When the annotation was created."
-        ),
-        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the annotation was last updated."),
-    },
-)
-
 hog_flows: PostgresTable = PostgresTable(
     name="hog_flows",
     postgres_table_name="posthog_hogflow",
@@ -1937,7 +1875,7 @@ hog_flows: PostgresTable = PostgresTable(
     description="Hog flows: multi-step automation/messaging workflows; one row per flow, with its graph of actions and edges.",
     fields={
         "id": StringDatabaseField(name="id", description="Flow UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Flow name."),
         "description": StringDatabaseField(name="description", description="Flow description."),
         "status": StringDatabaseField(name="status", description="Flow status, e.g. 'active', 'draft', 'archived'."),
@@ -1965,7 +1903,7 @@ hog_functions: PostgresTable = PostgresTable(
     description="Hog functions: destinations/transformations in the CDP pipeline (written in Hog); one row per function.",
     fields={
         "id": StringDatabaseField(name="id", description="Function UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Function name."),
         "description": StringDatabaseField(name="description", description="Function description."),
         "type": StringDatabaseField(
@@ -2011,7 +1949,7 @@ message_categories: PostgresTable = PostgresTable(
     description="Message categories recipients can opt out of; one row per category. Join its id against the keys of message_recipient_preferences.preferences.",
     fields={
         "id": StringDatabaseField(name="id", description="Category UUID, used as the key in recipient preferences."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "key": StringDatabaseField(name="key", description="Stable category key used in the API, e.g. 'newsletter'."),
         "name": StringDatabaseField(name="name", description="Display name of the category."),
         "description": StringDatabaseField(name="description", description="Internal description of the category."),
@@ -2043,7 +1981,7 @@ message_recipient_preferences: PostgresTable = PostgresTable(
     description="Messaging preferences per recipient; one row per recipient. The preferences map records opt-outs and opt-ins per message category.",
     fields={
         "id": StringDatabaseField(name="id", description="Preference row UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "identifier": StringDatabaseField(
             name="identifier", description="Recipient identifier, usually an email address."
         ),
@@ -2114,7 +2052,7 @@ notebooks: PostgresTable = PostgresTable(
     fields={
         "id": StringDatabaseField(name="id", description="Notebook UUID."),
         "short_id": StringDatabaseField(name="short_id", description="Short URL-safe id used in notebook links."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "title": StringDatabaseField(name="title", description="Notebook title."),
         "content": StringJSONDatabaseField(
             name="content", description="JSON rich-text document (ProseMirror) content."
@@ -2174,7 +2112,7 @@ data_modeling_jobs: _DataModelingJobsTable = _DataModelingJobsTable(
     description="Materialization job runs for data-modeling views; one row per run that materializes a view.",
     fields={
         "id": StringDatabaseField(name="id", description="Job UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "data_modeling_view_id": StringDatabaseField(
             name="saved_query_id", description="View being materialized; joins to data_modeling_views.id."
         ),
@@ -2202,7 +2140,7 @@ error_tracking_issues: PostgresTable = PostgresTable(
     description="Error tracking issues: grouped exceptions/errors; one row per issue.",
     fields={
         "id": StringDatabaseField(name="id", description="Issue UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the issue was first created."),
         "status": StringDatabaseField(
             name="status", description="Issue status, e.g. 'active', 'resolved', 'suppressed'."
@@ -2222,7 +2160,7 @@ error_tracking_issue_assignments: PostgresTable = PostgresTable(
     description="Assignments of error tracking issues to a user or role; one row per assignment.",
     fields={
         "id": StringDatabaseField(name="id", description="Assignment UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "issue_id": StringDatabaseField(
             name="issue_id", description="Issue assigned; joins to error_tracking_issues.id."
         ),
@@ -2242,7 +2180,7 @@ error_tracking_issue_fingerprints: PostgresTable = PostgresTable(
     description="Fingerprints that map individual exceptions to an issue (the grouping key); one row per fingerprint.",
     fields={
         "id": StringDatabaseField(name="id", description="Fingerprint row UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "issue_id": StringDatabaseField(
             name="issue_id", description="Issue this fingerprint belongs to; joins to error_tracking_issues.id."
         ),
@@ -2260,7 +2198,7 @@ error_tracking_assignment_rules: PostgresTable = PostgresTable(
     description="Rules that auto-assign new error tracking issues to a user or role based on filters; one row per rule.",
     fields={
         "id": StringDatabaseField(name="id", description="Rule UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "user_id": IntegerDatabaseField(
             name="user_id", nullable=True, description="User matched issues are assigned to."
         ),
@@ -2287,7 +2225,7 @@ error_tracking_severity_rules: PostgresTable = PostgresTable(
     description="Ordered rules that assign severity to newly created error tracking issues; one row per rule.",
     fields={
         "id": StringDatabaseField(name="id", description="Rule UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "severity": StringDatabaseField(
             name="severity", description="Severity assigned when the rule is the first match."
         ),
@@ -2311,7 +2249,7 @@ error_tracking_bypass_rules: PostgresTable = PostgresTable(
     description="Rules that exempt matching exceptions from error tracking rate limits; one row per rule.",
     fields={
         "id": StringDatabaseField(name="id", description="Rule UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "order_key": IntegerDatabaseField(name="order_key", description="Evaluation order; lower runs first."),
         "filters": StringJSONDatabaseField(
             name="filters", description="JSON conditions an exception must match for the rule to apply."
@@ -2334,7 +2272,7 @@ error_tracking_suppression_rules: PostgresTable = PostgresTable(
     description="Rules that suppress or sample matching exceptions before they create issues; one row per rule.",
     fields={
         "id": StringDatabaseField(name="id", description="Rule UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "order_key": IntegerDatabaseField(name="order_key", description="Evaluation order; lower runs first."),
         "sampling_rate": FloatDatabaseField(
             name="sampling_rate", description="Fraction (0-1) of matching exceptions to keep; the rest are suppressed."
@@ -2360,7 +2298,7 @@ error_tracking_releases: PostgresTable = PostgresTable(
     description="Code releases tracked for error attribution and source-map matching; one row per release.",
     fields={
         "id": StringDatabaseField(name="id", description="Release UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "hash_id": StringDatabaseField(name="hash_id", description="Hash identifying the release build."),
         "version": StringDatabaseField(name="version", description="Human-readable release version."),
         "project": StringDatabaseField(name="project", description="Project/app the release belongs to."),
@@ -2378,7 +2316,7 @@ error_tracking_symbol_sets: PostgresTable = PostgresTable(
     description="Symbol sets (source maps / debug symbols) used to symbolicate stack traces; one row per symbol set.",
     fields={
         "id": StringDatabaseField(name="id", description="Symbol set UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "ref": StringDatabaseField(
             name="ref", description="Reference identifying the symbol set, e.g. a chunk/file id."
         ),
@@ -2404,7 +2342,7 @@ logs_views: PostgresTable = PostgresTable(
     description="Saved log explorer views (saved filter sets for logs); one row per saved view.",
     fields={
         "id": StringDatabaseField(name="id", description="View UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "short_id": StringDatabaseField(name="short_id", description="Short URL-safe id used in view links."),
         "name": StringDatabaseField(name="name", description="View name."),
         "filters": StringJSONDatabaseField(name="filters", description="JSON log filters defining the view."),
@@ -2426,7 +2364,7 @@ logs_alerts: PostgresTable = PostgresTable(
     description="Alerts that fire when matching log volume crosses a threshold; one row per logs alert.",
     fields={
         "id": StringDatabaseField(name="id", description="Alert UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Alert name."),
         "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
         "enabled": ExpressionField(
@@ -2698,7 +2636,7 @@ support_tickets: PostgresTable = PostgresTable(
     description="Customer support tickets/conversations; one row per ticket, with channel, status, and message counts (deleted tickets are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Ticket UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "ticket_number": IntegerDatabaseField(
             name="ticket_number", description="Human-friendly sequential ticket number."
         ),
@@ -2780,7 +2718,7 @@ evaluation_directories: PostgresTable = PostgresTable(
     description="Directories used to organize online evaluations; one row per directory.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Directory UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Directory name."),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the directory."
@@ -2800,7 +2738,7 @@ evaluations: PostgresTable = PostgresTable(
     description="Online evaluations that score AI generations or traces; one row per evaluation.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Evaluation UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "directory_id": UUIDDatabaseField(
             name="directory_id",
             nullable=True,
@@ -2844,7 +2782,7 @@ review_queues: PostgresTable = PostgresTable(
     description="AI observability review queues: named lists of traces queued for human review; one row per queue.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Queue UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Queue name."),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the queue."
@@ -2873,7 +2811,7 @@ review_queue_items: PostgresTable = PostgresTable(
     description="Individual LLM traces queued in a review queue; one row per queued trace.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Queue item UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "queue_id": UUIDDatabaseField(
             name="queue_id", description="Queue this item belongs to; joins to review_queues.id."
         ),
@@ -2905,7 +2843,7 @@ trace_reviews: PostgresTable = PostgresTable(
     description="Human reviews of LLM traces; one row per review, with scores attached in trace_review_scores.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Review UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "trace_id": StringDatabaseField(name="trace_id", description="LLM trace that was reviewed."),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the review record."
@@ -2939,7 +2877,7 @@ trace_review_scores: PostgresTable = PostgresTable(
     description="Scores recorded against a trace review for a given score definition; one row per (review, score) pair.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Score UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "review_id": UUIDDatabaseField(
             name="review_id", description="Review this score belongs to; joins to trace_reviews.id."
         ),
@@ -2984,7 +2922,7 @@ score_definitions: PostgresTable = PostgresTable(
     description="Definitions of scores/metrics used when reviewing LLM traces; one row per score definition.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Score definition UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Score definition name."),
         "description": StringDatabaseField(name="description", description="What the score measures."),
         "kind": StringDatabaseField(
@@ -3012,7 +2950,7 @@ early_access_features: PostgresTable = PostgresTable(
     description="Early access features users can opt into; one row per feature, backed by a feature flag.",
     fields={
         "id": StringDatabaseField(name="id", description="Early access feature UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "feature_flag_id": IntegerDatabaseField(
             name="feature_flag_id", description="Feature flag gating the feature; joins to feature_flags.id."
         ),
@@ -3038,7 +2976,7 @@ usage_metrics: PostgresTable = PostgresTable(
     description="Per-group usage metric definitions shown on group dashboards; one row per metric.",
     fields={
         "id": StringDatabaseField(name="id", description="Usage metric UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "group_type_index": IntegerDatabaseField(
             name="group_type_index",
             description="Legacy; the query runner ignores it and evaluates every metric regardless. Don't filter on it.",
@@ -3083,7 +3021,7 @@ inbox_report_artefacts: PostgresTable = PostgresTable(
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Artifact UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "report_id": UUIDDatabaseField(
             name="report_id", description="Report this artifact belongs to; joins to inbox_reports.id."
         ),
@@ -3130,7 +3068,7 @@ inbox_report_actions: PostgresTable = PostgresTable(
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "report_id": UUIDDatabaseField(
             name="report_id", description="Report this action belongs to; joins to inbox_reports.id."
         ),
@@ -3159,7 +3097,7 @@ inbox_report_assignments: PostgresTable = PostgresTable(
     description="Legacy inbox report ownership and pull request links; current work is recorded in inbox_report_artefacts.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "report_id": UUIDDatabaseField(
             name="report_id", description="Report this legacy assignment belongs to; joins to inbox_reports.id."
         ),
@@ -3210,7 +3148,7 @@ inbox_report_tasks: PostgresTable = PostgresTable(
     description="Legacy links between inbox reports and tasks; current associations also appear in inbox_report_artefacts.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "report_id": UUIDDatabaseField(
             name="report_id", description="Report this legacy link belongs to; joins to inbox_reports.id."
         ),
@@ -3240,7 +3178,7 @@ inbox_report_pull_requests: PostgresTable = PostgresTable(
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "repository": StringDatabaseField(name="repository", description="Repository containing the pull request."),
         "number": IntegerDatabaseField(name="number", description="Pull request number within the repository."),
         "url": StringDatabaseField(name="url", description="Pull request URL."),
@@ -3276,7 +3214,7 @@ scout_configs: PostgresTable = PostgresTable(
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "skill_name": StringDatabaseField(name="skill_name", description="Name of the skill the scout runs."),
         "display_name": StringDatabaseField(name="display_name", description="Scout name shown in the UI."),
         "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
@@ -3370,7 +3308,7 @@ scout_runs: PostgresTable = PostgresTable(
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "task_run_id": UUIDDatabaseField(
             name="task_run_id",
             description="Task run that executed the scout; internal runs may be absent from system.task_runs.",
@@ -3428,7 +3366,7 @@ signal_spend_scout_runs = PostgresTable(
     predicates=[parse_expr("NOT JSONHas(ifNull(_metadata, '{}'), 'scout_trial')")],
     fields={
         "id": UUIDDatabaseField(name="id"),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "_metadata": StringJSONDatabaseField(name="metadata", nullable=True, hidden=True),
     },
 )
@@ -3458,7 +3396,7 @@ signal_spend = PostgresTable(
     description="Self-driving spend records in credits from October 1, 2026 (UTC), including billing-exempt work. Private scout trials are excluded. Sum each record once; signal and scout totals are copies, not additional charges. For monthly usage filter finalized_at; NULL is unsettled and uses created_at for the history cutoff. Use inbox-usage-get for credit-to-USD conversion.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Unique spend record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "kind": StringDatabaseField(
             name="kind",
             description="ad-hoc (signal processing), research, repo_selection, scout_run, reviewer_triggered_implementation, or scout_triggered_implementation.",
@@ -3521,7 +3459,7 @@ scout_run_emissions: PostgresTable = PostgresTable(
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "run_id": UUIDDatabaseField(
             name="scout_run_id", description="Run that emitted the finding; joins to scout_runs.id."
         ),
@@ -3549,7 +3487,7 @@ task_artifacts: PostgresTable = PostgresTable(
     description="Living artifacts produced by tasks in public project spaces; private, unfiled, and internal tasks are excluded.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Record UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "task_id": UUIDDatabaseField(name="task_id", description="Task that produced the artifact; joins to tasks.id."),
         "task_run_id": UUIDDatabaseField(
             name="task_run_id", description="Run that produced the artifact; joins to task_runs.id."
@@ -3583,7 +3521,7 @@ task_public_channels: PostgresTable = PostgresTable(
     description="Internal list of live project-visible task spaces.",
     fields={
         "id": StringDatabaseField(name="id"),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "channel_type": StringDatabaseField(name="channel_type", hidden=True),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
@@ -3606,7 +3544,7 @@ tasks: PostgresTable = PostgresTable(
     description="Tasks filed in public project spaces; private, unfiled, and internal tasks are excluded.",
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the task."
         ),
@@ -3662,7 +3600,7 @@ task_runs: PostgresTable = PostgresTable(
     description="Execution runs of tasks filed in public project spaces.",
     fields={
         "id": StringDatabaseField(name="id", description="Task run UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "task_id": StringDatabaseField(name="task_id", description="Task this run belongs to; joins to tasks.id."),
         "branch": StringDatabaseField(name="branch", nullable=True, description="Git branch the run worked on."),
         "environment": StringDatabaseField(name="environment", description="Environment the run executed in."),
@@ -3696,7 +3634,7 @@ sandbox_environments: PostgresTable = PostgresTable(
     description="Sandbox environments that task runs execute in (network policy, allowed repos); one row per shared environment (private and internal environments are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Sandbox environment UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the environment."
         ),
@@ -3740,7 +3678,7 @@ business_knowledge_sources: PostgresTable = PostgresTable(
     description="Sources of business knowledge ingested for AI context (uploaded files, crawled URLs); one row per source.",
     fields={
         "id": StringDatabaseField(name="id", description="Source UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Source name."),
         "source_type": StringDatabaseField(name="source_type", description="Source type, e.g. 'file' or 'url'."),
         "status": StringDatabaseField(
@@ -3769,7 +3707,7 @@ business_knowledge_documents: PostgresTable = PostgresTable(
     description="Documents extracted from a business knowledge source (e.g. one page or file); one row per document.",
     fields={
         "id": StringDatabaseField(name="id", description="Document UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "source_id": StringDatabaseField(
             name="source_id", description="Source the document came from; joins to business_knowledge_sources.id."
         ),
@@ -3798,7 +3736,7 @@ business_knowledge_chunks: PostgresTable = PostgresTable(
     description="Chunks a knowledge document is split into for embedding/retrieval; one row per chunk.",
     fields={
         "id": StringDatabaseField(name="id", description="Chunk UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "source_id": StringDatabaseField(
             name="source_id", description="Source the chunk belongs to; joins to business_knowledge_sources.id."
         ),
@@ -3829,7 +3767,7 @@ canvases: PostgresTable = PostgresTable(
     description="Canvases filed in public project spaces; private and soft-deleted canvases are excluded.",
     fields={
         "id": StringDatabaseField(name="id", description="Canvas UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "channel_id": StringDatabaseField(
             name="channel_id", description="Channel the canvas is filed into (tasks Channel UUID)."
         ),
@@ -3888,7 +3826,7 @@ inbox_reports: PostgresTable = PostgresTable(
     ),
     fields={
         "id": StringDatabaseField(name="id", description="Report UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "triggering_signal_id": UUIDDatabaseField(
             name="triggering_signal_id",
             nullable=True,
@@ -3968,7 +3906,7 @@ inbox_report_checks: PostgresTable = PostgresTable(
     ),
     fields={
         "id": StringDatabaseField(name="id", description="Check UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "report_id": StringDatabaseField(
             name="report_id", description="Report the check belongs to; joins to inbox_reports.id."
         ),
@@ -4379,7 +4317,7 @@ event_definitions: PostgresTable = PostgresTable(
     description="Events known to the project, from ingestion or defined ahead of time; one row per event name.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Event definition UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Event name, e.g. '$pageview' or 'signed_up'."),
         "created_at": DateTimeDatabaseField(
             name="created_at",
@@ -4432,7 +4370,7 @@ property_definitions: _PropertyDefinitionsTable = _PropertyDefinitionsTable(
     description="Properties known to the project for events, persons, groups, and sessions; one row per property name and type.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Property definition UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Property name, e.g. '$browser' or 'plan'."),
         "_type": IntegerDatabaseField(name="type", hidden=True),
         "type": ExpressionField(
@@ -4485,7 +4423,7 @@ tags: PostgresTable = PostgresTable(
     description="Tags that can be attached to taggable objects (insights, dashboards, etc.); one row per tag.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Tag UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Tag text."),
     },
 )
@@ -4495,6 +4433,7 @@ class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "accounts": TableNode(name="accounts", table=accounts),
+        "aeo_brands": TableNode(name="aeo_brands", table=aeo_brands),
         "aeo_citation_checks": TableNode(name="aeo_citation_checks", table=aeo_citation_checks),
         "_account_tagged_items": TableNode(name="_account_tagged_items", table=account_tagged_items, hidden=True),
         "_account_resource_notebooks": TableNode(

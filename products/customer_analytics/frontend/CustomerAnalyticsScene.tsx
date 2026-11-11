@@ -23,6 +23,7 @@ import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePrevi
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -72,6 +73,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
     const { businessType, activeTab, sceneName, todayPeopleRowKey } = useValues(customerAnalyticsSceneLogic)
+    const { peoplePaneLinksTabs } = useValues(todayShellLogic)
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
@@ -220,7 +222,6 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         })
     }
 
-    // The Today rail's People pane links to every tab, so the shell shows only the open tab's content.
     const activeTabEntry = tabs.find((tab) => tab.key === activeTab)
     const activeTabContent = activeTabEntry && 'content' in activeTabEntry ? activeTabEntry.content : dashboardContent
     const tabBar =
@@ -229,7 +230,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         ) : (
             dashboardContent
         )
-    const tabsContent = todayRailNav ? activeTabContent : tabBar
+    const tabsContent = peoplePaneLinksTabs ? activeTabContent : tabBar
     const isFeatureRequestDetail =
         activeTab === 'feature_requests' && /\/customer_analytics\/feature-requests\/[^/]+\/?$/.test(location.pathname)
 

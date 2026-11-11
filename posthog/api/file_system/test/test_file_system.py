@@ -937,6 +937,30 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(custom_shortcut.ref, new_path)
         self.assertEqual(custom_shortcut.path, "Pinned work")
 
+    @parameterized.expand(
+        [
+            ("itself", "Parent/Parent"),
+            ("own_subfolder", "Parent/Child/Parent"),
+            ("own_subfolder_with_leading_separator", "/Parent/Child/Parent"),
+        ]
+    )
+    def test_move_folder_into_itself_is_rejected(self, _name: str, new_path: str) -> None:
+        folder = FileSystem.objects.create(team=self.team, path="Parent", type="folder", created_by=self.user)
+        child = FileSystem.objects.create(team=self.team, path="Parent/Child", type="folder", created_by=self.user)
+        file = FileSystem.objects.create(
+            team=self.team, path="Parent/Child/Flag", type="feature_flag", created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{folder.pk}/move", {"new_path": new_path}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(
+            sorted(FileSystem.objects.filter(team=self.team).values_list("path", flat=True)),
+            sorted([folder.path, child.path, file.path]),
+        )
+
     def test_count_of_files(self):
         """
         Moving a folder should update all child paths correctly.

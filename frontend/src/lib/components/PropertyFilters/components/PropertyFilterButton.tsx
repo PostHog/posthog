@@ -8,6 +8,7 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { fullNameOrEmail, midEllipsis } from 'lib/utils/strings'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -23,6 +24,7 @@ import {
     propertyFilterTypeToPropertyDefinitionType,
 } from '../utils'
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
+import { type PropertyFilterTriggerProps, QuillPropertyFilterButton } from './QuillPropertyFilterButton'
 
 export interface PropertyFilterButtonProps {
     onClick?: () => void
@@ -31,13 +33,16 @@ export interface PropertyFilterButtonProps {
     item: AnyPropertyFilter
     disabledReason?: string
     compact?: boolean
+    /** Props from a quill popover trigger, applied to the pill's main button */
+    triggerProps?: PropertyFilterTriggerProps
 }
 
 export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
     function PropertyFilterButton(
-        { onClick, onClose, children, item, disabledReason, compact = false },
+        { onClick, onClose, children, item, disabledReason, compact = false, triggerProps },
         ref
     ): JSX.Element {
+        const quillSurface = useQuillSurface()
         const { cohortsById } = useValues(cohortsModel)
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -98,6 +103,34 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             groupTypeIndex !== undefined &&
             groupKeys.length === 1
 
+        const groupCard = showGroupCard ? (
+            <GroupKeyFilterTooltip
+                groupTypeIndex={groupTypeIndex as GroupTypeIndex}
+                groupKey={groupKeys[0]}
+                fallbackLabel={label}
+            />
+        ) : null
+        const displayLabel = wraps ? label : midEllipsis(label, 32)
+
+        if (quillSurface) {
+            return (
+                <QuillPropertyFilterButton
+                    ref={ref}
+                    icon={<PropertyFilterIcon type={item.type} />}
+                    displayLabel={displayLabel}
+                    wraps={wraps}
+                    tooltip={
+                        groupCard ??
+                        (displayLabel !== label ? <span className="ph-no-capture">{label}</span> : undefined)
+                    }
+                    onClick={onClick}
+                    onClose={onClose}
+                    disabledReason={disabledReason}
+                    triggerProps={triggerProps}
+                />
+            )
+        }
+
         const closable = onClose !== undefined
         const clickable = onClick !== undefined
 
@@ -134,7 +167,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             >
                 <PropertyFilterIcon type={item.type} />
                 <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : label}>
-                    {wraps ? label : midEllipsis(label, 32)}
+                    {displayLabel}
                 </span>
                 {closable &&
                     !disabledReason && (
@@ -160,16 +193,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
 
         if (showGroupCard) {
             return (
-                <Tooltip
-                    interactive
-                    title={
-                        <GroupKeyFilterTooltip
-                            groupTypeIndex={groupTypeIndex as GroupTypeIndex}
-                            groupKey={groupKeys[0]}
-                            fallbackLabel={label}
-                        />
-                    }
-                >
+                <Tooltip interactive title={groupCard}>
                     {button}
                 </Tooltip>
             )

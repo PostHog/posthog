@@ -2,6 +2,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar, cast
+from urllib.parse import urlencode
 
 from django import forms
 from django.conf import settings
@@ -19,11 +20,12 @@ import structlog
 from posthog.admin.console.bridge import QueuedMessages
 from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
-from posthog.admin.console.records import RECORD_TYPES, RecordLink, RecordType
+from posthog.admin.console.records import RECORD_TYPES, SUPPORT_TICKET_PARAM, RecordLink, RecordType
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -153,8 +155,25 @@ def _search_teams(query: str) -> list[Team]:
     return list(matches.order_by("-id")[:SEARCH_LIMIT])
 
 
+def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> str:
+    kept = [(name, value) for name in names for value in request.GET.getlist(name)]
+    return f"{url}?{urlencode(kept)}" if kept else url
+
+
+def _find_user(query: str) -> User | None:
+    # Team and organization names rarely hold an @, so a query with one is an email address and opens that user.
+    if "@" not in query:
+        return None
+    return EmailLookupHandler.get_user_by_email(query, is_active=None)
+
+
 def console_home(request: HttpRequest) -> HttpResponse:
     query = request.GET.get("q", "").strip()
+    user = _find_user(query)
+    if user is not None:
+        return HttpResponseRedirect(
+            _with_kept_query(reverse("admin_console_user", kwargs={"pk": user.pk}), request, (SUPPORT_TICKET_PARAM,))
+        )
     teams = _search_teams(query)
     if len(teams) == 1:
         if not query.isdigit():
@@ -233,7 +252,14 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
-            "record_links": record_type.links(obj),
+            "record_links": [
+                RecordLink(
+                    label=link.label,
+                    href=_with_kept_query(link.href, request, link.keep_query),
+                    title=link.title,
+                )
+                for link in record_type.links(obj)
+            ],
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
@@ -267,6 +293,33 @@ def _require_gate(
     if gate is not None and not gate.allows(request):
         audit.warning("admin_console_operation_denied", method=request.method)
         raise PermissionDenied(f"Only {gate.label} can run {operation.label}")
+
+
+# Query keys that name what a tool operation acts on, such as a record, a health check or an ingestion
+# pipeline. Other values can hold customer data, for example a TopHog distinct ID that is an email
+# address, so the audit log keeps only their key.
+AUDITED_QUERY_KEYS = frozenset(
+    {
+        "check",
+        "id",
+        "organization",
+        "organization_id",
+        "pipelines",
+        "project",
+        "project_id",
+        "schema",
+        "source",
+        "team",
+        "team_id",
+        "token",
+        "user",
+        "user_id",
+    }
+)
+
+
+def _audit_query(request: HttpRequest) -> dict[str, str]:
+    return {key: request.GET.get(key, "") if key in AUDITED_QUERY_KEYS else "<not logged>" for key in request.GET}
 
 
 def _audited(audit: structlog.BoundLogger, run: Callable[[], R]) -> R:
@@ -330,6 +383,20 @@ class ConfirmStep:
         )
 
 
+def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
+    # A link preselects a choice, so an old URL that names one of several documents opens the form on it.
+    # Text fields stay empty: a reason taken from a URL would reach the audit log without staff writing it.
+    assert operation.form_class is not None
+    preselected = {
+        name: request.GET[name]
+        for name, field in operation.form_class.base_fields.items()
+        if isinstance(field, forms.ChoiceField) and name in request.GET
+    }
+    if not preselected:
+        return operation.form_initial
+    return {**(operation.form_initial or {}), **preselected}
+
+
 def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str, operation_key: str) -> HttpResponse:
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
@@ -358,7 +425,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         return step.render_expired(request)
     form = None
     if operation.form_class is not None:
-        form = operation.form_class(step.data, initial=operation.form_initial)
+        form = operation.form_class(step.data, initial=_record_form_initial(request, operation))
     title = record_type.title(obj)
     target = OperationTarget(
         kicker="This acts on",
@@ -474,7 +541,12 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
-    audit = logger.bind(tool=tool.key, operation=operation.key, triggered_by=cast(User, request.user).email)
+    audit = logger.bind(
+        tool=tool.key,
+        operation=operation.key,
+        query=_audit_query(request),
+        triggered_by=cast(User, request.user).email,
+    )
     _require_gate(request, operation, tool.owner, audit)
     if request.method == "GET" and operation.form_class is None:
         return redirect(tool_url)

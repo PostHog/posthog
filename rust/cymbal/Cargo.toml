@@ -32,8 +32,12 @@ serde_json = { workspace = true }
 url = { workspace = true }
 serde = { workspace = true }
 sourcemap = "9.0.0"
-symbolic = { version = "12.12", features = ["sourcemapcache", "debuginfo", "symcache", "demangle"] }
-zip = "4.0"
+symbolic = { version = "13.9", features = ["sourcemapcache", "debuginfo", "symcache"] }
+# Swift demangling stays off until symbolic 14.0. The `demangle` feature of `symbolic` turns it on,
+# so until then cymbal takes `symbolic-demangle` directly. At 14.0, put `demangle` back on
+# `symbolic` and remove this dependency.
+symbolic-demangle = { version = "13.9", default-features = false, features = ["cpp", "msvc", "rust"] }
+zip = "7.4"
 proguard = "5.6.2"
 reqwest = { workspace = true, features = ["brotli", "deflate", "gzip", "zstd"] }
 sha2 = "0.10.8"
