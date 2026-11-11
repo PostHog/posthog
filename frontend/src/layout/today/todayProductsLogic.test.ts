@@ -99,6 +99,8 @@ describe('todayProductsLogic', () => {
                     '/api/projects/:team_id/file_system_shortcut/:id/': {},
                 },
             })
+            // The section open states persist, so a state saved by one test would replace the next test's default.
+            localStorage.clear()
             initKeaTests()
             capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         })
@@ -129,6 +131,40 @@ describe('todayProductsLogic', () => {
             // Shortcuts are still loading, so the guard drops the click before it reads them.
             logic.actions.toggleStarred(REPLAY)
             expect(capture.mock.calls.filter(([name]) => name === 'today product star toggled')).toEqual([])
+        })
+
+        it('keeps All products closed for a person with stars, and reports the toggle with the state it moves to', async () => {
+            const logic = todayProductsLogic()
+            logic.mount()
+            await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+            expect(logic.values.allProductsVisible).toBe(false)
+
+            logic.actions.toggleAllProducts()
+            logic.actions.toggleAllProducts()
+
+            expect(logic.values.allProductsVisible).toBe(false)
+            const toggles = capture.mock.calls
+                .filter(([name]) => name === 'today all products toggled')
+                .map(([, properties]) => properties)
+            expect(toggles).toEqual([
+                { open: true, from_default: true, starred_count: 1, searching: false },
+                { open: false, from_default: false, starred_count: 1, searching: false },
+            ])
+        })
+
+        it('opens All products by default without stars, and keeps it open when the first product is starred', async () => {
+            useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': { results: [] } } })
+            const logic = todayProductsLogic()
+            logic.mount()
+            expect(logic.values.allProductsVisible).toBe(false)
+            await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+            expect(logic.values.allProductsVisible).toBe(true)
+
+            logic.actions.toggleStarred(REPLAY)
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(logic.values.starredHrefs.size).toBe(1)
+            expect(logic.values.allProductsVisible).toBe(true)
         })
 
         it('reports product opens with the row placement and current starred state', async () => {

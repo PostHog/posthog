@@ -23,6 +23,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 export interface todayProductsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
+    shortcutDataHasLoaded: boolean // projectTreeDataLogic
     shortcutDataLoading: boolean // projectTreeDataLogic
     location: {
         pathname: string
@@ -30,7 +31,8 @@ export interface todayProductsLogicValues {
         hash: string
     } // router
     activeHref: string | null
-    allProductsOpen: boolean
+    allProductsOpen: boolean | null
+    allProductsVisible: boolean
     pinnedProducts: FileSystemImport[]
     productCount: number
     productGroups: ProductsItemGroup[]
@@ -71,6 +73,9 @@ export interface todayProductsLogicActions {
     setAllProductsOpen: (open: boolean) => {
         open: boolean
     }
+    toggleAllProducts: () => {
+        value: true
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -103,6 +108,11 @@ export interface todayProductsLogicMeta {
             search: string
         ) => FileSystemImport[]
         starredHrefs: (shortcutData: FileSystemEntry[], products: FileSystemImport[]) => Set<string>
+        allProductsVisible: (
+            allProductsOpen: boolean | null,
+            shortcutDataHasLoaded: boolean,
+            starredHrefs: Set<string>
+        ) => boolean
     }
 }
 
@@ -134,7 +144,7 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
     connect(() => ({
         values: [
             projectTreeDataLogic,
-            ['shortcutData', 'shortcutDataLoading'],
+            ['shortcutData', 'shortcutDataHasLoaded', 'shortcutDataLoading'],
             featureFlagLogic,
             ['featureFlags'],
             router,
@@ -146,6 +156,7 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
         setSearch: (search: string) => ({ search }),
         setStarredOpen: (open: boolean) => ({ open }),
         setAllProductsOpen: (open: boolean) => ({ open }),
+        toggleAllProducts: true,
         toggleStarred: (item: FileSystemImport) => ({ item }),
         productOpened: (
             item: FileSystemImport,
@@ -163,7 +174,12 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
         search: ['', { setSearch: (_, { search }) => search }],
         // pinned: storage keys for persisted state. Renaming them resets everyone's sections.
         starredOpen: [true, { persist: true }, { setStarredOpen: (_, { open }) => open }],
-        allProductsOpen: [inStorybook(), { persist: true }, { setAllProductsOpen: (_, { open }) => open }],
+        // null means the person has not chosen yet, so allProductsVisible picks the default.
+        allProductsOpen: [
+            (inStorybook() ? true : null) as boolean | null,
+            { persist: true },
+            { setAllProductsOpen: (_, { open }) => open },
+        ],
     }),
     selectors({
         // The same list as the Products tab of the current navigation, less Home, which is the rail's Home item. Never
@@ -203,12 +219,24 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
             (shortcuts: FileSystemEntry[], products: FileSystemImport[]): Set<string> =>
                 new Set(resolveStarredProducts(shortcuts, products).map((item) => item.href ?? '')),
         ],
+        // Without stars, All products is the only list of products, so it opens by default. It stays closed until
+        // the shortcuts load, so that a person with stars does not see it open and then close.
+        allProductsVisible: [
+            (s) => [s.allProductsOpen, s.shortcutDataHasLoaded, s.starredHrefs],
+            (allProductsOpen: boolean | null, shortcutDataHasLoaded: boolean, starredHrefs: Set<string>): boolean =>
+                allProductsOpen ?? (shortcutDataHasLoaded && starredHrefs.size === 0),
+        ],
     }),
     listeners(({ actions, values }) => ({
         toggleStarred: ({ item }) => {
             // The star buttons are disabled while a change saves. This also stops a repeated dispatch.
             if (values.shortcutDataLoading) {
                 return
+            }
+            // The default follows the star count, so the first star would close the list under the cursor.
+            // Saving the default as a choice keeps the list as it is.
+            if (values.allProductsOpen === null) {
+                actions.setAllProductsOpen(values.allProductsVisible)
             }
             const shortcut = findProductShortcut(item, values.shortcutData)
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
@@ -218,6 +246,17 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
             } else {
                 actions.addShortcutItem(item as FileSystemEntry)
             }
+        },
+        toggleAllProducts: () => {
+            const open = !values.allProductsVisible
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today all products toggled', {
+                open,
+                from_default: values.allProductsOpen === null,
+                starred_count: values.starredHrefs.size,
+                searching: !!values.search.trim(),
+            })
+            actions.setAllProductsOpen(open)
         },
         productOpened: ({ item, section, category, position }) => {
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
