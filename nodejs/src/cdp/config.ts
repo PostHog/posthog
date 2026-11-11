@@ -165,8 +165,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
     CDP_SES_WEBHOOKS_TOPIC: string
     CDP_SES_WEBHOOKS_PRODUCER: CdpProducerName
-    // On, the webhook only queues, so it stays off until the topic and the cdp-ses-webhooks consumer exist.
-    CDP_SES_WEBHOOKS_QUEUE_ENABLED: boolean
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -438,7 +436,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_SES_WEBHOOKS_TOPIC: KAFKA_CDP_SES_WEBHOOKS,
         CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
-        CDP_SES_WEBHOOKS_QUEUE_ENABLED: false,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',

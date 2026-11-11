@@ -225,7 +225,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_EVENTS_DLQ_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
         | 'CDP_SES_WEBHOOKS_PRODUCER'
-        | 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     > &
     InternalLogsProducerConfig
 
@@ -640,7 +639,7 @@ export function createCdpCoreServices(
         emailSuppressionService,
         emailStatusService,
         redis,
-        config.CDP_SES_WEBHOOKS_QUEUE_ENABLED ? outputs : null
+        outputs
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
