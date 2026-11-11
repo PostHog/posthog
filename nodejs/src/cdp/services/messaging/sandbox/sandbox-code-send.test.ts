@@ -22,14 +22,19 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { FixtureHogFlowBuilder } from '../../../_tests/builders/hogflow.builder'
-import { insertHogFlow } from '../../../_tests/fixtures-hogflows'
+import { createHogFlowInvocationContext, insertHogFlow } from '../../../_tests/fixtures-hogflows'
 import { CdpApi } from '../../../cdp-api'
 import { createCdpCoreServices } from '../../../cdp-services'
 import { CdpCyclotronWorkerEmailSandbox } from '../../../consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from '../../../consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from '../../../consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { RerunJobQueues, RerunPaginatorService } from '../../../rerun/rerun-paginator.service'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult, MinimalAppMetric } from '../../../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationResult,
+    HogFlowInvocationContext,
+    MinimalAppMetric,
+} from '../../../types'
 import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
 import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
@@ -99,7 +104,18 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         await closeHub(hub)
     })
 
-    const insertFlow = (emailOnError?: 'abort'): Promise<HogFlow> =>
+    type FlowEmail = Parameters<FixtureHogFlowBuilder['withWorkflow']>[0]['actions'][string]
+
+    const codeSendEmail: FlowEmail = {
+        type: 'function_email',
+        config: {
+            template_id: 'template-email',
+            inputs: {},
+            message_category_type: 'transactional',
+        },
+    }
+
+    const insertFlow = (email: FlowEmail = codeSendEmail): Promise<HogFlow> =>
         insertHogFlow(
             world.postgres,
             new FixtureHogFlowBuilder()
@@ -109,15 +125,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 .withWorkflow({
                     actions: {
                         trigger: { type: 'trigger', config: { type: 'api' } },
-                        email: {
-                            type: 'function_email',
-                            ...(emailOnError ? { on_error: emailOnError } : {}),
-                            config: {
-                                template_id: 'template-email',
-                                inputs: {},
-                                message_category_type: 'transactional',
-                            },
-                        },
+                        email,
                         exit: { type: 'exit', config: {} },
                     },
                     edges: [
@@ -441,23 +449,34 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         }
     }
 
-    it.each<[string, () => Promise<unknown>, () => void, number]>([
-        ['SES rejected the send', () => (world.ses.replyNext(SES_REJECTED), deliver(queued[0])), () => {}, 0],
+    const rerunCases: [string, (job: CyclotronJobInvocation) => Promise<unknown>, () => void, number][] = [
+        ['SES rejected the send', (job) => (world.ses.replyNext(SES_REJECTED), deliver(job)), () => {}, 0],
         [
             'SES throttled every attempt',
-            () => (world.ses.replyAlways(SES_THROTTLE), deliver(queued[0])),
+            (job) => (world.ses.replyAlways(SES_THROTTLE), deliver(job)),
             () => (world.ses.replyAlways(null), world.ses.replyNext(SES_THROTTLE)),
             0,
         ],
-        ['SES accepted the send and the run was canceled', () => deliver(queued[0], cancelOnceSent()), () => {}, 1],
-    ])(
+        ['SES accepted the send and the run was canceled', (job) => deliver(job, cancelOnceSent()), () => {}, 1],
+    ]
+
+    const expectOneDeliveryToMember = (): void =>
+        expect(world.ses.delivered).toEqual([
+            expect.objectContaining({
+                from: { address: SANDBOX_FROM_ADDRESS, name: `${world.organizationName} via PostHog` },
+                to: [{ name: '', address: member }],
+                subject: content.subject,
+            }),
+        ])
+
+    it.each(rerunCases)(
         'delivers a rerun on the sandbox sender exactly once after %s',
         async (_desc, firstRun, beforeRerun, sentBeforeRerun) => {
             hub.HOG_INVOCATION_RESULTS_ENABLED = true
-            hogFlow = await insertFlow('abort')
+            hogFlow = await insertFlow({ ...codeSendEmail, on_error: 'abort' })
             const res = await sendFromCode(request(sandboxSend()))
             expect(res.status).toEqual(202)
-            await firstRun()
+            await firstRun(queued[0])
             expect(world.ses.delivered).toHaveLength(sentBeforeRerun)
             beforeRerun()
 
@@ -466,14 +485,47 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             const results = await deliver(rerun[0])
 
             expect(results.at(-1)).toMatchObject({ finished: true })
-            expect(world.ses.delivered).toEqual([
-                expect.objectContaining({
-                    from: { address: SANDBOX_FROM_ADDRESS, name: `${world.organizationName} via PostHog` },
-                    to: [{ name: '', address: member }],
-                    subject: content.subject,
-                }),
-            ])
+            expectOneDeliveryToMember()
             expect(finalStatus(queued[0].id)).toEqual('sent')
+        }
+    )
+
+    it.each(rerunCases)(
+        'delivers a rerun of a workflow sandbox email step exactly once after %s',
+        async (_desc, firstRun, beforeRerun, sentBeforeRerun) => {
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            hogFlow = await insertFlow({
+                type: 'email_sandbox',
+                on_error: 'abort',
+                config: {
+                    inputs: {
+                        email: {
+                            templating: 'liquid',
+                            value: { to: { email: member }, subject: content.subject, text: content.text },
+                        },
+                    },
+                },
+            })
+            const job: CyclotronJobInvocation = {
+                id: new UUIDT().toString(),
+                teamId: world.team.id,
+                functionId: hogFlow.id,
+                queue: 'hogflow',
+                queuePriority: 1,
+                state: createHogFlowInvocationContext({
+                    event: { distinct_id: member, properties: {} } as HogFlowInvocationContext['event'],
+                }),
+            }
+            await firstRun(job)
+            expect(world.ses.delivered).toHaveLength(sentBeforeRerun)
+            beforeRerun()
+
+            const rerun = await rerunFromStoredRun(job.id)
+            expect(rerun).toHaveLength(1)
+            const results = await deliver(rerun[0])
+
+            expect(results.at(-1)).toMatchObject({ finished: true })
+            expectOneDeliveryToMember()
         }
     )
 
