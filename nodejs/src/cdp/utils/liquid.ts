@@ -2,7 +2,7 @@ import { Context, Emitter, Liquid, Tag, TagToken, Template, TopLevelToken } from
 
 import { rowScopedTriggerTypeForEvent } from '../schema/hogflow'
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
-import { deadlineRemainingMs } from './deadline'
+import { deadlineRemainingMs, throwIfDeadlinePassed } from './deadline'
 
 // Rendering is synchronous on shared multi-tenant workers, so an unbounded template would
 // stall or OOM the whole process. These budgets make an over-budget template fail only its own invocation.
@@ -49,6 +49,10 @@ export class LiquidRenderBudget {
         const ownMs = Math.max(0, LIQUID_RENDER_LIMIT_MS - this.usedMs)
         const deadlineMs = deadlineRemainingMs(this.deadline)
         return deadlineMs === undefined ? ownMs : Math.min(ownMs, Math.ceil(deadlineMs) + 1)
+    }
+
+    throwIfDeadlinePassed(): void {
+        throwIfDeadlinePassed(this.deadline)
     }
 
     useTime(ms: number): void {
