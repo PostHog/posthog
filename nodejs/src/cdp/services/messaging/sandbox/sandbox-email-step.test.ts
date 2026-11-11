@@ -24,7 +24,6 @@ import { RecipientTokensService } from '../recipient-tokens.service'
 import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
 import { useSandboxWorld } from './_tests/sandbox-world'
-import { AUTHORIZATION_TIMEOUT_MS } from './sandbox-authorization'
 import { claimSandboxCaps } from './sandbox-caps'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { MAX_SANDBOX_RETRIES, SandboxEmailSendStep } from './sandbox-email-step'
@@ -466,18 +465,17 @@ describe('SandboxEmailSendStep', () => {
             await stalledPostgres.end()
         })
 
-        it('retries the step within one authorization deadline and sends it with an unsubscribe link once the read answers', async () => {
-            const stalledExecutor = buildExecutor(caps, deliveredAddressReader(stalledPostgres))
+        it('retries the step without an SES attempt and sends it with an unsubscribe link once the read answers', async () => {
+            const stalledExecutor = buildExecutor(caps, deliveredAddressReader(stalledPostgres, 100))
             const routed = await stalledExecutor.execute(runFor(member().toLowerCase()))
 
-            const startedAt = Date.now()
             const stalled = await stalledExecutor.execute(nextDequeue(routed.invocation))
 
-            expect(Date.now() - startedAt).toBeLessThan(AUTHORIZATION_TIMEOUT_MS + 1_000)
             expect(world.ses.attempts).toBe(0)
             expect(stalled.invocation.queue).toBe('emailsandbox')
             expect(stalled.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
-            expect(stalled.invocation.state.currentAction?.sandboxEmailRetries).toBe(1)
+            expect(stalled.invocation.state.currentAction).toMatchObject({ sandboxEmailRetries: 1 })
+            expect(stalled.invocation.state.currentAction?.sandboxEmailUncertainSends).toBeUndefined()
 
             await runSandboxQueue(buildExecutor(), stalled.invocation)
             expect(world.ses.delivered).toHaveLength(1)

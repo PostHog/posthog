@@ -7,7 +7,7 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
 import { actionIdForLogging } from '../../hogflows/hogflow-utils'
-import { readSandboxAuthorization } from './sandbox-authorization'
+import { AUTHORIZATION_TIMEOUT_MS, readSandboxAuthorization } from './sandbox-authorization'
 import { SandboxRenderedEmail, SandboxRenderedEmailSchema } from './sandbox-message'
 import { canonicalRecipient } from './sandbox-recipient-checks'
 
@@ -17,9 +17,12 @@ export class SandboxRecipientUnavailableError extends Error {}
 
 export type DeliveredAddressReader = (teamId: number, recipient: string) => Promise<string>
 
-export function deliveredAddressReader(db: PostgresRouter): DeliveredAddressReader {
+export function deliveredAddressReader(
+    db: PostgresRouter,
+    timeoutMs: number = AUTHORIZATION_TIMEOUT_MS
+): DeliveredAddressReader {
     return async (teamId, recipient) => {
-        const authorization = await readSandboxAuthorization(db, { teamId, recipient, tenantName: '' })
+        const authorization = await readSandboxAuthorization(db, { teamId, recipient, tenantName: '', timeoutMs })
         if (authorization.ok) {
             return authorization.storedAddress
         }
