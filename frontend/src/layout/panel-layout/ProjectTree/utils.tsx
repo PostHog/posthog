@@ -565,6 +565,21 @@ export function isPathUnder(path: string | null | undefined, ancestor: string): 
     return segments.length >= under.length && under.every((segment, index) => segments[index] === segment)
 }
 
+/**
+ * Matches a path that is one of `folders` or lies under one. Each call checks the path and its ancestors against a
+ * set, so pruning many paths costs their depth instead of paths times folders.
+ */
+export function underAnyFolder(folders: string[]): (path: string | null | undefined) => boolean {
+    const known = new Set(folders.map((folder) => joinPath(splitPath(folder))))
+    return (path) => {
+        if (known.size === 0) {
+            return false
+        }
+        const segments = splitPath(path)
+        return segments.some((_, index) => known.has(joinPath(segments.slice(0, index + 1))))
+    }
+}
+
 export function parentPath(path: string | null | undefined): string {
     return joinPath(splitPath(path).slice(0, -1))
 }

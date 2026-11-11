@@ -47,7 +47,6 @@ import {
     isFileSystemEntryTypeEnabled,
     isGroupViewShortcut,
     isPathUnder,
-    joinPath,
     matchesRefType,
     parentPath,
     refTypeParams,
@@ -55,6 +54,7 @@ import {
     shortcutFromEntry,
     sortFilesAndFolders,
     splitPath,
+    underAnyFolder,
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
@@ -1235,19 +1235,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             newState[folder] = newState[folder].filter((item) => !ids.has(item.id))
                         }
                     }
-                    // Each cached folder checks itself and its ancestors against the set, so the cost grows with the
-                    // number of folders instead of cached folders times stale ones.
-                    const droppedFolders = new Set(
-                        items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
+                    const underDropped = underAnyFolder(
+                        items.filter((item) => item.type === 'folder').map((item) => item.path)
                     )
-                    if (droppedFolders.size > 0) {
-                        for (const folder of Object.keys(newState)) {
-                            const segments = splitPath(folder)
-                            if (
-                                segments.some((_, index) => droppedFolders.has(joinPath(segments.slice(0, index + 1))))
-                            ) {
-                                delete newState[folder]
-                            }
+                    for (const folder of Object.keys(newState)) {
+                        if (underDropped(folder)) {
+                            delete newState[folder]
                         }
                     }
                     return newState
