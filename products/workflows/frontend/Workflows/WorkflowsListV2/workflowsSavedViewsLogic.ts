@@ -46,6 +46,7 @@ import {
     searchesAcrossFolders,
     workflowFolderFiles,
 } from './workflowListFacets'
+import type { WorkflowFolderFileRow } from './workflowListFacets'
 import { DEFAULT_COLUMNS } from './workflowListLabels'
 import type { OptionalColumn } from './workflowListLabels'
 import type { WorkflowListRow } from './workflowListRows'
@@ -105,6 +106,7 @@ export interface workflowsSavedViewsLogicValues {
     saving: boolean
     sharedSaveDisabledReason: string | undefined
     viewCounts: Record<string, number>
+    viewFiles: WorkflowFolderFileRow[]
     viewFilters: FacetFilter[]
     views: WorkflowSavedView[]
     viewsResolving: boolean
@@ -265,13 +267,16 @@ export interface workflowsSavedViewsLogicMeta {
         sharedSaveDisabledReason: (activeViewConflicted: boolean) => string | undefined
         myWorkflowsDeleted: (defaultView: WorkflowViewApi | null) => boolean
         saving: (pendingAction: SavedViewAction | null) => boolean
-        viewCounts: (
-            views: WorkflowSavedView[],
+        viewFiles: (
             rows: WorkflowListRow[],
             savedItems: FileSystemEntry[],
             filesByRef: Record<string, FileSystemEntry>,
-            currentTeamId: number | null,
-            facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[], // workflowsListV2Logic
+            currentTeamId: number | null
+        ) => WorkflowFolderFileRow[]
+        viewCounts: (
+            views: WorkflowSavedView[],
+            viewFiles: WorkflowFolderFileRow[],
+            facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
             matchesText: MatchesText<WorkflowListRow>,
             serverSearch: ServerSearchResult | null,
             metricsLoaded: boolean,
@@ -539,25 +544,21 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         ],
         myWorkflowsDeleted: [(s) => [s.defaultView], (view: WorkflowViewApi | null): boolean => view?.deleted === true],
         saving: [(s) => [s.pendingAction], (pendingAction: SavedViewAction | null): boolean => pendingAction !== null],
-        viewCounts: [
-            (s) => [
-                s.views,
-                s.rows,
-                s.savedItems,
-                s.filesByRef,
-                s.currentTeamId,
-                s.facetsFor,
-                s.matchesText,
-                s.serverSearch,
-                s.metricsLoaded,
-                s.listLoaded,
-            ],
+        // The list shows email templates beside workflows, so a view counts both.
+        viewFiles: [
+            (s) => [s.rows, s.savedItems, s.filesByRef, s.currentTeamId],
             (
-                views: WorkflowSavedView[],
                 rows: WorkflowListRow[],
                 savedItems: FileSystemEntry[],
                 filesByRef: Record<string, FileSystemEntry>,
-                currentTeamId: number | null,
+                currentTeamId: number | null
+            ): WorkflowFolderFileRow[] => workflowFolderFiles(rows, savedItems, filesByRef, currentTeamId),
+        ],
+        viewCounts: [
+            (s) => [s.views, s.viewFiles, s.facetsFor, s.matchesText, s.serverSearch, s.metricsLoaded, s.listLoaded],
+            (
+                views: WorkflowSavedView[],
+                files: WorkflowFolderFileRow[],
                 facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
                 matchesText: MatchesText<WorkflowListRow>,
                 serverSearch: ServerSearchResult | null,
@@ -567,8 +568,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 if (!listLoaded) {
                     return {}
                 }
-                // The list shows email templates beside workflows, so a view counts both.
-                const files = workflowFolderFiles(rows, savedItems, filesByRef, currentTeamId)
                 const fileMatchesText = folderFileMatchesText(matchesText)
                 return Object.fromEntries(
                     views.flatMap((view) => {
