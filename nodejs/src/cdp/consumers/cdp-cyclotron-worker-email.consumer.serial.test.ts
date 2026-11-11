@@ -552,6 +552,37 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect((await jobRow(id)).status).toBe('completed')
     })
 
+    it('a worker that claims its own re-queued send with files again while the older claim still downloads sends it once', async () => {
+        const staleReschedules = (): Promise<number> =>
+            metric('cdp_cyclotron_v2_stale_commits_total', { queue: queueName, operation: 'reschedule' })
+        const staleBefore = await staleReschedules()
+        bucket.answer = 'hold'
+        const [id] = await enqueue(transactionalSend([invoice.metadata]))
+        await startWorker(roomFor(2), sesClientFor(ses), hub.postgres, {
+            CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id),
+            CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
+        })
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
+        const olderClaimsDownloads = bucket.heldRequests
+
+        await db.query(`UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`, [id])
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+            stallTimeoutMs: 30_000,
+            stallBackoffBaseMs: 0,
+            cleanupGraceMs: 60_000,
+        })
+        const { stalled } = await janitor.runOnce()
+        await janitor.stop()
+        expect(stalled).toBeGreaterThanOrEqual(1)
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(olderClaimsDownloads))
+
+        bucket.release('pass')
+        expect(await ended(id)).toBe('completed')
+        await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
+        expect(delivered()).toEqual([['invoice.pdf']])
+    })
+
     it('writes the plain sends of a batch and dequeues the next one while a send with files waits on its download', async () => {
         bucket.answer = 'hold'
         const [withFiles, plain] = await enqueue(transactionalSend([invoice.metadata]), transactionalSend(null))
