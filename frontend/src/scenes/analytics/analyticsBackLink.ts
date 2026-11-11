@@ -3,7 +3,11 @@ import { combineUrl, router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { LinkBreadcrumb } from '~/types'
 
 import { ANALYTICS_BACK_NAME } from './analyticsUtils'
 
@@ -39,6 +43,29 @@ export function analyticsBackLink(
     }
     const backName = searchParams.backName
     return { url: backUrl, name: typeof backName === 'string' && backName ? backName : ANALYTICS_BACK_NAME }
+}
+
+/**
+ * The parent breadcrumb of an item that the Analytics pages list, such as an insight or a dashboard.
+ *
+ * With the Analytics pages on, the parent is the Analytics page the URL names as the way back, or the
+ * Analytics list when the item was opened from anywhere else (search, recents, a pasted link). The old
+ * "Product analytics" and "Dashboards" lists are not in that navigation, so they must not be the parent.
+ * Without the flag this returns null, and the scene keeps the parent it always had.
+ */
+export function analyticsParentBreadcrumb(
+    searchParams: Record<string, unknown>,
+    featureFlags: Record<string, unknown>,
+    iconType?: FileSystemIconType
+): LinkBreadcrumb | null {
+    const backLink = analyticsBackLink(searchParams, featureFlags)
+    if (backLink) {
+        return { key: backLink.url, name: backLink.name, path: backLink.url, iconType }
+    }
+    if (!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+        return null
+    }
+    return { key: Scene.AnalyticsList, name: ANALYTICS_BACK_NAME, path: urls.analyticsList(), iconType }
 }
 
 /**

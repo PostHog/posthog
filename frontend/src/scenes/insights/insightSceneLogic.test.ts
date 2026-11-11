@@ -4,6 +4,8 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -557,6 +559,23 @@ describe('insightSceneLogic', () => {
             expect(parseURLFilters(searchParams)).toEqual(expectedFilters)
         }
     )
+
+    it.each([
+        ['Product analytics without the flag', false, null, ['Product analytics', urls.savedInsights()]],
+        ['Dashboards without the flag', false, 6, ['Dashboards', urls.dashboards()]],
+        ['Analytics with the flag', true, null, ['Analytics', urls.analyticsList()]],
+        ['Analytics with the flag, opened from a dashboard', true, 6, ['Analytics', urls.analyticsList()]],
+    ])('hangs the insight under %s', async (_name, flagOn, dashboardId, [name, path]) => {
+        featureFlagLogic.mount()
+        const flags: Record<string, boolean> = flagOn ? { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true } : {}
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        router.actions.push(urls.insightView(Insight42, dashboardId ?? undefined))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.breadcrumbs[0]).toEqual(expect.objectContaining({ name, path }))
+    })
 
     it('remounts when URL insight id disagrees with dashboard tile id on the mounted editor (save-as regression)', async () => {
         useMocks({

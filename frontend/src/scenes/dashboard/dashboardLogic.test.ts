@@ -393,6 +393,37 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('parent breadcrumb', () => {
+        it.each([
+            ['the Dashboards list without the flag', {}, {}, { name: 'Dashboards', path: urls.dashboards() }],
+            [
+                'the Analytics list with the flag',
+                { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+                {},
+                { name: 'Analytics', path: urls.analyticsList() },
+            ],
+            [
+                'the Analytics page that opened it',
+                { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+                { backUrl: '/analytics/mine', backName: 'Analytics' },
+                { name: 'Analytics', path: '/analytics/mine' },
+            ],
+            [
+                "a flag's usage link over the Analytics list",
+                { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true },
+                { backUrl: '/feature_flags/12', backName: 'my-flag' },
+                { name: 'my-flag', path: '/feature_flags/12' },
+            ],
+        ])('is %s', (_, flags, searchParams, expected) => {
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            router.actions.push(urls.dashboard(5), searchParams)
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+
+            expect(logic.values.breadcrumbs[0]).toEqual(expect.objectContaining(expected))
+        })
+    })
+
     describe('tile group sections', () => {
         let target: InsightShortId
 
