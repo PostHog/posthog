@@ -184,13 +184,6 @@ class EmailSendDeadlineError extends Error {
     }
 }
 
-class LostJobOwnershipError extends Error {
-    constructor() {
-        super('This worker no longer holds the job, so the worker that holds it sends this email')
-        this.name = 'LostJobOwnershipError'
-    }
-}
-
 export type JobOwnershipCheck = (invocation: CyclotronJobInvocation) => Promise<boolean>
 
 class MessageTooLargeError extends Error {
@@ -915,7 +908,16 @@ export class EmailService {
                 : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
             if (!isTest && !(await this.sendsAsJobOwner(invocation))) {
-                throw new LostJobOwnershipError()
+                emailSendsStoppedForLostJobTotal.inc()
+                logger.warn('Stopped an email send because this worker lost its job', {
+                    invocationId: invocation.id,
+                    teamId: invocation.teamId,
+                })
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = invocation.queueMetadata
+                result.invocation.queueScheduledAt = DateTime.utc()
+                return result
             }
 
             switch (integration.config.provider ?? 'ses') {
@@ -951,18 +953,7 @@ export class EmailService {
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
-            if (error instanceof LostJobOwnershipError) {
-                emailSendsStoppedForLostJobTotal.inc()
-                logger.warn('Stopped an email send because this worker lost its job', {
-                    invocationId: invocation.id,
-                    teamId: invocation.teamId,
-                })
-                rescheduled = true
-                result.finished = false
-                result.invocation.queueParameters = params
-                result.invocation.queueMetadata = invocation.queueMetadata
-                result.invocation.queueScheduledAt = DateTime.utc()
-            } else if (error instanceof SESThrottleError) {
+            if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
                 // the job. Our local bucket is the primary throttle; this path
                 // catches the cases where SES disagrees with our estimate.

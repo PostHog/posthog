@@ -354,6 +354,9 @@ export type CyclotronJobInvocation = {
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)
     queueSource?: CyclotronJobQueueSource
+    // The lock of the Cyclotron claim this invocation runs under. A clone keeps it, so a worker that claimed
+    // the same job twice writes each result through the claim it came from.
+    queueLockId?: string
     // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
     // was in flight. The consumer must terminate it as canceled instead of executing.
     cancelRequestedAt?: DateTime

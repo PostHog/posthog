@@ -75,6 +75,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
+    private supersededJobs = new Map<string, CyclotronV2DequeuedJob>()
     private resultWrites = new PromiseScheduler()
     private stopDeadline?: number
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
@@ -147,7 +148,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             const now = Date.now()
 
             for (const job of jobs) {
-                this.pendingJobs.set(job.id, job)
+                this.rememberPendingJob(job)
                 const invocation = v2JobToInvocation(job)
                 invocations.push(invocation)
                 const { wait, dueAt } = dueTimeOf(job, invocation)
@@ -199,9 +200,28 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         }
     }
 
+    private rememberPendingJob(job: CyclotronV2DequeuedJob): void {
+        const earlier = this.pendingJobs.get(job.id)
+        if (earlier && earlier !== job) {
+            this.supersededJobs.set(claimKey(earlier.id, earlier.lockId), earlier)
+        }
+        this.pendingJobs.set(job.id, job)
+    }
+
+    private pendingJobOf(invocation: CyclotronJobInvocation): CyclotronV2DequeuedJob | undefined {
+        const latest = this.pendingJobs.get(invocation.id)
+        if (!invocation.queueLockId || latest?.lockId === invocation.queueLockId) {
+            return latest
+        }
+        return this.supersededJobs.get(claimKey(invocation.id, invocation.queueLockId))
+    }
+
     private forgetPendingJob(job: CyclotronV2DequeuedJob): void {
         if (this.pendingJobs.get(job.id) === job) {
             this.pendingJobs.delete(job.id)
+        }
+        if (this.supersededJobs.get(claimKey(job.id, job.lockId)) === job) {
+            this.supersededJobs.delete(claimKey(job.id, job.lockId))
         }
     }
 
@@ -285,7 +305,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
         await settleAllThenThrowFirst(
             sanitizedResults.map(async (result) => {
-                const job = this.pendingJobs.get(result.invocation.id)
+                const job = this.pendingJobOf(result.invocation)
                 if (!job) {
                     logger.warn('No pending V2 job found for result, creating new job', {
                         id: result.invocation.id,
@@ -329,7 +349,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
+                const job = this.pendingJobOf(inv)
                 if (job) {
                     try {
                         await this.resultWrites.schedule(job.fail())
@@ -344,7 +364,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     public async releaseInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
+                const job = this.pendingJobOf(inv)
                 if (job) {
                     try {
                         await this.resultWrites.schedule(job.ack())
@@ -361,7 +381,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     ): Promise<void> {
         await settleAllThenThrowFirst(
             deferrals.map(async ({ invocation, scheduledAt }) => {
-                const job = this.pendingJobs.get(invocation.id)
+                const job = this.pendingJobOf(invocation)
                 if (job) {
                     try {
                         await this.resultWrites.schedule(job.defer({ scheduledAt, state: serializeState(invocation) }))
@@ -374,13 +394,13 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     public async stillOwns(invocation: CyclotronJobInvocation): Promise<boolean> {
-        return (await this.pendingJobs.get(invocation.id)?.stillOwned()) ?? true
+        return (await this.pendingJobOf(invocation)?.stillOwned()) ?? true
     }
 
     public async heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
         await Promise.all(
             invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
+                const job = this.pendingJobOf(inv)
                 if (!job) {
                     return
                 }
@@ -481,7 +501,12 @@ type CyclotronV2JobData = Pick<
     | 'parentRunId'
     | 'state'
     | 'cancelRequestedAt'
->
+> &
+    Partial<Pick<CyclotronV2DequeuedJob, 'lockId'>>
+
+function claimKey(id: string, lockId: string): string {
+    return `${id}:${lockId}`
+}
 
 export function v2JobToInvocation(job: CyclotronV2JobData): CyclotronJobInvocation {
     let parsed: SerializedJobState = { state: null }
@@ -507,6 +532,7 @@ export function v2JobToInvocation(job: CyclotronV2JobData): CyclotronJobInvocati
         queueParameters: parsed.queueParameters ?? undefined,
         state: parsed.state,
         queueSource: 'postgres-v2',
+        queueLockId: job.lockId,
     }
 
     if (job.parentRunId) {

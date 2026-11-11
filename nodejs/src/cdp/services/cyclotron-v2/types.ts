@@ -80,6 +80,7 @@ export interface CyclotronV2BulkCreateAndCheckInInput {
 
 export interface CyclotronV2DequeuedJob {
     readonly id: string
+    readonly lockId: string
     readonly teamId: number
     readonly functionId: string | null
     readonly queueName: string
