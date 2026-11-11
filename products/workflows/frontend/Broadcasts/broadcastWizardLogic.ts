@@ -1881,19 +1881,24 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.loadBlastRadius()
         },
         editEmailContent: () => {
-            // The content step's templater opens its editor on mount when the URL asks, as a deep link does.
-            // An unsaved broadcast remounts on its draft URL, which closes an editor already open, so it saves
-            // from here and opens the editor on the draft URL.
-            if (props.id === 'new' && !values.broadcastId) {
-                cache.openEmailEditorOnDraftUrl = true
-                actions.ensureDraft()
+            if (props.id !== 'new') {
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                router.actions.push(pathname, withEmailEditorOpen(searchParams), hashParams)
+                actions.setStep('content')
                 return
             }
-            const { pathname, searchParams, hashParams } = router.values.currentLocation
-            router.actions.push(pathname, withEmailEditorOpen(searchParams), hashParams)
-            actions.setStep('content')
+            if (values.launching) {
+                return
+            }
+            cache.openEmailEditorOnDraftUrl = true
+            if (values.broadcastId) {
+                actions.showSavedDraftUrl()
+            } else {
+                actions.ensureDraft()
+            }
         },
         setStep: ({ step }) => {
+            cache.openEmailEditorOnDraftUrl = false
             if (step === 'review') {
                 // A fresh preview mints the confirm token launch needs and shows an up-to-date count.
                 actions.loadBlastRadius()
@@ -1904,6 +1909,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.reportReviewVisit()
         },
         nextStep: () => {
+            cache.openEmailEditorOnDraftUrl = false
             // Listeners run after reducers, so this sees the step just navigated to.
             if (values.currentStep === 'review') {
                 actions.loadBlastRadius()
@@ -1914,6 +1920,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.reportReviewVisit()
         },
         prevStep: () => {
+            cache.openEmailEditorOnDraftUrl = false
             actions.reportReviewVisit()
         },
         reportReviewVisit: async (_, breakpoint) => {
@@ -2001,10 +2008,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
                 const openEditor = cache.openEmailEditorOnDraftUrl
                 cache.openEmailEditorOnDraftUrl = false
-                router.actions.replace(
-                    urls.broadcast(values.broadcastId),
-                    openEditor ? withEmailEditorOpen({ step: 'content' }) : { step: values.currentStep }
-                )
+                const draftUrl = urls.broadcast(values.broadcastId)
+                if (openEditor) {
+                    router.actions.replace(draftUrl, { step: 'content' })
+                    router.actions.push(draftUrl, withEmailEditorOpen({ step: 'content' }))
+                } else {
+                    router.actions.replace(draftUrl, { step: values.currentStep })
+                }
             }
         },
         setEmailSettings: () => {

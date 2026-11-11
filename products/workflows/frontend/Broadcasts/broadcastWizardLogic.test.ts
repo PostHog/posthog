@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { router } from 'kea-router'
+import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -508,9 +509,8 @@ describe('broadcastWizardLogic', () => {
         latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
         router.actions.push('/broadcasts/broadcast-1', { utm_source: 'test' })
         const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
-        await expectLogic(draftLogic, () => {
-            draftLogic.mount()
-        }).toDispatchActions(['hydrateFromBroadcast'])
+        draftLogic.mount()
+        await expectLogic(draftLogic).toFinishAllListeners()
         draftLogic.actions.setStep('review')
 
         draftLogic.actions.editEmailContent()
@@ -524,13 +524,50 @@ describe('broadcastWizardLogic', () => {
         router.actions.push('/broadcasts/new')
         logic.actions.setStep('review')
 
-        await expectLogic(logic, () => {
-            logic.actions.editEmailContent()
-            releaseCreate()
-        }).toDispatchActions(['draftAutosaved', 'showSavedDraftUrl'])
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
         expect(router.values.searchParams).toEqual({ step: 'content', editor: 'email' })
+    })
+
+    it('closes the email editor on back after an unsaved broadcast opened it from review', async () => {
+        router.actions.push('/broadcasts/new')
+        const browserHistory = [router.values.location.pathname]
+        const { history } = getRouterContext()
+        if (!history) {
+            throw new Error('The router has no history in this test')
+        }
+        history.pushState = (_state: unknown, _title: string, url: string): void => {
+            browserHistory.push(url)
+        }
+        history.replaceState = (_state: unknown, _title: string, url: string): void => {
+            browserHistory[browserHistory.length - 1] = url
+        }
+        logic.actions.setStep('review')
+
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(browserHistory.slice(-2)).toEqual([
+            expect.stringMatching(/\/broadcasts\/broadcast-1\?step=content$/),
+            expect.stringMatching(/\/broadcasts\/broadcast-1\?step=content&editor=email$/),
+        ])
+    })
+
+    it('keeps the step a person picks while the draft that modify content asked for still saves', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+
+        logic.actions.setStep('schedule')
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'schedule' })
     })
 
     it.each([
