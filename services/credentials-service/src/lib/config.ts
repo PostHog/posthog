@@ -63,6 +63,12 @@ export interface Config {
      * secrets only, and the integration features are off.
      */
     database?: DatabaseConfig
+
+    /**
+     * Directory of Ed25519 public keys for the integrations audience, one `<deployment>.pub`
+     * PEM file per caller. Unset means the service accepts no integrations token.
+     */
+    integrationCallerPublicKeysDir?: string
 }
 
 function intFromEnv(key: string, fallback: number, min = 0): number {
@@ -202,6 +208,11 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
     const database = loadDatabaseConfig()
     if (database) {
         config.database = database
+    }
+
+    const integrationKeysDir = process.env.CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR
+    if (integrationKeysDir) {
+        config.integrationCallerPublicKeysDir = integrationKeysDir
     }
 
     if (secretSourceFromEnv() === 'kubernetes') {

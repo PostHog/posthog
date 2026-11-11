@@ -12173,10 +12173,10 @@ Today (8): `attendances`, `customer_memberships`, `customers`, `events`, `instru
 
 Diffed against: <https://docs.goteamup.com/llms.txt>
 
-- [ ] `Offering types (GET /api/v2/offering_types)` — resolve offering_type IDs in events to class and appointment definitions (high)
-- [ ] `Membership categories (GET /api/v2/membership_categories)` — resolve category IDs in memberships for membership mix and revenue analysis (high)
-- [ ] `Lead sources (GET /api/v2/crm/lead_sources)` — resolve lead_source IDs in customers to acquisition channels (high)
-- [ ] `Payment subscriptions (GET /api/v2/payment_subscriptions)` — resolve payment_subscription IDs in customer memberships to recurring billing records (high)
+- [x] `Offering types (GET /api/v2/offering_types)` — resolve offering_type IDs in events to class and appointment definitions (high) → `offering_types` (full refresh)
+- [x] `Membership categories (GET /api/v2/membership_categories)` — resolve category IDs in memberships for membership mix and revenue analysis (high) → `membership_categories` (full refresh)
+- [x] `Lead sources (GET /api/v2/crm/lead_sources)` — resolve lead_source IDs in customers to acquisition channels (high) → `lead_sources` (full refresh)
+- [x] `Payment subscriptions (GET /api/v2/payment_subscriptions)` — resolve payment_subscription IDs in customer memberships to recurring billing records (high) → `payment_subscriptions` (full refresh)
 - [ ] `Membership payment plans (GET /api/v2/membership_payment_plans)` — expand membership plan links into prices, billing intervals, and commitment terms (high)
 - [ ] `Customer membership holds (GET /api/v2/customer_membership_holds)` — resolve active_hold IDs and measure membership pauses and their causes (high)
 - [ ] `Discount codes (GET /api/v2/discount_codes)` — resolve discount_code IDs in customer memberships for promotion analysis (high)
@@ -12340,28 +12340,28 @@ Today (3): `manual_cases`, `manual_suites`, `test_runs`
 
 Diffed against: <https://docs.testdino.com/openapi.json>
 
-- [ ] `Explore test cases (GET /{projectId}/test-case-explorer)` — analyze automated test identities, pass rates, flakiness, and duration beyond aggregate run totals (high)
+- [x] `Explore test cases (GET /{projectId}/test-case-explorer)` — analyze automated test identities, pass rates, flakiness, and duration beyond aggregate run totals (high)
 - [ ] `Test case history (GET /{projectId}/test-cases/history)` — track individual test executions, retries, failures, and duration changes over time (high)
 - [x] `Manual runs (GET /{projectId}/manual-runs)` — measure manual testing activity and run completion beyond the static case catalog (high)
 - [x] `Manual run test cases (GET /{projectId}/manual-runs/{runId}/test-cases)` — analyze execution results and assignees for each manual test in each run (high)
 - [ ] `Releases (GET /{projectId}/releases)` — group testing progress and outcomes by release milestone (medium)
 - [ ] `Exploratory sessions (GET /{projectId}/sessions)` — measure exploratory testing activity, ownership, and completion (medium)
-- [ ] `Spec file health (GET /{projectId}/specs)` — compare failure rates, flakiness, and duration across test files (medium)
+- [x] `Spec file health (GET /{projectId}/specs)` — compare failure rates, flakiness, and duration across test files (medium)
 - [ ] `Test case performance (GET /{projectId}/analytics/test-cases/performance)` — track duration percentiles and failure statistics for slow or unreliable tests (medium)
 - [ ] `Subscription usage (GET /{projectId}/usage)` — track test usage, remaining allowance, and allocation across projects (medium)
 
-Note: The official OpenAPI specification supplied all operations and confirmed that automated runs contain aggregate statistics. History requires test titles from the explorer; manual results require repeated requests for manual run IDs. Existing suites and cases cover definitions rather than execution results. Webhooks, token metadata, debug bundles, PDF exports, and duplicate dashboard summaries are excluded.
+Note: The official OpenAPI specification supplied all operations and confirmed that automated runs contain aggregate statistics. History requires test titles from the explorer; manual results require repeated requests for manual run IDs. Existing suites and cases cover definitions rather than execution results. Webhooks, token metadata, debug bundles, PDF exports, and duplicate dashboard summaries are excluded. Test case history is a lookup for one test at a time (by title or `pw_test_id`, with 409 on shared titles), and test case performance has no documented row shape and repeats the explorer metrics, so both are not built.
 
 ## Testrail — gaps
 
-Today (13): `case_types`, `cases`, `milestones`, `plans`, `priorities`, `projects`, `results`, `runs`, `sections`, `statuses`, `suites`, `tests`, `users`
+Today (17): `case_fields`, `case_types`, `cases`, `configs`, `milestones`, `plans`, `priorities`, `projects`, `result_fields`, `results`, `runs`, `sections`, `statuses`, `suites`, `templates`, `tests`, `users`
 
 Diffed against: <https://support.testrail.com/api/v2/help_center/en-us/categories/7076541806228/articles.json?per_page=100>
 
-- [ ] `get_case_fields` — lookup that decodes the custom\_\* columns on every synced case into names, types and dropdown values (high)
-- [ ] `get_result_fields` — same for the custom\_\* columns on results, the largest table in a TestRail sync (high)
-- [ ] `get_templates` — lookup resolving template_id on cases; without it case rows carry an unresolvable integer (high)
-- [ ] `get_configs` — configuration groups/values that resolve the config ids on plan entries and runs (browser/OS matrix reporting) (medium)
+- [x] `get_case_fields` — lookup that decodes the custom\_\* columns on every synced case into names, types and dropdown values (high)
+- [x] `get_result_fields` — same for the custom\_\* columns on results, the largest table in a TestRail sync (high)
+- [x] `get_templates` — lookup resolving template_id on cases; without it case rows carry an unresolvable integer (high)
+- [x] `get_configs` — configuration groups/values that resolve the config ids on plan entries and runs (browser/OS matrix reporting) (medium)
 - [ ] `get_history_for_case` — per-case change history, the state-transition data for tracking test case churn (medium)
 - [ ] `get_case_statuses` — lookup for case approval statuses, distinct from the test result statuses already synced (medium)
 - [ ] `get_labels` — labels applied to cases and tests, a standard breakdown dimension (medium)
@@ -12416,10 +12416,10 @@ Today (11): `collections`, `coupons`, `course_reviews`, `courses`, `enrollments`
 
 Diffed against: <https://developers.thinkific.com/openapi/thinkific-admin-api-v1.yaml>
 
-- [ ] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course; the only path to sub-course granularity (high)
-- [ ] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the join target for lesson completion and drop-off analysis (high)
-- [ ] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium)
-- [ ] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium)
+- [x] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course; the only path to sub-course granularity (high) → `chapters` (full refresh, fan-out over `courses`)
+- [x] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the join target for lesson completion and drop-off analysis (high) → `contents` (full refresh, fan-out over each course's `chapter_ids`)
+- [x] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium) → `collection_products` (full refresh, fan-out over `collections`; `/collection_memberships/{id}` is POST/DELETE only)
+- [x] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium) → `custom_profile_field_definitions` (full refresh)
 - [ ] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium)
 - [ ] `GET /bundles/{id}/enrollments` — enrollments scoped to a bundle, distinguishing bundle-driven from direct enrollment (medium)
 - [ ] `GET /groups/{group_id}/analysts` — who administers each synced group, a small membership lookup (low)
