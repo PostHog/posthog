@@ -32,6 +32,7 @@ from django.db.migrations.recorder import MigrationRecorder
 
 from posthog.cloud_utils import is_ci
 from posthog.dataclasses import frozen
+from posthog.management.migration_autodetector import PostHogAutodetector
 from posthog.management.migration_profiling.profiler import profile_migrations
 
 from common.migration_utils import (
@@ -368,6 +369,8 @@ def check_migration_history_is_supported(
 
 class Command(DjangoMigrateCommand):
     """Extended migrate command with caching and orphan detection."""
+
+    autodetector = PostHogAutodetector
 
     def add_arguments(self, parser):
         super().add_arguments(parser)

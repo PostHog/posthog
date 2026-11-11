@@ -624,6 +624,54 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a recording rule. It writes its first result within about a minute.
+ */
+export const metricsRecordingRulesCreateBodyMetricNameMax = 200
+
+export const metricsRecordingRulesCreateBodyQueryMax = 8192
+
+export const metricsRecordingRulesCreateBodyDescriptionDefault = ``
+export const metricsRecordingRulesCreateBodyEnabledDefault = true
+
+export const MetricsRecordingRulesCreateBody = /* @__PURE__ */ zod.object({
+    metric_name: zod
+        .string()
+        .max(metricsRecordingRulesCreateBodyMetricNameMax)
+        .describe(
+            'The metric the rule writes, in the level:metric:operations form, for example job:http_errors:rate5m. It must contain a colon and cannot change after create.'
+        ),
+    query: zod
+        .string()
+        .max(metricsRecordingRulesCreateBodyQueryMax)
+        .describe(
+            "A PromQL expression over this project's metrics that returns an instant vector or a scalar. Each series it returns is written as one series of `metric_name`, with the same labels."
+        ),
+    description: zod
+        .string()
+        .default(metricsRecordingRulesCreateBodyDescriptionDefault)
+        .describe('What the recorded metric means.'),
+    enabled: zod
+        .boolean()
+        .default(metricsRecordingRulesCreateBodyEnabledDefault)
+        .describe('When false, the rule is kept but not evaluated.'),
+})
+
+/**
+ * Change a rule's query, description or enabled state. The metric name cannot change.
+ */
+export const metricsRecordingRulesPartialUpdateBodyQueryMax = 8192
+
+export const MetricsRecordingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(metricsRecordingRulesPartialUpdateBodyQueryMax)
+        .optional()
+        .describe('A new PromQL expression for the rule.'),
+    description: zod.string().optional().describe('What the recorded metric means.'),
+    enabled: zod.boolean().optional().describe('When false, the rule is kept but not evaluated.'),
+})
+
+/**
  * Raw individual emissions for a metric (the events model), newest
  * first — backs the Samples view and the metric->trace pivot.
  */

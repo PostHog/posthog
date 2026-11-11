@@ -3,6 +3,7 @@ import json
 import time
 import socket
 import urllib.parse
+from collections.abc import Callable
 from enum import Enum, auto
 from functools import wraps
 from ipaddress import ip_address
@@ -364,6 +365,24 @@ def is_insight_actors_options_query(query: dict) -> bool:
     if kind == "InsightActorsQueryOptions":
         return True
     return False
+
+
+MAX_LISTED_IDS = 200
+
+
+def parse_id_list[T](
+    raw: str | None, *, name: str, parse: Callable[[str], T], max_ids: int = MAX_LISTED_IDS
+) -> list[T] | None:
+    """Parse a comma-separated id filter from a query param. None when the param is absent."""
+    if raw is None:
+        return None
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if len(parts) > max_ids:
+        raise ValidationError({name: f"Pass at most {max_ids} IDs."})
+    try:
+        return [parse(part) for part in parts]
+    except (TypeError, ValueError):
+        raise ValidationError({name: "Pass IDs separated by commas."})
 
 
 def parse_bool(value: Union[str, list[str]]) -> bool:

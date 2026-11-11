@@ -424,6 +424,62 @@ describe('integration input references', () => {
         })
     })
 
+    describe('inputs the executor can build again', () => {
+        const markedInvocation = () => {
+            const invocation = hogFunctionInvocation()
+            invocation.state.inputsSource = { mapping: { index: 0, fingerprint: 'fake-fingerprint' } }
+            return invocation
+        }
+        const asResult = (invocation: CyclotronJobInvocation): CyclotronJobInvocationResult => ({
+            invocation,
+            finished: false,
+            logs: [],
+            metrics: [],
+            capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
+            messageAssets: [],
+            conversionWatchers: [],
+        })
+        const sanitizeBoth = (enabled: boolean, invocation: CyclotronJobInvocation): CyclotronJobInvocation[] => {
+            const sanitizer = createInvocationSanitizer(
+                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '', ENCRYPTION_SALT_KEYS },
+                { isEnabled: () => enabled }
+            )
+            return [
+                sanitizer.sanitizeInvocations([invocation])[0],
+                sanitizer.sanitizeResults([asResult(invocation)])[0].invocation,
+            ]
+        }
+
+        it('stores the marker and no inputs, and leaves the invocation in memory as it was', () => {
+            const invocation = markedInvocation()
+
+            for (const sanitized of sanitizeBoth(true, invocation)) {
+                expect('inputs' in sanitized.state!.globals).toBe(false)
+                expect(sanitized.state).toMatchObject({
+                    inputsOmitted: true,
+                    inputsSource: { mapping: { index: 0, fingerprint: 'fake-fingerprint' } },
+                })
+                expect(JSON.stringify(sanitized)).not.toContain('https://example.com')
+            }
+            expect(invocation.state.globals.inputs).toEqual(resolvedInputs())
+            expect(invocation.state.inputsOmitted).toBeUndefined()
+        })
+
+        it.each([
+            ['the rollout is off', false, markedInvocation, 'fake-auth-token-value'],
+            ['the invocation has no marker', true, hogFunctionInvocation, '$integration_ref'],
+            ['a workflow paused in a function step', true, pausedWorkflowInvocation, '$integration_ref'],
+        ])('keeps the inputs when %s', (_name, enabled, buildInvocation, expected) => {
+            for (const sanitized of sanitizeBoth(enabled, buildInvocation())) {
+                const serialized = JSON.stringify(sanitized)
+                expect(serialized).toContain('"url":"https://example.com"')
+                expect(serialized).toContain(expected)
+                expect(serialized).not.toContain('inputsOmitted')
+            }
+        })
+    })
+
     it.each([
         ['no integration input', { url: 'https://example.com', body: { a: 1 } }],
         ['an integration input that did not resolve', { url: 'https://example.com', twilio: null, channels: [] }],
