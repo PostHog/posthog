@@ -80,6 +80,12 @@ class ReviewPRWorkflowInputs:
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
+    # The GitHub `pull_request` action (`opened`, `ready_for_review`, `synchronize`) that asked for an
+    # automatic review of `requested_head_sha`. None for every other trigger.
+    trigger_action: str | None = None
+    # The event says the PR is ready for review at `requested_head_sha`: it was marked ready, or it
+    # opened as a non-draft. A clean Standard turn on that head then starts a silent stamphog review.
+    marks_ready: bool = False
     installation_id: str | None = None
     github_repo_id: int | None = None
 
@@ -96,7 +102,34 @@ class ReviewPRWorkflowInputs:
             "head_branch": self.head_branch,
             "trigger_source": self.trigger_source,
             "review_mode": self.review_mode,
+            "trigger_action": self.trigger_action,
         }
+
+
+@frozen
+class FinishedStandardAutomaticTurn:
+    """A finished Standard automatic turn, to record its coverage and maybe start a silent stamphog review."""
+
+    team_id: int
+    report_id: str
+    repository: str
+    pr_number: int
+    head_sha: str
+    run_index: int
+    lens_chunks_capped: bool
+    delta_review: bool
+    # The turn's own event marked the PR ready at the head the turn reviewed.
+    marks_ready: bool
+
+
+@frozen
+class SilentStamphogRequest:
+    """A PR head that an event marked ready, for a silent stamphog review if its automatic turn was clean."""
+
+    team_id: int
+    repository: str
+    pr_number: int
+    head_sha: str
 
 
 @frozen

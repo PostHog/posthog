@@ -632,6 +632,7 @@ depends_on = [
     "products.engineering_analytics",
     # Trace feedback reads trace-linked survey responses through the surveys facade.
     "products.surveys",
+    "products.today",
 ]
 layer = "modules"
 
@@ -2066,4 +2067,18 @@ expose = [
 ]
 from = [
     "products.ui_customization",
+]
+
+[[modules]]
+path = "products.release"
+depends_on = ["posthog", "products.feature_flags"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.release",
 ]
