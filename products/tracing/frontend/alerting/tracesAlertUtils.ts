@@ -12,7 +12,9 @@ import {
     TracesPlatformAlertConditionApi,
     TracesPlatformAlertConfigApi,
     WindowMinutesEnumApi,
+    BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
+import { configurationStatus } from 'products/alerts_platform/frontend/platformAlertFormat'
 
 export type TracesAlertPercentile = 50 | 90 | 95 | 99
 
@@ -316,3 +318,12 @@ export const SNOOZE_DURATIONS = [
     { label: '4 hours', minutes: 240 },
     { label: '24 hours', minutes: 1440 },
 ]
+
+/** The state the status tag shows. A broken or erroring check is the alert's, not one group's, so it comes first. */
+export function indicatorState(alert: PlatformAlertConfigurationApi): PlatformAlertStateApi {
+    if (alert.check_status === 'broken' || alert.check_status === 'errored') {
+        return alert.check_status
+    }
+    const status = configurationStatus(alert)
+    return status === 'disabled' || status === 'not_checked' ? 'not_firing' : status
+}

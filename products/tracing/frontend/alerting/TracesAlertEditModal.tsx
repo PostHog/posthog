@@ -11,7 +11,6 @@ import { EditAlertTab, EditAlertTabs } from 'products/alerts/frontend/views/Edit
 import { platformAlertDestinationsLogic } from 'products/alerts_platform/frontend/destinations/platformAlertDestinationsLogic'
 import { PlatformAlertNotifications } from 'products/alerts_platform/frontend/destinations/PlatformAlertNotifications'
 import { PlatformAlertConfigurationApi } from 'products/alerts_platform/frontend/generated/api.schemas'
-import { configurationStatus } from 'products/alerts_platform/frontend/platformAlertFormat'
 import { PlatformAlertStateIndicator } from 'products/alerts_platform/frontend/PlatformAlertStateIndicator'
 import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
 
@@ -21,7 +20,13 @@ import { TracesAlertFilterFields } from './TracesAlertFilterFields'
 import { tracesAlertFormLogic } from './tracesAlertFormLogic'
 import { tracesAlertsLogic } from './tracesAlertsLogic'
 import { TracesAlertTriggerFields } from './TracesAlertTriggerFields'
-import { describeTracesCondition, describeTracesScope, errorText, toWritePayload } from './tracesAlertUtils'
+import {
+    describeTracesCondition,
+    describeTracesScope,
+    indicatorState,
+    errorText,
+    toWritePayload,
+} from './tracesAlertUtils'
 
 interface TracesAlertEditModalProps {
     alert: PlatformAlertConfigurationApi | null
@@ -52,7 +57,6 @@ function TracesAlertEditModalContent({
     const { snoozingAlertIds } = useValues(tracesAlertsLogic)
     const { deleteAlert, snoozeAlertUntil, toggleAlertEnabled, unsnoozeAlert } = useActions(tracesAlertsLogic)
     const payload = toWritePayload(alertForm, alert)
-    const status = configurationStatus(alert)
 
     const summary: AlertSummaryParts = {
         fires: describeTracesCondition(payload.source_config.condition),
@@ -187,7 +191,7 @@ function TracesAlertEditModalContent({
                             <div className="flex items-center justify-between gap-3">
                                 <span className="font-medium">Current status</span>
                                 <PlatformAlertStateIndicator
-                                    state={status === 'disabled' || status === 'not_checked' ? 'not_firing' : status}
+                                    state={indicatorState(alert)}
                                     enabled={alert.enabled}
                                     firstEnabledAt={alert.created_at}
                                     lastErrorMessage={alert.last_error_message}

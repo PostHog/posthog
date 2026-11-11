@@ -22,14 +22,22 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { destinationTypeLabel } from 'products/alerts_platform/frontend/destinations/platformAlertDestinations'
-import { PlatformAlertConfigurationApi } from 'products/alerts_platform/frontend/generated/api.schemas'
-import { configurationStatus } from 'products/alerts_platform/frontend/platformAlertFormat'
+import {
+    PlatformAlertConfigurationApi,
+    PlatformAlertDestinationTypeEnumApi,
+} from 'products/alerts_platform/frontend/generated/api.schemas'
 import { PlatformAlertStateIndicator } from 'products/alerts_platform/frontend/PlatformAlertStateIndicator'
 import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
 
 import { confirmDeleteTracesAlert } from './confirmDeleteTracesAlert'
 import { tracesAlertsLogic } from './tracesAlertsLogic'
-import { SNOOZE_DURATIONS, describeTracesCondition, describeTracesScope, tracesSourceConfig } from './tracesAlertUtils'
+import {
+    SNOOZE_DURATIONS,
+    describeTracesCondition,
+    describeTracesScope,
+    indicatorState,
+    tracesSourceConfig,
+} from './tracesAlertUtils'
 
 export function TracesAlertList(): JSX.Element {
     const {
@@ -77,18 +85,15 @@ export function TracesAlertList(): JSX.Element {
         },
         {
             title: 'Status',
-            render: (_, alert) => {
-                const status = configurationStatus(alert)
-                return (
-                    <PlatformAlertStateIndicator
-                        state={status === 'disabled' || status === 'not_checked' ? 'not_firing' : status}
-                        enabled={alert.enabled}
-                        firstEnabledAt={alert.created_at}
-                        lastErrorMessage={alert.last_error_message}
-                        snoozeUntil={alert.snooze_until}
-                    />
-                )
-            },
+            render: (_, alert) => (
+                <PlatformAlertStateIndicator
+                    state={indicatorState(alert)}
+                    enabled={alert.enabled}
+                    firstEnabledAt={alert.created_at}
+                    lastErrorMessage={alert.last_error_message}
+                    snoozeUntil={alert.snooze_until}
+                />
+            ),
         },
         {
             title: 'Condition',
@@ -157,7 +162,9 @@ export function TracesAlertList(): JSX.Element {
                 return (
                     <div className="flex items-center gap-1">
                         {alert.destination_types.map((type) => (
-                            <LemonTag key={type}>{destinationTypeLabel(type)}</LemonTag>
+                            <LemonTag key={type}>
+                                {destinationTypeLabel(type as PlatformAlertDestinationTypeEnumApi)}
+                            </LemonTag>
                         ))}
                         <LemonButton
                             size="small"

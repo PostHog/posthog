@@ -6,6 +6,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import {
     PlatformAlertConfigurationApi,
     PlatformAlertDestinationApi,
+    PlatformAlertEventApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 
 import { TracesAlertsTab } from './TracesAlertsTab'
@@ -16,6 +17,21 @@ const BASE: PlatformAlertConfigurationApi = {
     enabled: true,
     labels: {},
     annotations: {},
+    created_by: {
+        id: 1,
+        uuid: '0192a5b0-0000-7000-8000-000000000901',
+        distinct_id: 'user-1',
+        first_name: 'Ada',
+        email: 'ada@example.com',
+        hedgehog_config: null,
+    },
+    last_checked_at: '2026-11-11T11:59:00Z',
+    last_error_message: null,
+    state_timeline: [
+        { start: '2026-11-10T12:00:00Z', end: '2026-11-11T11:42:00Z', state: 'not_firing', enabled: true },
+        { start: '2026-11-11T11:42:00Z', end: '2026-11-11T12:00:00Z', state: 'firing', enabled: true },
+    ],
+    destination_types: ['slack', 'webhook'],
     source_kind: 'traces',
     source_config: {
         filters: { serviceNames: ['checkout'], filterGroup: null },
@@ -81,7 +97,15 @@ const ALERTS: PlatformAlertConfigurationApi[] = [
         ...BASE,
         id: '0192a5b0-0000-7000-8000-000000000503',
         name: 'Ingest traffic stopped',
-        enabled: false,
+        enabled: true,
+        check_status: 'broken',
+        last_error_message: 'The check query timed out.',
+        alerts: [{ ...BASE.alerts[0], state: 'broken', firing_started_at: null }],
+        state_timeline: [
+            { start: '2026-11-10T12:00:00Z', end: '2026-11-11T06:00:00Z', state: 'not_firing', enabled: true },
+            { start: '2026-11-11T06:00:00Z', end: '2026-11-11T12:00:00Z', state: 'broken', enabled: true },
+        ],
+        destination_types: [],
         source_config: {
             filters: { serviceNames: [], filterGroup: null },
             condition: {
@@ -93,7 +117,6 @@ const ALERTS: PlatformAlertConfigurationApi[] = [
             },
         },
         next_check_at: null,
-        alerts: [],
     },
 ]
 
@@ -113,6 +136,33 @@ const DESTINATIONS: PlatformAlertDestinationApi[] = [
         enabled: true,
         event_kinds: ['firing', 'resolved', 'errored', 'broken'],
         webhook_url: 'https://hooks.example.com',
+    },
+]
+
+const EVENTS: PlatformAlertEventApi[] = [
+    {
+        occurred_at: '2026-11-11T11:42:00Z',
+        kind: 'check',
+        previous_state: 'not_firing',
+        state: 'firing',
+        value: 0.083,
+        error_message: null,
+    },
+    {
+        occurred_at: '2026-11-11T09:10:00Z',
+        kind: 'snooze',
+        previous_state: 'not_firing',
+        state: 'snoozed',
+        value: null,
+        error_message: null,
+    },
+    {
+        occurred_at: '2026-11-10T22:05:00Z',
+        kind: 'check',
+        previous_state: 'firing',
+        state: 'not_firing',
+        value: 0.012,
+        error_message: null,
     },
 ]
 
@@ -142,6 +192,7 @@ const meta: Meta<typeof TracesAlertsTab> = {
             get: {
                 '/api/projects/:team_id/platform_alerts/': { count: ALERTS.length, results: ALERTS },
                 '/api/projects/:team_id/platform_alerts/:id/destinations/': DESTINATIONS,
+                '/api/projects/:team_id/platform_alerts/:id/events/': EVENTS,
             },
         }),
     ],

@@ -21,6 +21,8 @@
         "@posthog/lemon-ui": "*",
         "@testing-library/dom": "*",
         "@types/react": "*",
-        "react": "*"
+        "@types/react-dom": "*",
+        "react": "*",
+        "react-dom": "*"
     }
 }

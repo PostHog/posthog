@@ -30,24 +30,32 @@ export function TracesAlertEventHistory({ alert }: { alert: PlatformAlertConfigu
     )
 }
 
+// The chart plots an error rate as a percentage, so its axis reads in the same unit as the labels.
+function charted(condition: TracesPlatformAlertConditionApi | undefined, value: number): number {
+    return condition?.measure === 'error_rate' ? value * 100 : value
+}
+
 function historyThresholds(condition: TracesPlatformAlertConditionApi): AlertEvaluationThreshold[] {
     const label = `${condition.threshold_operator === TracesAlertThresholdOperatorApi.Below ? 'Below' : 'Above'} (${formatMeasured(condition, condition.threshold)})`
     return [
         {
             direction: condition.threshold_operator === TracesAlertThresholdOperatorApi.Below ? 'lower' : 'upper',
-            value: condition.threshold,
+            value: charted(condition, condition.threshold),
             label,
         },
     ]
 }
 
-function historyPoints(events: PlatformAlertEventApi[]): AlertEvaluationHistoryPoint[] {
+function historyPoints(
+    events: PlatformAlertEventApi[],
+    condition: TracesPlatformAlertConditionApi | undefined
+): AlertEvaluationHistoryPoint[] {
     return events
         .filter((event) => event.kind === PlatformAlertEventKindEnumApi.Check && event.value !== null)
         .sort((left, right) => left.occurred_at.localeCompare(right.occurred_at))
         .map((event) => ({
             label: dayjs(event.occurred_at).format('MMM D, HH:mm'),
-            value: event.value ?? 0,
+            value: charted(condition, event.value ?? 0),
             firedAtTime: event.state === 'firing',
         }))
 }
@@ -58,7 +66,7 @@ function TracesAlertEventTimeline({
     condition: TracesPlatformAlertConditionApi | undefined
 }): JSX.Element {
     const { events, eventsLoading } = useValues(tracesAlertEventHistoryLogic)
-    const points = historyPoints(events)
+    const points = historyPoints(events, condition)
 
     const columns: LemonTableColumns<PlatformAlertEventApi> = [
         {
