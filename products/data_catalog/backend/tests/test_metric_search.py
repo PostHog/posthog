@@ -7,7 +7,7 @@ from rest_framework import status
 
 from posthog.models.scoping import team_scope
 
-from products.data_catalog.backend.logic.metric_search import search_metrics
+from products.data_catalog.backend.logic.metric_search import search_metrics, split_search
 from products.data_catalog.backend.models import Metric
 from products.data_catalog.evals.metric_search_cases import LEXICAL_CASE_TYPES, SEARCH_CASES, CaseType, SearchCase
 from products.data_catalog.evals.metric_search_runner import LEXICAL, run_case, score_case, seed_metric_search_catalog
@@ -43,6 +43,18 @@ class TestMetricSearchFixtureCatalog(BaseTest):
             assert search_metrics(expected, case.queries).hits == [], (
                 "A related-word case must not match its metric's stored text, or it only tests word matching again"
             )
+
+
+class TestSplitSearch(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("commas_and_spaces", " mrr ,  monthly   recurring revenue,", ["mrr", "monthly recurring revenue"]),
+            ("duplicates_any_case", "MRR, mrr, Mrr", ["MRR"]),
+            ("cap_on_a_long_list", ",".join(f"term {index}" for index in range(8000)), [f"term {i}" for i in range(5)]),
+        ]
+    )
+    def test_split_search(self, _name: str, search: str, expected: list[str]) -> None:
+        assert split_search(search) == expected
 
 
 class TestScoreCase(SimpleTestCase):

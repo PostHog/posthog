@@ -88,12 +88,17 @@ class _LexicalMatch:
 
 def normalize_phrasings(queries: Sequence[str]) -> list[str]:
     """Strip, drop blanks and duplicates, and cap the count and the length of each phrasing."""
-    seen: dict[str, None] = {}
+    phrasings: list[str] = []
+    seen: set[str] = set()
     for query in queries:
         phrasing = " ".join(query.split())[:MAX_SEARCH_PHRASING_LENGTH]
-        if phrasing and phrasing.lower() not in {key.lower() for key in seen}:
-            seen[phrasing] = None
-    return list(seen)[:MAX_SEARCH_PHRASINGS]
+        if phrasing and phrasing.lower() not in seen:
+            phrasings.append(phrasing)
+            seen.add(phrasing.lower())
+            # Stop at the cap, so a long comma list costs no more than its first few phrasings.
+            if len(phrasings) == MAX_SEARCH_PHRASINGS:
+                break
+    return phrasings
 
 
 def split_search(search: str) -> list[str]:
