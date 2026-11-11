@@ -550,21 +550,34 @@ class TestWorkflowFolders(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("create_in_folder", "_create_in_folder", True),
-            ("create_in_folder_local_evaluation_inconclusive", "_create_in_folder", None),
-            ("folder", "folder", True),
-            ("folder_local_evaluation_inconclusive", "folder", None),
+            ("create_in_folder", {"_create_in_folder": "Campaigns/Retention"}, True, "Campaigns/Retention/Renewal"),
+            (
+                "create_in_folder_local_evaluation_inconclusive",
+                {"_create_in_folder": "Campaigns/Retention"},
+                None,
+                "Campaigns/Retention/Renewal",
+            ),
+            ("folder", {"folder": "Campaigns/Retention"}, True, "Campaigns/Retention/Renewal"),
+            (
+                "folder_local_evaluation_inconclusive",
+                {"folder": "Campaigns/Retention"},
+                None,
+                "Campaigns/Retention/Renewal",
+            ),
+            ("create_in_folder_at_root", {"_create_in_folder": ""}, True, "/Renewal"),
+            ("folder_at_root", {"folder": ""}, True, "/Renewal"),
+            ("no_folder", {}, True, "Unfiled/Workflows/Renewal"),
         ]
     )
     def test_new_workflow_is_created_in_the_requested_project_folder(
-        self, _name: str, field: str, local: bool | None
+        self, _name: str, placement: dict[str, str], local: bool | None, path: str
     ) -> None:
         self._local_flag_answer(local)
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
             {
                 "name": "Renewal",
-                field: "Campaigns/Retention",
+                **placement,
                 "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
                 "edges": [],
             },
@@ -574,7 +587,7 @@ class TestWorkflowFolders(APIBaseTest):
         files = self.client.get(
             f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": created.json()["id"]}
         ).json()["results"]
-        self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+        self.assertEqual([file["path"] for file in files], [path])
 
     def test_folder_files_nothing_while_list_v2_is_off(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=False):
