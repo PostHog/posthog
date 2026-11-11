@@ -25,7 +25,7 @@ from products.customer_analytics.backend.hogql_queries.book_activity_base import
     person_label,
     validated_product_keys,
 )
-from products.customer_analytics.backend.logic.posthog_product_usage import PAGE_EVENTS
+from products.customer_analytics.backend.logic.posthog_product_usage import AGENT_EVENT, PAGE_EVENTS
 
 DEFAULT_PEOPLE_LIMIT = 3
 MAX_PEOPLE_ROWS = 20000
@@ -71,20 +71,21 @@ class BookActivityPeopleQueryRunner(BookActivityRangeQueryRunner[BookActivityPeo
         query = parse_select(
             """
             SELECT account_key, period, product, person_id, email, name,
-                engaged_seconds, action_count, actions,
+                engaged_seconds, action_count, agent_calls, actions,
                 arraySlice(arraySort(x -> (-x.2, x.1), arrayZip(paths.1, paths.2)), 1, {top_paths}) AS top_paths,
                 person_rank
             FROM (
                 SELECT *, row_number() OVER (
                     PARTITION BY account_key, product, period
-                    ORDER BY engaged_seconds + action_count DESC, person_id ASC
+                    ORDER BY engaged_seconds + action_count + agent_calls DESC, person_id ASC
                 ) AS person_rank
                 FROM (
                     SELECT account_key, period, product, person_id,
                         argMax(email, timestamp) AS email, argMax(name, timestamp) AS name,
                         sum(engaged) AS engaged_seconds,
-                        countIf(event NOT IN {pages}) AS action_count,
-                        sumMap([event], [if(event NOT IN {pages}, 1, 0)]) AS actions,
+                        countIf(event NOT IN {pages} AND event != {agent_event}) AS action_count,
+                        countIf(event = {agent_event}) AS agent_calls,
+                        sumMap([event], [if(event NOT IN {pages} AND event != {agent_event}, 1, 0)]) AS actions,
                         sumMap([path], [engaged]) AS paths
                     FROM {qualified}
                     WHERE {products}
@@ -106,6 +107,7 @@ class BookActivityPeopleQueryRunner(BookActivityRangeQueryRunner[BookActivityPeo
                 ),
                 "row_limit": ast.Constant(value=MAX_PEOPLE_ROWS + 1),
                 "top_paths": ast.Constant(value=TOP_PATHS),
+                "agent_event": ast.Constant(value=AGENT_EVENT),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -130,9 +132,20 @@ class BookActivityPeopleQueryRunner(BookActivityRangeQueryRunner[BookActivityPeo
         query_response = self._execute("BookActivityPeopleQuery", self.to_query())
         raw = query_response.results or []
         results.truncated = results.truncated or len(raw) > MAX_PEOPLE_ROWS
-        for account_key, period, product, person_id, email, name, engaged, action_count, actions, paths, rank in raw[
-            :MAX_PEOPLE_ROWS
-        ]:
+        for (
+            account_key,
+            period,
+            product,
+            person_id,
+            email,
+            name,
+            engaged,
+            action_count,
+            agent_calls,
+            actions,
+            paths,
+            rank,
+        ) in raw[:MAX_PEOPLE_ROWS]:
             if account_key not in account_by_key:
                 continue
             results.people.append(
@@ -145,6 +158,7 @@ class BookActivityPeopleQueryRunner(BookActivityRangeQueryRunner[BookActivityPeo
                     rank=int(rank),
                     engagedSeconds=int(engaged),
                     actionCount=int(action_count),
+                    agentCalls=int(agent_calls),
                     actions=[
                         BookActivityPersonAction(event=event, count=int(count))
                         for event, count in sorted(zip(*actions), key=lambda item: (-item[1], item[0]))

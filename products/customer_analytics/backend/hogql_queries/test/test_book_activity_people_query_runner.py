@@ -131,10 +131,12 @@ class TestBookActivityPeopleQueryRunner(BookActivityTestCase):
             ("/project/1/events", 31),
         ):
             self._dwell(ANA, seconds, "2026-10-26T11:00:00Z", self.alpha, path=path)
+        for _ in range(2):
+            self._event(ANA, "$mcp_tool_call", "2026-10-26T12:00:00Z", self.alpha, {"$mcp_tool_name": "insight-get"})
 
         person = self._run().people[0]
 
-        assert (person.engagedSeconds, person.actionCount) == (987, 4)
+        assert (person.engagedSeconds, person.actionCount, person.agentCalls) == (987, 4, 2)
         assert [(a.event, a.count) for a in person.actions] == [("insight created", 3), ("dashboard updated", 1)]
         assert [(p.path, p.seconds) for p in person.topPaths] == [
             ("/insights/new", 370),
@@ -273,6 +275,7 @@ class TestBookActivityPeopleQueryRunner(BookActivityTestCase):
             "rank",
             "engagedSeconds",
             "actionCount",
+            "agentCalls",
             "actions",
             "topPaths",
         }

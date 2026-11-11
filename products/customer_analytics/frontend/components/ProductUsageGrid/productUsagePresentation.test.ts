@@ -1,5 +1,12 @@
 import { BOOK_ACTIVITY_MATRIX_MOCK } from '../../__mocks__/bookActivityMatrixMock'
-import { getProductUsageFirstSeries, getProductUsageGrouping } from '../ProductActivity/productUsagePresentation'
+import {
+    getProductUsageChannelCounts,
+    getProductUsageChannelLabel,
+    getProductUsageFirstSeries,
+    getProductUsageGrouping,
+    getProductUsagePathShares,
+    getProductUsagePersonSummary,
+} from '../ProductActivity/productUsagePresentation'
 
 describe('productUsagePresentation', () => {
     it('preserves the canonical role rows and includes products without a role', () => {
@@ -34,5 +41,37 @@ describe('productUsagePresentation', () => {
             { row: 'two', series: 'other', date: '2026-11-02' },
         ]
         expect(getProductUsageFirstSeries(firstUse, 'one', '2026-11-02', interval)).toEqual(['a'])
+    })
+
+    it.each([
+        ['both channels', { users: 3, uiUsers: 2, agentUsers: 2 }, '2 people in the app, 2 people through AI agents'],
+        ['agents only', { users: 1, uiUsers: 0, agentUsers: 1 }, '0 people in the app, 1 person through AI agents'],
+        ['the app only', { users: 2, uiUsers: 2, agentUsers: 0 }, null],
+        ['an older response without channel counts', { users: 4 }, null],
+        ['no cell', null, null],
+    ])('labels the channel split for %s', (_, cell, expected) => {
+        const data = cell ? [{ row: 'account', column: '2026-11-02', series: 'pa', ...cell }] : []
+        expect(getProductUsageChannelLabel(getProductUsageChannelCounts(data, 'account', '2026-11-02', 'pa'))).toBe(
+            expected
+        )
+    })
+
+    it.each([
+        ['page time and actions', { engagedSeconds: 90, actionCount: 1 }, '90s · 1 action'],
+        ['agent calls only', { engagedSeconds: 0, actionCount: 0, agentCalls: 4 }, '4 agent calls'],
+        ['everything', { engagedSeconds: 30, actionCount: 2, agentCalls: 1 }, '30s · 2 actions · 1 agent call'],
+        ['nothing', { engagedSeconds: 0, actionCount: 0 }, '0s · 0 actions'],
+    ])('summarises a person with %s', (_, person, expected) => {
+        expect(getProductUsagePersonSummary(person, (seconds) => `${seconds}s`)).toBe(expected)
+    })
+
+    it('sizes page bars against the longest page and survives an empty list', () => {
+        expect(
+            getProductUsagePathShares([
+                { path: '/a', seconds: 300 },
+                { path: '/b', seconds: 75 },
+            ]).map(({ share }) => share)
+        ).toEqual([1, 0.25])
+        expect(getProductUsagePathShares([])).toEqual([])
     })
 })

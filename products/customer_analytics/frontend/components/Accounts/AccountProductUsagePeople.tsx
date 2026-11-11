@@ -7,6 +7,8 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { BookActivityPerson } from '~/queries/schema/schema-general'
 
+import { getProductUsagePersonSummary } from '../ProductActivity/productUsagePresentation'
+
 export function AccountProductUsagePeople({
     people,
     total,
@@ -75,7 +77,9 @@ export function AccountProductUsagePeople({
                     <span className="truncate" title={person.label}>
                         {person.label}
                     </span>
-                    <span className="shrink-0 text-secondary">{`${humanFriendlyDuration(person.engagedSeconds)} · ${person.actionCount} ${person.actionCount === 1 ? 'action' : 'actions'}`}</span>
+                    <span className="shrink-0 text-secondary">
+                        {getProductUsagePersonSummary(person, humanFriendlyDuration)}
+                    </span>
                 </div>
             ))}
             {total > people.length && <span className="text-secondary">{`+${total - people.length} more`}</span>}

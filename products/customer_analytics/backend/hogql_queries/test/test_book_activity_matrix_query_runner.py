@@ -125,6 +125,35 @@ class TestBookActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
             (beta, "2026-10-18", "surveys", 1),
         }
 
+    def test_counts_agent_calls_toward_products_and_splits_channels(self) -> None:
+        self._event(ANA, "insight created", "2026-10-26T10:00:00Z", self.alpha)
+        self._event(ANA, "$mcp_tool_call", "2026-10-26T11:00:00Z", self.alpha, {"$mcp_tool_name": "insight-get"})
+        self._event(
+            ANA,
+            "$mcp_tool_call",
+            "2026-10-26T12:00:00Z",
+            self.alpha,
+            {"$mcp_tool_name": "exec", "$mcp_exec_target_tool": "execute-sql"},
+        )
+        self._event(
+            BO,
+            "$mcp_tool_call",
+            "2026-10-26T13:00:00Z",
+            self.alpha,
+            {"$mcp_tool_name": "renamed-tool", "$mcp_tool_category": "Feature flags"},
+        )
+        self._event(BO, "$mcp_tool_call", "2026-10-26T14:00:00Z", self.alpha, {"$mcp_tool_name": "brand-new-tool"})
+
+        results = self._run()
+
+        alpha = str(self.alpha.id)
+        assert {(c.series, c.users, c.uiUsers, c.agentUsers) for c in results.data if c.row == alpha} == {
+            ("pa", 1, 1, 1),
+            ("dwh", 1, 0, 1),
+            ("flags", 1, 0, 1),
+            ("agent_other", 1, 0, 1),
+        }
+
     @parameterized.expand(
         [
             (

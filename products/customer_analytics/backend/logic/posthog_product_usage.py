@@ -6,6 +6,8 @@ REPLAY_WATCH_MS = 10000
 REPLAY_WATCH_EVENT = "recording viewed summary"
 PAGE_EVENTS = ("$pageview", "$pageleave")
 STAFF_EMAIL_PATTERN = "%@posthog.com"
+AGENT_EVENT = "$mcp_tool_call"
+OTHER_AGENT_PRODUCT_KEY = "agent_other"
 
 
 @frozen
@@ -312,6 +314,8 @@ POSTHOG_PRODUCTS: tuple[ProductUsageDefinition, ...] = (
             "data catalog metric run",
         ),
     ),
+    # Agent calls that no rule below maps to a product. They stay visible instead of being dropped.
+    ProductUsageDefinition(key=OTHER_AGENT_PRODUCT_KEY, label="Other agent activity", sections=(), actions=()),
 )
 
 PRODUCT_GROUPINGS: tuple[ProductGrouping, ...] = (
@@ -364,3 +368,74 @@ PRODUCT_GROUPINGS: tuple[ProductGrouping, ...] = (
         ),
     ),
 )
+
+# Substrings of the effective MCP tool name, checked in order. The first match wins, so narrow rules come first.
+AGENT_TOOL_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("dwh", ("execute-sql", "read-data-schema", "data-warehouse", "external-data", "warehouse", "saved-quer")),
+    ("replay", ("session-recording", "recording", "vision-")),
+    ("flags", ("feature-flag", "early-access")),
+    ("exp", ("experiment",)),
+    ("errors", ("error-tracking",)),
+    ("surveys", ("survey",)),
+    ("llm", ("llma", "llm-", "prompt", "evaluation")),
+    ("logs", ("logs-",)),
+    ("workflows", ("workflow", "broadcast")),
+    ("pipelines", ("batch-export", "cdp-function", "hog-function")),
+    ("endpoints", ("endpoint",)),
+    ("web", ("web-analytics", "heatmap")),
+    ("mcpa", ("mcp-analytics",)),
+    ("customers", ("account-", "customer-")),
+    (
+        "pa",
+        ("insight", "dashboard", "cohort", "query-", "event-definition", "property-definition", "notebook", "persons-"),
+    ),
+)
+
+# The tool category the MCP server sends, for tools no name rule covers.
+AGENT_CATEGORY_PRODUCTS: dict[str, str] = {
+    "SQL": "dwh",
+    "Data warehouse": "dwh",
+    "Warehouse sources": "dwh",
+    "Data schema": "dwh",
+    "Data catalog": "semantic",
+    "Product analytics": "pa",
+    "Insights & analytics": "pa",
+    "Dashboards": "pa",
+    "Query wrappers": "pa",
+    "Notebooks": "pa",
+    "Cohorts": "pa",
+    "Persons": "pa",
+    "Actions": "pa",
+    "Events & properties": "pa",
+    "Annotations": "pa",
+    "Feature flags": "flags",
+    "Early access features": "flags",
+    "Experiments": "exp",
+    "Error tracking": "errors",
+    "Error tracking alerts": "errors",
+    "Surveys": "surveys",
+    "AI observability": "llm",
+    "Session replays": "replay",
+    "Replay vision": "replay",
+    "Logs": "logs",
+    "Tracing": "tracing",
+    "Metrics": "tracing",
+    "Workflows": "workflows",
+    "Messaging": "workflows",
+    "Data pipelines": "pipelines",
+    "Functions": "pipelines",
+    "Endpoints": "endpoints",
+    "Web analytics": "web",
+    "Customer analytics": "customers",
+    "MCP analytics": "mcpa",
+    "Signals": "sd",
+}
+
+
+def agent_tool_product(tool: str | None, category: str | None) -> str:
+    """The product an MCP tool call counts toward. `agent_product_expr` builds the same rule in HogQL."""
+    name = (tool or "").lower()
+    for product, fragments in AGENT_TOOL_RULES:
+        if any(fragment in name for fragment in fragments):
+            return product
+    return AGENT_CATEGORY_PRODUCTS.get(category or "", OTHER_AGENT_PRODUCT_KEY)

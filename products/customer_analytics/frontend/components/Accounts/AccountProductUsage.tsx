@@ -109,24 +109,17 @@ export function AccountProductUsage({
             )}
             {inspected && inspectedCell && (
                 <LemonModal isOpen title="Qualification details" onClose={() => setInspectedCell(null)} width={560}>
-                    <div className="flex flex-col gap-4">
-                        <AccountProductUsagePeople
-                            people={inspected.people}
-                            total={inspected.total}
-                            columnKey={inspectedCell.columnKey}
-                            productLabel={
-                                result.series.find((product) => product.key === inspectedCell.productKey)?.label ??
-                                inspectedCell.productKey
-                            }
-                            partial={result.columns.find((column) => column.key === inspectedCell.columnKey)?.partial}
-                            showDetails
-                        />
-                        <AccountProductUsageQualifications
-                            people={inspected.people}
-                            firsts={includeFirstUse ? (details?.firsts?.people ?? []) : []}
-                            columnKey={inspectedCell.columnKey}
-                        />
-                    </div>
+                    <AccountProductUsageQualifications
+                        people={inspected.people}
+                        total={inspected.total}
+                        firsts={includeFirstUse ? (details?.firsts?.people ?? []) : []}
+                        columnKey={inspectedCell.columnKey}
+                        productLabel={
+                            result.series.find((product) => product.key === inspectedCell.productKey)?.label ??
+                            inspectedCell.productKey
+                        }
+                        partial={result.columns.find((column) => column.key === inspectedCell.columnKey)?.partial}
+                    />
                 </LemonModal>
             )}
             <AccountProductUsageTable

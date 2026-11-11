@@ -38,8 +38,12 @@ from products.customer_analytics.backend.hogql_queries.activity_base import (
 )
 from products.customer_analytics.backend.logic.book_activity_access import validate_book_activity_query_access
 from products.customer_analytics.backend.logic.posthog_product_usage import (
+    AGENT_CATEGORY_PRODUCTS,
+    AGENT_EVENT,
+    AGENT_TOOL_RULES,
     ENGAGED_MAX_SECONDS,
     ENGAGED_SECONDS,
+    OTHER_AGENT_PRODUCT_KEY,
     PAGE_EVENTS,
     POSTHOG_PRODUCTS,
     REPLAY_WATCH_EVENT,
@@ -281,6 +285,7 @@ def product_events(
         ast.Field(chain=["person_id"]),
         ast.Field(chain=["timestamp"]),
         ast.Alias(alias="product", expr=product_expr()),
+        ast.Alias(alias="channel", expr=channel_expr()),
     ]
     if period is not None:
         select.insert(1, ast.Alias(alias="period", expr=period))
@@ -301,7 +306,7 @@ def in_values(left: ast.Expr, values: list[str] | tuple[str, ...]) -> ast.Expr:
 
 def all_events() -> list[str]:
     events = {event for product in POSTHOG_PRODUCTS for event in product.actions}
-    return sorted(events | set(PAGE_EVENTS) | {REPLAY_WATCH_EVENT})
+    return sorted(events | set(PAGE_EVENTS) | {REPLAY_WATCH_EVENT, AGENT_EVENT})
 
 
 def events_for_products(product_keys: list[str]) -> list[str]:
@@ -311,7 +316,7 @@ def events_for_products(product_keys: list[str]) -> list[str]:
     events = {event for product in POSTHOG_PRODUCTS if product.key in product_keys for event in product.actions}
     if "replay" in product_keys:
         events.add(REPLAY_WATCH_EVENT)
-    return sorted(events | set(PAGE_EVENTS))
+    return sorted(events | set(PAGE_EVENTS) | {AGENT_EVENT})
 
 
 def validated_product_keys(product_keys: list[str] | None) -> list[str]:
@@ -382,12 +387,70 @@ def product_expr() -> ast.Expr:
             ]
         ),
         ast.Constant(value="replay"),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value=AGENT_EVENT)
+        ),
+        agent_product_expr(),
     ]
     for product in POSTHOG_PRODUCTS:
         if product.actions:
             branches.extend([in_values(ast.Field(chain=["event"]), product.actions), ast.Constant(value=product.key)])
     branches.append(ast.Constant(value=""))
     return ast.Call(name="multiIf", args=branches)
+
+
+def effective_tool_expr() -> ast.Expr:
+    """Calls through the `exec` wrapper name their real tool in `$mcp_exec_target_tool`."""
+    return parse_expr(
+        "lower(coalesce(nullIf(toString(properties.$mcp_exec_target_tool), ''), toString(properties.$mcp_tool_name), ''))"
+    )
+
+
+def agent_product_expr() -> ast.Expr:
+    """HogQL for `agent_tool_product`, built from the same rule tables."""
+    tool = effective_tool_expr()
+    category = parse_expr("toString(properties.$mcp_tool_category)")
+    branches: list[ast.Expr] = []
+    for product, fragments in AGENT_TOOL_RULES:
+        branches.extend(
+            [
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(name="position", args=[tool, ast.Constant(value=fragment)]),
+                            right=ast.Constant(value=0),
+                        )
+                        for fragment in fragments
+                    ]
+                ),
+                ast.Constant(value=product),
+            ]
+        )
+    for category_label, product in AGENT_CATEGORY_PRODUCTS.items():
+        branches.extend(
+            [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq, left=category, right=ast.Constant(value=category_label)
+                ),
+                ast.Constant(value=product),
+            ]
+        )
+    branches.append(ast.Constant(value=OTHER_AGENT_PRODUCT_KEY))
+    return ast.Call(name="multiIf", args=branches)
+
+
+def channel_expr() -> ast.Expr:
+    return ast.Call(
+        name="if",
+        args=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value=AGENT_EVENT)
+            ),
+            ast.Constant(value="agent"),
+            ast.Constant(value="ui"),
+        ],
+    )
 
 
 def person_label(email: object, name: object, person_id: str) -> str:
