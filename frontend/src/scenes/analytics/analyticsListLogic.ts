@@ -338,7 +338,7 @@ export interface analyticsListLogicMeta {
             items: AnalyticsItem[],
             subfolders: FolderRow[]
         ) => Record<string, boolean>
-        selectedCount: (visibleRowSelection: any) => number
+        selectedCount: (visibleRowSelection: Record<string, boolean>) => number
         mode: (filters: AnalyticsListFilters) => AnalyticsListMode
         filtersActive: (filters: AnalyticsListFilters) => boolean
         narrowingFiltersActive: (filters: AnalyticsListFilters, scope: AnalyticsListScope) => boolean
