@@ -20,7 +20,7 @@ import {
     HogInvocationResultsServiceOutput,
 } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
+import { CyclotronV2Manager } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -2321,9 +2321,11 @@ describe('Cyclotron V2', () => {
                     },
                 ],
                 [
-                    'assignEmailDequeueSeq (reschedule into email)',
+                    'a reroute into the email queue',
                     async (teamId: number): Promise<void> => {
-                        await assignEmailDequeueSeq(assertPool, teamId)
+                        await manager.createJob({ teamId, queueName: 'hog' })
+                        const [hogJob] = await dequeueOneBatch(createWorker('hog'))
+                        await hogJob.reschedule({ queueName: EMAIL_QUEUE })
                     },
                 ],
             ])(
@@ -2696,6 +2698,83 @@ describe('Cyclotron V2', () => {
                 // and the per-team counter should have been bumped to 1.
                 expect(await readDequeueSeq(hogJobId)).toBe(BigInt(16_777_216) + BigInt(teamId))
                 expect(await readTeamCounter(teamId)).toBe(1n)
+            })
+
+            it.each([
+                {
+                    name: 'each established team',
+                    queuedEmailTeams: [41, 42],
+                    reroutedTeams: [41, 41, 41, 42, 42, 42],
+                    emailTeamsQueuedAfter: [],
+                    expectedDrain: [41, 42, 41, 42, 41, 42, 41, 42],
+                },
+                {
+                    name: 'a team without a counter yet',
+                    queuedEmailTeams: [41],
+                    reroutedTeams: [42, 42, 42],
+                    emailTeamsQueuedAfter: [41, 41, 41],
+                    expectedDrain: [41, 41, 42, 41, 42, 41, 42],
+                },
+            ])(
+                'gives concurrent reroutes into the email queue their own turn in fair order: $name',
+                async ({ queuedEmailTeams, reroutedTeams, emailTeamsQueuedAfter, expectedDrain }) => {
+                    await manager.bulkCreateJobs(queuedEmailTeams.map((teamId) => ({ teamId, queueName: EMAIL_QUEUE })))
+                    await manager.bulkCreateJobs(reroutedTeams.map((teamId) => ({ teamId, queueName: 'hogflow' })))
+                    const hogflowJobs = await dequeueOneBatch(createWorker('hogflow'))
+                    expect(hogflowJobs).toHaveLength(reroutedTeams.length)
+
+                    await Promise.all(hogflowJobs.map((job) => job.reschedule({ queueName: EMAIL_QUEUE })))
+                    await manager.bulkCreateJobs(
+                        emailTeamsQueuedAfter.map((teamId) => ({ teamId, queueName: EMAIL_QUEUE }))
+                    )
+
+                    const drained: number[] = []
+                    for (let i = 0; i < expectedDrain.length; i++) {
+                        const [emailJob] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+                        drained.push(emailJob.teamId)
+                        await emailJob.ack()
+                    }
+                    expect(drained).toEqual(expectedDrain)
+                }
+            )
+
+            it("reroutes a team's job into the email queue while another team in the batch has its counter row locked", async () => {
+                const [lockedTeam, freeTeam] = [41, 42]
+                await manager.bulkCreateJobs([
+                    { teamId: lockedTeam, queueName: EMAIL_QUEUE },
+                    { teamId: freeTeam, queueName: EMAIL_QUEUE },
+                ])
+                const earlierEmails = await dequeueOneBatch(createFairWorker())
+                await Promise.all(earlierEmails.map((job) => job.ack()))
+                await manager.bulkCreateJobs([
+                    { teamId: lockedTeam, queueName: 'hogflow' },
+                    { teamId: freeTeam, queueName: 'hogflow' },
+                ])
+                const hogflowJobs = await dequeueOneBatch(
+                    createWorker('hogflow', { pool: { dbUrl: `${DB_URL}?options=-c%20lock_timeout%3D500` } })
+                )
+                const lockedTeamJob = hogflowJobs.find((job) => job.teamId === lockedTeam)!
+                const freeTeamJob = hogflowJobs.find((job) => job.teamId === freeTeam)!
+
+                const holder = await assertPool.connect()
+                await holder.query('BEGIN')
+                await holder.query('SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [
+                    lockedTeam,
+                ])
+                try {
+                    const [lockedTeamReroute, freeTeamReroute] = await Promise.allSettled([
+                        lockedTeamJob.reschedule({ queueName: EMAIL_QUEUE }),
+                        freeTeamJob.reschedule({ queueName: EMAIL_QUEUE }),
+                    ])
+
+                    expect(freeTeamReroute.status).toBe('fulfilled')
+                    expect(lockedTeamReroute.status).toBe('rejected')
+                    const emailJobs = await dequeueOneBatch(createFairWorker())
+                    expect(emailJobs.map((job) => job.id)).toEqual([freeTeamJob.id])
+                } finally {
+                    await holder.query('ROLLBACK')
+                    holder.release()
+                }
             })
 
             it('does not bump dequeue_seq when an email job is rescheduled within the email queue', async () => {
