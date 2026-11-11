@@ -205,6 +205,12 @@ describe('workflowsOnboardingWizardLogic', () => {
 
         expect(logic.values.stepKeys).toEqual(['journey', 'channel', 'domain', 'opt-outs', 'sending-rules'])
         expect(logic.values.currentStep).toBe('domain')
+
+        router.actions.push(onboardingWizardUrl('messaging', { step: 'channel', template: WELCOME_TEMPLATE.id }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.stepKeys).toEqual(['journey', 'channel', 'domain', 'opt-outs', 'sending-rules'])
+        expect(logic.values.currentStep).toBe('channel')
     })
 
     it('stays on the sending rules when they fail to save at the end of the test arm', async () => {
