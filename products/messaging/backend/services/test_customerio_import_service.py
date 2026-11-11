@@ -125,6 +125,10 @@ user3@example.com,cio_3,""
 invalid@example.com,cio_4,"invalid json"
 ,cio_5,"{""topics"": {""topic_1"": false}}"
 user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
+user1@example.com,cio_1,"{""topics"": {""topic_1"": false}}"
+user2@example.com,cio_2,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
+user4@example.com,cio_6,"{""topics"": {""topic_2"": false}}"
+user3@example.com,cio_3,""
 """
 
         # Process CSV
@@ -132,12 +136,12 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
 
         # Check results
         assert result["status"] == "completed"
-        assert result["total_rows"] == 6
-        assert result["rows_processed"] == 6
-        assert result["users_with_optouts"] == 2  # user1 and user2
-        assert result["users_skipped"] == 2  # user3 (empty) and user4 (all subscribed)
+        assert result["total_rows"] == 10
+        assert result["rows_processed"] == 10
+        assert result["users_with_optouts"] == 3  # user1, user2, and user4
+        assert result["users_skipped"] == 1  # user3 (empty)
         assert result["parse_errors"] == 2  # invalid@example.com and missing email
-        assert result["preferences_updated"] == 3  # user1: 1 opt-out, user2: 2 opt-outs
+        assert result["preferences_updated"] == 4  # user1: 1 opt-out, user2: 2 opt-outs, user4: 1 opt-out
         assert len(result["failed_imports"]) == 2
 
         # Check failed imports
@@ -153,6 +157,9 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         pref2 = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="user2@example.com")
         assert pref2.preferences[str(cat1.id)] == PreferenceStatus.OPTED_OUT.value
         assert pref2.preferences[str(cat2.id)] == PreferenceStatus.OPTED_OUT.value
+
+        pref4 = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="user4@example.com")
+        assert pref4.preferences == {str(cat2.id): PreferenceStatus.OPTED_OUT.value}
 
     @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
     def test_import_api_data_complete_flow(self, mock_client_class):
