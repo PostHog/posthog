@@ -29,8 +29,8 @@ class AlertsConfig(AppConfig):
             insight_alert_viewer,
             insight_chart_image,
             render_insight_slack_message,
+            subscribers_with_insight_access,
         )
-        from products.alerts.backend.platform_insight_alert import subscribers_with_insight_access  # noqa: PLC0415
         from products.alerts.backend.platform_source_config import load_insight_source_config  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.delivery import (  # noqa: PLC0415
