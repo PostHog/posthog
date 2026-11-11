@@ -17,7 +17,7 @@ import { ROLE_PORTS, consumerGroupsOf, roleSpecs, secretsOf } from '../environme
 import { STACK, cyclotronUrlOf } from '../environment/stack'
 import { DriveSummary, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
-import { Measurement, MetricSample, Sampler, measure, startSampler } from '../judge/measurements'
+import { Measurement, Sampled, Sampler, measure, startSampler } from '../judge/measurements'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
@@ -169,7 +169,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [], measurements: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
             let sampler: Sampler | undefined
-            let samples: MetricSample[] = []
+            let sampled: Sampled = { samples: [], missed: [] }
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
@@ -187,12 +187,12 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 )
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, cdpApi, runId })
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
-                samples = await sampler.stop()
+                sampled = await sampler.stop()
                 const down = await stopHealth()
                 const invariants = await judge.check(card.invariants, card.gates)
                 const measurements = measure(card.measure, {
                     ...judge.evidence(),
-                    samples,
+                    ...sampled,
                     sampledFrom: sampler.sampledFrom,
                 })
                 const verdict = statusOf({ minOffered: card.drive.minOffered, units, down, convergence, invariants })
@@ -208,7 +208,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 }
             } finally {
                 await stopHealth?.()
-                samples = (await sampler?.stop()) ?? samples
+                sampled = (await sampler?.stop()) ?? sampled
                 try {
                     await producer?.disconnect()
                 } catch (error) {
@@ -243,7 +243,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 const { journal, truth } = judge.evidence()
                 writeJson(evidenceDir, 'journal.json', journal)
                 writeJson(evidenceDir, 'truth.json', truth)
-                writeJson(evidenceDir, 'metrics.json', samples)
+                writeJson(evidenceDir, 'metrics.json', sampled)
             })
             const judged = withEvidenceError(base, evidenceError)
             const event = scorecardOf(judged, loaded, provenanceOf())

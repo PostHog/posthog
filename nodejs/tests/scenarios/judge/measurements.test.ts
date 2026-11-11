@@ -41,6 +41,7 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     journal: [],
     truth: [],
     samples: [],
+    missed: [],
     sampledFrom: FROM,
     ...partial,
 })
@@ -96,7 +97,7 @@ describe('measurements', () => {
         const { port } = server.address() as AddressInfo
         try {
             const sampler = await startSampler([{ role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` }])
-            const samples = await sampler.stop()
+            const { samples } = await sampler.stop()
 
             expect(samples.map(({ role }) => role)).toEqual([ROLE, ROLE])
             expect(samples.at(-1)).toEqual({
@@ -113,47 +114,50 @@ describe('measurements', () => {
         }
     })
 
-    it.each<[string, number]>([
-        ['a role that answers at once', 0],
-        ['a role whose first scrape failed', 1],
-    ])(
-        'takes the baseline of %s before it hands back, so work done right after start counts',
-        async (_story, failures) => {
-            let cpuSeconds = 10
-            let failing = failures
-            const server = http.createServer((_req, res) => {
-                if (failing > 0) {
-                    failing -= 1
-                    res.writeHead(503).end()
-                    return
-                }
-                res.end(
-                    [
-                        'process_start_time_seconds 1700000000',
-                        `process_cpu_seconds_total ${cpuSeconds}`,
-                        'process_resident_memory_bytes 100',
-                    ].join('\n')
-                )
-            })
-            await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-            const { port } = server.address() as AddressInfo
-            try {
-                const sampler = await startSampler([{ role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` }])
-                cpuSeconds = 15
-                const samples = await sampler.stop()
-
-                expect(
-                    measure(
-                        [{ name: 'role_cpu_seconds', params: {} }],
-                        evidence({ samples, sampledFrom: sampler.sampledFrom })
-                    )
-                ).toEqual([{ name: 'role_cpu_seconds', key: ROLE, value: 5, unit: 's' }])
-            } finally {
-                server.closeAllConnections()
-                await new Promise<void>((resolve) => server.close(() => resolve()))
+    it.each<[string, (scrape: number) => boolean, number, object]>([
+        ['a role that answers at once', () => true, 5, {}],
+        ['a role whose first scrape failed', (scrape) => scrape > 0, 5, {}],
+        ['a role whose last scrape failed', (scrape) => scrape === 0, 0, { incomplete: true }],
+    ])('measures %s from the baseline taken before it hands back', async (_story, answers, cpuUsed, marked) => {
+        let cpuSeconds = 10
+        let scrapes = 0
+        const server = http.createServer((_req, res) => {
+            if (!answers(scrapes++)) {
+                res.writeHead(503).end()
+                return
             }
+            res.end(
+                [
+                    'process_start_time_seconds 1700000000',
+                    `process_cpu_seconds_total ${cpuSeconds}`,
+                    'process_resident_memory_bytes 100',
+                ].join('\n')
+            )
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        try {
+            const sampler = await startSampler([{ role: ROLE, metricsUrl: `http://127.0.0.1:${port}/_metrics` }])
+            cpuSeconds = 15
+            const sampled = await sampler.stop()
+
+            expect(
+                measure(
+                    [
+                        { name: 'role_cpu_seconds', params: {} },
+                        { name: 'role_rss_max_bytes', params: {} },
+                    ],
+                    evidence({ ...sampled, sampledFrom: sampler.sampledFrom })
+                )
+            ).toEqual([
+                { name: 'role_cpu_seconds', key: ROLE, unit: 's', value: cpuUsed, ...marked },
+                { name: 'role_rss_max_bytes', key: ROLE, unit: 'bytes', value: 100, ...marked },
+            ])
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
         }
-    )
+    })
 
     it.each<[string, (request: http.IncomingMessage, response: http.ServerResponse) => void]>([
         ['refuses the scrape', (_request, response) => response.writeHead(503).end()],

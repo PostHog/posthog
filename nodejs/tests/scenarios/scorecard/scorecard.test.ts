@@ -48,7 +48,7 @@ const RESULT: RunResult = {
         { name: 'duplicate_sends', passed: true, observed: 0, gate: 0, unitIds: [] },
     ],
     measurements: [
-        { name: 'role_cpu_seconds', key: 'cdp-cyclotron-worker-email', value: 4.5, unit: 's' },
+        { name: 'role_cpu_seconds', key: 'cdp-cyclotron-worker-email', value: 4.5, unit: 's', incomplete: true },
         { name: 'delivery_latency_ms', key: 'p95', value: 820, unit: 'ms' },
     ],
     timeline: [],
@@ -134,6 +134,7 @@ describe('scorecard', () => {
                     inv_duplicate_sends_ids: [],
                     invariants_failed: ['at_least_once'],
                     m_role_cpu_seconds_cdp_cyclotron_worker_email: 4.5,
+                    m_role_cpu_seconds_cdp_cyclotron_worker_email_incomplete: true,
                     m_delivery_latency_ms_p95: 820,
                     valve_timeline: [],
                     evidence_dir: RESULT.evidenceDir,
