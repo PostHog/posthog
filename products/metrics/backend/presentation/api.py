@@ -206,7 +206,9 @@ class MetricQueryInterval(models.TextChoices):
 
 
 # ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
-_RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[hdwmy]$")
+_RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[Mhdwmy]$")
+# PostHog-wide, lowercase m is months and capital M is minutes, so "-30m" reads 30 months back.
+_LOWERCASE_MONTHS_RE = re.compile(r"^-([0-9]{1,6})m$")
 _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
 
 
@@ -227,6 +229,18 @@ class _RelativeOrIsoDateTimeField(serializers.DateTimeField):
         if isinstance(value, str) and _RELATIVE_DATE_RE.match(value.strip()):
             return value.strip()
         return super().to_internal_value(value)
+
+
+def _query_error(exc: ValueError, raw_date_from: object) -> ParseError:
+    message = str(exc)
+    if (
+        message.startswith("date range too wide")
+        and isinstance(raw_date_from, str)
+        and (months := _LOWERCASE_MONTHS_RE.match(raw_date_from.strip()))
+    ):
+        count = months.group(1)
+        message += f". '-{count}m' is {count} months back: use '-{count}M' for minutes; lowercase m means months"
+    return ParseError(message)
 
 
 def _resolve_query_bound(value: dt.datetime | str | None, *, now: dt.datetime, field: str) -> dt.datetime | None:
@@ -307,7 +321,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
     )
     dateFrom = _RelativeOrIsoDateTimeField(
         required=False,
-        help_text="Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo.",
+        help_text="Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo.",
     )
     dateTo = _RelativeOrIsoDateTimeField(
         required=False,
@@ -1399,8 +1413,9 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_data = body.validated_data["query"]
 
         date_to: dt.datetime = query_data.get("dateTo") or timezone.now()
+        raw_date_from = (request.data.get("query") or {}).get("dateFrom")
         if (query_data.get("promql") or "").strip():
-            return self._run_promql_query(request, query_data, date_to)
+            return self._run_promql_query(request, query_data, date_to, raw_date_from)
         try:
             if query_data.get("clauses"):
                 clauses = tuple(_build_clause(c, name=c["name"]) for c in query_data["clauses"])
@@ -1416,7 +1431,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             self._enforce_derived_source_access(request, clauses)
             series = run_metric_query(team=self.team, request=metric_request)
         except ValueError as exc:
-            raise ParseError(str(exc))
+            raise _query_error(exc, raw_date_from) from exc
 
         report_user_action(
             request.user,
@@ -1453,7 +1468,9 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             if not self.user_access_control.check_access_level_for_resource(resource, "viewer"):
                 raise PermissionDenied(f"You do not have access to {resource}.")
 
-    def _run_promql_query(self, request: Request, query_data: dict, date_to: dt.datetime) -> Response:
+    def _run_promql_query(
+        self, request: Request, query_data: dict, date_to: dt.datetime, raw_date_from: object
+    ) -> Response:
         if not posthog_feature_flag_enabled(
             SNUFFLE_API_FEATURE_FLAG,
             str(cast(User, request.user).distinct_id),
@@ -1477,7 +1494,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 raise _PromQLBackendUnavailable(str(exc)) from exc
             raise ParseError(str(exc))
         except ValueError as exc:
-            raise ParseError(str(exc))
+            raise _query_error(exc, raw_date_from) from exc
 
         report_user_action(
             request.user,

@@ -33,7 +33,14 @@ from products.messaging.backend.facade.transactional_email import (
     UploadQuotaExceeded,
     prepare_attachment_uploads,
 )
-from products.messaging.backend.presentation.views.code_send_fields import MAX_ATTACHMENTS, Reason
+from products.messaging.backend.presentation.views.code_send_fields import (
+    MAX_ATTACHMENTS,
+    MESSAGE_LIMIT,
+    MESSAGE_TOO_LARGE_REASON,
+    SHA256_HEX,
+    TOO_MANY_FILES_REASON,
+    Reason,
+)
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_SEND_SCOPE,
     require_email_from_code,
@@ -43,9 +50,7 @@ from products.messaging.backend.presentation.views.refusals import ExplainedRefu
 
 logger = structlog.get_logger(__name__)
 
-SHA256_HEX = r"^[0-9a-f]{64}$"
 SIZE_CONFLICT = "size_conflict"
-MESSAGE_LIMIT = "40 MB after Base64 encoding, about 29 MB of files"
 
 
 class AttachmentUploadFileSerializer(serializers.Serializer):
@@ -149,10 +154,6 @@ _SIZE_CONFLICT_REASON = Reason(
     why="Files with the same SHA-256 have the same bytes, so they have one size.",
     fix="Send each file's exact size in bytes, or list the file once.",
 )
-_TOO_MANY_FILES_REASON = Reason(
-    why=f"An email carries at most {MAX_ATTACHMENTS} files.",
-    fix=f"Ask for at most {MAX_ATTACHMENTS} files, or link to the others from the email body.",
-)
 
 
 def with_upload_reason(body: dict[str, Any]) -> dict[str, Any]:
@@ -165,7 +166,7 @@ def with_upload_reason(body: dict[str, Any]) -> dict[str, Any]:
     if not path:
         reason = _BODY_REASON
     elif len(path) == 1 and body.get("code") == "max_length":
-        code, reason = "too_many_attachments", _TOO_MANY_FILES_REASON
+        code, reason = "too_many_attachments", TOO_MANY_FILES_REASON
     elif body.get("code") == SIZE_CONFLICT:
         reason = _SIZE_CONFLICT_REASON
     elif len(path) == 3:
@@ -197,8 +198,8 @@ def _message_too_large(attr: str | None) -> ExplainedRefusal:
         "These files are too large for one email, so PostHog didn't prepare the uploads.",
         code="message_too_large",
         attr=attr,
-        why=f"An email can be at most {MESSAGE_LIMIT}.",
-        fix="Send fewer or smaller files, or link to large files from the email body.",
+        why=MESSAGE_TOO_LARGE_REASON.why,
+        fix=MESSAGE_TOO_LARGE_REASON.fix,
     )
 
 

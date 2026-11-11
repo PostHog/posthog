@@ -14,8 +14,8 @@ model gets its own kinds in its own order. A model that reads a kind the day has
 skipped, so it never scores on all-zero vectors.
 
 A model whose set declares the `priority` state column gets each report's latest priority judgment,
-read once per call and only when a model needs it. The sweep rescores a report when its vector or
-the manifest changes, not when its priority changes, so a priority edited in the inbox after scoring
+read once per call and only when a model needs it. The sweep rescores a report when its vector
+changes, not when its priority, the manifest or the served model changes, so an edited priority
 keeps the old score until the next vector. The summary workflow writes the first priority judgment
 before the rewrite that re-embeds the report, so a newborn's score normally sees that judgment.
 
