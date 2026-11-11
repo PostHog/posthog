@@ -244,14 +244,14 @@ export const tracesAlertsLogic = kea<tracesAlertsLogicType>([
             // The saved alert's editor keys its destinations by the alert's id, so the ones that failed
             // during the create move there, mounted until the modal closes, to be retried.
             const destinationsLogic = platformAlertDestinationsLogic({ alertId: alert.id, sourceKind: 'traces' })
-            cache.unmountFailedDestinations?.()
-            cache.unmountFailedDestinations = destinationsLogic.mount()
+            // Released when the modal closes, or with this logic when the tab goes away. Not paused while the
+            // page is hidden, because unmounting would drop the destinations it holds.
+            cache.disposables.add(() => destinationsLogic.mount(), 'failedDestinations', { pauseOnPageHidden: false })
             destinationsLogic.actions.setPendingDestinations(destinations)
             actions.openEditAlertModal(alert)
         },
         closeEditAlertModal: () => {
-            cache.unmountFailedDestinations?.()
-            cache.unmountFailedDestinations = null
+            cache.disposables.dispose('failedDestinations')
         },
         openHistoryModal: () => {
             posthog.capture('traces alert history viewed')

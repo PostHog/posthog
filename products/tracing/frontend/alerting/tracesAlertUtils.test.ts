@@ -93,7 +93,7 @@ describe('tracesAlertUtils', () => {
             'broken',
         ],
     ])('%s', (_, fields, expected) => {
-        const alert = { enabled: true, alerts: [], check_status: 'ok', snooze_until: null, ...fields }
+        const alert = { enabled: true, alerts: [], check_status: 'ok', ...fields }
         expect(indicatorState(alert as unknown as PlatformAlertConfigurationApi)).toBe(expected)
     })
 
