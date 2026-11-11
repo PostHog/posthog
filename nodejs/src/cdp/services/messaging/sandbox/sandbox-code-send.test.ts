@@ -17,6 +17,7 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
@@ -64,6 +65,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     let queued: CyclotronJobInvocation[]
     let hogFlow: HogFlow
     let sandboxSenderId: number
+    let clickhouse: ClickHouseClient
 
     let member: string
     const content = { subject: 'Your sign-in code', html: '<p>Your code is 123456</p>', text: 'Your code is 123456' }
@@ -85,6 +87,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 },
             }
         )
+        clickhouse = Clickhouse.createClient()
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -92,6 +95,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
 
     afterAll(async () => {
         server.close()
+        await clickhouse.close()
         await closeHub(hub)
     })
 
@@ -379,25 +383,14 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     })
 
     const rerunFromStoredRun = async (invocationId: string): Promise<CyclotronJobInvocation[]> => {
-        const stored = mockProducerObserver
-            .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
-            .map(({ value }) => value as Record<string, any>)
-            .filter((row) => row.invocation_id === invocationId)
-            .at(-1)!
-        const pageRow = {
-            invocation_id: stored.invocation_id,
-            parent_run_id: stored.parent_run_id,
-            latest_attempts: stored.attempts,
-            last_scheduled_at: stored.scheduled_at,
-            run_first_scheduled_at: stored.first_scheduled_at,
-            invocation_globals: stored.invocation_globals,
-        }
-        const clickhouse = {
-            query: ({ query }: { query: string }) =>
-                Promise.resolve({
-                    json: () => Promise.resolve(query.includes('hog_invocation_rerun_stale_status') ? [] : [pageRow]),
-                }),
-        } as unknown as ClickHouseClient
+        await clickhouse.insert({
+            table: 'hog_invocation_results',
+            values: mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                .map(({ value }) => value as Record<string, unknown>)
+                .filter((row) => row.invocation_id === invocationId),
+            format: 'JSONEachRow',
+        })
         const rerunQueued: CyclotronJobInvocation[] = []
         const services = createCdpCoreServices(hub, createCdpConsumerDeps(hub))
         const paginator = new RerunPaginatorService(
@@ -424,7 +417,11 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 function_kind: 'hog_flow',
                 function_id: hogFlow.id,
                 request: {
-                    filter: { window_start: '2020-01-01T00:00:00Z', window_end: '2100-01-01T00:00:00Z' },
+                    filter: {
+                        window_start: '2020-01-01T00:00:00Z',
+                        window_end: '2100-01-01T00:00:00Z',
+                        status: ['failed', 'canceled'],
+                    },
                     replay_code_sends: true,
                 },
                 progress: { queued: 0, skipped: 0, done: false },
