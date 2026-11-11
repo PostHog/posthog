@@ -24,6 +24,7 @@ import { RefObject } from 'react'
 import { lemonToast } from '@posthog/lemon-ui'
 import {
     AudioMuteReplayerPlugin,
+    BLOCKED_ELEMENT_STYLE_RULE,
     COMMON_REPLAYER_CONFIG,
     speedDependentStyleRules,
     CanvasReplayerPlugin,
@@ -2726,6 +2727,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ...COMMON_REPLAYER_CONFIG,
                 insertStyleRules: [
                     ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
+                    BLOCKED_ELEMENT_STYLE_RULE,
                     ...speedDependentStyleRules(values.speed),
                 ],
                 // these two settings are attempts to improve performance of running two Replayers at once

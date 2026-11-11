@@ -29,6 +29,17 @@ SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scop
 SCOPE_ACCESS_ERROR = "You must be a member of all teams and organizations that you are scoping the key to."
 
 
+def _is_grantable_scope(scope: str) -> bool:
+    scope_object, _, action = scope.partition(":")
+    return scope_object in GRANTABLE_API_SCOPE_OBJECTS and action in API_SCOPE_ACTIONS
+
+
+def _drop_retired_scopes(scopes: list[str], existing_scopes: list[str] | None) -> list[str]:
+    """Drop the scopes a key already held that are no longer grantable, so retiring a scope never blocks saving a key."""
+    held = set(existing_scopes or [])
+    return [scope for scope in scopes if scope == "*" or scope not in held or _is_grantable_scope(scope)]
+
+
 def validate_personal_api_key_scopes(
     scopes: list[str],
     requesting_user: User,
@@ -42,19 +53,14 @@ def validate_personal_api_key_scopes(
                 continue
             raise serializers.ValidationError(f"Invalid scope: {scope}")
 
-        scope_parts = scope.split(":")
-        if (
-            len(scope_parts) != 2
-            or scope_parts[0] not in GRANTABLE_API_SCOPE_OBJECTS
-            or scope_parts[1] not in API_SCOPE_ACTIONS
-        ):
+        if not _is_grantable_scope(scope):
             raise serializers.ValidationError(f"Invalid scope: {scope}")
 
         if allowed_scopes is not None and scope not in allowed_scopes:
             raise serializers.ValidationError(f"Invalid scope: {scope}")
 
         # Check feature flag for llm_gateway scope - block if newly adding this scope
-        if scope_parts[0] == "llm_gateway":
+        if scope.startswith("llm_gateway:"):
             existing_has_llm_gateway = existing_scopes is not None and any(
                 s.startswith("llm_gateway:") for s in existing_scopes
             )
@@ -187,6 +193,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user
         existing_scopes = list(self.instance.scopes or []) if self.instance is not None else None
+        scopes = _drop_retired_scopes(scopes, existing_scopes)
         validate_personal_api_key_scopes(scopes, requesting_user, existing_scopes=existing_scopes)
 
         return scopes

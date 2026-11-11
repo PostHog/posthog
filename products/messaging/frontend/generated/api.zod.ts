@@ -79,6 +79,7 @@ export const messagingSendEmailCreateBodyCcTwoMax = 10
 
 export const messagingSendEmailCreateBodyBccTwoMax = 10
 
+export const messagingSendEmailCreateBodyAttachmentsItemSha256RegExp = new RegExp('^[0-9a-f]{64}$')
 export const messagingSendEmailCreateBodyAttachmentsItemFilenameMax = 255
 
 export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 78
@@ -146,13 +147,18 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
     attachments: zod
         .array(
             zod.object({
+                sha256: zod
+                    .string()
+                    .regex(messagingSendEmailCreateBodyAttachmentsItemSha256RegExp)
+                    .describe(
+                        'SHA-256 of a file uploaded through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/`, as 64 lowercase hex characters.'
+                    ),
                 filename: zod
                     .string()
                     .max(messagingSendEmailCreateBodyAttachmentsItemFilenameMax)
                     .describe(
                         'File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.'
                     ),
-                content: zod.string().describe("The file's bytes as standard base64, without line breaks."),
                 content_type: zod
                     .string()
                     .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
@@ -172,7 +178,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyAttachmentsMax)
         .nullish()
         .describe(
-            "Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
+            "Files attached to the email your code rendered: up to 10, each uploaded first through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
         ),
     capture_engagement: zod
         .boolean()
