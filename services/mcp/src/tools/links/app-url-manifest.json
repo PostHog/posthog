@@ -1914,6 +1914,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactionalPush": {
+        "template": "/transactional/push/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "transactionalTemplate": {
         "template": "/transactional/library/templates/{id}",
         "params": ["id"],
