@@ -660,6 +660,8 @@ def _is_finished_condition(condition: Any) -> bool:
         Property(**condition)
     except (PropertyValidationError, exceptions.ValidationError, TypeError):
         return False
+    if condition.get("type") == "cohort" and not str(condition.get("value")).isdigit():
+        return False
     return (
         condition.get("value") != []
         or condition.get("operator") in VALUELESS_OPERATORS
@@ -2152,7 +2154,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         parse_account_audience_filters(filters)
                     else:
-                        reject_unusable_audience_conditions(self.context["get_team"](), filters)
+                        stored_filters = (self.context.get("stored_batch_audience_filters") or {}).get(data.get("id"))
+                        if filters != stored_filters:
+                            reject_unusable_audience_conditions(self.context["get_team"](), filters)
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
             elif data.get("config", {}).get("type") == "api":
                 # A transactional email's trigger: the authenticated send endpoint runs the workflow once
@@ -3666,6 +3670,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
         self.context["stored_opt_out_category_ids"] = opt_out_category_ids(instance.actions if instance else None)
+
+        self.context["stored_batch_audience_filters"] = {
+            action["id"]: (action.get("config") or {}).get("filters")
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "batch"
+        }
 
         self.context["stored_cohort_triggers"] = {
             action["id"]: {
