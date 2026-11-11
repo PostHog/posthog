@@ -18,6 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
+import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { withTimeout } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
@@ -32,6 +33,7 @@ import {
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import type { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
+    convertFileSystemEntryToTreeDataItem,
     parentPath,
     splitPath,
     joinPath,
@@ -46,7 +48,7 @@ import { createFacetMatcher, type FacetDefinition, type MatchesText } from './Fa
 import type { FacetSearchValue } from './FacetSearchBar/facetQuery'
 import { workflowFilesByRef } from './workflowFilesByRef'
 import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
-import { displayedFolder, folderScopes, workflowFolderFacet } from './workflowListFacets'
+import { ancestorFolders, displayedFolder, folderScopes, workflowFolderFacet } from './workflowListFacets'
 import type { WorkflowListRow } from './workflowListRows'
 import { type ServerSearchStatus, workflowsListV2Logic } from './workflowsListV2Logic'
 
@@ -101,6 +103,7 @@ export interface workflowFoldersLogicValues {
     folderSearchItems: WorkflowFolderFileRow[]
     folderSidebarCollapsed: boolean
     folderTemplates: FileSystemEntry[]
+    folderTree: TreeDataItem[]
     folderTreeEntries: (FileSystemEntry | FileSystemImport)[]
     hasActiveQuery: boolean
     matchingRows: WorkflowListRow[]
@@ -282,6 +285,7 @@ export interface workflowFoldersLogicMeta {
             folderPaths: string[],
             savedItems: FileSystemEntry[]
         ) => (FileSystemEntry | FileSystemImport)[]
+        folderTree: (folderTreeEntries: (FileSystemEntry | FileSystemImport)[], folderPaths: string[]) => TreeDataItem[]
         workflowFacets: (
             facets: FacetDefinition<WorkflowListRow>[],
             placements: Record<string, FileSystemEntry> | null,
@@ -460,6 +464,19 @@ function fileIndex(cache: Record<string, any>): Map<string, FileSystemEntry> {
     return cache.fileIndex
 }
 
+/** Takes `gone` and everything inside a gone folder out of the file index. */
+function forgetFiles(cache: Record<string, any>, gone: FileSystemEntry[]): void {
+    cache.changes = changeCount(cache) + 1
+    const ids = new Set(gone.map((item) => item.id))
+    const folders = new Set(gone.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path))))
+    const index = fileIndex(cache)
+    for (const [id, entry] of index) {
+        if (ids.has(id) || ancestorFolders(entry.path).some((path) => folders.has(path))) {
+            index.delete(id)
+        }
+    }
+}
+
 /** Makes a full scan the truth for the files `owns` selects: cached copies that moved or went away elsewhere leave the shared tree, and `scanned` replaces them in the file index. */
 function applyFullScan(
     cache: Record<string, any>,
@@ -498,11 +515,6 @@ function publishPlacements(
 
 function treeFolderId(folder: string | null): string {
     return `project://${folder ?? ''}`
-}
-
-function ancestorFolders(path: string): string[] {
-    const parts = splitPath(path)
-    return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
 }
 
 // A folder pill opens its folder instead of filtering rows; a negated one still filters.
@@ -840,6 +852,32 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 return folderPaths.map((path) => folderByPath.get(path) ?? { path, type: 'folder' })
             },
         ],
+        // Built from the folders alone: counts and the open folder change on every keystroke, and building the tree
+        // walks each folder's siblings, so the sidebar reads them per row instead.
+        folderTree: [
+            (s) => [s.folderTreeEntries, s.folderPaths],
+            (entries: (FileSystemEntry | FileSystemImport)[], folderPaths: string[]): TreeDataItem[] => {
+                const foldersOnly = (items: TreeDataItem[]): TreeDataItem[] =>
+                    items
+                        .filter((item) => item.record?.type === 'folder')
+                        .map((item) => ({ ...item, children: item.children ? foldersOnly(item.children) : undefined }))
+                const children = convertFileSystemEntryToTreeDataItem({
+                    imports: entries,
+                    folderStates: Object.fromEntries(folderPaths.map((path) => [path, 'loaded'])),
+                    checkedItems: {},
+                    users: {},
+                    root: 'project://',
+                })
+                return [
+                    {
+                        id: 'project://',
+                        name: 'Project files',
+                        record: { path: '', type: 'folder' },
+                        children: foldersOnly(children),
+                    },
+                ]
+            },
+        ],
         // The list knows nothing of project folders, so `in:` joins its facets here.
         workflowFacets: [
             (s) => [s.facets, s.placements, s.hasActiveQuery],
@@ -950,6 +988,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 if (!placements) {
                     return []
                 }
+                const parentOf = (row: WorkflowListRow): string =>
+                    parentPath(placements[`hog_flow::${row.id}`]?.path ?? 'Unfiled/Workflows/')
                 return rows
                     .filter((row) => {
                         const entry = placements[`hog_flow::${row.id}`]
@@ -958,13 +998,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     })
                     .sort(
                         (a, b) =>
-                            (searching
-                                ? parentPath(
-                                      placements[`hog_flow::${a.id}`]?.path ?? 'Unfiled/Workflows/'
-                                  ).localeCompare(
-                                      parentPath(placements[`hog_flow::${b.id}`]?.path ?? 'Unfiled/Workflows/')
-                                  )
-                                : 0) || a.name.localeCompare(b.name)
+                            (searching ? parentOf(a).localeCompare(parentOf(b)) : 0) || a.name.localeCompare(b.name)
                     )
             },
         ],
@@ -1192,28 +1226,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             cache.changes = changeCount(cache) + 1
         },
         [projectTreeDataLogic.actionTypes.deleteSavedItem]: ({ savedItem }) => {
-            cache.changes = changeCount(cache) + 1
-            const index = fileIndex(cache)
-            for (const [id, entry] of index) {
-                if (id === savedItem.id || (savedItem.type === 'folder' && isPathUnder(entry.path, savedItem.path))) {
-                    index.delete(id)
-                }
-            }
+            forgetFiles(cache, [savedItem])
             publishPlacements(cache, actions.setPlacements)
         },
-        [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }: { items: FileSystemEntry[] }) => {
-            cache.changes = changeCount(cache) + 1
-            const ids = new Set(items.map((item) => item.id))
-            const folders = new Set(
-                items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
-            )
-            const index = fileIndex(cache)
-            for (const [id, entry] of index) {
-                if (ids.has(id) || ancestorFolders(entry.path).some((path) => folders.has(path))) {
-                    index.delete(id)
-                }
-            }
-        },
+        [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }) => forgetFiles(cache, items),
         [projectTreeDataLogic.actionTypes.movedItem]: ({ item, oldPath, newPath }) => {
             cache.changes = changeCount(cache) + 1
             const index = fileIndex(cache)
@@ -1398,12 +1414,16 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         folders: (folders: Record<string, FileSystemEntry[]>) => {
             const index = fileIndex(cache)
             const present = new Map(Object.values(folders).flatMap((files) => files.map((entry) => [entry.id, entry])))
+            const goneFolders: FileSystemEntry[] = []
             for (const [id, entry] of index) {
                 const folder = parentPath(entry.path)
                 // Only a complete folder load is the truth: a folder cut short, loading its next page or failed may still hold the file.
                 if (!present.has(id) && folder in folders && values.folderStates[folder] === 'loaded') {
                     index.delete(id)
                     cache.changes = changeCount(cache) + 1
+                    if (entry.type === 'folder') {
+                        goneFolders.push(entry)
+                    }
                 }
             }
             for (const entry of present.values()) {
@@ -1414,6 +1434,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     }
                     index.set(entry.id, entry)
                 }
+            }
+            // The shared tree still caches what was inside a folder that is gone, which would bring the branch back.
+            if (goneFolders.length > 0) {
+                projectTreeDataLogic.actions.dropStaleItems(goneFolders)
             }
             publishPlacements(cache, actions.setPlacements)
         },

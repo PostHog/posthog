@@ -26,13 +26,14 @@ export function displayedFolder(folder: string): string {
     return folder === 'Unfiled' || folder.startsWith('Unfiled/') ? 'Unfiled' : folder
 }
 
+export function ancestorFolders(path: string): string[] {
+    const parts = splitPath(path)
+    return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
+}
+
 export function folderScopes(parent: string, includeDescendants: boolean): string[] {
     const folder = displayedFolder(parent)
-    if (folder === 'Unfiled' || !includeDescendants) {
-        return [folder]
-    }
-    const parts = splitPath(folder)
-    return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
+    return folder === 'Unfiled' || !includeDescendants ? [folder] : ancestorFolders(folder)
 }
 
 /** A workflow has no folder while `placements` is unknown, so no folder pill matches it and none counts it as Unfiled. */

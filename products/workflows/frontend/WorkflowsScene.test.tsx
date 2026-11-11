@@ -78,9 +78,22 @@ describe('WorkflowsScene', () => {
 
     afterEach(() => cleanup())
 
-    it('offers a metrics retry instead of an empty health result when metrics fail', async () => {
+    it('waits for metrics while pages load, and keeps the page retry beside a metrics failure', async () => {
+        const answerLaterPage: ((status: number, body: unknown) => void)[] = []
         useMocks({
-            get: { '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Unavailable' }] },
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new URL(request.url).searchParams.get('offset')
+                        ? new Promise((resolve) => answerLaterPage.push((status, body) => resolve([status, body])))
+                        : [
+                              200,
+                              paginated(
+                                  FIXTURE_WORKFLOWS,
+                                  'http://localhost/api/projects/997/hog_flows/summaries/?offset=100'
+                              ),
+                          ],
+                '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Unavailable' }],
+            },
         })
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { q: 'health:failing' })
@@ -91,11 +104,27 @@ describe('WorkflowsScene', () => {
                 </DndContext>
             </Provider>
         )
-        await waitFor(() =>
-            expect(document.querySelector('[data-attr="workflows-list-v2-metrics-retry"]')).not.toBeNull()
-        )
+        const metricsRetry = (): Element | null =>
+            document.querySelector('[data-attr="workflows-list-v2-metrics-retry"]')
+
+        await waitFor(() => expect(answerLaterPage).toHaveLength(1))
+        await waitFor(() => expect(document.body).toHaveTextContent('Loading more workflows'))
+        expect(document.querySelector('[data-attr="workflows-list-v2"] .LemonTable--loading')).not.toBeNull()
+        expect(metricsRetry()).toBeNull()
+
+        act(() => answerLaterPage[0](500, { detail: 'Boom' }))
+        await waitFor(() => expect(document.body).toHaveTextContent("Couldn't load all workflows"))
+        expect(metricsRetry()).toBeNull()
+
+        act(() => workflowsListV2Logic.actions.refreshWorkflows())
+        await waitFor(() => expect(metricsRetry()).not.toBeNull())
+        expect(document.body).not.toHaveTextContent("Couldn't load all workflows")
         expect(document.body).not.toHaveTextContent('No workflows match these filters')
         expect(document.body).not.toHaveTextContent('Nothing matches')
+        await waitFor(() => expect(answerLaterPage).toHaveLength(2))
+        act(() => answerLaterPage[1](500, { detail: 'Boom' }))
+        await waitFor(() => expect(document.body).toHaveTextContent("Couldn't load all workflows"))
+        expect(metricsRetry()).not.toBeNull()
     })
 
     it('keeps the Customer.io import next to the folder view', async () => {
