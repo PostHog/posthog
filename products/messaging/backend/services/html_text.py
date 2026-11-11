@@ -132,7 +132,7 @@ class _TextParser(HTMLParser):
     def __init__(self, *, keep_unsubscribe_link: bool, reads_like_a_browser: bool = False) -> None:
         super().__init__(convert_charrefs=True, scripting=reads_like_a_browser)
         if reads_like_a_browser:
-            self._set_support_cdata(False)
+            self._set_support_cdata(False)  # type: ignore[attr-defined]
         self.keep_unsubscribe_link = keep_unsubscribe_link
         self.reads_like_a_browser = reads_like_a_browser
         self.parts: list[str] = []
