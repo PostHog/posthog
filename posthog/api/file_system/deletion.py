@@ -80,7 +80,7 @@ class RestoreContext:
     organization: Any | None
 
 
-PrepareDeleteHook = Callable[[Any | None, Any], None]
+PrepareDeleteHook = Callable[[Any | None, int, Any], None]
 PreDeleteHook = Callable[[DeletionContext, Any], None]
 PostDeleteHook = Callable[[DeletionContext, Any], None]
 PreRestoreHook = Callable[[RestoreContext, Any], None]
@@ -170,7 +170,7 @@ def prepare_file_system_deletes(request: Any | None, refs_by_type: Mapping[tuple
             )
         except (ValueError, DjangoValidationError):
             continue
-        hook(request, objects)
+        hook(request, team_id, objects)
 
 
 def is_file_system_type_registered(type_string: str) -> bool:
