@@ -474,6 +474,14 @@ async def _run_full_review_pr_workflow(
         if fail_silent_stamphog:
             raise ApplicationError("stamphog unavailable", non_retryable=True)
 
+    failed_turn_reports: list[SilentStamphogRequest] = []
+
+    @activity.defn(name="report_failed_turn_activity")
+    async def report_failed_turn(input: SilentStamphogRequest) -> None:
+        failed_turn_reports.append(input)
+        if fail_silent_stamphog:
+            raise ApplicationError("stamphog unavailable", non_retryable=True)
+
     # Records the analytics events' run_index and the turn's trigger — the completion-rate
     # denominator and the per-tier split rely on them; all three captures are swallowed best-effort
     # in the workflow, so without these stubs deleting any of them would leave every test green.
@@ -551,6 +559,7 @@ async def _run_full_review_pr_workflow(
                 nudge,
                 finish_standard_automatic_turn,
                 silent_stamphog,
+                report_failed_turn,
                 track_failed,
                 track_completed,
                 track_started,
@@ -634,6 +643,7 @@ async def _run_full_review_pr_workflow(
         "nudges": nudge_calls,
         "finished_turns": finished_turns,
         "silent_stamphog": silent_stamphog_calls,
+        "failed_turn_reports": failed_turn_reports,
     }
 
 
@@ -816,6 +826,32 @@ async def test_review_pr_workflow_records_automatic_standard_coverage_and_starts
     assert recorded["failed"] is fail_dedup
     assert recorded["finished_turns"] == expected_finished
     assert recorded["silent_stamphog"] == expected_silent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "review_mode, marks_ready, fail_report, expect_report",
+    [
+        pytest.param("flash", True, False, True, id="ready-turn"),
+        pytest.param("flash", True, True, True, id="raising-report-keeps-the-original-failure"),
+        pytest.param("flash", False, False, False, id="draft-turn"),
+        pytest.param("full", True, False, False, id="deep-turn"),
+    ],
+)
+async def test_review_pr_workflow_tells_stamphog_when_a_ready_automatic_standard_turn_fails(
+    review_mode: str, marks_ready: bool, fail_report: bool, expect_report: bool
+):
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode=review_mode,
+        trigger_source="automatic",
+        review_authored_prs=True,
+        marks_ready=marks_ready,
+        fail_dedup=True,
+        fail_silent_stamphog=fail_report,
+    )
+    assert recorded["failed"] is True
+    assert recorded["failed_turn_reports"] == ([_SILENT_STAMPHOG] if expect_report else [])
 
 
 @pytest.mark.asyncio

@@ -340,29 +340,34 @@ class TestHeadReviewStatus(BaseTest):
 
     @parameterized.expand(
         [
-            ("clean", "clean", 1, False, True),
-            ("valid_finding_below_the_threshold", "finding", 1, False, False),
-            ("invalid_finding", "invalid_finding", 1, False, True),
-            ("skipped_paths", "skipped_paths", 1, False, False),
-            ("capped_lens_parts", "clean", 1, True, False),
-            ("turn_without_a_marker", "no_marker", 1, False, False),
-            ("chunk_read_only_by_an_earlier_turn_on_the_head", "earlier_read", 2, False, False),
-            ("newer_deep_turn_on_the_head", "newer_deep_turn", 1, False, True),
-            ("ready_event_of_the_turn_itself", "ready_at_finish", 1, False, True),
-            ("ready_event_of_a_turn_with_findings", "ready_at_finish_with_finding", 1, False, False),
-            ("finding_without_a_verdict", "unjudged_finding", 1, False, False),
-            ("delta_review", "delta_review", 1, False, False),
+            ("clean", "clean", 1, False, True, False),
+            ("valid_finding_below_the_threshold", "finding", 1, False, False, True),
+            ("invalid_finding", "invalid_finding", 1, False, True, False),
+            ("skipped_paths", "skipped_paths", 1, False, False, True),
+            ("capped_lens_parts", "clean", 1, True, False, True),
+            ("turn_without_a_marker", "no_marker", 1, False, False, False),
+            ("chunk_read_only_by_an_earlier_turn_on_the_head", "earlier_read", 2, False, False, True),
+            ("newer_deep_turn_on_the_head", "newer_deep_turn", 1, False, True, False),
+            ("ready_event_of_the_turn_itself", "ready_at_finish", 1, False, True, False),
+            ("ready_event_of_a_turn_with_findings", "ready_at_finish_with_finding", 1, False, False, True),
+            ("finding_without_a_verdict", "unjudged_finding", 1, False, False, True),
+            ("delta_review", "delta_review", 1, False, False, True),
         ]
     )
+    @patch(
+        "products.review_hog.backend.silent_stamphog.stamphog_tasks.queue_routing_after_external_review", create=True
+    )
     @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
-    def test_silent_stamphog_starts_only_for_a_head_whose_automatic_turn_recorded_clean_full_coverage(
+    def test_silent_stamphog_starts_only_for_a_head_whose_automatic_turn_recorded_clean_full_coverage_and_routing_starts_otherwise(
         self,
         _name: str,
         setup: str,
         run_index: int,
         lens_chunks_capped: bool,
         expect_queued: bool,
+        expect_routed: bool,
         queue_silent_review: MagicMock,
+        queue_routing: MagicMock,
     ) -> None:
         if setup == "no_marker":
             report = self._report(run_count=1, head_sha=HEAD, completed_head_sha=HEAD)
@@ -417,3 +422,9 @@ class TestHeadReviewStatus(BaseTest):
             )
         else:
             queue_silent_review.assert_not_called()
+        if expect_routed:
+            queue_routing.assert_called_once_with(
+                team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD
+            )
+        else:
+            queue_routing.assert_not_called()

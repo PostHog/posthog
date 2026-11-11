@@ -12,6 +12,7 @@ from products.review_hog.backend.models import ReviewReport, ReviewRepository, R
 from products.review_hog.backend.ownership import RepositoryOwner, RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import is_active_member
 from products.review_hog.backend.review_request_rules import full_review_published
+from products.review_hog.backend.silent_stamphog import report_unreviewed_head
 
 logger = logging.getLogger(__name__)
 _otel = OtelInstrumentFactory("review_hog")
@@ -170,25 +171,34 @@ class AuthoredPRReview:
         """The event says the PR is ready for review: it was marked ready, or it opened as a non-draft."""
         return self.action == "ready_for_review" or (self.action == "opened" and not self.draft)
 
+    def _report_no_review(self, team_id: int | None) -> None:
+        """Tell stamphog that no turn will review this ready head, so it does not wait for one.
+
+        Without a project there is nobody to tell. Stamphog decides whether anything happens.
+        """
+        if team_id is None or not self.marks_ready:
+            return
+        report_unreviewed_head(
+            team_id=team_id, repository=self.repository, pr_number=self.pr_number, head_sha=self.head_sha
+        )
+
     def start(self) -> None:
         # These clients pull in the sandbox runtime; enqueueing a webhook must not load it.
         from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH  # noqa: PLC0415
         from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
         from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC  # noqa: PLC0415
 
+        owner = RepositoryOwnership.find(self.ref, backfill=True)
         if self.skip_agent_review:
             observe_dispatch("label_skipped")
+            self._report_no_review(None if owner is None else owner.team_id)
             return
-        dispatch = plan_automatic_review(
-            self.ref,
-            RepositoryOwnership.find(self.ref, backfill=True),
-            author_login=self.author_login,
-            draft=self.draft,
-        )
+        dispatch = plan_automatic_review(self.ref, owner, author_login=self.author_login, draft=self.draft)
         if dispatch.team_id is None or dispatch.run_as_user_id is None:
             # Most pushes get no automatic review, so the counter carries the signal and the logs
             # stay quiet.
             observe_dispatch(dispatch.outcome)
+            self._report_no_review(dispatch.team_id)
             return
         report = (
             ReviewReport.objects.for_team(dispatch.team_id)

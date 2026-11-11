@@ -102,6 +102,7 @@ from products.review_hog.backend.temporal.activities import (
     record_turn_marker_activity,
     remove_review_reaction_activity,
     remove_trigger_label_activity,
+    report_failed_turn_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -115,6 +116,7 @@ from products.review_hog.backend.temporal.activities import (
     validate_github_integration_activity,
 )
 from products.review_hog.backend.temporal.scheduling import (
+    REPORT_FAILED_TURN_PATCH,
     SILENT_STAMPHOG_PATCH,
     ReviewPRQueueWorkflow,
     ReviewRequestQueue,
@@ -128,6 +130,7 @@ from products.review_hog.backend.temporal.types import (
     ResolvePRWorkflowInputs,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
+    SilentStamphogRequest,
     resolve_pr_workflow_id,
 )
 
@@ -876,6 +879,21 @@ class ReviewPRWorkflow:
                 # After the failure is recorded, so a stamphog re-run reads this head as failed.
                 if workflow.patched("reviewhog-nudge-stamphog-2026-10") and meta.pr_number is not None:
                     await self._nudge_stamphog(repository, meta.pr_number, head_sha)
+                if (
+                    workflow.patched(REPORT_FAILED_TURN_PATCH)
+                    and meta.pr_number is not None
+                    and inputs.trigger_source == TRIGGER_AUTOMATIC
+                    and inputs.review_mode == REVIEW_MODE_FLASH
+                    and inputs.marks_ready
+                    and inputs.requested_head_sha == head_sha
+                    # A retry of the turn can still finish clean and report on its own.
+                    and (_non_retryable_cause(e) is not None or _out_of_attempts())
+                ):
+                    await self._report_failed_turn(
+                        SilentStamphogRequest(
+                            team_id=inputs.team_id, repository=repository, pr_number=meta.pr_number, head_sha=head_sha
+                        )
+                    )
             # The signal report's log records a failed turn too (a receipt per executed turn,
             # completion or failure); best-effort so it can never mask the original error.
             await self._append_code_review_receipt(
@@ -1241,6 +1259,15 @@ class ReviewPRWorkflow:
             )
         except ActivityError:
             workflow.logger.warning("Could not ask stamphog to re-review")
+
+    @staticmethod
+    async def _report_failed_turn(turn: SilentStamphogRequest) -> None:
+        try:
+            await workflow.execute_activity(
+                report_failed_turn_activity, turn, start_to_close_timeout=_QUICK_TIMEOUT, retry_policy=_RETRY
+            )
+        except Exception:
+            workflow.logger.warning("Could not tell stamphog about the failed turn")
 
     @staticmethod
     async def _finish_standard_automatic_turn(turn: FinishedStandardAutomaticTurn) -> None:

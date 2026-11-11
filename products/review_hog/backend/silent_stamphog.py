@@ -7,13 +7,33 @@ workflows ask for the silent review once an event marks the PR ready at that hea
 its repository switch, the PR and the head again when its task runs.
 """
 
+import logging
+
 from django.utils import timezone
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.persistence import load_turn_findings
 from products.review_hog.backend.reviewer.progress import turn_markers
 from products.review_hog.backend.turn_coverage import turn_marker_rows, unread_paths
+from products.stamphog.backend.facade import tasks as stamphog_tasks
 from products.stamphog.backend.facade.tasks import queue_silent_review
+
+logger = logging.getLogger(__name__)
+
+
+def report_unreviewed_head(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> None:
+    """Tell stamphog that no clean ReviewHog review will come for this head, so it can route reviewers now.
+
+    Best effort: stamphog has a time-based safety net, so an error here is logged and never raised.
+    """
+    try:
+        stamphog_tasks.queue_routing_after_external_review(
+            team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha
+        )
+    except Exception:
+        logger.exception(
+            "Could not tell stamphog that %s#%s at %s has no clean review", repository, pr_number, head_sha
+        )
 
 
 def _record_turn_coverage(
@@ -60,8 +80,9 @@ def finish_standard_automatic_turn(
     delta_review: bool,
     marks_ready: bool,
 ) -> bool:
-    """Record the turn's coverage, and queue the silent stamphog review when the turn's own event marked
-    the PR ready and the turn was clean. Returns whether it was queued.
+    """Record the turn's coverage. When the turn's own event marked the PR ready, queue the silent stamphog
+    review if the turn was clean, and tell stamphog that routing can start if it was not.
+    Returns whether the silent review was queued.
 
     A turn on a draft records its coverage too, so a later ready event without a push can use it.
     """
@@ -73,14 +94,21 @@ def finish_standard_automatic_turn(
         lens_chunks_capped=lens_chunks_capped,
         delta_review=delta_review,
     )
-    if not clean or not marks_ready:
+    if not marks_ready:
+        return False
+    if not clean:
+        report_unreviewed_head(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
         return False
     queue_silent_review(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
     return True
 
 
 def start_silent_stamphog(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> bool:
-    """Queue the silent stamphog review when the automatic turn on the head was recorded clean. Returns whether it was queued."""
+    """Queue the silent stamphog review when the automatic turn on the head was recorded clean. Returns whether it was queued.
+
+    A turn recorded as not clean means stamphog can route reviewers now. A head without a recorded turn stays
+    silent, because that turn can still run or fail and report on its own.
+    """
     report = ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
     if report is None:
         return False
@@ -99,6 +127,7 @@ def start_silent_stamphog(*, team_id: int, repository: str, pr_number: int, head
         return False
     _, clean = max(recorded)
     if not clean:
+        report_unreviewed_head(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
         return False
     queue_silent_review(team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha)
     return True

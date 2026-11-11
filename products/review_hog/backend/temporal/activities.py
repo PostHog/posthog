@@ -229,7 +229,11 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     plan_lens_chunks,
     reconcile_chunks,
 )
-from products.review_hog.backend.silent_stamphog import finish_standard_automatic_turn, start_silent_stamphog
+from products.review_hog.backend.silent_stamphog import (
+    finish_standard_automatic_turn,
+    report_unreviewed_head,
+    start_silent_stamphog,
+)
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.review_hog.backend.temporal.types import (
     REQUESTED_TRIGGERS,
@@ -3012,6 +3016,24 @@ async def start_silent_stamphog_activity(input: SilentStamphogRequest) -> None:
     a missed stamphog review must never fail the review.
     """
     await database_sync_to_async(_start_silent_stamphog, thread_sensitive=False)(input)
+
+
+def _report_failed_turn(input: SilentStamphogRequest) -> None:
+    report_unreviewed_head(
+        team_id=input.team_id, repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def report_failed_turn_activity(input: SilentStamphogRequest) -> None:
+    """Tell stamphog that a Standard automatic turn failed for good, so it can route reviewers now.
+
+    Never raises on a stamphog error. The workflow catches any other failure, because the failed
+    turn must keep its original error.
+    """
+    await database_sync_to_async(_report_failed_turn, thread_sensitive=False)(input)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

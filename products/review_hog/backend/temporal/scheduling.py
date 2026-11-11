@@ -20,6 +20,7 @@ from products.review_hog.backend.temporal.types import (
 )
 
 SILENT_STAMPHOG_PATCH = "reviewhog-silent-stamphog-2026-11"
+REPORT_FAILED_TURN_PATCH = "reviewhog-report-failed-turn-2026-11"
 
 
 async def request_silent_stamphog(request: ReviewPRWorkflowInputs, head_sha: str) -> None:
