@@ -343,6 +343,20 @@ describe('scenario environment', () => {
         }
     }, 4_000)
 
+    it('reports a running Kafka as up when the probes run under tsx like the CLI', async () => {
+        const probe = `import('./tests/scenarios/environment/stack').then(({ downServices }) => downServices(undefined, 'postgres://127.0.0.1:1/none')).then((down) => console.log(JSON.stringify(down)))`
+        const { stdout } = await promisify(childProcess.execFile)(
+            path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx'),
+            ['-e', probe],
+            { cwd: NODEJS_DIR }
+        )
+        const down: string[] = parseJSON(stdout.trim().split('\n').pop() ?? '[]')
+        expect({ postgres: down.includes('postgres'), kafka: down.includes('kafka') }).toEqual({
+            postgres: true,
+            kafka: false,
+        })
+    }, 30_000)
+
     describe('run lock', () => {
         const children: ChildProcess[] = []
 
