@@ -92,6 +92,9 @@ def _critical_spans(root: dict, children_by_parent: dict[str, list[dict]]) -> li
         for child in sorted(children_by_parent.get(span["span_id"], []), key=lambda c: c["end_time"], reverse=True):
             if child["span_id"] in seen or child["timestamp"] >= cursor:
                 continue
+            # The first pick may end past its parent (clock skew); later ones must end by the cursor.
+            if picked and child["end_time"] > cursor:
+                continue
             picked.append(child)
             cursor = child["timestamp"]
         for child in reversed(picked):
@@ -107,23 +110,35 @@ def _critical_path(root: dict, children_by_parent: dict[str, list[dict]]) -> tup
     Entries shorter than 1% of the root are dropped (their spans counted): a slow request's path is
     otherwise mostly sub-millisecond auth and cache calls that crowd out the span that matters.
     """
-    entries: list[dict] = []
+    # Collapsed runs sum in nanoseconds: rounding each span first turns a long run of sub-0.05ms
+    # spans into zero and drops it below the threshold.
+    runs: list[tuple[dict, int, int, int]] = []  # (entry, span count, duration nanos, self nanos)
     previous_key: tuple | None = None
     for depth, span in _critical_spans(root, children_by_parent):
         key = (depth, span["service_name"], span["name"])
+        duration = span["duration_nano"]
+        self_time = span.get("self_time_nano", duration)
         if key == previous_key:
-            entry = entries[-1]
-            entry["count"] = entry.get("count", 1) + 1
-            entry["duration_ms"] = round(entry["duration_ms"] + _ms(span["duration_nano"]), 1)
-            entry["self_ms"] = round(entry["self_ms"] + _ms(span.get("self_time_nano", span["duration_nano"])), 1)
+            entry, count, total, total_self = runs[-1]
             if span["status_code"] == STATUS_ERROR:
                 entry["error"] = True
+            runs[-1] = (entry, count + 1, total + duration, total_self + self_time)
             continue
         previous_key = key
-        entries.append({"depth": depth, **_span_ref(span, root_service=root["service_name"], with_id=False)})
-    min_ms = _ms(root["duration_nano"]) * MIN_CRITICAL_PATH_SHARE
-    kept = [entry for entry in entries if entry["depth"] == 0 or entry["duration_ms"] >= min_ms]
-    omitted = sum(entry.get("count", 1) for entry in entries) - sum(entry.get("count", 1) for entry in kept)
+        entry = {"depth": depth, **_span_ref(span, root_service=root["service_name"], with_id=False)}
+        runs.append((entry, 1, duration, self_time))
+    min_nanos = root["duration_nano"] * MIN_CRITICAL_PATH_SHARE
+    kept: list[dict] = []
+    omitted = 0
+    for entry, count, total, total_self in runs:
+        if entry["depth"] != 0 and total < min_nanos:
+            omitted += count
+            continue
+        if count > 1:
+            entry["count"] = count
+            entry["duration_ms"] = _ms(total)
+            entry["self_ms"] = _ms(total_self)
+        kept.append(entry)
     if len(kept) > MAX_CRITICAL_PATH_ENTRIES:
         return kept[:MAX_CRITICAL_PATH_ENTRIES], omitted, True
     return kept, omitted, False
@@ -148,8 +163,9 @@ def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, tr
         else:
             children_by_parent[span["parent_span_id"]].append(span)
     # A trace normally has one root. Several mean the real root has not arrived (or was cut by
-    # paging); the longest of the orphans is the best stand-in for the request.
-    root = max(roots, key=lambda s: (s["is_root_span"], s["duration_nano"]))
+    # paging); the longest of the orphans is the best stand-in for the request. None means the
+    # parent links form a cycle (ingestion does not validate them), so any span has to stand in.
+    root = max(roots or spans, key=lambda s: (s["is_root_span"], s["duration_nano"]))
 
     trace_start = min(span["timestamp"] for span in spans)
     trace_end = max(span["end_time"] for span in spans)

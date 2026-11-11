@@ -43,7 +43,7 @@ def _spans(fixture: list[tuple]) -> list[dict]:
                 "status_code": status_code,
                 "timestamp": start,
                 "end_time": start + dt.timedelta(milliseconds=duration_ms),
-                "duration_nano": duration_ms * MS,
+                "duration_nano": round(duration_ms * MS),
                 "is_root_span": parent == "",
                 "attributes": {},
                 "events": [],
@@ -106,6 +106,18 @@ class TestTraceSummary(TestCase):
         self.assertEqual(path, [("GET /insights", None), ("clickhouse.query", "query")])
         self.assertEqual(summary["critical_path_omitted"], 5)
 
+    def test_critical_path_skips_a_sibling_that_overlaps_the_one_after_it(self):
+        overlapping = [("a", "root", "a", "web", 0, 800, 0), ("b", "root", "b", "web", 400, 500, 0)]
+        summary = summarize_trace(_spans([("root", "", "GET /insights", "web", 0, 900, 0), *overlapping]))
+        self.assertEqual([e["name"] for e in summary["critical_path"]], ["GET /insights", "b"])
+
+    def test_critical_path_keeps_a_run_of_sub_rounding_spans(self):
+        loop = [(f"q{i}", "root", "SELECT person", "web", 0.04 * i, 0.04, 0) for i in range(100)]
+        summary = summarize_trace(_spans([("root", "", "GET /insights", "web", 0, 10, 0), *loop]))
+        run = summary["critical_path"][1]
+        self.assertEqual((run["name"], run["count"], run["duration_ms"]), ("SELECT person", 100, 4.0))
+        self.assertEqual(summary["critical_path_omitted"], 0)
+
     def test_repeated_spans_surface_the_n_plus_one(self):
         self.assertEqual(
             self.summary["repeated_spans"],
@@ -137,6 +149,12 @@ class TestTraceSummary(TestCase):
         spans = [span for span in _fixture_spans() if span["span_id"] != "root"]
         summary = summarize_trace(spans, truncated=True)
         self.assertEqual((summary["root"]["span_id"], summary["truncated"]), ("call", True))
+
+    def test_cyclic_parent_links_still_summarize(self):
+        spans = _spans([("a", "b", "a", "web", 0, 100, 0), ("b", "a", "b", "web", 10, 50, 0)])
+        summary = summarize_trace(spans)
+        self.assertEqual(summary["root"]["span_id"], "a")
+        self.assertEqual([e["name"] for e in summary["critical_path"]], ["a", "b"])
 
     def test_empty_trace(self):
         self.assertEqual(summarize_trace([]), {"span_count": 0, "truncated": False})
