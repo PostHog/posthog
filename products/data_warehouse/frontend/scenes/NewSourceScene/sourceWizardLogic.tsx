@@ -433,6 +433,9 @@ export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, sele
     return selectAll
 }
 
+// The recommendations endpoint's limit on tables per request.
+const MAX_RECOMMENDATION_TABLES = 512
+
 export interface PollingSyncSettings {
     sync_type: 'full_refresh' | 'incremental' | 'append'
     incremental_field?: string
@@ -1976,17 +1979,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         // determines if the wizard is wrapped in another component
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         // The table list never waits for the decision model: its picks arrive here afterwards, and
         // replace the defaults only of tables the person has not changed yet.
         loadIncrementalFieldRecommendations: async () => {
             const connectorName = values.selectedConnector?.name
-            const tables = values.databaseSchema.filter(
-                (schema) => schema.incremental_fields.filter((field) => field.recommended !== undefined).length >= 2
-            )
+            const tables = values.databaseSchema
+                .filter(
+                    (schema) => schema.incremental_fields.filter((field) => field.recommended !== undefined).length >= 2
+                )
+                // The endpoint takes at most this many tables, and a rejected request would drop every pick.
+                .slice(0, MAX_RECOMMENDATION_TABLES)
             if (!connectorName || values.currentTeamId === null || tables.length === 0) {
                 return
             }
+            // A rediscovery, even for the same connector, makes the answer belong to another database.
+            const discovery = cache.schemaDiscovery
             const selection = values.connectorSelectionCount
             let picked: Map<string, IncrementalField[]>
             try {
@@ -2005,7 +2013,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             } catch {
                 return
             }
-            if (values.connectorSelectionCount !== selection || picked.size === 0) {
+            if (
+                cache.schemaDiscovery !== discovery ||
+                values.connectorSelectionCount !== selection ||
+                picked.size === 0
+            ) {
                 return
             }
             actions.setDatabaseSchemas(
@@ -2016,11 +2028,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                     const updated = { ...schema, incremental_fields: fields }
                     const previous = defaultPollingSyncSettings(schema, connectorName)
+                    // A full-refresh default keeps whatever cursor discovery returned, so only the
+                    // sync type says whether the person changed it.
                     const untouched =
                         schema.sync_type === previous.sync_type &&
-                        (schema.incremental_field ?? undefined) === previous.incremental_field
-                    if (untouched) {
-                        const next = defaultPollingSyncSettings(updated, connectorName)
+                        (previous.sync_type === 'full_refresh' ||
+                            (schema.incremental_field ?? undefined) === previous.incremental_field)
+                    const next = defaultPollingSyncSettings(updated, connectorName)
+                    const masked = !!next.incremental_field && !!schema.masked_columns?.includes(next.incremental_field)
+                    if (untouched && !masked) {
                         updated.sync_type = next.sync_type
                         updated.incremental_field = next.incremental_field ?? null
                         updated.incremental_field_type = next.incremental_field_type ?? null
@@ -2624,6 +2640,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.getDatabaseSchemas()
         },
         getDatabaseSchemas: async () => {
+            cache.schemaDiscovery = (cache.schemaDiscovery ?? 0) + 1
             if (!values.selectedConnector) {
                 return
             }

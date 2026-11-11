@@ -25,8 +25,6 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.constants import AvailableFeature
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReference
-from posthog.llm.system_one import ChoiceAnswer, SystemOneResult
-from posthog.llm.system_one_client import GatewaySystemOneClient
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -125,10 +123,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     HostNotAllowedError,
     TemporaryHostResolutionError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
-    SourceSchema,
-    rank_incremental_fields,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_CUSTOM_SOURCES_PER_TEAM,
     PREVIEW_DEFAULT_ROWS,
@@ -166,6 +161,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
+from products.warehouse_sources.backend.tests.api.utils import fake_decision_model, open_orders_schema
 
 _PH_HISTORY_NAMING_FLAG = (
     "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
@@ -6244,39 +6240,12 @@ class TestExternalDataSource(APIBaseTest):
         self.organization.save()
         source = PostgresSource()
         mock_get_source.return_value = source
-        discovered = SourceSchema(
-            name="public.orders",
-            supports_incremental=True,
-            supports_append=True,
-            incremental_fields=rank_incremental_fields(
-                [
-                    {"label": n, "type": t, "field": n, "field_type": t, "nullable": False}
-                    for n, t in [
-                        ("created_at", IncrementalFieldType.Timestamp),
-                        ("fecha_actualizacion", IncrementalFieldType.Timestamp),
-                    ]
-                ]
-            ),
-        )
+        discovered = open_orders_schema("public.orders")
 
-        model_calls = []
-
-        async def adecide(_self, *, state, questions):
-            model_calls.append(questions)
-            choice = ChoiceAnswer(choice="c1", confidence=0.9, probabilities={"c1": 0.9})
-            return SystemOneResult(model="jeeves-0.1", answers=dict.fromkeys(questions, choice), input_tokens=1)
-
-        gateway = GatewaySystemOneClient(
-            url="https://gateway.example.com/v1/systemone", api_key="test-key", headers={}, model="m", timeout=1.0
-        )
-        recommender = "products.warehouse_sources.backend.logic.incremental_field_model"
         with (
             patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)),
             patch.object(source, "get_schemas", return_value=[discovered]),
-            patch(f"{recommender}.system_one_configured", return_value=True),
-            patch(f"{recommender}.feature_enabled_or_false", return_value=True),
-            patch(f"{recommender}.build_system_one_client", return_value=gateway),
-            patch.object(GatewaySystemOneClient, "adecide", new=adecide),
+            fake_decision_model() as model_calls,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",

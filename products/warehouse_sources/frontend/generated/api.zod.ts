@@ -1508,7 +1508,9 @@ export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @
                                 .max(
                                     externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldMax
                                 )
-                                .describe('Name of the field in the source table.'),
+                                .describe(
+                                    'Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.'
+                                ),
                             type: zod
                                 .string()
                                 .max(

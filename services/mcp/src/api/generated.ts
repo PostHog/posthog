@@ -61558,7 +61558,7 @@ export namespace Schemas {
          */
       label: string;
       /**
-         * Name of the field in the source table.
+         * Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.
          * @maxLength 512
          */
       field: string;
