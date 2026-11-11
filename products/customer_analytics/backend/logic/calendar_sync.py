@@ -454,7 +454,7 @@ def _person_uuids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
 def _get_fresh_access_token(integration: IntegrationRecord) -> str:
     oauth = OauthIntegration(integration)
     if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
-        oauth.refresh_access_token()
+        integration = oauth.refresh_access_token()
     if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
         raise CalendarSyncError(f"Token refresh failed for integration {integration.id}; reconnect the calendar")
     token = integration.access_token

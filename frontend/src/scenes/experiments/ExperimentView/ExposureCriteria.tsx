@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayCategory } from '~/types'
 
+import { DefaultExposureEventNote } from 'products/experiments/frontend/components/DefaultExposureEventNote'
 import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
@@ -252,6 +253,10 @@ export function ExposureCriteriaModal({ onSave, metricDataSources }: ExposureCri
                         showNumericalPropsOnly={true}
                         {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                    />
+                    <DefaultExposureEventNote
+                        config={exposureCriteria.exposure_config}
+                        defaultExposureEvent={resolvedExposureEvent}
                     />
                     <NegatedEventFilterNote
                         config={exposureCriteria.exposure_config}

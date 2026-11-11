@@ -26,5 +26,8 @@ class AccountAuditCredentialAdmin(admin.ModelAdmin):
     search_fields = ("public_key_id", "created_by__email")
     actions = None
 
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
     def has_delete_permission(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> bool:
         return False

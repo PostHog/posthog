@@ -146,6 +146,9 @@ INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE
 INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
     "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
 )
+# The sweep records the facts of each report it scores (products/signals/backend/ranking/report_facts.py).
+# Off turns off only the facts read and its events, and scoring does not change.
+INBOX_RANKING_RECORD_REPORT_FACTS = get_from_env("INBOX_RANKING_RECORD_REPORT_FACTS", True, type_cast=str_to_bool)
 # Activity summary tick (products/signals/backend/activity_summary/tick.py). The `activity-summary`
 # flag payload gates the work and holds the caps, so the schedule ticks in every environment.
 ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES = get_from_env("ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES", 60, type_cast=int)
