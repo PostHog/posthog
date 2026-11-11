@@ -64,18 +64,21 @@ Ask the user before starting a recalculation, and say that it recomputes every m
 
 Powers A1, A2, A3, A7b, B0, C2 and the plateau check in `empty-experiment.md`.
 
-`experiment-results-get` returns a `health` block first, then an `exposures` object next to the metric results.
-Read `health` before the values below:
+`experiment-health-get` returns the health checks without running the metric queries.
+Read it before the values below:
 
-- **`health.findings`** — the health check findings, most severe first.
+- **`summary`** — the findings counted by severity and the checks counted by status.
+  It also names the checks that did not run.
+- **`findings`** — the health check findings, most severe first.
   Each one carries `code`, `severity`, `title`, `evidence` and `detail`: what is wrong, what it does to the experiment and how to fix it.
   `diagnostic_ref` names the matching diagnostic in this skill, for example `A2`.
-- **`health.checks`** — the status of each check in the block: `passed`, `finding`, `not_applicable` or `not_checked`.
+- **`checks`** — the status of each check that ran: `passed`, `finding`, `not_applicable` or `not_checked`.
   A check that is `not_applicable` or `not_checked` carries a `reason` and did not judge the experiment: do not report it as passed.
-  The block always holds the checks that read the exposures, and it can hold checks of the configuration too.
+  The list holds the checks that read the exposures once the experiment has started, and it can hold checks of the configuration too.
   A check that is not in the list did not run.
 
-Call `experiment-results-get` when the diagnosis needs the health findings or one of the values below.
+`experiment-results-get` opens with `health`, an overview of the same findings (severity, code and title only), and returns an `exposures` object next to the metric results.
+Call it when the diagnosis needs one of the values below.
 A split that the stored results already show as close to the configured one, on a complaint that is not about bias, does not need it.
 `exposures` is the experiment's own exposure query: the experiment's exposure event, current variant keys only, the test-account filter, the experiment's window, each person counted once at the first exposure.
 Variants in `excluded_variants` are left out of it, and on a group-aggregated flag it counts groups in place of persons.

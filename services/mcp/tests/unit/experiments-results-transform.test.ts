@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest'
 import type { Experiment } from '@/schema/experiments'
 import {
     buildMetricEntries,
+    collectHealth,
     ExperimentExposureQuerySchema,
     ExperimentSchema,
     transformExperimentResults,
@@ -310,7 +311,7 @@ describe('transformExperimentResults', () => {
         expect(result.experiment.saved_metrics).toEqual([savedMetric])
     })
 
-    it('puts the health findings of both sources first, most severe first, so a client that cuts the middle of the response keeps them', () => {
+    it('opens with a short health overview of both sources, most severe first, and keeps the full findings out', () => {
         const findingText = {
             actions: [],
             detail: 'detail',
@@ -320,76 +321,74 @@ describe('transformExperimentResults', () => {
             subcode: null,
             title: 'title',
         }
+        const exposureFindings = [
+            {
+                ...findingText,
+                code: 'multiple_variants_share' as const,
+                check: 'multiple_variants_share' as const,
+                severity: 'info' as const,
+            },
+            { ...findingText, code: 'srm' as const, check: 'srm' as const, severity: 'critical' as const },
+        ]
+        const exposureChecks = [
+            {
+                key: 'srm' as const,
+                name: 'Sample ratio mismatch',
+                description: 'Compares the split with the configured one.',
+                reason: null,
+                status: 'finding' as const,
+                values: { p_value: 0.0001 },
+            },
+            {
+                key: 'zero_exposures' as const,
+                name: 'No exposures',
+                reason: 'Runs after launch',
+                status: 'not_applicable' as const,
+            },
+        ]
+        const configHealth = {
+            findings: [
+                {
+                    ...findingText,
+                    code: 'split_changed_mid_run' as const,
+                    check: 'split_changed_mid_run' as const,
+                    severity: 'warning' as const,
+                },
+            ],
+            checks: [
+                {
+                    key: 'split_changed_mid_run' as const,
+                    name: 'Split changed after launch',
+                    description: 'Compares the variant split with the one at launch.',
+                    reason: null,
+                    status: 'finding' as const,
+                    values: {},
+                    rule: null,
+                },
+            ],
+        }
         const experiment = makeExperiment({ metrics: [], primary_metrics_ordered_uuids: [] })
 
         const result = transformExperimentResults({
             experiment,
-            exposures: {
-                ...baseExposures,
-                health_findings: [
-                    {
-                        ...findingText,
-                        code: 'multiple_variants_share',
-                        check: 'multiple_variants_share',
-                        severity: 'info',
-                    },
-                    { ...findingText, code: 'srm', check: 'srm', severity: 'critical' },
-                ],
-                health_checks: [
-                    {
-                        key: 'srm',
-                        name: 'Sample ratio mismatch',
-                        description: 'Compares the split with the configured one.',
-                        reason: null,
-                        status: 'finding',
-                        values: { p_value: 0.0001 },
-                    },
-                    {
-                        key: 'zero_exposures',
-                        name: 'No exposures',
-                        reason: 'Runs after launch',
-                        status: 'not_applicable',
-                    },
-                ],
-            },
+            exposures: { ...baseExposures, health_findings: exposureFindings, health_checks: exposureChecks },
             primaryMetricEntries: [],
             secondaryMetricEntries: [],
             primaryMetricsResults: [],
             secondaryMetricsResults: [],
-            configHealth: {
-                findings: [
-                    {
-                        ...findingText,
-                        code: 'split_changed_mid_run',
-                        check: 'split_changed_mid_run',
-                        severity: 'warning',
-                    },
-                ],
-                checks: [
-                    {
-                        key: 'split_changed_mid_run',
-                        name: 'Split changed after launch',
-                        description: 'Compares the variant split with the one at launch.',
-                        reason: null,
-                        status: 'finding',
-                        values: {},
-                        rule: null,
-                    },
-                ],
-            },
+            health: collectHealth([configHealth, { findings: exposureFindings, checks: exposureChecks }]),
         })
 
         expect(Object.keys(result)[0]).toBe('health')
-        expect(result.health.findings.map((f) => f.code)).toEqual([
-            'srm',
-            'split_changed_mid_run',
-            'multiple_variants_share',
+        expect(result.health.summary).toBe(
+            'Findings: 1 critical, 1 warning, 1 info. Checks: 2 finding, 1 not_applicable.'
+        )
+        expect(result.health.findings).toEqual([
+            { severity: 'critical', code: 'srm', title: 'title' },
+            { severity: 'warning', code: 'split_changed_mid_run', title: 'title' },
+            { severity: 'info', code: 'multiple_variants_share', title: 'title' },
         ])
-        expect(result.health.checks).toEqual([
-            { key: 'split_changed_mid_run', status: 'finding', reason: null },
-            { key: 'srm', status: 'finding', reason: null },
-            { key: 'zero_exposures', status: 'not_applicable', reason: 'Runs after launch' },
-        ])
+        expect(result.health.details).toContain('experiment-health-get')
         expect(result.exposures).not.toHaveProperty('health_findings')
         expect(result.exposures).not.toHaveProperty('health_checks')
     })
