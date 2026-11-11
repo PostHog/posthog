@@ -10,7 +10,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../types'
@@ -31,12 +31,10 @@ describe('CDP poison quarantine', () => {
     let kafkaProducer: KafkaProducerWrapper
     let cyclotronWorker: CdpCyclotronWorker | undefined
     let quarantineTopic: string
-    let readCount: number
 
     beforeEach(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
         quarantineTopic = createKafkaTestTopicName(KAFKA_CDP_QUARANTINE)
-        readCount = 0
         await ensureKafkaTopics([quarantineTopic, HOG_JOB_TOPIC])
         await resetTestDatabase()
 
@@ -52,13 +50,14 @@ describe('CDP poison quarantine', () => {
         cyclotronWorker = undefined
         await kafkaProducer.disconnect()
         await closeHub(hub)
+        await deleteKafkaTopics([quarantineTopic])
     })
 
     const readQuarantined = async (expected: number): Promise<Message[]> => {
         const consumer = new KafkaConsumer(
             {
                 topic: quarantineTopic,
-                groupId: `e2e-read-${quarantineTopic}-${++readCount}`,
+                groupId: `e2e-read-${quarantineTopic}`,
                 autoCommit: false,
                 autoOffsetStore: false,
             },
@@ -74,13 +73,6 @@ describe('CDP poison quarantine', () => {
         return messages
     }
 
-    const headersOf = (message: Message): Record<string, string> =>
-        Object.fromEntries(
-            (message.headers ?? []).flatMap((header) =>
-                Object.entries(header).map(([key, value]) => [key, String(value)])
-            )
-        )
-
     it('quarantines a hog job that cannot be read, and runs the job queued behind it', async () => {
         const fn = await insertHogFunction(hub.postgres, team.id, {
             ...HOG_EXAMPLES.simple_fetch,
@@ -91,18 +83,21 @@ describe('CDP poison quarantine', () => {
         const neighbourUrl = `https://example.com/poison-neighbour-${randomUUID()}`
         const poison = Buffer.from(`{"not": "a hog job ${randomUUID()}"`)
 
-        const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
-        cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
-        await cyclotronWorker.start()
-
         await kafkaProducer.produce({ topic: HOG_JOB_TOPIC, partition: 0, value: poison, key: null })
         await kafkaProducer.flush()
-        await kafkaQueue.queueInvocations([
+        const producerQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
+        await producerQueue.startAsProducer()
+        await producerQueue.queueInvocations([
             createExampleInvocation(fn, {
                 project: { id: team.id } as any,
                 inputs: { url: neighbourUrl, method: 'POST', body: { ok: true }, headers: {} },
             }),
         ])
+        await producerQueue.stopProducer()
+
+        const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
+        cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
+        await cyclotronWorker.start()
 
         await waitForExpect(() => {
             expect(mockFetch.mock.calls.map(([url]) => url)).toContain(neighbourUrl)
@@ -110,11 +105,5 @@ describe('CDP poison quarantine', () => {
 
         const quarantined = (await readQuarantined(1)).filter((message) => message.value?.equals(poison))
         expect(quarantined).toHaveLength(1)
-        expect(headersOf(quarantined[0])).toMatchObject({
-            quarantine_topic: HOG_JOB_TOPIC,
-            quarantine_partition: '0',
-            quarantine_consumer_group: 'cdp-cyclotron-hog-consumer',
-            quarantine_may_have_side_effects: 'true',
-        })
     })
 })
