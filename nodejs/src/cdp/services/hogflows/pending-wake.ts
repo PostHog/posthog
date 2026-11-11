@@ -9,8 +9,6 @@ const counterPendingWakeApplied = new Counter({
     labelNames: ['kind'],
 })
 
-// Turns a wake the matcher recorded while this run was in flight into the same flags a wake of a
-// parked run sets, so the wait step handles both the same way.
 export function applyPendingWake(state: HogFlowInvocationContext, pendingWake: PendingWake | undefined): void {
     const currentAction = state.currentAction
     const entry = currentAction ? pendingWake?.[currentAction.id] : undefined

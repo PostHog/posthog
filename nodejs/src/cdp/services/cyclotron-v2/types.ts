@@ -43,8 +43,7 @@ export const CyclotronV2JobInitSchema = z.object({
 
 export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
 
-// A wake the subscription matcher recorded while the job was running, keyed by the
-// wait_until_condition action id it applies to. `at` is the database clock when it was written.
+// Keyed by wait_until_condition action id. `at` is the database clock at write time.
 export type PendingWakeEntry = {
     kind: 'match' | 'recheck'
     at: string
