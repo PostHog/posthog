@@ -115,7 +115,7 @@ export class Output {
     }
 
     error(error: HogError): void {
-        const { message, hint } = printedFailure(error, this.mode.ci)
+        const { message, hint } = printedFailure(error, this.mode.isCI)
         if (this.mode.format === 'json') {
             const payload = { error: { ...error.details, code: error.code, message, hint } }
             this.runtime.writeStderr(`${JSON.stringify(payload)}\n`)
@@ -130,11 +130,11 @@ export class Output {
 
 // PostHog's reason is useful at a terminal, but it can repeat values from the request, and CI logs
 // are often public. In CI the reason is left out and the hint says where to see it.
-function printedFailure(error: HogError, ci: boolean): { message: string; hint: string | undefined } {
+function printedFailure(error: HogError, isCI: boolean): { message: string; hint: string | undefined } {
     if (error.serverDetail === undefined) {
         return { message: error.message, hint: error.hint }
     }
-    if (ci) {
+    if (isCI) {
         return { message: error.message, hint: [error.hint, SERVER_DETAIL_HIDDEN].filter(Boolean).join(' ') }
     }
     return { message: withServerDetail(error.message, error.serverDetail), hint: error.hint }

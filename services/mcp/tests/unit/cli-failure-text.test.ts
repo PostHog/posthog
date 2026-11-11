@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { failureText, isCi } from '@/cli/utils'
+import { failureText, isRunningInCI } from '@/cli/utils'
 import { PostHogValidationError } from '@/lib/errors'
 
 const refused = new PostHogValidationError({
@@ -19,14 +19,14 @@ describe('CLI failure text', () => {
         ['Jenkins, which does not set CI', { JENKINS_URL: 'https://jenkins.example.com/' }, true],
         ['a terminal', {}, false],
     ])('detects CI from %s', (_name, env, expected) => {
-        expect(isCi(env)).toBe(expected)
+        expect(isRunningInCI(env)).toBe(expected)
     })
 
     it.each([
         ['outside CI shows', false, true],
         ['in CI hides', true, false],
-    ])("%s PostHog's reason", (_name, ci, shown) => {
-        const text = failureText(refused, ci)
+    ])("%s PostHog's reason", (_name, isCI, shown) => {
+        const text = failureText(refused, isCI)
 
         expect(text.startsWith(refused.message)).toBe(true)
         expect(text.includes('Enter a number. (field: limit)')).toBe(shown)

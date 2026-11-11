@@ -34,22 +34,22 @@ const CI_SERVICE_VARIABLES = [
     'BUILDER_OUTPUT',
 ]
 
-export function isCi(env: NodeJS.ProcessEnv): boolean {
-    const ci = env.CI?.trim().toLowerCase()
+export function isRunningInCI(env: NodeJS.ProcessEnv): boolean {
+    const ciValue = env.CI?.trim().toLowerCase()
     return (
-        (ci !== undefined && ci !== '' && ci !== '0' && ci !== 'false') ||
+        (ciValue !== undefined && ciValue !== '' && ciValue !== '0' && ciValue !== 'false') ||
         CI_SERVICE_VARIABLES.some((name) => env[name])
     )
 }
 
 // PostHog's reason is useful at a terminal, but it can repeat values from the request, and CI logs
 // are often public. In CI the reason is left out and a note says where to see it.
-export function failureText(error: unknown, ci: boolean): string {
+export function failureText(error: unknown, isCI: boolean): string {
     const message = error instanceof Error ? error.message : String(error)
     if (serverDetailOf(error) === undefined) {
         return message
     }
-    return ci
+    return isCI
         ? `${message}\n\nPostHog's reason is hidden in CI. Run the command outside CI to see it.`
         : withServerDetail(message, error)
 }

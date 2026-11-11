@@ -128,7 +128,7 @@ export async function applyPush(
     api: PostHogApi,
     items: PushItem[],
     variables: InsightVariable[],
-    ci: boolean
+    isCI: boolean
 ): Promise<PushOutcome[]> {
     const known = new Map(variables.map((variable) => [variable.code_name, variable]))
     const outcomes: PushOutcome[] = []
@@ -170,7 +170,7 @@ export async function applyPush(
                 name: item.name,
                 path: item.path,
                 status: 'failed',
-                error: failureText(error, ci),
+                error: failureText(error, isCI),
             })
         }
     }

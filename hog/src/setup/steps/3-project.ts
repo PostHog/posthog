@@ -28,7 +28,7 @@ async function recordIntents(run: SetupRun): Promise<void> {
     results.forEach((result, index) => {
         const id = products[index]
         if (result.status === 'rejected' && id !== undefined) {
-            const reason = failureText(result.reason, run.ctx.mode.ci)
+            const reason = failureText(result.reason, run.ctx.mode.isCI)
             run.context.warnings.push(`PostHog didn't record your interest in ${productLabel(id)}: ${reason}`)
         }
     })

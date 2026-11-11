@@ -38,11 +38,11 @@ export function withServerDetail(message: string, serverDetail: string): string 
 
 // The text of a failure that a command keeps in its result instead of throwing, such as one endpoint
 // of a push. Outside CI it ends with PostHog's reason. In CI it says where to see the reason instead.
-export function failureText(error: unknown, ci: boolean): string {
+export function failureText(error: unknown, isCI: boolean): string {
     const message = error instanceof Error ? error.message : String(error)
     const serverDetail = error instanceof HogError ? error.serverDetail : undefined
     if (serverDetail === undefined) {
         return message
     }
-    return ci ? `${message} ${SERVER_DETAIL_HIDDEN}` : withServerDetail(message, serverDetail)
+    return isCI ? `${message} ${SERVER_DETAIL_HIDDEN}` : withServerDetail(message, serverDetail)
 }
