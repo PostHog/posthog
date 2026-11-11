@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, Organization, Team
+from posthog.taxonomy import definition_search
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
     PropertyDefinitionSerializer,
@@ -328,12 +329,16 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("Fuzzy search: 'hase ' matches properties containing 'chase'", "hase ", ["purchase", "purchase_value"]),
             ("Search matching multiple properties", "brow", ["$browser", "$browser_version"]),
             ("Shorter name preferred: 'visit' before 'first_visit'", "visit", ["visit", "first_visit"], ["visit"]),
-            (
-                "Underscore matches only an underscore",
-                "$mcp_tool_name",
-                ["$mcp_tool_name"],
-                ["$mcp_tool_name", "$mcpXtoolXname"],
-            ),
+            *[
+                (
+                    f"Underscore matches only an underscore, large project: {large_project}",
+                    "$mcp_tool_name",
+                    ["$mcp_tool_name"],
+                    ["$mcp_tool_name", "$mcpXtoolXname"],
+                    large_project,
+                )
+                for large_project in (False, True)
+            ],
         ]
     )
     def test_property_search_returns_expected_results(
@@ -342,11 +347,20 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         search_term: str,
         expected_property_names: list[str],
         extra_property_names: Optional[list[str]] = None,
+        large_project: bool = False,
     ) -> None:
         for name in extra_property_names or []:
             PropertyDefinition.objects.create(team=self.team, name=name)
+        if large_project:
+            cache.clear()
+            self.addCleanup(cache.clear)
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search={search_term}")
+        with patch.object(
+            definition_search,
+            "PROJECT_SCAN_MAX_DEFINITIONS",
+            2 if large_project else definition_search.PROJECT_SCAN_MAX_DEFINITIONS,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search={search_term}")
         assert response.status_code == status.HTTP_200_OK
 
         assert [prop["name"] for prop in response.json()["results"]] == expected_property_names
