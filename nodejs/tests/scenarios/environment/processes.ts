@@ -24,9 +24,10 @@ export class StackConflictError extends Error {
 
     constructor(
         message: string,
-        readonly stopCommand: string
+        readonly stopCommand: string,
+        advice = `Stop it with \`${stopCommand}\`, then run the scenario again.`
     ) {
-        super(`${message} Stop it with \`${stopCommand}\`, then run the scenario again.`)
+        super(`${message} ${advice}`)
         this.name = 'StackConflictError'
     }
 }
