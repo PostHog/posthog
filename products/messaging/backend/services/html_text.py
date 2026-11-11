@@ -81,7 +81,6 @@ LINE_END = "\x00"
 LINE_ENDS = re.compile(r"\n?\x00+\n?")
 URL_PARSER_TRIMS = "".join(chr(code) for code in range(0x21))
 SCRIPT_ESCAPE_TOKENS = re.compile(r"<!--(?!-*>)|-->|</?script[\t\n\f\r />]", re.IGNORECASE)
-SCRIPT_END_TAG = "</script>"
 
 
 def has_unsubscribe_link(html: str, text: str, *, liquid: bool) -> bool:
@@ -106,21 +105,6 @@ def _without_link_end(rest: str, *, liquid: bool) -> str:
     return rest.rstrip(TEXT_LINK_END_PUNCTUATION)
 
 
-def _script_is_double_escaped(script: str) -> bool:
-    escaped = double_escaped = False
-    for token in SCRIPT_ESCAPE_TOKENS.finditer(script):
-        text = token.group()
-        if text == "-->":
-            escaped = double_escaped = False
-        elif text.startswith("<!"):
-            escaped = True
-        elif text.startswith("</"):
-            double_escaped = False
-        else:
-            double_escaped = double_escaped or escaped
-    return double_escaped
-
-
 def text_from_html(html: str, *, keep_unsubscribe_link: bool = False) -> str:
     parser = _TextParser(keep_unsubscribe_link=keep_unsubscribe_link)
     parser.feed(html.replace(LINE_END, ""))
@@ -136,6 +120,26 @@ def _line_break(match: re.Match[str]) -> str:
 
 def _first_href(attrs: list[tuple[str, str | None]]) -> str | None:
     return next((value for name, value in attrs if name == "href"), None)
+
+
+@frozen
+class _ScriptEscape:
+    escaped: bool = False
+    double_escaped: bool = False
+
+    def after(self, script: str) -> "_ScriptEscape":
+        escaped, double_escaped = self.escaped, self.double_escaped
+        for token in SCRIPT_ESCAPE_TOKENS.finditer(script):
+            text = token.group()
+            if text == "-->":
+                escaped = double_escaped = False
+            elif text.startswith("<!"):
+                escaped = True
+            elif text.startswith("</"):
+                double_escaped = False
+            else:
+                double_escaped = double_escaped or escaped
+        return _ScriptEscape(escaped=escaped, double_escaped=double_escaped)
 
 
 @frozen
@@ -167,6 +171,7 @@ class _TextParser(HTMLParser):
         self.unreadable_tag = ""
         self.closing = ""
         self.script: list[str] = []
+        self.script_escape = _ScriptEscape()
         self.keeps_script_open = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -193,19 +198,26 @@ class _TextParser(HTMLParser):
         elif tag in ESCAPABLE_RAW_TEXT_TAGS:
             self.set_cdata_mode(tag, escapable=True)
 
-    def clear_cdata_mode(self) -> None:
+    def parse_endtag(self, i: int) -> int:
+        end = super().parse_endtag(i)
         if self.keeps_script_open:
             self.keeps_script_open = False
-            return
-        super().clear_cdata_mode()
+            self.script.append(self.rawdata[i:end])
+        return end
+
+    def clear_cdata_mode(self) -> None:
+        if not self.keeps_script_open:
+            super().clear_cdata_mode()
 
     def handle_endtag(self, tag: str) -> None:
         if self.reads_like_a_browser and self.cdata_elem == "script":
-            if _script_is_double_escaped("".join(self.script)):
-                self.script.append(SCRIPT_END_TAG)
+            escape = self.script_escape.after("".join(self.script))
+            self.script = []
+            if escape.double_escaped:
+                self.script_escape = escape
                 self.keeps_script_open = True
                 return
-            self.script = []
+            self.script_escape = _ScriptEscape()
         if tag in VOID_TAGS or not self.open_counts[tag]:
             return
         if self.reads_like_a_browser and tag != "template" and not self.open_counts_above_templates[-1][tag]:
