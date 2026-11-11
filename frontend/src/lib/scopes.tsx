@@ -195,6 +195,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'messaging_preference:write',
     'transactional_email:read',
     'transactional_email:write',
+    'transactional_push:write',
     'llm_prompt:read',
     'logs:read',
 ] as const
@@ -317,6 +318,11 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
     { value: 'recipient_preferences', label: 'Set recipient preferences', scopes: ['messaging_preference:write'] },
     { value: 'transactional_email', label: 'Send transactional email', scopes: ['transactional_email:write'] },
+    {
+        value: 'transactional_push',
+        label: 'Send transactional push notifications',
+        scopes: ['transactional_push:write'],
+    },
 ]
 
 // The product areas that the scope pickers use to group objects, in display order. Each scope object

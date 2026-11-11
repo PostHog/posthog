@@ -310,6 +310,19 @@ def send_transactional_email(
     )
 
 
+def send_transactional_push(team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 10) -> requests.Response:
+    """Run a transactional push's workflow once. `payload` carries the recipient's distinct_id and the template
+    variables. 202 means queued, 429 means the team is over its quota."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_push",
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind='push')}"
+        },
+        timeout=timeout,
+    )
+
+
 def send_accepted_transactional_email(
     team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 10
 ) -> requests.Response:

@@ -42,6 +42,7 @@ from products.messaging.backend.services.transactional_email import (
     transactional_email_stage,
 )
 from products.messaging.backend.services.transactional_email_status import get_email_status
+from products.messaging.backend.services.transactional_push import send_transactional_push
 
 __all__ = [
     "PIPELINE_ADDRESS_PATTERN",
@@ -79,6 +80,7 @@ __all__ = [
     "require_code_email_access",
     "send_code_email",
     "send_transactional_email",
+    "send_transactional_push",
     "sender_address_error",
     "sync_transactional_workflow",
     "transactional_email_stage",

@@ -277,6 +277,30 @@ export interface SendTransactionalEmailResponseApi {
 }
 
 /**
+ * Values for the template's {{ variables.* }} placeholders, keyed by variable name.
+ */
+export type SendPushApiMessageData = { [key: string]: unknown }
+
+export interface SendPushApi {
+    /** ID of a push template made transactional, which holds the notification's title, body and push channels. */
+    template_id: string
+    /**
+     * Distinct ID of the person to notify. The notification goes to every device this person registered for the template's push channels. A person with no registered device gets nothing, and the send shows as skipped in the template's sends. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     */
+    distinct_id: string
+    /** Values for the template's {{ variables.* }} placeholders, keyed by variable name. */
+    message_data?: SendPushApiMessageData
+}
+
+export interface SendTransactionalPushResponseApi {
+    /** ID of the queued send. Delivery is reported against the template's workflow asynchronously. */
+    message_id: string
+    /** True when an earlier request with the same `Idempotency-Key` already queued this notification. No new notification was sent, and `message_id` is the earlier send's ID. */
+    replayed: boolean
+}
+
+/**
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */
