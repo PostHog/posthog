@@ -463,6 +463,27 @@ class SESProvider:
     def _tenant_name_for_team(self, team_id: int) -> str:
         return f"team-{team_id}"
 
+    def get_tenant_sending_status(self, tenant_name: str) -> str | None:
+        try:
+            tenant = self.ses_v2_status_client.get_tenant(TenantName=tenant_name)["Tenant"]
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NotFoundException":
+                return None
+            raise
+        sending_status: str = tenant.get("SendingStatus", "")
+        tenant_arn = tenant.get("TenantArn")
+        if not tenant_arn:
+            return sending_status
+        try:
+            entity = self.ses_v2_status_client.get_reputation_entity(
+                ReputationEntityReference=tenant_arn, ReputationEntityType="RESOURCE"
+            )["ReputationEntity"]
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "NotFoundException":
+                raise
+            return sending_status
+        return entity.get("SendingStatusAggregate", sending_status)
+
     def get_tenant_reputation(self, team_id: int) -> dict[str, Any] | None:
         """
         Sending status and open reputation findings for the team's SES tenant, or None when the

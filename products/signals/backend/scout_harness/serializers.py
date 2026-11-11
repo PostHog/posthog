@@ -1678,10 +1678,11 @@ class EmitReportRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass "
-            "`owner/repo` whenever you can say where a fix would land. Omit the field when you can't, "
-            "which triggers free-form selection across the team's repos (the slow path on a many-repo "
-            "team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control "
-            "could change, since a skill body, a config file, or a doc still lives in a repo."
+            "`owner/repo` whenever you can say where a fix would land. Nothing selects a repository for you: "
+            "omit the field when you can't tell, and the report records no repository unless its text links "
+            "exactly one connected repo, so it cannot autostart a draft PR. Keep the `NO_REPO` sentinel for "
+            "the rare report where nothing under version control could change, since a skill body, a config "
+            "file, or a doc still lives in a repo."
         ),
     )
     priority = serializers.ChoiceField(
