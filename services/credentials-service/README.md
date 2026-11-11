@@ -386,17 +386,22 @@ The service loads integration public keys before it mounts these routes. An inva
 Every route needs an integrations token (see "Integration tokens") that holds the route's op.
 Every query binds the owner from the token.
 
-| Route                                     | Op                  | Does                                                                         |
-| ----------------------------------------- | ------------------- | ---------------------------------------------------------------------------- |
-| `GET /v1/integrations`                    | `read`              | Lists the owner's rows. Keyset pages                                         |
-| `GET /v1/integrations/:ref`               | `read`              | One row, by UUID or legacy id. Sends `ETag: "<version>"`                     |
-| `POST /v1/integrations/batch-get`         | `read`              | `{refs}` (1 to 200) to `{records: {ref: record}, missing}`                   |
-| `POST /v1/integrations`                   | `write`             | Creates a row. Takes `Idempotency-Key`                                       |
-| `PUT /v1/integrations/upsert`             | `write`             | Creates the row, or replaces the config and secrets of the row with that key |
-| `PATCH /v1/integrations/:ref`             | `write`             | An `IntegrationPatch` body. Takes `If-Match: <version>`                      |
-| `DELETE /v1/integrations/:ref`            | `delete`            | Soft-deletes the row and removes its secret. Takes `If-Match`                |
-| `POST /v1/integrations/resolve`           | `resolve`           | `{refs}` (1 to 200) to `{records: {ref: {record, credentials, expires_at}}}` |
-| `POST /v1/integrations/list-across-teams` | `list_across_teams` | Rows of every team that match a `CrossTeamFilter`-shaped body                |
+| Route                                                       | Op                      | Does                                                                         |
+| ----------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------- |
+| `GET /v1/integrations`                                      | `read`                  | Lists the owner's rows. Keyset pages                                         |
+| `GET /v1/integrations/:ref`                                 | `read`                  | One row, by UUID or legacy id. Sends `ETag: "<version>"`                     |
+| `POST /v1/integrations/batch-get`                           | `read`                  | `{refs}` (1 to 200) to `{records: {ref: record}, missing}`                   |
+| `POST /v1/integrations`                                     | `write`                 | Creates a row. Takes `Idempotency-Key`                                       |
+| `PUT /v1/integrations/upsert`                               | `write`                 | Creates the row, or replaces the config and secrets of the row with that key |
+| `PATCH /v1/integrations/:ref`                               | `write`                 | An `IntegrationPatch` body. Takes `If-Match: <version>`                      |
+| `DELETE /v1/integrations/:ref`                              | `delete`                | Soft-deletes the row and removes its secret. Takes `If-Match`                |
+| `POST /v1/integrations/resolve`                             | `resolve`               | `{refs}` (1 to 200) to `{records: {ref: {record, credentials, expires_at}}}` |
+| `POST /v1/integrations/list-across-teams`                   | `list_across_teams`     | Rows of every team that match a `CrossTeamFilter`-shaped body                |
+| `GET /v1/integrations/by-external-id/:kind/:external_id`    | `read_by_external_id`   | Rows of every team with this kind and external id. Web only                  |
+| `PATCH /v1/integrations/by-external-id/:kind/:external_id`  | `write_by_external_id`  | Applies an `IntegrationPatch` to those rows in one transaction. Web only     |
+| `DELETE /v1/integrations/by-external-id/:kind/:external_id` | `delete_by_external_id` | Soft-deletes those rows and their secrets in one transaction. Web only       |
+| `DELETE /v1/integrations?owner=<team id>`                   | `delete_owner`          | Soft-deletes every row and secret of the token's owner, in batches. Web only |
+| `GET /v1/integrations/changes`                              | `reverse_sync`          | Rows of every team changed after a cursor, with secrets. Reverse-sync only   |
 
 - A record mirrors the Python `IntegrationRecord`, plus `reference`, `version`, `legacy_id` and `is_source_row`. No read returns a secret.
 - `resolve` returns the decrypted secret blob without `refresh_token`, and without `client_secret` for an `oauth` row. `expires_at` is `refreshed_at + expires_in` from the config, or null.
@@ -406,6 +411,33 @@ Every query binds the owner from the token.
   Rows come oldest first by `created_at`. `next` in the response is the `after` of the next page.
 - `list-across-teams` takes `kinds` (required), `auth_types`, `source_rows`, `team_ids`, `exclude_team_ids`, `created_by_ids`, `external_id`, `where`, `where_in`, `where_iexact`, `has_config_key`, `newest_first`, `limit` (default and maximum 1000) and `after`.
 - A row of another team answers 404, the same as a row that does not exist, so a caller cannot probe ids.
+
+Web-only routes (the web deployment is the only one whose policy holds these ops):
+
+- The three `by-external-id` routes cross teams, so the token needs no owner, and an owner in the token does not narrow them.
+  They take `source_rows` (`exclude` by default, the same as the SDK). `GET` also takes `team_id` (repeats), `limit` and `after`.
+  `PATCH` answers `{matched, updated}`. A row that the patch does not change is not written. `DELETE` answers `{deleted}`.
+  Both write one audit row per matched row with that row's own owner. A second `DELETE` finds no live row and answers `{deleted: 0}`.
+  A token that names refs is refused, because these routes cannot name the refs they touch.
+- `DELETE /v1/integrations?owner=` must name the token's own owner, and the token must not narrow by kind.
+  It soft-deletes 500 rows per transaction until none are left, removes their secrets and the owner's idempotency keys, and audits each row.
+  It is idempotent: after a failure, call it again.
+- `GET /v1/integrations/changes` is the one read that returns secrets. It exists for the Django reverse sync during the migration.
+  Only the `posthog-integrations-reverse-sync` deployment holds the `reverse_sync` op. It has its own queue and signing key, and the service audits every row it returns.
+  The route and the restore command are deleted in Phase 7.
+  Each item has `record`, `deleted`, `updated_at`, `secret`, `secret_unreadable_keys` and `secret_error`.
+  `secret` is the current decrypted blob, `refresh_token` and `client_secret` included, for every live row on the page.
+  A secret that changed before `since` can sit on a row that changed again after it, so the feed never leaves it out.
+  It is `{}` when the row has no secret or is deleted.
+  A secret that cannot be opened gives `secret: null` and `secret_error: "unreadable_secret"` for that row and does not stop the page.
+  The service writes the audit rows (with the secret key names) before it builds the response, and sends `Cache-Control: no-store`.
+  Take `next` from each page as the `since` of the next call. `next` equals `since` when nothing changed.
+  `kind` (repeats) and `limit` (1 to 500, default 100) also work. A token that names kinds sees only those kinds.
+  Deleted rows appear once, with `deleted: true`.
+- The feed orders by `(updated_at, id)` and uses the `integrations_updated_at_id` index.
+  `updated_at` is the start time of the writing transaction, so a row can commit after a newer row.
+  The feed therefore holds back changes younger than 30 seconds, so a reader never moves its cursor past a row that is not visible yet.
+  This is safe while no write transaction lasts 30 seconds. Every integration write rolls back after 20 seconds to keep that true.
 
 Errors are `{error: {code, message, details}}`:
 
