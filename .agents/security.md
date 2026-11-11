@@ -36,13 +36,13 @@ This section is about where the fix lands; the rest of this doc is about writing
 
 The `security-review` label starts an automated security review of a PR.
 The review removes the label when it ends, so adding the label again runs another review.
-A check also adds the label to some ready PRs that nobody labeled.
-That check matches paths and code patterns, so it misses a change whose risk is in what it means.
-The author's judgment covers that change.
+A check adds the label when a PR becomes ready for review.
+It reads the author's answer in the PR description, and it matches paths and code patterns.
+The patterns miss a change whose risk is in what it means, so the author's answer covers that change.
 
 Every PR that matches the list below carries the `security-review` label when it is ready for review.
-Check every PR against the list, not only a PR in a security area.
-Add the label with `gh pr edit <number> --add-label security-review`.
+Check every PR against the list when you open it, not only a PR in a security area.
+Write the result on the `**Security review:**` line of the PR template's Agent context section: `needed` or `not needed`.
 
 - **Authentication:** login, signup, SSO, SAML, OIDC, OAuth grants and scopes, client registration, 2FA, passkeys, sessions, password or email changes, impersonation, invites, or account linking.
 - **Credentials:** a change that mints, scopes, stores, rotates, or revokes a key, token, JWT, or secret, or that changes encryption or signing.
@@ -58,10 +58,14 @@ Add the label with `gh pr edit <number> --add-label security-review`.
 
 Do not add the label to a PR that only changes tests, docs, copy, or styling, to a dependency bump with no security advisory, or to a file move with no other change.
 
-Add the label when you mark the PR ready for review, not when you open a draft.
-The review reads the code at the moment the label lands, and a later push does not start another review.
-After a push that changes one of the areas in the list, add the label again.
-A label on one layer of a stack reviews that layer only, so add it to each layer that matches.
+Do not add the label to a draft yourself, because the review reads the code at the moment the label lands.
+A later push does not start another review.
+Add the label yourself with `gh pr edit <number> --add-label security-review` in two cases:
+
+- The PR is already ready for review when you find that it matches.
+- A push to a reviewed PR changes one of the areas in the list.
+
+A review reads one layer of a stack, so answer on each layer.
 
 ## Principle of Least Privilege
 

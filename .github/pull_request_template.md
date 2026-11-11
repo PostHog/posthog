@@ -62,6 +62,10 @@
 
 **Skills:** `/skill`
 
+<!-- Check every PR against "Requesting a security review" in .agents/security.md. Write "needed" if the PR matches the list and "not needed" if it does not. When the PR is ready for review, a check adds the `security-review` label to a PR marked "needed". -->
+
+**Security review:** [needed or not needed]
+
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
@@ -102,7 +106,6 @@
 - Simplify before opening: if your agent has a behavior-preserving cleanup pass (Claude Code: `/simplify`), run it on a non-trivial diff before final tests and preflight, since it edits the tree. Skip it for small mechanical changes.
 - Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need an automatic review.
-- Security review: when you mark any PR ready for review, check it against the list in `.agents/security.md`, "Requesting a security review". If it matches, add the `security-review` label.
 - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.
 - If a human directed this work, assign them as the PR assignee (the DRI) — actually set the assignee, don't just name them here. Leave a PR unassigned only when it is fully autonomous with no human driver (set Autonomy to "Fully autonomous").
 - Never write a GitHub @mention or username you have not verified this session. Resolve a real handle from `gh api user` (current user) or the PR's actual author/assignee via `gh pr view --json author,assignees` — never infer a handle from a display name.
