@@ -94,8 +94,11 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    LIST_DIR_MISSING_EXIT_CODE,
     SandboxDirEntry,
     build_bundled_skills_clear_command,
+    list_dir_command,
+    parse_list_dir_output,
     redact_sandbox_command,
 )
 from products.tasks.backend.logic.services.task_filesystem import (
@@ -1743,24 +1746,19 @@ class ModalSandbox(AgentServerLaunchMixin):
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
-    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
         self._raise_unless_running()
-        try:
-            infos = self._sandbox.filesystem.list_files(path)
-        except (ModalSandboxFilesystemNotFoundError, ModalSandboxFilesystemNotADirectoryError):
+        # Modal's filesystem listing returns every entry with no limit, and the agent controls how many there are.
+        result = self.execute(list_dir_command(path, limit))
+        if result.exit_code == LIST_DIR_MISSING_EXIT_CODE:
             return None
-        except Exception as e:
-            _raise_if_proxy_failure(e, self.id, "filesystem_list")
-            raise
-        return [
-            SandboxDirEntry(
-                name=info.name,
-                kind=_modal_entry_kind(info),
-                size=info.size,
-                mtime=info.modified_time,
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Failed to list directory",
+                {"sandbox_id": self.id, "path": path, "stderr": result.stderr[:500]},
+                cause=RuntimeError(result.stderr[:500]),
             )
-            for info in infos
-        ]
+        return parse_list_dir_output(result.stdout)
 
     def read_file(self, path: str, max_bytes: int) -> bytes | None:
         self._raise_unless_running()

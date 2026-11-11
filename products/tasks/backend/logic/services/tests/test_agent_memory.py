@@ -65,12 +65,14 @@ class FakeSandbox:
         self.clock = 1.0
         self.failing_writes: set[str] = set()
         self.memory_writes = 0
+        self.list_limits: list[int | None] = []
 
     def _is_dir(self, path: str) -> bool:
         prefix = path + "/"
         return path in self.dirs or any(p.startswith(prefix) for p in [*self.files, *self.dirs])
 
-    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
+        self.list_limits.append(limit)
         if not self._is_dir(path):
             return None
         prefix = path + "/"
@@ -88,7 +90,7 @@ class FakeSandbox:
                     size=len(self.files[child]),
                     mtime=self.mtimes[child],
                 )
-        return list(entries.values())
+        return sorted(entries.values(), key=lambda entry: entry.name)[:limit]
 
     def read_file(self, path: str, max_bytes: int) -> bytes | None:
         self.reads.append(path)
@@ -265,6 +267,7 @@ def test_persist_uploads_only_what_changed_since_the_baseline(storage: FakeStora
     assert sandbox.reads == [SANDBOX_BASELINE_PATH, _memory_path(REPO_SLUG, "new.md")]
     assert counts.skipped["not_file_symlink"] == 1
     assert counts.skipped["file_too_large"] == 1
+    assert None not in sandbox.list_limits
 
     sandbox.reads.clear()
     storage.writes.clear()
@@ -305,15 +308,24 @@ def _fifty_restored_slugs(storage: FakeStorage) -> tuple[FakeSandbox, list[str]]
     return sandbox, slugs
 
 
-@pytest.mark.parametrize("agent_cleared_the_sandbox", [False, True])
+@pytest.mark.parametrize(
+    "agent_cleared_the_sandbox, new_slugs",
+    [
+        (False, ["-a"]),
+        (True, ["-a"]),
+        # The sandbox listing stops at 51 entries, so a tracked slug still on disk is left out of it.
+        (False, ["-a", "-b"]),
+    ],
+)
 def test_a_new_slug_beyond_the_slug_capacity_is_neither_uploaded_nor_treated_as_a_deletion(
-    storage: FakeStorage, agent_cleared_the_sandbox: bool
+    storage: FakeStorage, agent_cleared_the_sandbox: bool, new_slugs: list[str]
 ) -> None:
     sandbox, slugs = _fifty_restored_slugs(storage)
     if agent_cleared_the_sandbox:
         sandbox = FakeSandbox()
-    sandbox.files[_memory_path("-a", "MEMORY.md")] = b"new checkout"
-    sandbox.mtimes[_memory_path("-a", "MEMORY.md")] = 1.0
+    for slug in new_slugs:
+        sandbox.files[_memory_path(slug, "MEMORY.md")] = b"new checkout"
+        sandbox.mtimes[_memory_path(slug, "MEMORY.md")] = 1.0
 
     counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
@@ -349,13 +361,26 @@ def test_replacing_one_of_fifty_slugs_keeps_a_valid_baseline(storage: FakeStorag
     assert sandbox.reads == [SANDBOX_BASELINE_PATH]
 
 
-def test_a_slug_cannot_grow_past_the_file_cap_by_dropping_the_baseline(storage: FakeStorage) -> None:
-    storage.objects = {_key(REPO_SLUG, f"stored-{index}.md"): b"note" for index in range(150)}
-    sandbox = FakeSandbox({_memory_path(REPO_SLUG, f"new-{index}.md"): b"note" for index in range(100)})
+@pytest.mark.parametrize(
+    "stored_files, sandbox_files, tracked",
+    [
+        ([f"stored-{index}.md" for index in range(150)], [f"new-{index}.md" for index in range(100)], []),
+        # The sandbox listing stops at 201 entries and leaves out the tracked zz.md.
+        (["zz.md"], [*(f"new-{index}.md" for index in range(201)), "zz.md"], ["zz.md"]),
+    ],
+)
+def test_a_slug_cannot_grow_past_the_file_cap_by_dropping_the_baseline(
+    storage: FakeStorage, stored_files: list[str], sandbox_files: list[str], tracked: list[str]
+) -> None:
+    storage.objects = {_key(REPO_SLUG, name): b"note" for name in stored_files}
+    sandbox = FakeSandbox({_memory_path(REPO_SLUG, name): b"note" for name in sandbox_files})
+    sandbox.set_baseline({REPO_SLUG: {name: {"md5": _md5(b"note"), "size": 4, "mtime": 1.0} for name in tracked}})
+    stored_before = dict(storage.objects)
 
     counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert storage.writes == []
+    assert storage.objects == stored_before
     assert counts.skipped["slug_file_limit"] == 1
 
 
@@ -440,6 +465,18 @@ def test_restore_replaces_stored_slugs_for_this_project_only(storage: FakeStorag
     assert result.complete is True
     assert result.counts.skipped == {"invalid_key": 2}
     assert set(json.loads(sandbox.files[SANDBOX_BASELINE_PATH])) == {REPO_SLUG}
+
+
+def test_restore_into_a_memory_directory_over_the_file_cap_deletes_nothing(storage: FakeStorage) -> None:
+    storage.objects = {_key(REPO_SLUG, "MEMORY.md"): b"stored index"}
+    stale = {_memory_path(REPO_SLUG, f"stale-{index}.md"): b"note" for index in range(201)}
+    sandbox = FakeSandbox(stale)
+
+    result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert result.complete is False
+    assert result.counts.errors == 1
+    assert stale.items() <= sandbox.memory().items()
 
 
 @pytest.mark.parametrize(

@@ -20,7 +20,6 @@ from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
-    SandboxFilesystemNotFoundError as ModalSandboxFilesystemNotFoundError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
@@ -3120,38 +3119,22 @@ class TestModalSandboxProxyRateLimit:
         assert not isinstance(exc.value, SandboxNotFoundError)
         assert exc.value.context["operation"] == "lookup"
 
-    def test_list_dir_reports_symlinks_as_themselves(self, mock_sandbox: Any):
-        mock_sandbox._sandbox.filesystem.list_files.return_value = [
-            ModalFileInfo(
-                name=name,
-                path=f"/tmp/workspace/memory/{name}",
-                type=file_type,
-                size=size,
-                mode=mode,
-                permissions="rw-r--r--",
-                owner="root",
-                group="root",
-                modified_time=5.5,
-                symlink_target="/etc/passwd" if file_type == ModalFileType.SYMLINK else None,
-            )
-            for name, file_type, mode, size in [
-                ("MEMORY.md", ModalFileType.FILE, stat.S_IFREG | 0o644, 12),
-                ("link.md", ModalFileType.SYMLINK, stat.S_IFLNK | 0o777, 11),
-                ("nested", ModalFileType.DIRECTORY, stat.S_IFDIR | 0o755, 0),
-                # Modal reports a FIFO as a plain file; only the mode shows what it is.
-                ("pipe.md", ModalFileType.FILE, stat.S_IFIFO | 0o644, 0),
-            ]
-        ]
+    def test_list_dir_reports_symlinks_as_themselves_through_a_bounded_listing(self, mock_sandbox: Any):
+        stdout = "f\t12\t5.5\tMEMORY.md\0l\t11\t5.5\tlink.md\0d\t0\t5.5\tnested\0p\t0\t5.5\tpipe.md\0"
+        execute = MagicMock(return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=0))
+        mock_sandbox.execute = execute
 
-        assert mock_sandbox.list_dir("/tmp/workspace/memory") == [
+        assert mock_sandbox.list_dir("/tmp/workspace/memory", limit=201) == [
             SandboxDirEntry(name="MEMORY.md", kind="file", size=12, mtime=5.5),
             SandboxDirEntry(name="link.md", kind="symlink", size=11, mtime=5.5),
             SandboxDirEntry(name="nested", kind="dir", size=0, mtime=5.5),
             SandboxDirEntry(name="pipe.md", kind="other", size=0, mtime=5.5),
         ]
+        assert execute.call_args.args[0].endswith(" | head -z -n 201")
+        mock_sandbox._sandbox.filesystem.list_files.assert_not_called()
 
     def test_list_dir_of_a_missing_directory_is_none(self, mock_sandbox: Any):
-        mock_sandbox._sandbox.filesystem.list_files.side_effect = ModalSandboxFilesystemNotFoundError("missing")
+        mock_sandbox.execute = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=3))
 
         assert mock_sandbox.list_dir("/tmp/workspace/memory") is None
 

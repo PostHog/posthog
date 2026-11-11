@@ -50,6 +50,8 @@ STORAGE_PREFIX = "tasks/agent-memory"
 MAX_FILE_BYTES = 256 * 1024
 MAX_SLUG_BYTES = 2 * 1024 * 1024
 MAX_FILES_PER_SLUG = 200
+# A Claude project directory holds session transcripts beside `memory/`.
+MAX_SLUG_DIR_ENTRIES = 1000
 MAX_SLUGS_PER_USER = 50
 MAX_STORED_KEYS = MAX_SLUGS_PER_USER * MAX_FILES_PER_SLUG
 MAX_BASELINE_BYTES = 4 * 1024 * 1024
@@ -248,7 +250,8 @@ class _SandboxSlugs:
 
 def _list_sandbox_slugs(sandbox: SandboxBase, counts: MemorySyncCounts) -> _SandboxSlugs:
     slugs: list[str] = []
-    for entry in sorted(sandbox.list_dir(SANDBOX_CLAUDE_PROJECTS_DIR) or [], key=lambda e: e.name):
+    listing = sandbox.list_dir(SANDBOX_CLAUDE_PROJECTS_DIR, limit=MAX_SLUGS_PER_USER + 1) or []
+    for entry in sorted(listing, key=lambda e: e.name):
         if not is_valid_slug(entry.name):
             counts.skip("invalid_slug")
         elif entry.kind != "dir":
@@ -256,8 +259,8 @@ def _list_sandbox_slugs(sandbox: SandboxBase, counts: MemorySyncCounts) -> _Sand
         else:
             slugs.append(entry.name)
     selected = slugs
-    if len(slugs) > MAX_SLUGS_PER_USER:
-        counts.skip("slug_limit", len(slugs) - MAX_SLUGS_PER_USER)
+    if len(listing) > MAX_SLUGS_PER_USER:
+        counts.skip("slug_limit")
         selected = slugs[:MAX_SLUGS_PER_USER]
     return _SandboxSlugs(listed=frozenset(slugs), selected=frozenset(selected))
 
@@ -268,15 +271,23 @@ def _memory_file_entries(
     """The slug's memory files; an empty list when the directory is gone, None to leave the slug alone."""
     if not in_sandbox:
         return []
-    slug_entries = {entry.name: entry for entry in sandbox.list_dir(sandbox_slug_dir(slug)) or []}
+    slug_listing = sandbox.list_dir(sandbox_slug_dir(slug), limit=MAX_SLUG_DIR_ENTRIES + 1) or []
+    if len(slug_listing) > MAX_SLUG_DIR_ENTRIES:
+        counts.skip("slug_dir_truncated")
+        return None
+    slug_entries = {entry.name: entry for entry in slug_listing}
     memory_entry = slug_entries.get(MEMORY_DIR_NAME)
     if memory_entry is None:
         return []
     if memory_entry.kind != "dir":
         counts.skip(f"memory_dir_{memory_entry.kind}")
         return None
+    memory_listing = sandbox.list_dir(sandbox_memory_dir(slug), limit=MAX_FILES_PER_SLUG + 1) or []
+    if len(memory_listing) > MAX_FILES_PER_SLUG:
+        counts.skip("slug_file_limit")
+        return None
     files: list[SandboxDirEntry] = []
-    for entry in sorted(sandbox.list_dir(sandbox_memory_dir(slug)) or [], key=lambda e: e.name):
+    for entry in sorted(memory_listing, key=lambda e: e.name):
         if not is_valid_memory_filename(entry.name):
             counts.skip("invalid_filename")
         elif entry.kind != "file":
@@ -422,7 +433,9 @@ def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) 
     # Tracked slugs go first, so a removed slug frees its baseline slot before a new slug asks for one.
     for slug in sorted(sandbox_slugs.selected | baseline.keys(), key=lambda slug: (not baseline.get(slug), slug)):
         in_sandbox = slug in sandbox_slugs.selected
-        if not in_sandbox and (slug in sandbox_slugs.listed or sandbox.list_dir(sandbox_slug_dir(slug)) is not None):
+        if not in_sandbox and (
+            slug in sandbox_slugs.listed or sandbox.list_dir(sandbox_slug_dir(slug), limit=1) is not None
+        ):
             # Left out by the slug cap, or not a plain directory: not evidence of a deletion.
             continue
         tracked = bool(baseline.get(slug))
@@ -535,9 +548,13 @@ def _write_sandbox_slug(
             raise
         counts.files_written += 1
     _check_deadline(deadline)
+    listing = sandbox.list_dir(memory_dir, limit=MAX_FILES_PER_SLUG + 1) or []
+    if len(listing) > MAX_FILES_PER_SLUG:
+        counts.errors += 1
+        return False
     stale = sorted(
         entry.name
-        for entry in sandbox.list_dir(memory_dir) or []
+        for entry in listing
         if entry.kind in ("file", "symlink") and is_valid_memory_filename(entry.name) and entry.name not in files
     )
     if stale:
@@ -549,7 +566,7 @@ def _write_sandbox_slug(
         counts.files_deleted += len(stale)
     # Swap the placeholder mtimes for real ones, so the next persist skips these files unread.
     _check_deadline(deadline)
-    for entry in sandbox.list_dir(memory_dir) or []:
+    for entry in sandbox.list_dir(memory_dir, limit=MAX_FILES_PER_SLUG + 1) or []:
         tracked = slug_base.get(entry.name)
         if tracked is not None and entry.kind == "file" and entry.size == tracked.size:
             slug_base[entry.name] = BaselineFile(md5=tracked.md5, size=tracked.size, mtime=entry.mtime)
@@ -577,7 +594,9 @@ def restore_sandbox_memory(
 
     stored = _list_stored_memory(team_id, user_id, counts)
 
-    if sandbox.list_dir(SANDBOX_HOME_CLAUDE_PROJECTS_DIR) and not sandbox.list_dir(SANDBOX_CLAUDE_PROJECTS_DIR):
+    if sandbox.list_dir(SANDBOX_HOME_CLAUDE_PROJECTS_DIR, limit=1) and not sandbox.list_dir(
+        SANDBOX_CLAUDE_PROJECTS_DIR, limit=1
+    ):
         counts.skip("home_projects_unmigrated")
         return MemoryRestoreResult(counts=counts, complete=False)
     # Written even when storage is empty, so a snapshot of this sandbox carries a baseline and a

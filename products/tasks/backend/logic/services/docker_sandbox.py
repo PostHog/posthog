@@ -18,7 +18,7 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from django.conf import settings
 
@@ -59,6 +59,7 @@ from .local_skills import (
     snapshot_local_task_skills,
 )
 from .sandbox import (
+    LIST_DIR_MISSING_EXIT_CODE,
     WORKING_DIR,
     AgentServerResult,
     ExecutionResult,
@@ -69,6 +70,8 @@ from .sandbox import (
     SandboxTemplate,
     build_agent_runtime_env_prefix,
     build_subscription_flags,
+    list_dir_command,
+    parse_list_dir_output,
     parse_sandbox_repo_mount_map,
     read_pinned_agent_version,
     redact_sandbox_command,
@@ -76,8 +79,6 @@ from .sandbox import (
 )
 
 logger = logging.getLogger(__name__)
-
-_FIND_KINDS: dict[str, Literal["file", "dir", "symlink"]] = {"f": "file", "d": "dir", "l": "symlink"}
 
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
@@ -1342,13 +1343,10 @@ class DockerSandbox(AgentServerLaunchMixin):
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
-    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
         self._raise_unless_running()
-        quoted = shlex.quote(path)
-        result = self.execute(
-            f"test -d {quoted} || exit 3; find {quoted} -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\n'"
-        )
-        if result.exit_code == 3:
+        result = self.execute(list_dir_command(path, limit))
+        if result.exit_code == LIST_DIR_MISSING_EXIT_CODE:
             return None
         if result.exit_code != 0:
             raise SandboxExecutionError(
@@ -1356,16 +1354,7 @@ class DockerSandbox(AgentServerLaunchMixin):
                 {"sandbox_id": self.id, "path": path, "stderr": result.stderr[:500]},
                 cause=RuntimeError(result.stderr[:500]),
             )
-        entries: list[SandboxDirEntry] = []
-        for line in result.stdout.splitlines():
-            parts = line.split("\t", 3)
-            if len(parts) != 4 or not parts[1].isdigit():
-                continue
-            kind, size, mtime, name = parts
-            entries.append(
-                SandboxDirEntry(name=name, kind=_FIND_KINDS.get(kind, "other"), size=int(size), mtime=float(mtime))
-            )
-        return entries
+        return parse_list_dir_output(result.stdout)
 
     def read_file(self, path: str, max_bytes: int) -> bytes | None:
         self._raise_unless_running()

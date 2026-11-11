@@ -198,6 +198,36 @@ class SandboxDirEntry:
     mtime: float
 
 
+LIST_DIR_MISSING_EXIT_CODE = 3
+_FIND_KINDS: dict[str, Literal["file", "dir", "symlink"]] = {"f": "file", "d": "dir", "l": "symlink"}
+
+
+def list_dir_command(path: str, limit: int | None = None) -> str:
+    # NUL-terminated, because a filename may contain a newline and must not split into forged entries
+    # or let `head` count one entry twice.
+    quoted = shlex.quote(path)
+    command = (
+        f"test -d {quoted} || exit {LIST_DIR_MISSING_EXIT_CODE}; "
+        f"find {quoted} -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\0'"
+    )
+    if limit is not None:
+        command += f" | head -z -n {int(limit)}"
+    return command
+
+
+def parse_list_dir_output(stdout: str) -> list[SandboxDirEntry]:
+    entries: list[SandboxDirEntry] = []
+    for record in stdout.split("\0"):
+        parts = record.split("\t", 3)
+        if len(parts) != 4 or not parts[1].isdigit():
+            continue
+        kind, size, mtime, name = parts
+        entries.append(
+            SandboxDirEntry(name=name, kind=_FIND_KINDS.get(kind, "other"), size=int(size), mtime=float(mtime))
+        )
+    return entries
+
+
 class ExecutionStream(Protocol):
     def iter_stdout(self) -> Iterable[str]: ...
 
@@ -513,8 +543,10 @@ class SandboxBase(ABC):
     @abstractmethod
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
-    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
+    def list_dir(self, path: str, *, limit: int | None = None) -> list[SandboxDirEntry] | None:
         """Entries in `path`; None when it is missing or not a directory, so an empty directory stays distinct.
+
+        `limit` caps the entries inside the sandbox; pass `cap + 1` and read a longer result as truncated.
 
         The agent controls the sandbox filesystem, so callers must validate every name and size.
         """
