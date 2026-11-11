@@ -97,10 +97,9 @@ class HogFunctionPathReason(StrEnum):
     # A function takes the source's alert events without being bound to one alert. Native
     # delivery reads destinations per alert, so it would never send to it.
     UNBOUND = "unbound"
-    # A stock webhook whose team receives the platform body natively. Its receiver parses the
-    # body the HogFunction sends.
-    NEW_WEBHOOK_BODY = "new_webhook_body"
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
+    # Native delivery cannot send this source's legacy webhook body, and the team keeps it.
+    LEGACY_WEBHOOK_BODY_NOT_NATIVE = "legacy_webhook_body_not_native"
     # Native delivery sends PagerDuty incident actions only, never the firing event.
     PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
 
@@ -138,6 +137,14 @@ class BucketedDestination:
 
 @frozen
 class FiringAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+
+
+@frozen
+class EnabledAlert:
     id: UUID
     name: str
     insight_name: str | None

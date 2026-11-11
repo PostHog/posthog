@@ -66,7 +66,12 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
         return cancelRevealFrame
     }, [revealSelected, cancelRevealFrame])
     const [menu, setMenu] = useState<RowMenuTarget | null>(null)
-    const open = useCallback((id: string): void => router.setParams({ id, from: 'inbox' }), [router])
+    // A web report link leaves `host` and `project` in the route and `setParams` keeps them, so an inbox row would
+    // resolve against the link's project instead of the current one. Empty values clear both.
+    const open = useCallback(
+        (id: string): void => router.setParams({ id, from: 'inbox', host: '', project: '' }),
+        [router]
+    )
     const onMenu = useCallback((item: InboxItem, anchor: RowAnchor): void => setMenu({ item, anchor }), [])
     const onRead = useCallback(
         (id: string, read: boolean): void => {

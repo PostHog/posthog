@@ -32,6 +32,10 @@ class ExperimentQueryContext:
     breakdowns: tuple[Breakdown, ...]
     only_count_matured_users: bool
     cuped_config: CupedQueryConfig
+    # Whether the preaggregated tables follow person merges for a person-aggregated experiment: a
+    # build stores the distinct_id of each row, and a read resolves each row to its current person.
+    # The caller evaluates it once per query, so that every build and read of the query agree.
+    resolve_precomputed_persons: bool
     # When set, an entity only counts as exposed once it emits this event at/after its first
     # default exposure event, and that activation event's timestamp becomes the exposure time.
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
@@ -39,6 +43,35 @@ class ExperimentQueryContext:
     # False for a metric that reads $feature_flag_called: the call and its copy share a timestamp,
     # so one of them would be the exposure and the other a conversion.
     read_exposure_copies: bool = True
+
+    def precomputed_entity_id_sql(self) -> str:
+        """
+        The entity that a row of an experiment preaggregated table belongs to, for a read that
+        aliases the table as `t`.
+
+        A group-aggregated read uses `entity_id`, which holds the group key. A person-aggregated
+        read uses the person stored in `entity_id` at build time, cast back to the UUID that the
+        downstream joins expect. With merge resolution on, it uses the table's `person_id`
+        instead, which follows a later identify or merge. Two rows that were built for different
+        persons and now belong to one person then count as one entity, as they do on the events scan.
+        """
+        if self.entity_key != "person_id":
+            return "t.entity_id"
+        return "t.person_id" if self.resolve_precomputed_persons else "toUUID(t.entity_id)"
+
+    def precompute_distinct_id_column_sql(self, distinct_id_sql: str) -> str:
+        """
+        The SELECT column that makes a build store `distinct_id_sql` as the distinct_id of each
+        row. It is written to follow the last column of a build template.
+
+        A read resolves a row to its current person through this distinct_id, so a build stores
+        it only when the read does that. Otherwise the result is empty and the template stays
+        byte for byte the same. The job hash includes the source position of each node, so a
+        template that changes matches no cached job.
+        """
+        if self.entity_key != "person_id" or not self.resolve_precomputed_persons:
+            return ""
+        return f",\n                {distinct_id_sql} AS distinct_id"
 
 
 @dataclass(frozen=True)

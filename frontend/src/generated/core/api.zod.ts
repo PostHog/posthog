@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Approve a device grant for one project. The token gets the scopes `lookup` showed.
+ * Approve a device grant for one project. The token gets the requested scopes the person kept.
  */
 export const oauthDeviceApproveCreateBodyUserCodeMax = 20
 
@@ -20,6 +20,12 @@ export const OauthDeviceApproveCreateBody = /* @__PURE__ */ zod.object({
         .max(oauthDeviceApproveCreateBodyUserCodeMax)
         .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
     project_id: zod.number().describe('The project the token is scoped to.'),
+    scopes: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes.'
+        ),
 })
 
 /**
@@ -1214,6 +1220,43 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Returns how many query executions referenced each property in the last 30 days, including cached insight views. Batched: send up to 100 properties at once. Counts are cached for 24 hours.
+ * @summary 30-day query usage for a set of properties
+ */
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault = `event`
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemNameMax = 400
+
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMin = 0
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMax = 4
+
+export const PropertyDefinitionsUsageMetricsCreateBody = /* @__PURE__ */ zod.object({
+    properties: zod
+        .array(
+            zod.object({
+                type: zod
+                    .enum(['event', 'person', 'group', 'session'])
+                    .default(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault)
+                    .describe(
+                        'Property definition type the name belongs to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
+                    ),
+                name: zod
+                    .string()
+                    .max(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemNameMax)
+                    .describe('Property name, for example `$current_url`.'),
+                group_type_index: zod
+                    .number()
+                    .min(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMin)
+                    .max(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMax)
+                    .nullish()
+                    .describe(
+                        'Group type index of a group property. Required when `type` is `group`, otherwise omit it.'
+                    ),
+            })
+        )
+        .describe('Properties to fetch 30-day query usage for, at most 100 per request.'),
+})
+
+/**
  * Create a new password for the sharing configuration.
  */
 export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod
@@ -1462,6 +1505,48 @@ export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object
             'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
         ),
     enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const workloadTrustPolicyRequestsCreateBodyNameMax = 200
+
+export const workloadTrustPolicyRequestsCreateBodyIssuerMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodySubjectNameMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodySubjectMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodyScopesItemMax = 100
+
+export const WorkloadTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodyNameMax)
+        .describe('The name the policy gets once approved.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPolicyRequestsCreateBodyScopesItemMax))
+        .describe("The scopes the policy's tokens would carry."),
 })
 
 /**
@@ -1871,13 +1956,6 @@ export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod
             .max(usersOnboardingSkipCreateBodyStepAtSkipMax)
             .optional()
             .describe('Onboarding step key the user was on when skipping, for analytics only.'),
-        flow_variant: zod
-            .enum(['legacy', 'simple'])
-            .describe('\* `legacy` - Default onboarding\n\* `simple` - Simple onboarding')
-            .optional()
-            .describe(
-                'Which onboarding flow the user skipped from, for analytics only.\n\n\* `legacy` - Default onboarding\n\* `simple` - Simple onboarding'
-            ),
     })
     .describe(
         'Request body for POST \/api\/users\/{id}\/onboarding\/skip\/.\n\nSource of truth for OpenAPI \/ generated TS \/ zod \/ MCP — bind this serializer at\nruntime so the contract clients believe is enforced (length cap, choice validation,\nno extra fields) is actually enforced server-side.'

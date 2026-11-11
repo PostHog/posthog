@@ -28,6 +28,7 @@ from botocore.exceptions import ClientError
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import CDCExtractActivity, CDCExtractInput
@@ -517,6 +518,9 @@ class ConformanceKit:
             if update_fields is None or "job_inputs" in update_fields:
                 kit._source_job_inputs = copy.deepcopy(source.job_inputs)
 
+        def read_masked_columns(_extraction: CDCExtractActivity, schema: ExternalDataSchema) -> list[str] | None:
+            return kit._schema_row(schema.id).get("masked_columns")
+
         def cdc_schemas(extraction: CDCExtractActivity) -> list[ExternalDataSchema]:
             assert extraction.source is not None
             return [kit._load_schema(name, extraction.source) for name in kit._schema_rows]
@@ -547,9 +551,12 @@ class ConformanceKit:
             ),
             patch(f"{_CDC}.activities.ExternalDataSource", source_model),
             patch.object(CDCExtractActivity, "_get_cdc_schemas", cdc_schemas),
+            patch.object(CDCExtractActivity, "_read_masked_columns", read_masked_columns),
             patch(f"{_CDC}.activities.update_sync_type_config_keys", merge_config),
             patch.object(ExternalDataSchema, "save", save_schema),
             patch.object(ExternalDataSource, "save", save_source),
+            # The source lives only in memory, so it has no credentials row to read.
+            read_unsaved_source_inputs_as_stored(),
             # The lanes read their position from the in-memory tables instead of Delta.
             patch(f"{_CDC}.source_manager.DeltaTableRef", _LaneTableRef),
             patch(f"{_CDC}.source_manager.ensure_position_stats", _keep_position_stats),

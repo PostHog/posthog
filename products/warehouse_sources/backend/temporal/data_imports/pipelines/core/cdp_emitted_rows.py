@@ -19,6 +19,14 @@ later run, which is the behavior this store removes, and never a dropped one: an
 suppressed because an earlier run produced it. Serializing the load through the commit would mean
 holding a lock across the whole produce loop, which runs for as long as the rows take to reach
 Kafka, and a lock that expires under that would give the same interleaving with more to go wrong.
+
+A run that fails part way is retried, either from its last checkpoint or, once the activity's
+retries run out, by a fresh workflow attempt for the same job. Neither produces the rows of files an
+earlier attempt already finished and deleted. So each checkpoint also adds the rows recorded so far
+to an attempt key for the job, which every attempt of that job reads back and the commit clears.
+Without it, the retry's commit would leave out the rows the earlier attempt delivered, and the next
+run would trigger them again. The key is per job, so an overlapping run of the same view never
+touches another run's progress.
 """
 
 import asyncio
@@ -58,6 +66,12 @@ def emitted_rows_key(team_id: int, saved_query_id: str) -> str:
     return f"cdp_produced_view_rows:{{{team_id}:{saved_query_id}}}"
 
 
+# Each checkpoint refreshes this, and checkpoints come at least every 30 seconds while a run produces,
+# so it only has to cover the gap between attempts. The commit deletes the key, so the TTL only bounds
+# what a run that never commits leaves behind.
+ATTEMPT_KEY_TTL_SECONDS = 2 * 24 * 60 * 60
+
+
 class EmittedRowStore:
     """The event ids a view produced on its previous run.
 
@@ -65,22 +79,35 @@ class EmittedRowStore:
     trigger. Failing closed would drop a real one.
     """
 
-    def __init__(self, key: str | None, logger: FilteringBoundLogger) -> None:
+    def __init__(self, key: str | None, logger: FilteringBoundLogger, *, job_id: str = "") -> None:
         self._key = key
+        self._attempt_key = f"{key}:attempt:{job_id}"
         self._logger = logger
         self._previous: set[str] = set()
         self._current: set[str] = set()
         self._pending_deliveries: list[tuple[str, asyncio.Future[Any]]] = []
+        self._unpersisted: list[str] = []
         self._enabled = key is not None
         self._at_limit = False
 
     async def load(self) -> None:
+        """Read the previous run's record.
+
+        Also reads back the rows earlier attempts of this job recorded before their last checkpoint,
+        since a retry does not produce those rows again. Every id there was delivered by this job or,
+        for a suppressed repeat, by an earlier run.
+        """
         if not self._enabled:
             return
 
+        assert self._key is not None
         try:
-            members = await get_async_client().smembers(self._key)
-            self._previous = {member.decode() if isinstance(member, bytes) else member for member in members}
+            client = get_async_client()
+            members = await client.smembers(self._key)
+            self._previous = {_decode(member) for member in members}
+            for member in await client.smembers(self._attempt_key):
+                self._track(_decode(member))
+            self._unpersisted.clear()
         except Exception as e:
             self._enabled = False
             await self._logger.awarning(f"Could not read produced view rows; not suppressing repeats this run: {e}")
@@ -145,10 +172,33 @@ class EmittedRowStore:
         self._track(event_id)
 
     def _track(self, event_id: str) -> None:
+        if event_id in self._current:
+            return
         if len(self._current) < MAX_TRACKED_ROWS:
             self._current.add(event_id)
+            self._unpersisted.append(event_id)
         else:
             self._at_limit = True
+
+    async def persist_progress(self) -> None:
+        """Add the rows recorded since the last call to the attempt key.
+
+        Call it before a checkpoint, so a retry that resumes there still records the rows before it.
+        A failure costs those rows a repeated trigger next run, like any other Redis problem here.
+        """
+        if not self._enabled or not self._unpersisted:
+            return
+
+        assert self._key is not None
+        try:
+            pipeline = get_async_client().pipeline(transaction=False)
+            for chunk in batched(self._unpersisted, _WRITE_CHUNK_SIZE, strict=False):
+                pipeline.sadd(self._attempt_key, *chunk)
+            pipeline.expire(self._attempt_key, ATTEMPT_KEY_TTL_SECONDS)
+            await pipeline.execute()
+        except Exception as e:
+            await self._logger.awarning(f"Could not checkpoint produced view rows; a retry may repeat them: {e}")
+        self._unpersisted.clear()
 
     async def commit(self) -> None:
         """Replace the record with what this run saw.
@@ -164,10 +214,11 @@ class EmittedRowStore:
                 f"More than {MAX_TRACKED_ROWS} view rows in one run; rows past that may trigger again next run"
             )
 
+        assert self._key is not None
         try:
             client = get_async_client()
             if not self._current:
-                await client.delete(self._key)
+                await client.delete(self._key, self._attempt_key)
                 return
 
             scratch_key = f"{self._key}:writing"
@@ -179,6 +230,11 @@ class EmittedRowStore:
                 pipeline.sadd(scratch_key, *chunk)
             pipeline.expire(scratch_key, EMITTED_ROWS_TTL_SECONDS)
             pipeline.rename(scratch_key, self._key)
+            pipeline.delete(self._attempt_key)
             await pipeline.execute()
         except Exception as e:
             await self._logger.awarning(f"Could not record produced view rows; repeats may not be suppressed: {e}")
+
+
+def _decode(member: bytes | str) -> str:
+    return member.decode() if isinstance(member, bytes) else member

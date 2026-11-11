@@ -20,7 +20,7 @@ import posthog from 'posthog-js'
 import { keyForSource } from '@posthog/replay-shared'
 import { SnapshotSourceType, SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
 
-import api, { ApiError, RecordingDeletedError } from 'lib/api'
+import api, { ApiError, NotAReplayBlockError, RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
@@ -252,6 +252,34 @@ export type snapshotDataLogicType = MakeLogicType<
     snapshotDataLogicMeta
 >
 
+// A fixed set of causes, so the fallback event groups by why the direct read failed.
+function directBlockFallbackReason(e: unknown): string {
+    if (e instanceof ApiError) {
+        return 'http_error'
+    }
+    if (e instanceof NotAReplayBlockError) {
+        return 'not_a_block'
+    }
+    if (e instanceof DOMException && e.name === 'AbortError') {
+        return 'timeout'
+    }
+    // fetch rejects with a TypeError when the request never got a response.
+    if (e instanceof TypeError) {
+        return 'network'
+    }
+    return 'unknown'
+}
+
+// The block token goes only to this app's own block route, never to a host taken from the listing.
+function isReplayBlockRouteUrl(url: string): boolean {
+    try {
+        const parsed = new URL(url, window.location.origin)
+        return parsed.origin === window.location.origin && parsed.pathname.startsWith('/replay-blocks/')
+    } catch {
+        return false
+    }
+}
+
 // Reads a batch straight from recording-api when the listing gave every block a url, so the browser caches each
 // block. Returns null to use the snapshots endpoint instead, which serves every recording.
 async function loadBlocksDirectly(
@@ -264,7 +292,7 @@ async function loadBlocksDirectly(
     const urlsByKey = new Map((listedSources ?? []).map((s) => [s.blob_key, s.url]))
     const urls = sources.map((s) => urlsByKey.get(s.blob_key))
     // A second 401 after a fresh token means the token can never work here, so stop paying for a failed batch.
-    if (!token || direct.unauthorizedCount > 1 || urls.some((url) => !url)) {
+    if (!token || direct.unauthorizedCount > 1 || urls.some((url) => !url || !isReplayBlockRouteUrl(url))) {
         return null
     }
     try {
@@ -286,7 +314,7 @@ async function loadBlocksDirectly(
         // Without this, a broken rollout looks healthy while every batch pays for a failed download.
         posthog.capture('replay direct block fetch fell back', {
             status: status ?? null,
-            reason: e instanceof Error ? e.name : 'unknown',
+            reason: directBlockFallbackReason(e),
             block_count: urls.length,
         })
         return null

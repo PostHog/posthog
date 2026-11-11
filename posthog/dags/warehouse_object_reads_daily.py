@@ -39,7 +39,8 @@ SPILL_GROUP_BY_AFTER_BYTES = 2 * ONE_GIB
 MAX_THREADS = 8
 ROLLUP_NODE_ROLE = NodeRole.AUX
 ROLLUP_START_DATE = "2026-09-17"
-SCHEDULE_HOUR_UTC = 7
+ATTEMPT_HOURS_UTC = (5, 6, 7)
+CATCH_UP_DAYS = 7
 OVERDUE_AFTER_UTC = time(hour=10)
 OVERDUE_CHECK_INTERVAL_SECONDS = 60 * 60
 CONCURRENCY_TAG = {"warehouse_object_reads_backfill_concurrency": "warehouse_object_reads_v1"}
@@ -320,14 +321,6 @@ def warehouse_object_reads_daily_job() -> None:
     rollup_warehouse_object_reads_for_day()
 
 
-warehouse_object_reads_daily_schedule = dagster.build_schedule_from_partitioned_job(
-    warehouse_object_reads_daily_job,
-    hour_of_day=SCHEDULE_HOUR_UTC,
-    minute_of_hour=0,
-    default_status=dagster.DefaultScheduleStatus.RUNNING,
-)
-
-
 def has_published_day(instance: dagster.DagsterInstance, day: date) -> bool:
     return bool(
         instance.get_run_records(
@@ -341,6 +334,36 @@ def has_published_day(instance: dagster.DagsterInstance, day: date) -> bool:
     )
 
 
+def unpublished_days(instance: dagster.DagsterInstance, today: date) -> list[date]:
+    first_day = max(date.fromisoformat(ROLLUP_START_DATE), today - timedelta(days=CATCH_UP_DAYS))
+    days = (first_day + timedelta(days=offset) for offset in range((today - first_day).days))
+    return [day for day in days if not has_published_day(instance, day)]
+
+
+@dagster.schedule(
+    job=warehouse_object_reads_daily_job,
+    name=f"{warehouse_object_reads_daily_job.name}_schedule",
+    cron_schedule=f"0 {','.join(str(hour) for hour in ATTEMPT_HOURS_UTC)} * * *",
+    execution_timezone="UTC",
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
+)
+def warehouse_object_reads_daily_schedule(
+    context: dagster.ScheduleEvaluationContext,
+) -> dagster.RunRequest | dagster.SkipReason:
+    active_runs = describe_runs(
+        context.instance,
+        (warehouse_object_reads_daily_job.name,),
+        created_after=datetime.now(UTC) - STUCK_RUN_AGE,
+        exclude_run_id="",
+    )
+    if active_runs:
+        return dagster.SkipReason(f"{'; '.join(active_runs)} is queued or executing.")
+    missing_days = unpublished_days(context.instance, datetime.now(UTC).date())
+    if not missing_days:
+        return dagster.SkipReason(f"Every day of the last {CATCH_UP_DAYS} days is published.")
+    return dagster.RunRequest(partition_key=missing_days[-1].isoformat())
+
+
 @dagster.sensor(
     minimum_interval_seconds=OVERDUE_CHECK_INTERVAL_SECONDS,
     default_status=dagster.DefaultSensorStatus.RUNNING,
@@ -351,22 +374,26 @@ def warehouse_object_reads_daily_overdue_sensor(
     now = datetime.now(UTC)
     if now.time() < OVERDUE_AFTER_UTC:
         return dagster.SkipReason(f"The rollup is not overdue before {OVERDUE_AFTER_UTC} UTC.")
-    day = now.date() - timedelta(days=1)
-    if context.cursor == day.isoformat():
-        return dagster.SkipReason(f"Already alerted that {day} is missing.")
-    if has_published_day(context.instance, day):
-        return dagster.SkipReason(f"{day} is published.")
+    today = now.date()
+    if context.cursor == today.isoformat():
+        return dagster.SkipReason(f"Already alerted about missing days on {today}.")
+    missing_days = unpublished_days(context.instance, today)
+    if not missing_days:
+        return dagster.SkipReason(f"Every day of the last {CATCH_UP_DAYS} days is published.")
+    missing = ", ".join(day.isoformat() for day in missing_days)
     if not settings.CLOUD_DEPLOYMENT:
-        return dagster.SkipReason(f"{day} is missing, but alerts only go out in cloud deployments.")
+        return dagster.SkipReason(f"{missing} is missing, but alerts only go out in cloud deployments.")
 
+    attempt_times = ", ".join(f"{hour:02d}:00" for hour in ATTEMPT_HOURS_UTC)
     job_url = f"https://{settings.DAGSTER_DOMAIN}/locations/clickhouse/jobs/{warehouse_object_reads_daily_job.name}"
     message = (
-        f":hourglass: `{warehouse_object_reads_daily_job.name}` has no successful run for {day} "
-        f"by {OVERDUE_AFTER_UTC:%H:%M} UTC. Check that its schedule is running and that no run is stuck in the queue: "
+        f":hourglass: `{warehouse_object_reads_daily_job.name}` has no successful run for {missing} "
+        f"by {OVERDUE_AFTER_UTC:%H:%M} UTC. The schedule retries missing days at {attempt_times} UTC "
+        f"until they are {CATCH_UP_DAYS} days old. Check that its schedule is running and that no run is stuck in the queue: "
         f"<{job_url}|View in Dagster>\nEnvironment: {settings.CLOUD_DEPLOYMENT}"
     )
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]
     channel = notification_channel_per_team[JobOwners.TEAM_DATA_MODELING.value]
     if send_slack_alert(context, slack.get_client(), channel, blocks, message):
-        context.update_cursor(day.isoformat())
+        context.update_cursor(today.isoformat())
     return None

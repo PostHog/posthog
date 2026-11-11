@@ -1,7 +1,10 @@
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ChartOptionLabel } from './ChartOptionLabel'
 import type { ChartOptionChoice } from './ChartOptionSelect'
+import { QuillChartOptionToggleGroup } from './QuillChartOptionToggleGroup'
 
 export interface ChartOptionToggleGroupProps<T extends string | number> {
     /** Without a label the choices fill the row, for a group whose heading already names it. */
@@ -15,6 +18,12 @@ export interface ChartOptionToggleGroupProps<T extends string | number> {
 }
 
 export function ChartOptionToggleGroup<T extends string | number>(props: ChartOptionToggleGroupProps<T>): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillChartOptionToggleGroup {...props} />
+    }
+
     const { label, info, value, options, onChange, disabledReason, 'data-attr': dataAttr } = props
     return (
         <div className="flex flex-col gap-1" data-attr={dataAttr}>

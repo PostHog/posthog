@@ -264,11 +264,6 @@ class ErrorTrackingStoredIssueSummarySerializer(serializers.Serializer):
     )
     who_is_affected = serializers.CharField(help_text="Which users, sessions or environments see the issue.")
     suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the issue.")
-    category = serializers.ChoiceField(
-        choices=contracts.IssueSummaryCategory.choices,
-        allow_null=True,
-        help_text="Broad source of the issue, or null when the category model did not answer.",
-    )
     model = serializers.CharField(help_text="Model that wrote the summary.")
     generated_at = serializers.DateTimeField(help_text="When the summary was written.")
     checked_at = serializers.DateTimeField(help_text="When generation last wrote the summary.")

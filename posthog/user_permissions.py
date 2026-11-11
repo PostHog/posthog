@@ -22,9 +22,15 @@ class UserPermissions:
     passed to it and will use it to skip certain lookups.
     """
 
-    def __init__(self, user: User, team: Optional[Team] = None):
+    def __init__(
+        self,
+        user: User,
+        team: Optional[Team] = None,
+        organization_membership: Optional[OrganizationMembership] = None,
+    ):
         self.user = user
         self._current_team = team
+        self._organization_membership = organization_membership
 
         self._team_permissions: dict[int, UserTeamPermissions] = {}
 
@@ -66,7 +72,14 @@ class UserPermissions:
         return self.get_organization(self._current_team.organization_id)
 
     def get_organization(self, organization_id: UUID) -> Optional[Organization]:
-        return self.organizations.get(organization_id)
+        membership = self.get_organization_membership(organization_id)
+        return membership.organization if membership is not None else None
+
+    def get_organization_membership(self, organization_id: UUID) -> Optional[OrganizationMembership]:
+        membership = self._organization_membership
+        if membership is not None and membership.organization_id == organization_id:
+            return membership
+        return self.organization_memberships.get(organization_id)
 
     @cached_property
     def organizations(self) -> dict[UUID, Organization]:
@@ -143,7 +156,7 @@ class UserTeamPermissions:
         None returned if the user has no explicit membership and organization access is too low for implicit membership.
         """
 
-        membership = self.p.organization_memberships.get(self.team.organization_id)
+        membership = self.p.get_organization_membership(self.team.organization_id)
         organization = self.p.get_organization(self.team.organization_id)
         return self.effective_membership_level_for_parent_membership(organization, membership)
 

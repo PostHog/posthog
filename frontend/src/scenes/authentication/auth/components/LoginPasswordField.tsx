@@ -12,8 +12,15 @@ import { loginLogic } from '../loginLogic'
 
 export function LoginPasswordField(): JSX.Element {
     const { accountExists, isLoginPasswordHidden } = useValues(authLogic)
-    const { login, loginErrors, precheckResponse, hasNoConfiguredLoginMethod, autoRedirectingToProvider } =
-        useValues(loginLogic)
+    const {
+        login,
+        loginErrors,
+        precheckResponse,
+        hasNoConfiguredLoginMethod,
+        autoRedirectingToProvider,
+        setPasswordLinkSentTo,
+        preflight,
+    } = useValues(loginLogic)
     const { setLoginValue } = useActions(loginLogic)
 
     return (
@@ -56,21 +63,26 @@ export function LoginPasswordField(): JSX.Element {
                     There's no account for this email. Ask your PostHog admin for an invite.
                 </AuthBanner>
             )}
-            {hasNoConfiguredLoginMethod && (
-                <AuthBanner variant="warning">
-                    <span>No sign-in method is set up for this account. Use</span>{' '}
-                    <Link
-                        to={[urls.passwordReset(), { email: login.email }]}
-                        // Autocapture reports the click. Each reset entry point has its
-                        // own `data-attr`, so one funnel can tell them apart.
-                        data-attr="login-no-method-reset-password"
-                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                    >
-                        Forgot password?
-                    </Link>{' '}
-                    <span>to set a password by email.</span>
-                </AuthBanner>
-            )}
+            {hasNoConfiguredLoginMethod &&
+                (setPasswordLinkSentTo === login.email ? (
+                    <AuthBanner variant="success">
+                        <span>We sent a link to </span>
+                        <strong className="break-all">{login.email}</strong>
+                        <span>. Open it to set your password, then log in.</span>
+                    </AuthBanner>
+                ) : preflight?.email_service_available ? (
+                    <AuthBanner variant="warning">
+                        This account doesn't have a password yet. Log in with one of the options below, or get an email
+                        to set a password.
+                    </AuthBanner>
+                ) : (
+                    <AuthBanner variant="warning">
+                        <span>This account doesn't have a password yet, and this instance can't send email. </span>
+                        <Link to={[urls.passwordReset(), { email: login.email }]} data-attr="login-no-method-no-email">
+                            See how to get access
+                        </Link>
+                    </AuthBanner>
+                ))}
             {autoRedirectingToProvider && (
                 <p className="text-sm text-secondary text-center mb-0">
                     Redirecting to {SSO_PROVIDER_NAMES[autoRedirectingToProvider]}…

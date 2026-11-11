@@ -30,7 +30,8 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.ai_observability.backend.facade.api import resolve_evaluation_pass_markers
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     contains_aggregation,
@@ -176,9 +177,9 @@ def event_or_action_to_filter(
 ) -> ast.Expr:
     if isinstance(entity_node, ActionsNode):
         try:
-            action = Action.objects.get(pk=int(entity_node.id), team__project_id=team.project_id)
+            action = get_action(action_id=int(entity_node.id), project_id=team.project_id)
             event_filter = action_to_expr(action)
-        except Action.DoesNotExist:
+        except ActionNotFound:
             # A missing action matches no events, so that the query still runs.
             event_filter = ast.Constant(value=False)
     else:

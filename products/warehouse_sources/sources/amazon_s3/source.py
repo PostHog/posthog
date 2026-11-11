@@ -3,7 +3,6 @@ from typing import Any, cast
 
 from products.warehouse_sources.sources.amazon_s3._config import AmazonS3SourceConfig
 from products.warehouse_sources.sources.sdk import (
-    FEATURE_FLAG,
     KEYWORDS,
     S3_EXAMPLE_URL,
     DataWarehouseSourceCategory,
@@ -42,7 +41,6 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
     )
 
     api_docs_url = "https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html"
-    requires_team_feature_flag = FEATURE_FLAG
     self_managed_service = "s3"
 
     @property
@@ -92,8 +90,7 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             label="Amazon S3",
             caption=source_caption("an S3 bucket"),
             iconPath="/static/services/aws-s3.png",
-            releaseStatus=ReleaseStatus.ALPHA,
-            featureFlag=FEATURE_FLAG,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -11,13 +11,8 @@ import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics
 
 type DetectedSourcesProps = { teamId: number }
 
-function loadSetupPlanIfEnabled(teamId: number): void {
-    if (
-        featureFlagLogic.values.featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] &&
-        teamId &&
-        !setupPlanLogic.values.setupPlan &&
-        !setupPlanLogic.values.setupPlanLoading
-    ) {
+function loadSetupPlanIfNeeded(teamId: number): void {
+    if (teamId && !setupPlanLogic.values.setupPlan && !setupPlanLogic.values.setupPlanLoading) {
         setupPlanLogic.actions.loadSetupPlan()
     }
 }
@@ -67,11 +62,9 @@ export const detectedSourcesLogic = kea<
             }
             logic.actions.clearLegacyDismissals()
         },
-        // The app can render on the flag timeout, so the onboarding flag may arrive after mount.
-        [featureFlagLogic.actionTypes.setFeatureFlags]: () => loadSetupPlanIfEnabled(props.teamId),
     })),
     afterMount(({ props, cache }) => {
-        loadSetupPlanIfEnabled(props.teamId)
+        loadSetupPlanIfNeeded(props.teamId)
         cache.disposables.add(() => {
             const refreshSources = (): void => {
                 if (!marketingAnalyticsLogic.values.loading) {

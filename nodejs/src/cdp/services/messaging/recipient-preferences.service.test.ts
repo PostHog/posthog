@@ -14,7 +14,11 @@ import { Hub, Team } from '~/types'
 
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { FrequencyCap, TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
+import {
+    EmailSuppressionService,
+    SuppressionLookupError,
+    emailSuppressionConfigFromEnv,
+} from './email-suppression.service'
 import { createFrequencyCapValkeyPool } from './frequency-cap-valkey-pool'
 import { FrequencyCapCheck, RecipientPreferencesService } from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
@@ -398,24 +402,52 @@ describe('RecipientPreferencesService', () => {
                     expect(result).toBe(expected)
                 })
 
+                it('runs the step when the list cannot be read, so the send path can hold the email', async () => {
+                    jest.spyOn(mockEmailSuppressionService, 'isSuppressed').mockRejectedValue(
+                        new SuppressionLookupError()
+                    )
+                    const action = createEmailAction('unreadable@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                    const invocation = createFunctionStepInvocation(action)
+
+                    const result = await service.shouldSkipAction(invocation, action)
+
+                    expect(result).toBeNull()
+                })
+
                 // Suppressed cc and bcc addresses are removed at send time, and a deliverable cc address
                 // replaces a suppressed `to`. The step is skipped only when no cc address is left.
                 it.each([
-                    ['a suppressed cc', 'legit-to@example.com', { cc: 'suppressed-cc@example.com' }, null],
-                    ['a suppressed bcc', 'legit-to@example.com', { bcc: 'suppressed-bcc@example.com' }, null],
+                    ['a suppressed cc', 'legit-to@example.com', { cc: 'suppressed-cc@example.com' }, {}, null],
+                    ['a suppressed bcc', 'legit-to@example.com', { bcc: 'suppressed-bcc@example.com' }, {}, null],
                     [
                         'a suppressed to with a deliverable cc',
                         'suppressed-to@example.com',
                         { cc: 'ok@example.com' },
+                        {},
                         null,
                     ],
                     [
                         'a suppressed to with only bcc left',
                         'suppressed-to@example.com',
                         { bcc: 'ok@example.com' },
+                        {},
                         'suppressed',
                     ],
-                ] as const)('handles %s', async (_label, to, extraInputs, expected) => {
+                    [
+                        "a suppressed to with a code send's deliverable cc",
+                        'suppressed-to@example.com',
+                        {},
+                        { cc: ['ok@example.com'] },
+                        null,
+                    ],
+                    [
+                        "a suppressed to with only a code send's bcc left",
+                        'suppressed-to@example.com',
+                        {},
+                        { bcc: ['ok@example.com'] },
+                        'suppressed',
+                    ],
+                ] as const)('handles %s', async (_label, to, extraInputs, copies, expected) => {
                     await insertSuppressionRow('suppressed-cc@example.com')
                     await insertSuppressionRow('suppressed-bcc@example.com')
                     await insertSuppressionRow('suppressed-to@example.com')
@@ -424,6 +456,7 @@ describe('RecipientPreferencesService', () => {
                     // Inject the cc/bcc into the resolved invocation inputs (this is what the
                     // executor sees at send time after template resolution).
                     Object.assign(invocation.state.globals!.inputs!.email as object, extraInputs)
+                    invocation.state.send = { tracking: { captureEngagement: false }, ...copies }
                     mockRecipientsManagerGet.mockResolvedValue(null)
 
                     const result = await service.shouldSkipAction(invocation, action)

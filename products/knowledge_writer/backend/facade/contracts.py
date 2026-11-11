@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from .enums import DocsChangeKind, DocsRequestSource
+from .enums import DocsChangeKind, DocsRequestSource, MergeCheckFailure
 
 RawEvent = TypeVar("RawEvent", contravariant=True)
 
@@ -21,7 +21,7 @@ class DocsRequest:
     source_url: str
     evidence: str
     change_kind: DocsChangeKind
-    suggested_page_urls: Annotated[tuple[str, ...], Field(max_length=3)]
+    suggested_page_urls: tuple[str, ...]
     trigger_instructions: str
     dedupe_id: DedupeId
     requested_by: str | None = None
@@ -36,6 +36,7 @@ class AdapterVerdict:
     needs_docs: bool
     reason: str
     request: DocsRequest | None
+    failure_reason: MergeCheckFailure | None = None
 
     def __post_init__(self) -> None:
         if self.needs_docs != (self.request is not None):
@@ -52,6 +53,18 @@ class Adapter(Protocol[RawEvent]):
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
+class MergeCheckReport:
+    commit_sha: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+    commit_url: str
+    title: str
+    needs_docs: bool
+    reason: str
+    change_kind: DocsChangeKind | None = None
+    page_urls: tuple[str, ...] = ()
+    evidence: str = ""
+
+
+@dataclass(frozen=True, config={"extra": "forbid"})
 class DocsCommandRequest:
     repository: str
     pull_request_number: int
@@ -62,7 +75,17 @@ class DocsCommandRequest:
     requested_by_user_id: int
 
 
-IntakeStatus = Literal["no_docs", "unconfigured", "duplicate", "capped", "shadow", "joined", "started"]
+IntakeStatus = Literal[
+    "no_docs",
+    "unconfigured",
+    "duplicate",
+    "capped",
+    "shadow",
+    "docs_in_source_repo",
+    "section_busy",
+    "joined",
+    "started",
+]
 
 
 @dataclass(frozen=True)

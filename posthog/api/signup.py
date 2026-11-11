@@ -18,6 +18,7 @@ import structlog
 import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthFailed
 from social_core.pipeline.partial import partial
@@ -42,7 +43,7 @@ from posthog.helpers.email_utils import (
     validate_display_name,
 )
 from posthog.helpers.oauth_pending_connection import (
-    apply_connector_signup_onboarding_skip,
+    apply_pending_connection_onboarding_skip,
     read_pending_oauth_connection,
 )
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
@@ -59,7 +60,12 @@ from posthog.models.identity_provider_config import ConfigScope, IdentityProvide
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
+from posthog.rate_limit import (
+    SignupAttemptIPThrottle,
+    SignupEmailPrecheckThrottle,
+    SignupIPThrottle,
+    SignupResendInviteThrottle,
+)
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -364,7 +370,7 @@ class SignupSerializer(serializers.Serializer):
         user = self._user
         oauth_connection = read_pending_oauth_connection(request)
         if oauth_connection is not None:
-            apply_connector_signup_onboarding_skip(user, self._organization)
+            apply_pending_connection_onboarding_skip(user, self._organization, oauth_connection)
 
         report_user_signed_up(
             user,
@@ -531,7 +537,29 @@ class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
-    throttle_classes = [] if settings.E2E_TESTING else [SignupIPThrottle]
+    throttle_classes = [] if settings.E2E_TESTING else [SignupAttemptIPThrottle, SignupIPThrottle]
+
+    account_created = False
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # DRF builds new instances per call, and only the ones that checked this request know its reserved slot
+        if not hasattr(self, "_throttles"):
+            self._throttles = super().get_throttles()
+        return self._throttles
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        try:
+            super().perform_create(serializer)
+        finally:
+            # The account commits before the verification email goes out, so a later failure still counts.
+            self.account_created = getattr(serializer, "_user", None) is not None
+
+    def handle_exception(self, exc: Exception) -> response.Response:
+        if not self.account_created:
+            for throttle in self.get_throttles():
+                if isinstance(throttle, SignupIPThrottle):
+                    throttle.release()
+        return super().handle_exception(exc)
 
 
 class InviteSignupSerializer(serializers.Serializer):
@@ -754,7 +782,7 @@ class InviteSignupSerializer(serializers.Serializer):
             oauth_connection = read_pending_oauth_connection(request)
             # A delegated invitee is the teammate asked to run onboarding, so they keep it.
             if oauth_connection is not None and not is_delegation:
-                apply_connector_signup_onboarding_skip(user, invite.organization)
+                apply_pending_connection_onboarding_skip(user, invite.organization, oauth_connection)
 
             verify_email_or_login(self.context["request"], user)
 
@@ -1284,7 +1312,7 @@ def social_create_user(
     # A delegated invitee is the teammate asked to run onboarding, so they keep it.
     is_delegated_invitee = strategy.session_get("next") == DELEGATED_ONBOARDING_NEXT
     if oauth_connection is not None and user.organization is not None and not is_delegated_invitee:
-        apply_connector_signup_onboarding_skip(user, user.organization)
+        apply_pending_connection_onboarding_skip(user, user.organization, oauth_connection)
 
     report_user_signed_up(
         user,

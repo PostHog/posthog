@@ -52,7 +52,7 @@ import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic } from './maxThreadLogic'
-import { MaxContextType } from './maxTypes'
+import { MaxContextType, MaxInsightContext } from './maxTypes'
 import {
     MOCK_CONVERSATION,
     MOCK_CONVERSATION_ID,
@@ -1350,6 +1350,76 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('stream read errors', () => {
+        it.each([
+            'Error in input stream',
+            'Failed to fetch',
+            'NetworkError when attempting to fetch resource.',
+            'Load failed',
+        ])('retries a dropped stream for %s', async (message) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            const captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => undefined as any)
+            const read = jest
+                .fn()
+                .mockResolvedValueOnce({ done: false, value: new TextEncoder().encode(': ping\n\n') })
+                .mockRejectedValueOnce(new TypeError(message))
+            const streamSpy = mockStream().mockResolvedValueOnce({
+                body: { getReader: () => ({ read }) },
+            } as unknown as Response)
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+
+            await expectLogic(logic, () => {
+                logic.actions.reconnectToStream()
+            }).toDispatchActions(['streamConversation', 'streamConversation', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledTimes(2)
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            expect(captureSpy).toHaveBeenCalledWith(
+                'max conversation turn completed',
+                expect.objectContaining({ status: 'success', generation_attempt: 1 })
+            )
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                'max conversation turn completed',
+                expect.objectContaining({ status: 'failure' })
+            )
+            expect(logic.values.threadRaw.some((message) => message.type === AssistantMessageType.Failure)).toBe(false)
+        })
+
+        it('stops retrying a Firefox stream drop at the retry limit and records a network error', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            const error = new TypeError('Error in input stream')
+            const read = jest.fn().mockRejectedValue(error)
+            const streamSpy = jest
+                .spyOn(api.conversations, 'stream')
+                .mockResolvedValue({ body: { getReader: () => ({ read }) } } as unknown as Response)
+            jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { conversation: MOCK_CONVERSATION_ID, content: null, agent_mode: null },
+                    16
+                )
+            }).toDispatchActions(['streamConversation', 'addMessage', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledTimes(1)
+            expect(captureSpy).toHaveBeenCalledWith(
+                'max conversation turn completed',
+                expect.objectContaining({ status: 'failure', error_type: 'network_error', generation_attempt: 16 })
+            )
+            expect(logic.values.threadRaw).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        type: AssistantMessageType.Failure,
+                        content: 'You appear to be offline. Please check your internet connection.',
+                    }),
+                ])
+            )
+        })
+    })
+
     describe('400 error message handling', () => {
         it('surfaces server detail message for 400 errors', async () => {
             jest.spyOn(api.conversations, 'stream').mockRejectedValue(
@@ -1420,6 +1490,31 @@ describe('maxThreadLogic', () => {
                 'max conversation turn completed',
                 expect.objectContaining({ status: 'failure', error_status_code: 400, prompt_length: 5 })
             )
+        })
+
+        it('keeps the context source of the send on a reconnect, which sends no ui_context', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new ApiError('error', 500))
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello', true, { insights: [{ id: 'abc' } as MaxInsightContext] })
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { conversation: MOCK_TEMP_CONVERSATION_ID, content: null, agent_mode: null },
+                    0
+                )
+            }).toDispatchActions(['streamConversation', 'completeThreadGeneration'])
+
+            const turnSources = captureSpy.mock.calls
+                .filter(([event]) => event === 'max conversation turn completed')
+                .map(([, properties]) => properties?.context_source)
+            expect(turnSources).toEqual(['added', 'added'])
         })
     })
 

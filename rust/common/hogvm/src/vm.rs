@@ -18,8 +18,9 @@ use crate::{
     },
     util::{get_json_nested, like, regex_match},
     values::{
-        compare_values, temporal_seconds_pair, Callable, Closure, FromHogLiteral, HogLiteral,
-        HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue, UpvalueCell,
+        boolean_text_equals, compare_values, temporal_seconds_pair, Callable, Closure,
+        FromHogLiteral, HogLiteral, HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue,
+        UpvalueCell,
     },
 };
 
@@ -330,11 +331,13 @@ impl<'a> HogVM<'a> {
             }
             Operation::In => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(haystack.contains(&needle, &self.heap)?)?;
+                let result = self.in_op(&haystack, &needle)?;
+                self.push_stack(result)?;
             }
             Operation::NotIn => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(haystack.contains(&needle, &self.heap)?.not()?)?;
+                let result = self.in_op(&haystack, &needle)?.not()?;
+                self.push_stack(result)?;
             }
             Operation::Regex => self.regex_op(true, false)?,
             Operation::NotRegex => self.regex_op(true, true)?,
@@ -1030,7 +1033,7 @@ impl<'a> HogVM<'a> {
     /// `1 == 1.0` holds for every shared-crate consumer (see [`PartialEq for Num`](crate::Num)).
     /// The flag gates only what sits on top: when the context opts into coercing comparisons (the
     /// realtime-cohort evaluator), a temporal pair compares by epoch seconds to match ClickHouse
-    /// (`is_date_exact`); every non-temporal pair is unchanged either way.
+    /// (`is_date_exact`); every non-temporal pair compares through [`Self::values_equal`].
     ///
     /// "Temporal pair" is [`temporal_seconds_pair`] — the same predicate [`compare_values`] uses for
     /// ordering, so `timestamp == toDateTime(...)` and `timestamp > toDateTime(...)` agree on which
@@ -1044,7 +1047,33 @@ impl<'a> HogVM<'a> {
                 return Ok((x == y).into());
             }
         }
-        a.equals(b, &self.heap)
+        Ok(self.values_equal(a, b)?.into())
+    }
+
+    /// Shared by `==` and every membership test (`in`, `has`, `indexOf`, `in()`) so that they agree.
+    pub(crate) fn values_equal(&self, a: &HogValue, b: &HogValue) -> Result<bool, VmError> {
+        if self.context.boolean_text_equality {
+            if let Some(equal) = boolean_text_equals(a.deref(&self.heap)?, b.deref(&self.heap)?) {
+                return Ok(equal);
+            }
+        }
+        Ok(*a.equals(b, &self.heap)?.try_as::<bool>()?)
+    }
+
+    fn in_op(&self, haystack: &HogValue, needle: &HogValue) -> Result<HogLiteral, VmError> {
+        if !self.context.boolean_text_equality {
+            return haystack.contains(needle, &self.heap);
+        }
+        let (HogLiteral::Array(items) | HogLiteral::Tuple(items)) = haystack.deref(&self.heap)?
+        else {
+            return haystack.contains(needle, &self.heap);
+        };
+        for item in items {
+            if self.values_equal(item, needle)? {
+                return Ok(true.into());
+            }
+        }
+        Ok(false.into())
     }
 
     // Move a value from the stack onto the heap, replacing it with a reference to the heap value,

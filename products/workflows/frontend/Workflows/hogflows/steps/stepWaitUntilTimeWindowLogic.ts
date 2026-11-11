@@ -397,7 +397,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                           value: any
                       }
                   >
-                  message_category_id?: string | undefined
+                  message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
@@ -716,7 +716,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                           value: any
                       }
                   >
-                  message_category_id?: string | undefined
+                  message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
                   skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'

@@ -13,10 +13,12 @@ import sys
 import json
 import importlib
 from dataclasses import dataclass
+from datetime import UTC, datetime, time
 from types import ModuleType
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ValidationError
@@ -27,8 +29,16 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.slack_app.backend.logic.feature_tips.state import get_state, set_tips_enabled
+from products.slack_app.backend.logic.interview_recruitment import (
+    INTERVIEW_BOOK_ACTION_ID,
+    INVITE_MESSAGE,
+    book_button,
+    invite_section,
+)
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
+    SlackDailyFocus,
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
@@ -42,6 +52,9 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_RESET_PROJECT_PERSONAL,
     ACTION_SET_AUTO_MODEL_CHOICE,
     ACTION_SET_CHANNEL_WELCOME_MODE,
+    ACTION_SET_DAILY_FOCUS,
+    ACTION_SET_DAILY_FOCUS_TIME,
+    ACTION_SET_FEATURE_TIPS,
     ACTION_SET_PROJECT_WORKSPACE,
     ACTION_SET_THREAD_JOIN_MODE,
     ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
@@ -52,6 +65,7 @@ from products.slack_app.backend.services.slack_app_home import (
     AUTO_MODEL_CHOICE_VALUE,
     BLOCK_TASKS_CONTROLS,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    FEATURE_TIPS_VALUE,
     HOME_ACTION_IDS,
     MODAL_ACTION_MODEL,
     MODAL_ACTION_REASONING_EFFORT,
@@ -60,6 +74,7 @@ from products.slack_app.backend.services.slack_app_home import (
     MODAL_BLOCK_REASONING_EFFORT,
     MODAL_BLOCK_RUNTIME_ADAPTER,
     AccountState,
+    DailyFocusHomeState,
     GitHubAccount,
     GitHubState,
     OwnPlanState,
@@ -265,13 +280,18 @@ def _stub_picker_facade():
 
 def _action_ids(view: dict) -> list[str]:
     out: list[str] = []
-    for block in view["blocks"]:
-        for el in block.get("elements", []) or []:
-            if "action_id" in el:
-                out.append(el["action_id"])
-        accessory = block.get("accessory")
-        if accessory and "action_id" in accessory:
-            out.append(accessory["action_id"])
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            if "action_id" in node:
+                out.append(node["action_id"])
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(view["blocks"])
     return out
 
 
@@ -481,23 +501,78 @@ class TestRenderHomeView:
             auto_model_choice=auto_model_choice,
             own_plan=OwnPlanState(connected=True, settings_url="https://app.example.com/settings"),
             thread_join_mode=ThreadJoinMode.ASK_PER_THREAD,
+            feature_tips_enabled=auto_model_choice,
+            daily_focus=DailyFocusHomeState(enabled=auto_model_choice, at=time(9, 0), zone="Europe/Prague"),
+            interview_invite=invite_section(INVITE_MESSAGE, book_button(1, "home")),
         )
 
-    @pytest.mark.parametrize(
-        "connected, in_multiplayer, connect_link",
-        [(True, True, False), (False, False, True)],
-    )
-    def test_a_connected_plan_is_described_under_multiplayer(self, connected, in_multiplayer, connect_link):
-        # People who join spend the creator's plan, so the plan belongs with who may join.
+    @pytest.mark.parametrize("is_admin", [False, True])
+    def test_workspace_default_remains_visible_without_project_options(self, is_admin):
         view = render_home_view(
-            is_admin=False,
-            own_plan=OwnPlanState(connected=connected, settings_url="https://app.example.com/settings"),
+            is_admin=is_admin,
+            project_state=ProjectState(workspace_team_id=1, workspace_team_label="Example project"),
+        )
+        assert "Workspace default: Example project" in _all_text(view)
+        assert ACTION_SET_PROJECT_WORKSPACE not in _action_ids(view)
+
+    def test_full_admin_view_keeps_failed_tasks_and_controls_within_block_limit(self):
+        item = TaskItem(
+            title="Task <example> & check",
+            posthog_url="https://example.com/tasks/1",
+            desktop_url=None,
+            status="failed",
+            repository="example/site",
+            pr_url=None,
+            thread_url="https://example.com/thread",
+            updated_at_label="1h ago",
+            error_message="Build failed",
+        )
+        from products.slack_app.backend.services.slack_app_home_stats import ModelUsage, PersonRow, Slice, TrendBucket
+
+        original = render_home_view
+        with patch.object(
+            sys.modules[__name__],
+            "render_home_view",
+            side_effect=lambda **kwargs: original(
+                **{
+                    **kwargs,
+                    "tasks_state": TasksState(
+                        items=(item,) * 10,
+                        has_any_tasks=True,
+                        available_repos=("example/site",),
+                        page=1,
+                        total_pages=3,
+                        total_filtered=30,
+                        refreshed_at_epoch=1,
+                    ),
+                    "stats_state": StatsState(
+                        tasks_started=30,
+                        tasks_with_pr=10,
+                        outcomes=(Slice("Failed", 30),),
+                        trend=(TrendBucket("Nov 01", 10, 2),),
+                        models=(ModelUsage("claude-opus-4-7", "claude", 30),),
+                        people=(PersonRow("Example person", 30, 2),),
+                        truncated=True,
+                        refreshed_at_epoch=1,
+                    ),
+                }
+            ),
+        ):
+            view = self._every_card_view(auto_model_choice=True)
+        assert len(view["blocks"]) <= 100
+        assert _all_text(view).count("Task &lt;example&gt; &amp; check") == 10
+        assert _all_text(view).count("Build failed") == 10
+        assert set(_action_ids(view)) == (HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}) | {INTERVIEW_BOOK_ACTION_ID}
+
+    @pytest.mark.parametrize("connected", [True, False])
+    def test_chatgpt_plan_keeps_connection_details_under_linked_accounts(self, connected):
+        view = render_home_view(
+            is_admin=False, own_plan=OwnPlanState(connected=connected, settings_url="https://example.com/settings")
         )
         text = _all_text(view)
-
-        assert ("Multiplayer" in text) is in_multiplayer
-        assert ("use your ChatGPT plan, also when other people join your thread" in text) is in_multiplayer
-        assert ("Connect your ChatGPT plan" in text) is connect_link
+        assert text.index("Linked accounts") < text.index("ChatGPT plan")
+        assert ("use your ChatGPT plan, also when other people join your thread" in text) is connected
+        assert ("Connect your ChatGPT plan" in text) is not connected
 
     def test_every_control_the_tab_renders_is_routable(self):
         # The interactivity endpoint claims region ownership and dispatches off
@@ -508,7 +583,7 @@ class TestRenderHomeView:
         # Equality both ways: an unroutable control fails on the left, and a card that
         # stopped rendering fails on the right instead of passing a subset check trivially.
         # Unlink only renders once an account is linked, which this fixture deliberately isn't.
-        assert set(_action_ids(view)) == HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}
+        assert set(_action_ids(view)) == (HOME_ACTION_IDS - {ACTION_UNLINK_ACCOUNT}) | {INTERVIEW_BOOK_ACTION_ID}
 
     @pytest.mark.parametrize("auto_model_choice", [False, True])
     def test_every_option_stays_within_the_limits_slack_enforces(self, auto_model_choice):
@@ -542,10 +617,10 @@ class TestThreadFollowupsCard:
         # the value already stored is a no-op click that looks broken.
         view = self._view(mode)
         select = next(
-            el
+            element
             for block in view["blocks"]
-            for el in block.get("elements", []) or []
-            if el.get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
+            for element in block.get("elements", [])
+            if element.get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
         )
         assert select["initial_option"]["value"] == mode.value
         assert {o["value"] for o in select["options"]} == set(UntaggedFollowupMode.values)
@@ -621,6 +696,120 @@ class TestAutoModelChoiceToggle:
         assert mock_slack_client.views_publish.called
 
 
+class TestFeatureTipsToggle:
+    @pytest.mark.parametrize("checked", [True, False])
+    def test_toggle_is_stored_for_the_clicking_user(self, slack_integration, mock_slack_client, checked):
+        set_tips_enabled(SLACK_WORKSPACE_ID, "U001", not checked)
+        selected = [{"value": FEATURE_TIPS_VALUE}] if checked else []
+        action = {"action_id": ACTION_SET_FEATURE_TIPS, "selected_options": selected}
+        payload = {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [action],
+        }
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            handle_ai_preferences_block_action(payload, action)
+
+        assert (get_state(SLACK_WORKSPACE_ID, "U001").opted_out_at is None) is checked
+        assert mock_slack_client.views_publish.called
+
+
+class TestDailyFocusControls:
+    @pytest.mark.parametrize(
+        "scopes, action, stored, expected_next_run",
+        [
+            (
+                "search:read.public",
+                {"selected_options": [{"value": "on"}]},
+                True,
+                datetime(2026, 11, 10, 8, 0, tzinfo=UTC),
+            ),
+            # Off keeps the row, so a later onboarding does not turn it back on.
+            ("search:read.public", {"selected_options": []}, True, None),
+            # The link cannot search, so a stale view must not turn on a run that cannot work.
+            ("users:read", {"selected_options": [{"value": "on"}]}, False, None),
+        ],
+    )
+    def test_the_checkbox_turns_the_daily_work_focus_on_and_off(
+        self,
+        slack_integration,
+        mock_slack_client,
+        flag_on,
+        link_user,
+        scopes,
+        action,
+        stored,
+        expected_next_run,
+    ):
+        self._link(slack_integration, link_user, scopes)
+        action = {"action_id": ACTION_SET_DAILY_FOCUS, **action}
+
+        with time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False):
+            self._click(action)
+
+        row = (
+            SlackDailyFocus.objects.unscoped()
+            .filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+            .first()
+        )
+        assert (row is not None) is stored
+        assert (row.next_run_at if row else None) == expected_next_run
+
+    @pytest.mark.parametrize(
+        "last_run_at, expected_next_run",
+        [
+            # Still today, because the click at 13:00 in Prague comes before 14:30.
+            (datetime(2026, 11, 6, 8, 0, tzinfo=UTC), datetime(2026, 11, 9, 13, 30, tzinfo=UTC)),
+            # Today's 09:00 run already went out, so the new time starts tomorrow, not with a second DM today.
+            (datetime(2026, 11, 9, 8, 0, tzinfo=UTC), datetime(2026, 11, 10, 13, 30, tzinfo=UTC)),
+        ],
+    )
+    def test_a_new_time_moves_the_next_run(
+        self, slack_integration, mock_slack_client, flag_on, link_user, last_run_at, expected_next_run
+    ):
+        self._link(slack_integration, link_user, "search:read.public")
+        SlackDailyFocus.objects.for_team(slack_integration.team_id).create(
+            team_id=slack_integration.team_id,
+            slack_workspace_id=SLACK_WORKSPACE_ID,
+            slack_user_id="U001",
+            integration_id=slack_integration.id,
+            next_run_at=datetime(2026, 11, 10, 8, 0, tzinfo=UTC),
+            last_run_at=last_run_at,
+        )
+
+        with time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False):
+            self._click({"action_id": ACTION_SET_DAILY_FOCUS_TIME, "selected_time": "14:30"})
+
+        row = SlackDailyFocus.objects.unscoped().get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+        assert row.at == time(14, 30)
+        assert row.next_run_at == expected_next_run
+
+    def _link(self, slack_integration, link_user, scopes: str) -> None:
+        user = User.objects.create_and_join(slack_integration.team.organization, "daily@example.com", None)
+        link_user(user, slack_user_id="U001", slack_team_id=SLACK_WORKSPACE_ID, user_scopes=scopes)
+        # Fresh at the pinned noon below, so the click reads the timezone without calling Slack.
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            tz="Europe/Prague",
+            refreshed_at=datetime(2026, 11, 9, 11, 30, tzinfo=UTC),
+        )
+
+    def _click(self, action: dict) -> None:
+        payload = {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [action],
+        }
+        with (
+            patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False),
+            patch("products.slack_app.backend.logic.daily_focus.capture_slack_event"),
+        ):
+            handle_ai_preferences_block_action(payload, action)
+
+
 class TestChannelWelcomePicker:
     def test_card_is_hidden_from_non_admins(self):
         view = render_home_view(is_admin=False, channel_welcome_mode=ChannelWelcomeMode.CHANNEL)
@@ -657,11 +846,14 @@ class TestLinkedAccountsCard:
         return render_home_view(is_admin=False, account_state=account_state, github_state=github_state)
 
     def _rows(self, view: dict) -> list[tuple[str, dict | None]]:
-        return [
-            (block["text"]["text"], block.get("accessory"))
-            for block in view["blocks"]
-            if block.get("type") == "section" and block["text"]["text"].startswith(("*PostHog*", "*GitHub*"))
-        ]
+        rows = []
+        for index, block in enumerate(view["blocks"]):
+            if block.get("type") == "section" and block["text"]["text"].startswith(("*PostHog*", "*GitHub*")):
+                text = block["text"]["text"] + "\n" + _all_text(view["blocks"][index + 1])
+                following = view["blocks"][index + 2] if index + 2 < len(view["blocks"]) else {}
+                button = following["elements"][0] if following.get("type") == "actions" else None
+                rows.append((text, button))
+        return rows
 
     def _row(self, view: dict, prefix: str) -> tuple[str, dict | None]:
         return next(row for row in self._rows(view) if row[0].startswith(prefix))
@@ -701,7 +893,8 @@ class TestLinkedAccountsCard:
         assert button["url"] == "https://app/project/1/settings/user-personal-integrations"
         assert button.get("style") == expected_style
         if connected:
-            assert ("✅" in text) is credentials_usable
+            assert ("Connected as" in text) is credentials_usable
+            assert ("Access expired:" in text) is not credentials_usable
 
     def test_every_connected_installation_is_listed(self):
         view = self._view(
@@ -768,29 +961,17 @@ class TestTasksCard:
         return TaskItem(**defaults)
 
     def _task_items(self, view: dict, expected_count: int) -> list[tuple[str, str]]:
-        """Return per-task (title_text, sub_text) tuples.
-
-        Each task renders as a section (title) immediately followed by a
-        context block carrying the error/meta rows. Sub-text is "" when the
-        task has no meta — happens only in tests that pass an empty TaskItem.
-        """
-        items: list[tuple[str, str]] = []
-        blocks = view["blocks"]
-        for index, block in enumerate(blocks):
-            if (
-                block.get("type") == "section"
-                and isinstance(block.get("text"), dict)
-                and "|Fix flaky retention test>" in block["text"].get("text", "")
-                or block.get("type") == "section"
-                and "|Refactor mention dispatcher>" in block.get("text", {}).get("text", "")
-            ):
-                title = block["text"]["text"]
-                neighbour = blocks[index + 1] if index + 1 < len(blocks) else None
-                sub = ""
-                if neighbour and neighbour.get("type") == "context":
-                    sub = neighbour["elements"][0]["text"]
-                items.append((title, sub))
-        assert len(items) == expected_count, f"expected {expected_count} task items, found {len(items)}"
+        items = []
+        for index, block in enumerate(view["blocks"]):
+            text = block.get("text", {}).get("text", "")
+            if block["type"] == "section" and text in [f"*{title}*" for title in _TASK_TITLES]:
+                detail = []
+                for following in view["blocks"][index + 1 :]:
+                    if following["type"] != "context":
+                        break
+                    detail.append(_all_text(following))
+                items.append((text, "\n\n".join(detail)))
+        assert len(items) == expected_count
         return items
 
     def test_card_hidden_when_state_is_none(self):
@@ -800,76 +981,82 @@ class TestTasksCard:
     def test_first_use_state_invites_user_to_mention(self):
         view = render_home_view(**self._kwargs(tasks_state=TasksState()))
         text = _all_text(view)
-        assert "🦔 Tasks" in text
+        assert "*Tasks*" in text
         assert "Mention @PostHog" in text
 
-    def test_each_task_renders_as_title_section_plus_context_meta(self):
-        state = TasksState(
-            items=(self._item(), self._item(title="Refactor mention dispatcher", status="completed", pr_url=None)),
-            available_repos=("posthog/posthog",),
-            has_any_tasks=True,
-            page=0,
-            total_pages=1,
-            total_filtered=2,
-        )
-        view = render_home_view(**self._kwargs(tasks_state=state))
-        items = self._task_items(view, expected_count=2)
-        # Title is the full-size mrkdwn section; meta lives under it in a
-        # context block so Slack renders it smaller/dimmer than the title.
-        title, sub = items[0]
-        # The title opens the Slack thread — the conversation this row summarises.
-        assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
-        assert "🔄 in progress" in sub
-        assert "`posthog/posthog`" in sub
-        assert "<https://app/project/1/tasks/abc|View on web>" in sub
-        assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub
-        assert "_Updated 5m ago_" in sub
-
-    def test_failed_task_renders_title_then_error_then_meta(self):
+    @pytest.mark.parametrize(
+        "status,label,image",
+        [
+            ("in_progress", "In progress", "todo_doing"),
+            ("completed", "Done", "todo_done"),
+            ("failed", "Failed", "todo_cancel"),
+            ("cancelled", "Canceled", "todo_cancel"),
+            ("queued", "Queued", "todo"),
+            ("not_started", "Not started", "todo"),
+        ],
+    )
+    def test_each_task_keeps_status_and_navigation(self, status, label, image):
         state = TasksState(
             items=(
-                self._item(
-                    status="failed",
-                    error_message="boom: timed out waiting for runner\nstack trace omitted",
-                ),
+                self._item(status=status),
+                self._item(title="Refactor mention dispatcher", status="completed", pr_url=None),
             ),
             has_any_tasks=True,
-            page=0,
-            total_pages=1,
-            total_filtered=1,
         )
         view = render_home_view(**self._kwargs(tasks_state=state))
-        title, sub = self._task_items(view, expected_count=1)[0]
-        assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
-        # The supporting context block stacks the error message above the
-        # standard status/repo/links/PR/updated meta. Error never replaces
-        # the surrounding state.
-        sub_rows = sub.split("\n\n")
-        assert len(sub_rows) == 2
-        # Newlines in the upstream message collapse to spaces so the row
-        # doesn't blow open vertically.
-        assert sub_rows[0] == "`boom: timed out waiting for runner stack trace omitted`"
-        assert "❌ failed" in sub_rows[1]
-        assert "`posthog/posthog`" in sub_rows[1]
-        assert "<https://app/project/1/tasks/abc|View on web>" in sub_rows[1]
-        assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
-        assert "_Updated 5m ago_" in sub_rows[1]
+        title, detail = self._task_items(view, expected_count=2)[0]
+        assert title == "*Fix flaky retention test*"
+        images = [
+            element
+            for block in view["blocks"]
+            for element in block.get("elements", [])
+            if element.get("type") == "image" and element.get("alt_text") == label
+        ]
+        assert any(element["image_url"].endswith(f"/slack_app/home/v1/{image}.png") for element in images)
+        assert label in detail
+        assert "posthog/posthog" in detail
+        assert "<https://slack.com/archives/C1/p1234567890123456|Thread>" in detail
+        assert "<https://app/project/1/tasks/abc|Open task>" in detail
+        assert "<https://github.com/posthog/posthog/pull/123|View PR>" in detail
+        assert "Updated 5m ago" in detail
 
-    def test_both_task_links_render_for_a_viewer_who_can_open_them(self):
-        # The desktop link dead-ends for anyone without the app, so it rides alongside the
-        # web one rather than replacing it.
+    @pytest.mark.parametrize(
+        "error_message,expected",
+        [
+            (None, None),
+            ("", None),
+            (" \n\t ", None),
+            ("boom: timed out\nstack trace omitted", "boom: timed out stack trace omitted"),
+        ],
+    )
+    def test_failed_task_keeps_nonempty_error_before_navigation(self, error_message, expected):
         state = TasksState(
-            items=(self._item(desktop_url="https://us.posthog.com/code/task/abc"),),
+            items=(self._item(status="failed", error_message=error_message),),
             has_any_tasks=True,
-            page=0,
-            total_pages=1,
-            total_filtered=1,
         )
         view = render_home_view(**self._kwargs(tasks_state=state))
-        _, sub = self._task_items(view, expected_count=1)[0]
+        title, detail = self._task_items(view, expected_count=1)[0]
+        assert title == "*Fix flaky retention test*"
+        assert "Failed" in detail
+        errors = [
+            element["text"]
+            for block in view["blocks"]
+            if block["type"] == "context"
+            for element in block["elements"]
+            if element["type"] == "plain_text"
+        ]
+        assert errors == ([expected] if expected else [])
+        if expected:
+            assert detail.index(expected) < detail.index("Open task")
+        assert "<https://github.com/posthog/posthog/pull/123|View PR>" in detail
+        assert "<https://app/project/1/tasks/abc|Open task>" in detail
 
-        assert "<https://app/project/1/tasks/abc|View on web>" in sub
-        assert "<https://us.posthog.com/code/task/abc|View on desktop>" in sub
+    def test_desktop_link_is_removed_without_losing_web_navigation(self):
+        state = TasksState(items=(self._item(desktop_url="https://example.com/desktop/task/abc"),), has_any_tasks=True)
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        _, detail = self._task_items(view, expected_count=1)[0]
+        assert "<https://app/project/1/tasks/abc|Open task>" in detail
+        assert "https://example.com/desktop/task/abc" not in _all_text(view)
 
     def test_only_the_desktop_link_is_withheld_from_a_viewer_without_desktop_access(self):
         # The task page enforces access itself, so the web link stays even when the
@@ -884,7 +1071,7 @@ class TestTasksCard:
         view = render_home_view(**self._kwargs(tasks_state=state))
         _, sub = self._task_items(view, expected_count=1)[0]
 
-        assert "View on web" in sub
+        assert "Open task" in sub
         assert "View on desktop" not in sub
 
     def test_title_is_plain_text_when_neither_thread_nor_task_link_is_available(self):
@@ -913,9 +1100,8 @@ class TestTasksCard:
         )
         view = render_home_view(**self._kwargs(tasks_state=state))
         _, sub = self._task_items(view, expected_count=1)[0]
-        # No backticks → no repo segment; no PR link.
-        assert "`" not in sub
-        assert "|PR>" not in sub
+        assert "posthog/posthog" not in sub
+        assert "|View PR>" not in sub
 
     def test_repo_dropdown_renders_with_single_repo_and_includes_all_option(self):
         # Even with a single repo, the dropdown is always rendered so the
@@ -1167,14 +1353,11 @@ class TestTasksControlsRepublishTheList:
             )
 
     def _published_titles(self, view: dict) -> list[str]:
-        # A row's title is a bold link — to its Slack thread, so the target is not a
-        # task URL — followed by the meta line in a context block.
-        titles = []
-        for block in view["blocks"]:
-            text = (block.get("text") or {}).get("text", "")
-            if text.startswith("*<") and text.endswith(">*"):
-                titles.append(text.split("|", 1)[1].rstrip(">*"))
-        return titles
+        return [
+            block["text"]["text"].strip("*")
+            for block in view["blocks"]
+            if block["type"] == "section" and block.get("text", {}).get("text", "").startswith("*Task ")
+        ]
 
     def test_next_publishes_a_different_page_and_the_filter_narrows_it(
         self, slack_integration, mock_slack_client, flag_on
@@ -1293,7 +1476,7 @@ class TestHandleAppHomeOpened:
 
         view = mock_slack_client.views_publish.call_args.kwargs["view"]
         assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is viewer_linked
-        assert ("Multiplayer" in _all_text(view)) is viewer_linked
+        assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is viewer_linked
 
     def test_join_picker_shows_without_the_plan_card(self, slack_integration, mock_slack_client, flag_on, admin_user):
         # Who may join a thread is not a plan feature, so closing the BYOS gate must not hide it.

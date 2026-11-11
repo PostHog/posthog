@@ -57,6 +57,7 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
     const sections: Record<InboxReportSectionKey, SectionImpressionState> = {
         monitoring: useSectionImpressionState('monitoring'),
         'needs-decision': useSectionImpressionState('needs-decision'),
+        'outcome-monitoring': useSectionImpressionState('outcome-monitoring'),
         resolved: useSectionImpressionState('resolved'),
         closed: useSectionImpressionState('closed'),
         dismissed: useSectionImpressionState('dismissed'),

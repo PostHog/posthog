@@ -2,10 +2,7 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.sources.azure_devops._config import AzureDevOpsSourceConfig
-from products.warehouse_sources.sources.azure_devops.azure_devops import (
-    AZURE_DEVOPS_VERSION_7_2,
-    AZURE_DEVOPS_VERSION_LEGACY,
-)
+from products.warehouse_sources.sources.azure_devops.azure_devops import AZURE_DEVOPS_VERSION_LEGACY
 from products.warehouse_sources.sources.azure_devops.source import AzureDevOpsSource
 
 
@@ -38,7 +35,7 @@ class TestAzureDevOpsSource:
         # collapsed into a single generic message.
         assert self.source.validate_credentials(self.config, self.team_id) == probe_result
         # No pin at creation time resolves to default_version.
-        mock_validate.assert_called_once_with("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+        mock_validate.assert_called_once_with("myorg", "pat", AZURE_DEVOPS_VERSION_LEGACY)
 
     @mock.patch("products.warehouse_sources.sources.azure_devops.source.azure_devops_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_ado_source):
@@ -46,7 +43,7 @@ class TestAzureDevOpsSource:
         inputs.schema_name = "work_item_revisions"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
-        inputs.api_version = AZURE_DEVOPS_VERSION_7_2
+        inputs.api_version = AZURE_DEVOPS_VERSION_LEGACY
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -57,14 +54,14 @@ class TestAzureDevOpsSource:
         assert kwargs["personal_access_token"] == "pat"
         assert kwargs["endpoint"] == "work_item_revisions"
         assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["api_version"] == AZURE_DEVOPS_VERSION_7_2
+        assert kwargs["api_version"] == AZURE_DEVOPS_VERSION_LEGACY
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
 
-    def test_default_version_is_the_new_ga_version(self):
-        # New sources start on 7.2; the legacy label stays supported so existing pins keep working.
-        assert self.source.default_version == AZURE_DEVOPS_VERSION_7_2
-        assert set(self.source.supported_versions) == {AZURE_DEVOPS_VERSION_LEGACY, AZURE_DEVOPS_VERSION_7_2}
+    def test_new_sources_start_on_the_released_api_version(self):
+        # Azure DevOps rejects a plain "7.2" (it is preview-only), so new sources must not start on it.
+        assert self.source.default_version == AZURE_DEVOPS_VERSION_LEGACY
+        assert self.source.supported_versions == (AZURE_DEVOPS_VERSION_LEGACY,)
 
     @mock.patch("products.warehouse_sources.sources.azure_devops.source.azure_devops_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_ado_source):

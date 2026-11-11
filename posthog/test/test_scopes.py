@@ -365,6 +365,7 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
             ("empty_ceiling_is_noop", ["query:read", "insight:write"], [], ["query:read", "insight:write"]),
             ("narrows_to_tightened_ceiling", ["query:read", "insight:write"], ["query:read"], ["query:read"]),
             ("no_overlap_returns_none", ["insight:write"], ["query:read"], None),
+            ("read_half_of_a_write_ceiling_survives", ["insight:read"], ["insight:write"], ["insight:read"]),
             ("wildcard_left_untouched", ["*"], ["query:read"], ["*"]),
             (
                 "always_allowed_survive_narrowing",

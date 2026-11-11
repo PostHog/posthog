@@ -1,6 +1,5 @@
 //! Checks against a live ClickHouse, with the VM as the oracle, that `properties` built from
-//! trim-quotes columns answers exact equalities like the blob, except for the named residuals and
-//! the rows the ambiguity probe sends back to the blob.
+//! trim-quotes columns answers exact equalities like the blob, except for the named residuals.
 
 #![cfg(feature = "ch-test-support")]
 
@@ -13,7 +12,7 @@ use cohort_core::filters::{CohortId, TeamFilters, TeamFiltersBuilder, TeamId};
 use cohort_core::hogvm::analysis::GlobalsPlan;
 use cohort_core::hogvm::{build_behavioral_globals, evaluate_detailed, EvalOutcome, GlobalsBuild};
 use cohort_seeder::clickhouse::client::build_client;
-use cohort_seeder::clickhouse::sql::{ambiguous_values_sql, columns_object_expr};
+use cohort_seeder::clickhouse::sql::columns_object_expr;
 use cohort_seeder::clickhouse::ClickHouseClient;
 use cohort_seeder::config::Config;
 use cohort_seeder::domain::{
@@ -85,8 +84,6 @@ impl Divergence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Expect {
     Same,
-    /// A column reads as `false`, so the scan keeps the blob for the whole chunk.
-    Ambiguous,
     Residual(Residual),
 }
 
@@ -100,13 +97,6 @@ impl Case {
         Self {
             blob: blob.into(),
             expect: Expect::Same,
-        }
-    }
-
-    fn ambiguous(blob: impl Into<String>) -> Self {
-        Self {
-            blob: blob.into(),
-            expect: Expect::Ambiguous,
         }
     }
 
@@ -170,10 +160,10 @@ fn corpus() -> Vec<Case> {
         ]);
     }
     cases.extend([
-        Case::ambiguous(r#"{"$current_url":false}"#),
-        Case::ambiguous(r#"{"$current_url":"false"}"#),
-        Case::ambiguous(r#"{"$current_url":" false "}"#),
-        Case::ambiguous(json!({ URL: "https://example.com/", ODD: "false" }).to_string()),
+        Case::exact(r#"{"$current_url":false}"#),
+        Case::exact(r#"{"$current_url":"false"}"#),
+        Case::exact(r#"{"$current_url":" false "}"#),
+        Case::exact(json!({ URL: "https://example.com/", ODD: "false" }).to_string()),
         Case::residual(
             r#"{"$current_url":"elsewhere","$current_url":"https://example.com/"}"#,
             Residual::RepeatedKey,
@@ -195,7 +185,6 @@ fn corpus() -> Vec<Case> {
 struct Rebuilt {
     seq: u32,
     properties: String,
-    ambiguous: bool,
 }
 
 #[tokio::test]
@@ -215,21 +204,6 @@ async fn columns_answer_every_exact_equality_like_the_blob_but_the_named_residua
         .collect::<Vec<_>>();
     let corpus = corpus();
     let rebuilt = rebuild_all(&corpus, &columns).await;
-
-    assert_eq!(
-        corpus
-            .iter()
-            .zip(&rebuilt)
-            .filter(|(_, row)| row.ambiguous)
-            .map(|(case, _)| case.blob.as_str())
-            .collect::<Vec<_>>(),
-        corpus
-            .iter()
-            .filter(|case| case.expect == Expect::Ambiguous)
-            .map(|case| case.blob.as_str())
-            .collect::<Vec<_>>(),
-        "the probe flagged other rows than those whose columns read as false"
-    );
 
     for (
         case,
@@ -260,7 +234,6 @@ async fn columns_answer_every_exact_equality_like_the_blob_but_the_named_residua
         .iter()
         .zip(&rebuilt)
         .enumerate()
-        .filter(|(_, (_, row))| !row.ambiguous)
         .filter_map(|(index, (case, row))| {
             let found = programs
                 .iter()
@@ -440,9 +413,8 @@ async fn rebuild_all(corpus: &[Case], columns: &ColumnBackedKeys) -> Vec<Rebuilt
         .expect("the corpus inserts");
 
     let sql = format!(
-        "SELECT seq, {} AS properties, {} AS ambiguous FROM events AS e ORDER BY seq",
+        "SELECT seq, {} AS properties FROM events AS e ORDER BY seq",
         columns_object_expr(columns),
-        ambiguous_values_sql(columns),
     );
     assert!(
         !sql.contains("e.properties"),

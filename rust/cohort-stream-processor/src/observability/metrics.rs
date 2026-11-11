@@ -486,6 +486,9 @@ pub const SWEEP_READ_CHUNK_BYTES: &str = "sweep_read_chunk_bytes";
 pub const SWEEP_QUEUE_LAG_SECONDS: &str = "sweep_queue_lag_seconds";
 /// Person merges handled, labelled by `path` (`same_partition`|`cross_partition`) (counter).
 pub const MERGE_HANDLED_TOTAL: &str = "merge_handled_total";
+/// Merge and transfer messages of teams the processor does not process, dropped before they touch
+/// the store, labelled by `path` (`drain`|`apply`) (counter).
+pub const MERGE_DROPPED_TOTAL: &str = "merge_dropped_total";
 /// Drain messages short-circuited by a `cf_merge_drains_applied` hit (counter).
 pub const MERGE_DRAINS_SKIPPED_REPLAY_TOTAL: &str = "merge_drains_skipped_replay_total";
 /// Transfer messages short-circuited by a `cf_merge_applied` hit (counter).

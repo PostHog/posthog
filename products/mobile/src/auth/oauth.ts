@@ -19,6 +19,8 @@ export const OAUTH_SCOPES = [
     'project:read',
     'task:read',
     'task:write',
+    'inbox:read',
+    'inbox:write',
     'conversation:write',
     'today:read',
     'query:read',
@@ -30,6 +32,7 @@ export const OAUTH_SCOPES = [
     'session_recording:read',
     'replay_scanner:read',
     'replay_scanner:write',
+    'export:write',
 ] as const
 
 const REQUEST_TIMEOUT_MS = 20_000

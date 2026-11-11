@@ -7,6 +7,7 @@ composes them with the build limits and runs the build.
 """
 
 from datetime import datetime
+from functools import cached_property
 from typing import Any, Optional
 
 from rest_framework.exceptions import ValidationError
@@ -32,7 +33,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
-@frozen
+@frozen(slots=False)  # _ineligibility_reason is a cached_property, which needs an instance __dict__
 class ExposuresPrecompute:
     """The exposures precompute decisions and builds for one experiment query."""
 
@@ -80,6 +81,11 @@ class ExposuresPrecompute:
 
     def ineligibility_reason(self) -> Optional[PrecomputeSkipReason]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
+        return self._ineligibility_reason
+
+    @cached_property
+    def _ineligibility_reason(self) -> Optional[PrecomputeSkipReason]:
+        # The team gates can run a cohort query, and both the build decision and the query tag read this reason.
         if self.precomputation_mode == PrecomputationMode.PRECOMPUTED:
             return None
         if self.precomputation_mode == PrecomputationMode.DIRECT:

@@ -13,11 +13,13 @@ from owners_yaml import (
     cli as cli_module,
     first_team_owner,
     fmt as fmt_module,
+    newly_unowned,
     owner_handle,
     package_dirs_from,
     project,
     runner_for_path,
     spellings,
+    unowned_test_directories,
 )
 from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
 from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
@@ -827,7 +829,9 @@ def test_census_counts_test_files_per_team_and_folds_gaps_into_unowned(tmp_path:
     _write(tmp_path, "owners.yaml", "version: 1\nowners: []\n")
     _write(tmp_path, "products/a/owners.yaml", "version: 1\nowners: [team-a]\n")
     _write(tmp_path, "products/p/owners.yaml", "version: 1\nowners: ['@someone']\n")
+    _write(tmp_path, "vendor/owners.yaml", "version: 1\nowners: null\n")
     paths = [
+        "vendor/lib/test_vendored.py",
         "products/a/backend/test_api.py",
         "products/a/backend/queries_test.py",
         "products/a/frontend/thing.test.tsx",
@@ -1256,3 +1260,119 @@ def test_cli_reports_missing_context_without_a_traceback(tmp_path: Path, args: l
     assert result.exit_code == 1
     assert message in result.output
     assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+def _git(repo: Path, *args: str) -> None:
+    identity = ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+    subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True)
+
+
+_OWNERS_WITH_A_GAP = """\
+version: 1
+owners: []
+rules:
+  - match: '/owned/'
+    owners: team-a
+  - match: '/person/'
+    owners: '@alice'
+"""
+
+
+@pytest.fixture
+def repo_with_a_gap(tmp_path: Path, request: pytest.FixtureRequest) -> Path:
+    repo = tmp_path / getattr(request, "param", "")
+    _write(repo, "owners.yaml", _OWNERS_WITH_A_GAP)
+    _write(repo, "owned/a.py", "a = 1\n")
+    _write(repo, "gap/b.py", "b = 2\n")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "init")
+    return repo
+
+
+def _change(repo: Path, moves: dict[str, str], writes: dict[str, str]) -> None:
+    for old, new in moves.items():
+        (repo / old).rename(repo / new)
+    for rel, text in writes.items():
+        _write(repo, rel, text)
+
+
+_CHANGES = [
+    pytest.param({}, {"gap/new.py": "new = 1\n"}, ["gap/new.py"], id="new-file-in-a-gap"),
+    pytest.param({}, {"person/new.py": "new = 1\n"}, [], id="new-file-a-person-owns"),
+    pytest.param({"gap/b.py": "gap/renamed.py"}, {}, [], id="moved-file-that-had-no-owners"),
+    pytest.param({"owned/a.py": "gap/a.py"}, {}, ["gap/a.py"], id="file-moved-away-from-its-owners"),
+    pytest.param({}, {"owners.yaml": "version: 1\nowners: []\n"}, ["owned/a.py"], id="rule-removed"),
+    pytest.param(
+        {},
+        {"owned/owners.yaml": "version: 1\nowners: []\ninherit: false\n"},
+        ["owned/a.py", "owned/owners.yaml"],
+        id="nested-file-drops-the-owners",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "repo_with_a_gap", ["", "below-the-git-root"], indirect=True, ids=["at-the-git-root", "below-the-git-root"]
+)
+@pytest.mark.parametrize(("moves", "writes", "expected"), _CHANGES)
+def test_unowned_against_lists_only_what_the_worktree_leaves_unowned(
+    repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]
+) -> None:
+    _change(repo_with_a_gap, moves, writes)
+
+    result = CliRunner().invoke(main, ["unowned", "--against", "HEAD", "--repo-root", str(repo_with_a_gap)])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.split() == expected
+
+
+@pytest.mark.parametrize("has_an_index", [True, False])
+def test_newly_unowned_counts_a_file_git_does_not_track_yet(repo_with_a_gap: Path, has_an_index: bool) -> None:
+    _write(repo_with_a_gap, ".git/info/exclude", "ignored/\n")
+    for rel in ("gap/untracked.py", "ignored/untracked.py"):
+        _write(repo_with_a_gap, rel, "later = 1\n")
+    if not has_an_index:
+        (repo_with_a_gap / ".git/index").unlink()
+
+    assert newly_unowned(repo_with_a_gap, "HEAD") == ["gap/untracked.py"]
+
+
+def test_newly_unowned_skips_a_file_deleted_from_the_worktree(repo_with_a_gap: Path) -> None:
+    (repo_with_a_gap / "owned/a.py").unlink()
+    _write(repo_with_a_gap, "owners.yaml", "version: 1\nowners: []\n")
+
+    assert newly_unowned(repo_with_a_gap, "HEAD") == []
+
+
+def test_newly_unowned_counts_a_file_moved_into_the_included_paths(repo_with_a_gap: Path) -> None:
+    _change(repo_with_a_gap, {"gap/b.py": "gap/test_b.py"}, {})
+
+    assert newly_unowned(repo_with_a_gap, "HEAD", include=runner_for_path) == ["gap/test_b.py"]
+
+
+@pytest.mark.parametrize(("moves", "writes", "expected"), _CHANGES)
+def test_newly_unowned_reads_head_when_the_check_is_on_a_push(
+    repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]
+) -> None:
+    _change(repo_with_a_gap, moves, writes)
+    _git(repo_with_a_gap, "add", "-A")
+    _git(repo_with_a_gap, "commit", "-q", "-m", "change")
+    _git(repo_with_a_gap, "restore", "--source=HEAD~1", "--worktree", ".")
+    _change(repo_with_a_gap, {}, {"gap/uncommitted.py": "later = 1\n"})
+
+    assert newly_unowned(repo_with_a_gap, "HEAD~1", committed_only=True) == expected
+
+
+def test_newly_unowned_reads_a_bare_repository_when_the_check_is_on_a_push(repo_with_a_gap: Path) -> None:
+    _change(repo_with_a_gap, {}, {"gap/new.py": "new = 1\n"})
+    _git(repo_with_a_gap, "add", "-A")
+    _git(repo_with_a_gap, "commit", "-q", "-m", "change")
+    _git(repo_with_a_gap, "clone", "-q", "--bare", ".", "bare.git")
+
+    assert newly_unowned(repo_with_a_gap / "bare.git", "HEAD~1", committed_only=True) == ["gap/new.py"]
+
+
+def test_a_branch_from_before_newly_unowned_imports_its_check_and_cannot_run_it() -> None:
+    with pytest.raises(NotImplementedError, match="merge master"):
+        unowned_test_directories(None, [])

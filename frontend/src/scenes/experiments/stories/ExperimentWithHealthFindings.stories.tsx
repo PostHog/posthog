@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { makeDelay } from 'lib/utils/async'
@@ -120,13 +119,11 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// One finding open and two closed, so both row states are in one picture.
+// The metrics tab with issues: the chip and the health tab's count show them, and no warning banner renders.
 export const ExperimentWithHealthFindings: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await makeDelay(500)()
-        const [firstWhy] = await canvas.findAllByText('Why?', {}, { timeout: 5000 })
-        await userEvent.click(firstWhy)
+        await canvas.findByText('3 issues', {}, { timeout: 15000 })
         await makeDelay(500)()
     },
 }

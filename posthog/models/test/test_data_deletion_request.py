@@ -28,6 +28,7 @@ from posthog.models.deletion_targets import FLAG_EVALUATIONS, FLAG_EVALUATIONS_H
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models import PropertyDefinition
@@ -213,9 +214,12 @@ def test_hogql_predicate_subquery_is_team_scoped(db):
     [
         "SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
         "AND properties.$feature_flag = 'probe-flag' AND timestamp >= now() - INTERVAL 7 DAY",
+        "SELECT distinct_id FROM events WHERE event IN ('$pageview', '$feature_flag_called') "
+        "AND timestamp >= now() - INTERVAL 7 DAY",
         "SELECT e.distinct_id FROM events AS e JOIN (SELECT 'probe' AS id) AS d "
         "ON e.distinct_id = d.id WHERE event = '$feature_flag_called'",
     ],
+    ids=["only_flag_calls", "flag_calls_with_other_events", "flag_calls_behind_a_join"],
 )
 @pytest.mark.parametrize("through_a_view", [False, True])
 def test_compile_hogql_predicate_keeps_a_flag_call_subquery_on_events(team, flag_calls, through_a_view):
@@ -236,7 +240,11 @@ def test_compile_hogql_predicate_keeps_a_flag_call_subquery_on_events(team, flag
     predicate = f"distinct_id IN ({flag_calls})"
     request = DataDeletionRequest(**_base_kwargs(team_id=team.id, events=["$pageview"], hogql_predicate=predicate))
 
-    sql, _ = compile_hogql_predicate(request)
+    with patch(
+        "posthog.hogql.database.database.feature_enabled_or_false",
+        side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-union",
+    ):
+        sql, _ = compile_hogql_predicate(request)
 
     assert "flag_evaluations" not in sql
 
@@ -371,8 +379,9 @@ def materialized_browser():
 
 @pytest.fixture
 def dmat_slot_for_plan(team):
-    from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+    from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
 
+    from products.event_definitions.backend.models import PropertyDefinition
     from products.event_definitions.backend.models.property_definition import PropertyType
 
     prop_def = PropertyDefinition.objects.create(
@@ -982,3 +991,77 @@ def test_refresh_deletion_stats_does_not_write_over_a_concurrent_criteria_edit(t
     request.refresh_from_db()
     assert request.count is None
     assert request.stats_calculated_at is None
+
+
+def _staff_request(**fields) -> DataDeletionRequest:
+    defaults = {
+        "team_id": TEAM_ID,
+        "request_type": RequestType.EVENT_REMOVAL,
+        "events": ["$pageview"],
+        "status": RequestStatus.DRAFT,
+    }
+    obj = DataDeletionRequest(**{**defaults, **fields})
+    obj._state.adding = False
+    return obj
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+@time_machine.travel("2026-11-06T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    "start_status,changed_fields,expected_status,stats_cleared,warned",
+    [
+        (RequestStatus.PENDING, ["events"], RequestStatus.DRAFT, True, True),
+        (RequestStatus.DRAFT, ["events"], RequestStatus.DRAFT, True, False),
+        (RequestStatus.PENDING, ["notes"], RequestStatus.PENDING, False, False),
+    ],
+)
+def test_staff_edit_of_criteria_resets_stats_and_status(
+    start_status, changed_fields, expected_status, stats_cleared, warned
+):
+    obj = _staff_request(
+        status=start_status, count=5, stats_calculated_at=timezone.now(), property_removal_marker=timezone.now()
+    )
+    user = User(email="staff@example.com", is_staff=True)
+
+    notices = obj.apply_staff_edit(user, changed_fields, is_new=False)
+
+    assert obj.status == expected_status
+    assert (obj.count is None, obj.stats_calculated_at is None, obj.property_removal_marker is None) == (
+        stats_cleared,
+        stats_cleared,
+        stats_cleared,
+    )
+    assert (obj.criteria_updated_by is user) == stats_cleared
+    assert any(notice.warning for notice in notices) == warned
+
+
+@pytest.mark.parametrize(
+    "fields,cleared",
+    [
+        ({"properties": ["$ip"], "person_properties": ["email"]}, {"properties": [], "person_properties": []}),
+        ({"person_distinct_ids": ["user-1"], "person_drop_events": True}, {"person_distinct_ids": []}),
+        (
+            {
+                "request_type": RequestType.PERSON_REMOVAL,
+                "hogql_predicate": "event = 'x'",
+                "person_distinct_ids": ["user-1"],
+                "person_drop_events": True,
+            },
+            {"events": [], "hogql_predicate": "", "person_distinct_ids": ["user-1"]},
+        ),
+        (
+            {"request_type": RequestType.PROPERTY_REMOVAL, "properties": ["$ip"], "person_properties": ["email"]},
+            {"properties": ["$ip"], "person_properties": ["email"]},
+        ),
+    ],
+)
+def test_staff_create_clears_fields_the_type_does_not_use(fields, cleared):
+    obj = DataDeletionRequest(
+        team_id=TEAM_ID, events=["$pageview"], **{"request_type": RequestType.EVENT_REMOVAL, **fields}
+    )
+    user = User(email="staff@example.com", is_staff=True)
+
+    obj.apply_staff_edit(user, [], is_new=True)
+
+    assert (obj.created_by, obj.created_by_staff) == (user, True)
+    assert {field: getattr(obj, field) for field in cleared} == cleared

@@ -3,10 +3,16 @@ import { execFileSync } from "node:child_process";
 const REPOSITORY = "PostHog/posthog";
 const DESKTOP_LABEL = "feature/desktop";
 const DESKTOP_PATH = "products/desktop/";
+const GENERATED_FILE = /(^|\/|\.)generated\.[^/]+$/;
+const PR_NUMBER_SUFFIX = /\s*\(#(\d+)\)$/;
+
+function isDesktopSource(file) {
+    return file.startsWith(DESKTOP_PATH) && !GENERATED_FILE.test(file);
+}
 
 export function selectReleaseChanges(commits, pullRequests) {
     return commits.filter((commit) => {
-        if (commit.files.some((file) => file.startsWith(DESKTOP_PATH))) {
+        if (commit.files.some(isDesktopSource)) {
             return true;
         }
         const pullRequest = pullRequests.get(commit.pullRequestNumber);
@@ -19,7 +25,10 @@ export function renderReleaseNotes(previousTag, currentTag, commits, pullRequest
     for (const commit of selectReleaseChanges(commits, pullRequests)) {
         const pullRequest = pullRequests.get(commit.pullRequestNumber);
         if (pullRequest) {
-            lines.push(`* ${pullRequest.title} by @${pullRequest.author} in ${pullRequest.url}`);
+            // The squash commit subject is the title as it was reviewed and merged. The
+            // pull request title stays editable after merge, so it is not used here.
+            const title = commit.subject.replace(PR_NUMBER_SUFFIX, "");
+            lines.push(`* ${title} by @${pullRequest.author} in ${pullRequest.url}`);
         } else {
             lines.push(`* ${commit.subject} ([commit](https://github.com/${REPOSITORY}/commit/${commit.sha}))`);
         }
@@ -42,7 +51,7 @@ function readCommits(previousTag, currentTag) {
         const tab = line.indexOf("\t");
         const sha = line.slice(0, tab);
         const subject = line.slice(tab + 1);
-        const match = subject.match(/\(#(\d+)\)$/);
+        const match = subject.match(PR_NUMBER_SUFFIX);
         const files = git("diff-tree", "--no-commit-id", "--name-only", "-r", sha)
             .split("\n")
             .filter(Boolean);
@@ -62,7 +71,7 @@ async function readPullRequests(numbers) {
         const fields = chunk
             .map(
                 (number) => `pr${number}: pullRequest(number: ${number}) {
-                    title url author { login } labels(first: 100) { nodes { name } }
+                    url author { login } labels(first: 100) { nodes { name } }
                 }`,
             )
             .join("\n");
@@ -81,7 +90,6 @@ async function readPullRequests(numbers) {
             const pullRequest = payload.data.repository[`pr${number}`];
             if (!pullRequest) continue;
             pullRequests.set(number, {
-                title: pullRequest.title,
                 url: pullRequest.url,
                 author: pullRequest.author?.login ?? "ghost",
                 labels: pullRequest.labels.nodes.map((label) => label.name),

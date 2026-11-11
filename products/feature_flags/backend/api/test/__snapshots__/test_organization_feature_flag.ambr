@@ -563,6 +563,7 @@
          "posthog_survey"."iteration_start_dates",
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."repeat_until_stopped",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
          "posthog_survey"."enable_iframe_embedding",
@@ -586,6 +587,7 @@
          "posthog_earlyaccessfeature"."description",
          "posthog_earlyaccessfeature"."stage",
          "posthog_earlyaccessfeature"."documentation_url",
+         "posthog_earlyaccessfeature"."image_url",
          "posthog_earlyaccessfeature"."payload",
          "posthog_earlyaccessfeature"."created_at",
          "posthog_earlyaccessfeature"."assigned_user_id",
@@ -651,41 +653,6 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.25
   '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'feature_flag'
-          AND "ee_accesscontrol"."resource_id" = '99999'
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" IN
-            (SELECT "U0"."id" AS "id"
-             FROM "posthog_team" "U0"
-             WHERE "U0"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid))
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'feature_flag'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" IN
-               (SELECT "U0"."id" AS "id"
-                FROM "posthog_team" "U0"
-                WHERE "U0"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)))
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.26
-  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -739,7 +706,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.27
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.26
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -768,7 +735,7 @@
          AND "posthog_featureflagdashboards"."feature_flag_id" = 99999)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.28
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.27
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -823,7 +790,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.29
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.28
   '''
   SELECT 1 AS "a"
   FROM "posthog_team"
@@ -833,6 +800,22 @@
           OR "posthog_team"."session_recording_trigger_groups" @> '{"groups": [{"conditions": {"flag": {"id": 99999}}}]}'::jsonb)
          AND "posthog_team"."project_id" = 99999)
   LIMIT 1
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.29
+  '''
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at",
+         "posthog_evaluationcontext"."id",
+         "posthog_evaluationcontext"."name",
+         "posthog_evaluationcontext"."team_id",
+         "posthog_evaluationcontext"."created_at",
+         "posthog_evaluationcontext"."hidden_from_suggestions"
+  FROM "posthog_featureflagevaluationcontext"
+  INNER JOIN "posthog_evaluationcontext" ON ("posthog_featureflagevaluationcontext"."evaluation_context_id" = "posthog_evaluationcontext"."id")
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.3
@@ -889,22 +872,6 @@
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.30
-  '''
-  SELECT "posthog_featureflagevaluationcontext"."id",
-         "posthog_featureflagevaluationcontext"."feature_flag_id",
-         "posthog_featureflagevaluationcontext"."evaluation_context_id",
-         "posthog_featureflagevaluationcontext"."created_at",
-         "posthog_evaluationcontext"."id",
-         "posthog_evaluationcontext"."name",
-         "posthog_evaluationcontext"."team_id",
-         "posthog_evaluationcontext"."created_at",
-         "posthog_evaluationcontext"."hidden_from_suggestions"
-  FROM "posthog_featureflagevaluationcontext"
-  INNER JOIN "posthog_evaluationcontext" ON ("posthog_featureflagevaluationcontext"."evaluation_context_id" = "posthog_evaluationcontext"."id")
-  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.31
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"

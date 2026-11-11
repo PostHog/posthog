@@ -35,8 +35,11 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 import pydantic
+import posthoganalytics
 
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.dataclasses import frozen
 
@@ -82,6 +85,8 @@ if TYPE_CHECKING:
 
 SPEC_VERSION = 1
 
+CALCULATION_KEY_V2_FLAG = "experiment-calculation-key-v2"
+
 # The version of the calculation key, hashed into the key itself. A change that makes the engine compute a
 # different result for an existing config bumps it, so that results computed before the change stop counting
 # for reuse.
@@ -102,8 +107,11 @@ _KEY_FLOAT_DIGITS = 12
 _DEFAULT_EXPOSURE_EVENT_IN_KEY = "$default_exposure_event"
 
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
-# display name, the stored key itself, and an experiment-level setting that some stored definitions carry.
-_NON_ANALYTICAL_METRIC_FIELDS = frozenset({"uuid", "name", "kind", "fingerprint", "only_count_matured_users"})
+# display name, how results show its value, the stored key itself, and an experiment-level setting that some
+# stored definitions carry.
+_NON_ANALYTICAL_METRIC_FIELDS = frozenset(
+    {"uuid", "name", "kind", "fingerprint", "only_count_matured_users", "value_format"}
+)
 
 
 def _strip_empty_breakdowns(metric: dict[str, Any]) -> None:
@@ -180,7 +188,8 @@ def _resolve_exposure(
 ) -> ExposureQueryParams | None:
     try:
         return get_exposure_config_params_for_builder(exposure_criteria, team, start_date)
-    except pydantic.ValidationError:
+    except (pydantic.ValidationError, ExposedHogQLError):
+        # The builder refuses a warehouse-native exposure, which has no ClickHouse query params.
         return None
 
 
@@ -252,8 +261,23 @@ def _cuped_key_input(cuped: CupedQueryConfig) -> dict[str, Any]:
 
 def resolve_calculation_key_version(team: "Team") -> int:
     """The calculation key version that a new operation of this team uses. It is the only activation decision:
-    queued work carries the version in its key, so a worker never calls this."""
-    return 1
+    queued work carries the version in its key, so a worker never calls this.
+
+    The team gets version 2 when the `experiment-calculation-key-v2` flag is on for it. The flag is evaluated
+    locally, because the experiment read path calls this. An inconclusive or failed evaluation gives version 1.
+    """
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            CALCULATION_KEY_V2_FLAG,
+            str(team.id),
+            groups={"project": str(team.id)},
+            group_properties={"project": {"id": str(team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return 1
+    return CALCULATION_KEY_VERSION if enabled is True else 1
 
 
 @frozen
@@ -272,7 +296,7 @@ class ExperimentCalculationSettings:
     excluded_variants: tuple[str, ...]
     # What the query runner resolves from the stored exposure criteria. The `experiment-exposure-event` flag picks its
     # default exposure event, so equality and the key read `normalized_exposure` instead. None when the stored
-    # criteria do not parse. The query runner rejects such an experiment.
+    # criteria do not parse or name a warehouse-native exposure. The query runner rejects such an experiment.
     exposure: ExposureQueryParams | None = field(compare=False)
     # The stored exposure criteria as `normalize_exposure` returns them.
     normalized_exposure: dict[str, Any]

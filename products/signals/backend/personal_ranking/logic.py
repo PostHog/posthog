@@ -27,7 +27,12 @@ from posthog.ph_client import ph_scoped_capture
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, ReasoningEffort, read_config
+from products.signals.backend.personal_ranking.config import (
+    PersonalRankingConfig,
+    ReasoningEffort,
+    list_limit,
+    read_config,
+)
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
@@ -71,15 +76,23 @@ RETRYABLE_FALLBACK_REASONS = frozenset(
     {FALLBACK_LLM_ERROR, FALLBACK_TIMEOUT, FALLBACK_MALFORMED, FALLBACK_TRUNCATED, FALLBACK_AI_NOT_APPROVED}
 )
 
+# The input parts that `input_parts` hashes one by one. The report parts have one hash for each candidate.
+REPORT_PARTS = ("text", "status", "priority", "pull_request_state", "needs_you", "scores")
+INPUT_PARTS = ("candidate_set", *REPORT_PARTS, "activity_summary_version", "prompt_version", "config", "focus")
+# The person had no list before this build.
+CHANGED_NO_PREVIOUS = "no_previous_list"
+# The previous list has no part hashes, so the build cannot tell which part changed.
+CHANGED_UNKNOWN = "unknown"
+_PART_HASH_CHARS = 16
+
 BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
 # What started a build, on the build event and the trace, so cost can be split by it.
-BuildTrigger = Literal["on_demand", "tick"]
+BuildTrigger = Literal["on_demand", "tick", "first_summary"]
 
 _MODEL_ORDER_REASON = "Kept in inbox order."
 _NEEDS_YOU_REASONS = {
     "waiting_on_input": "Waiting on your input.",
     "claimed": "You claimed this report.",
-    "suggested_reviewer": "You're a suggested reviewer.",
 }
 
 
@@ -90,6 +103,32 @@ class _ModelCall:
     tokens_out: int | None
     latency_ms: int
     fallback_reason: str | None
+
+
+@frozen
+class InputChanges:
+    """How the inputs of a build differ from the inputs of the person's previous list."""
+
+    # Names from `INPUT_PARTS`, or only `CHANGED_NO_PREVIOUS` or `CHANGED_UNKNOWN`.
+    changed_parts: tuple[str, ...]
+    # The reports in both lists with a changed report part. Null when the parts are not comparable.
+    changed_report_count: int | None = None
+    # The largest probability move of a report in both lists. Null when no probability is in both lists.
+    max_score_move: float | None = None
+    joined_count: int | None = None
+    left_count: int | None = None
+    # The reports that left and were in the first `rank_top` entries of the previous list.
+    left_top_count: int | None = None
+
+    def properties(self) -> dict[str, Any]:
+        return {
+            "changed_parts": list(self.changed_parts),
+            "changed_report_count": self.changed_report_count,
+            "max_score_move": self.max_score_move,
+            "candidates_joined": self.joined_count,
+            "candidates_left": self.left_count,
+            "candidates_left_top": self.left_top_count,
+        }
 
 
 @frozen
@@ -111,6 +150,10 @@ class PersonalRankingBuild:
     latency_ms: int | None = None
     # None for a dry run or a disabled build, which store nothing.
     ranking_id: str | None = None
+    # The stored `input_parts`. None for a disabled build.
+    input_parts: dict[str, Any] | None = None
+    # None for a dry run or a disabled build.
+    input_changes: InputChanges | None = None
 
     def result_json(self) -> dict[str, Any]:
         """The stored `result`: every candidate by report id, with its rank, tier and reason."""
@@ -143,7 +186,9 @@ class PersonalRankingBuild:
 
 
 def model_order_reason(candidate: Candidate) -> str:
-    return next((_NEEDS_YOU_REASONS[kind] for kind in candidate.needs_you), _MODEL_ORDER_REASON)
+    return next(
+        (_NEEDS_YOU_REASONS[kind] for kind in candidate.needs_you if kind in _NEEDS_YOU_REASONS), _MODEL_ORDER_REASON
+    )
 
 
 def may_call_model(team: Team, *, summary_ready: bool) -> bool:
@@ -159,8 +204,20 @@ def normalize_focus(focus: str | None, max_chars: int) -> str | None:
     return text or None
 
 
-def input_hash(candidates: list[Candidate], *, activity_summary_version: int | None, focus: str | None) -> str:
-    """Changes when a candidate, its text, status, priority, PR state, needs-you facts or score, the summary, the prompt or the focus changes."""
+def _config_part(config: PersonalRankingConfig, limit: int) -> list[str]:
+    # The rendered prompt holds every lever it names, such as `rank_top`, the tier caps and the reason limits.
+    return [config.model, config.reasoning_effort, system_prompt(config, limit)]
+
+
+def input_hash(
+    candidates: list[Candidate],
+    *,
+    config: PersonalRankingConfig,
+    limit: int,
+    activity_summary_version: int | None,
+    focus: str | None,
+) -> str:
+    """Changes when a candidate, its text, status, priority, PR state, needs-you facts or score, the summary, the prompt, the config or the focus changes."""
     rows = sorted(
         [
             candidate.report_id,
@@ -182,9 +239,157 @@ def input_hash(candidates: list[Candidate], *, activity_summary_version: int | N
         "candidates": rows,
         "activity_summary_version": activity_summary_version,
         "prompt_version": PROMPT_VERSION,
+        "config": _config_part(config, limit),
         "focus": focus,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _part_hash(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()[:_PART_HASH_CHARS]
+
+
+def _report_parts(candidate: Candidate) -> dict[str, Any]:
+    predictions = candidate.predictions
+    return {
+        "text": [candidate.title, candidate.summary_lead],
+        "status": candidate.status,
+        "priority": candidate.priority,
+        "pull_request_state": candidate.pull_request_state,
+        "needs_you": list(candidate.needs_you),
+        "scores": [
+            predictions.status if predictions else None,
+            [[entry.outcome, round(entry.probability, 2)] for entry in predictions.predictions] if predictions else [],
+        ],
+    }
+
+
+def input_parts(
+    candidates: list[Candidate],
+    *,
+    config: PersonalRankingConfig,
+    limit: int,
+    activity_summary_version: int | None,
+    focus: str | None,
+) -> dict[str, Any]:
+    """The inputs of `input_hash` as one hash per part, so a later build can name the parts that changed.
+
+    The report parts have one hash for each report. `scores` keeps the probabilities, so a later build can measure the move.
+    """
+    return {
+        "parts": {
+            "activity_summary_version": _part_hash(activity_summary_version),
+            "prompt_version": _part_hash(PROMPT_VERSION),
+            "config": _part_hash(_config_part(config, limit)),
+            "focus": _part_hash(focus),
+        },
+        "reports": {
+            candidate.report_id: {part: _part_hash(value) for part, value in _report_parts(candidate).items()}
+            for candidate in candidates
+        },
+        "scores": {
+            candidate.report_id: {
+                entry.outcome: round(entry.probability, 4) for entry in candidate.predictions.predictions
+            }
+            for candidate in candidates
+            if candidate.predictions
+        },
+    }
+
+
+def _max_score_move(previous: dict[str, dict[str, float]], current: dict[str, dict[str, float]]) -> float | None:
+    moves = [
+        abs(probability - previous[report_id][outcome])
+        for report_id, scores in current.items()
+        if report_id in previous
+        for outcome, probability in scores.items()
+        if outcome in previous[report_id]
+    ]
+    return round(max(moves), 4) if moves else None
+
+
+def compare_inputs(previous: PersonalInboxRanking | None, current: dict[str, Any], *, rank_top: int) -> InputChanges:
+    """The parts that differ between the previous list and the current inputs. Never raises."""
+    if previous is None:
+        return InputChanges(changed_parts=(CHANGED_NO_PREVIOUS,))
+    stored = previous.input_parts
+    try:
+        if not stored:
+            return InputChanges(changed_parts=(CHANGED_UNKNOWN,))
+        stored_reports: dict[str, dict[str, str]] = stored["reports"]
+        current_reports: dict[str, dict[str, str]] = current["reports"]
+        joined = current_reports.keys() - stored_reports.keys()
+        left = stored_reports.keys() - current_reports.keys()
+        changed = {"candidate_set"} if joined or left else set()
+        changed |= {part for part in current["parts"] if current["parts"][part] != stored["parts"].get(part)}
+        changed_reports = 0
+        for report_id in current_reports.keys() & stored_reports.keys():
+            report_changed = {
+                part
+                for part in REPORT_PARTS
+                if current_reports[report_id].get(part) != stored_reports[report_id].get(part)
+            }
+            changed |= report_changed
+            changed_reports += bool(report_changed)
+        top_ids = {entry["report_id"] for entry in previous.result.get("ranked", [])[:rank_top]}
+        return InputChanges(
+            changed_parts=tuple(part for part in INPUT_PARTS if part in changed),
+            changed_report_count=changed_reports,
+            max_score_move=_max_score_move(stored.get("scores", {}), current["scores"]),
+            joined_count=len(joined),
+            left_count=len(left),
+            left_top_count=len(left & top_ids),
+        )
+    except (KeyError, TypeError, AttributeError):
+        logger.warning("signals.personal_ranking.unreadable_input_parts", ranking_id=str(previous.id))
+        return InputChanges(changed_parts=(CHANGED_UNKNOWN,))
+
+
+def latest_row(team: Team, user: User) -> PersonalInboxRanking | None:
+    return PersonalInboxRanking.objects.for_team(team.id).filter(user_id=user.id).order_by("-created_at", "-id").first()
+
+
+def ready_summary_version(team: Team, user: User) -> int | None:
+    summary = get_summary(team, user.id)
+    return summary.version if summary is not None and summary.status == ActivitySummaryStatus.READY else None
+
+
+def record_check(team: Team, row: PersonalInboxRanking, now: datetime.datetime) -> None:
+    """Record that the list still matches the current inputs, so it counts as fresh again."""
+    PersonalInboxRanking.objects.for_team(team.id).filter(id=row.id).update(checked_at=now)
+
+
+@frozen
+class InputCheck:
+    unchanged: bool
+    calls_model: bool
+
+
+def check_inputs(
+    team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime, limit: int | None = None
+) -> InputCheck:
+    """Compare the latest list with the current inputs. A list that still matches counts as fresh again."""
+    latest = latest_row(team, user)
+    candidates = gather_candidates(team, user, config, now=now, with_sources=False)
+    summary_version = ready_summary_version(team, user)
+    current_hash = input_hash(
+        candidates,
+        config=config,
+        limit=list_limit(config, limit),
+        activity_summary_version=summary_version,
+        focus=None,
+    )
+    if (
+        latest is not None
+        and latest.input_hash == current_hash
+        and latest.fallback_reason not in RETRYABLE_FALLBACK_REASONS
+    ):
+        record_check(team, latest, now)
+        return InputCheck(unchanged=True, calls_model=False)
+    return InputCheck(
+        unchanged=False,
+        calls_model=bool(candidates) and may_call_model(team, summary_ready=summary_version is not None),
+    )
 
 
 def _client(
@@ -284,6 +489,7 @@ def _capture(
     # Ids, counts and accounting only. Report text, reasons and the summary are user content.
     try:
         pools: dict[str, int] = {}
+        by_ref = {candidate.ref: candidate for candidate in build.candidates}
         for candidate in build.candidates:
             for pool in candidate.pools:
                 pools[pool] = pools.get(pool, 0) + 1
@@ -293,6 +499,7 @@ def _capture(
                 distinct_id=user.distinct_id or PIPELINE_DISTINCT_ID,
                 event=BUILT_EVENT,
                 properties={
+                    **({"$update_person_last_seen_at": False} if trigger != "on_demand" else {}),
                     "team_id": team.id,
                     "user_id": user.id,
                     "ranking_id": build.ranking_id,
@@ -311,12 +518,19 @@ def _capture(
                     "candidate_count": len(build.candidates),
                     "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
                     "folded_count": len(build.folded),
+                    # The list as stored: the ranked reports by rank, then the folded reports. A later build
+                    # prunes the row, so an offline comparison of rankings and outcomes reads the order here.
+                    "report_ids": [
+                        *(by_ref[entry.ref].report_id for entry in build.entries),
+                        *(by_ref[fold.ref].report_id for fold in build.folded),
+                    ],
                     "tier_counts": {tier: sum(1 for entry in build.entries if entry.tier == tier) for tier in TIERS},
                     "pool_counts": pools,
                     **dataclasses.asdict(build.counts),
                     "tokens_in": build.tokens_in,
                     "tokens_out": build.tokens_out,
                     "latency_ms": build.latency_ms,
+                    **(build.input_changes.properties() if build.input_changes is not None else {}),
                 },
                 groups={"organization": str(team.organization_id), "project": str(team.uuid)},
             )
@@ -330,6 +544,7 @@ def _store(team: Team, user: User, build: PersonalRankingBuild) -> PersonalRanki
         team_id=team.id,
         user_id=user.id,
         input_hash=build.input_hash or "",
+        input_parts=build.input_parts,
         candidate_ids=[candidate.report_id for candidate in build.candidates],
         result=build.result_json(),
         personalized=build.personalized,
@@ -365,7 +580,7 @@ def build_personal_ranking(
 ) -> PersonalRankingBuild:
     """Rank the person's candidate reports. `dry_run` calls the model but stores no row and records no event."""
     config = config or read_config()
-    limit = min(max(limit or config.default_limit, 1), config.max_limit)
+    limit = list_limit(config, limit)
     if not config.enabled:
         return PersonalRankingBuild(
             status="disabled",
@@ -423,6 +638,7 @@ def build_personal_ranking(
                     call.content,
                     refs=refs,
                     model_reasons=model_reasons,
+                    needs_you={candidate.ref: candidate.needs_you for candidate in candidates},
                     limit=limit,
                     rank_top=config.rank_top,
                     top_max=config.top_max,
@@ -437,6 +653,7 @@ def build_personal_ranking(
                 fallback_reason = FALLBACK_MALFORMED
         status = "ok" if validated is not None else "fallback"
 
+    parts = input_parts(candidates, config=config, limit=limit, activity_summary_version=summary_version, focus=focus)
     build = PersonalRankingBuild(
         status=status,
         personalized=validated is not None,
@@ -448,7 +665,10 @@ def build_personal_ranking(
         candidates=tuple(candidates),
         counts=validated.counts if validated is not None else ValidationCounts(),
         limit=limit,
-        input_hash=input_hash(candidates, activity_summary_version=summary_version, focus=focus),
+        input_hash=input_hash(
+            candidates, config=config, limit=limit, activity_summary_version=summary_version, focus=focus
+        ),
+        input_parts=parts,
         activity_summary_version=summary_version,
         model=config.model,
         model_called=call is not None,
@@ -458,7 +678,8 @@ def build_personal_ranking(
     )
     if dry_run:
         return build
-    build = _store(team, user, build)
+    changes = compare_inputs(latest_row(team, user), parts, rank_top=config.rank_top)
+    build = _store(team, user, dataclasses.replace(build, input_changes=changes))
     try:
         _prune(team, user, config.max_rows_per_person)
     except Exception:

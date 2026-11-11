@@ -26,6 +26,14 @@ const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 // sample; exceeding it DLQs instead of risking an unclassifiable OOM.
 const MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024
 
+export interface MessageLimits {
+    maxWindowIdBytes: number
+    maxEventsPerMessage: number
+    enforce: boolean
+}
+
+const DEFAULT_MESSAGE_LIMITS: MessageLimits = { maxWindowIdBytes: 1024, maxEventsPerMessage: 100_000, enforce: false }
+
 export interface ParseMessageStepInput {
     message: Message
     headers: SessionReplayHeaders
@@ -78,6 +86,43 @@ export function decompressMessageValue(message: Message): Buffer {
     }
     SessionRecordingIngesterMetrics.incrementMessagesByEncoding(contentEncoding ?? (isGzipped(value) ? 'gzip' : 'none'))
     return messageUnzipped
+}
+
+export function statedDecodedBytes(message: Message): number {
+    const value = message.value
+    if (!value) {
+        return 0
+    }
+    let stated = 0
+    if (value.length >= 4) {
+        if (getContentEncoding(message.headers) === 'lz4') {
+            stated = value.readUInt32LE(0)
+        } else if (isGzipped(value)) {
+            stated = value.readUInt32LE(value.length - 4)
+        }
+    }
+    return Math.max(value.length, stated <= MAX_DECOMPRESSED_BYTES ? stated : 0)
+}
+
+export function splitByDecodedBytes(messages: Message[], maxBytes: number): Message[][] {
+    if (maxBytes <= 0 || messages.length === 0) {
+        return [messages]
+    }
+    const parts: Message[][] = []
+    let current: Message[] = []
+    let currentBytes = 0
+    for (const message of messages) {
+        const bytes = statedDecodedBytes(message)
+        if (current.length > 0 && currentBytes + bytes > maxBytes) {
+            parts.push(current)
+            current = []
+            currentBytes = 0
+        }
+        current.push(message)
+        currentBytes += bytes
+    }
+    parts.push(current)
+    return parts
 }
 
 // null when capture recorded no usable pair, which must not read as zero skew.
@@ -173,10 +218,9 @@ export function observeClockSkew(sentAt: string | undefined, now: string | undef
  * This step processes one message at a time since there are no batch-level optimizations.
  * Gzip decompression is done synchronously since the pipeline already runs steps concurrently.
  */
-export function createParseMessageStep<T extends ParseMessageStepInput>(): ProcessingStep<
-    T,
-    T & ParseMessageStepOutput
-> {
+export function createParseMessageStep<T extends ParseMessageStepInput>(
+    limits: MessageLimits = DEFAULT_MESSAGE_LIMITS
+): ProcessingStep<T, T & ParseMessageStepOutput> {
     return async function parseMessageStep(input) {
         const { message } = input
 
@@ -220,6 +264,22 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
         }
 
         const sessionId = normalizeSessionId($session_id)
+
+        const windowIdBytes = $window_id ? Buffer.byteLength($window_id) : 0
+        const events = $snapshot_items.length
+        SessionRecordingIngesterMetrics.observeMessageShape(windowIdBytes, events)
+        const overLimit =
+            windowIdBytes > limits.maxWindowIdBytes
+                ? 'message_window_id_too_long'
+                : events > limits.maxEventsPerMessage
+                  ? 'message_too_many_events'
+                  : null
+        if (overLimit) {
+            SessionRecordingIngesterMetrics.incrementMessagesOverLimit(overLimit)
+            if (limits.enforce) {
+                return drop(overLimit, [], [{ type: overLimit, details: { sessionId, windowIdBytes, events } }])
+            }
+        }
 
         const clockSkewMs = quantizedClockSkewMs(messageResult.data.sent_at, messageResult.data.now)
         if (clockSkewMs !== 0) {

@@ -14,6 +14,8 @@ class TestWebVitalsAPI(ClickhouseTestMixin, APIBaseTest):
 
         for result in results:
             self.assertEqual(result["data"][-1], expected_values[metrics[result["order"]]])
+            # Toolbars pinned to older posthog-js releases read the metric from `action.custom_name`
+            self.assertEqual(result["action"], {"custom_name": metrics[result["order"]]})
 
     def test_web_vitals_missing_pathname(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/web_vitals/")
