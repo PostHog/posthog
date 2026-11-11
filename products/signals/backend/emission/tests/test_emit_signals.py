@@ -141,6 +141,28 @@ def _make_output(
 
 
 class TestQueryNewRecords:
+    def test_drained_fetch_reads_oldest_first_and_reports_where_it_stopped(self):
+        config = _make_config(max_records=2)
+        mock_result = MagicMock()
+        mock_result.columns = ["id", "description", "__signal_window_position"]
+        mock_result.results = [(1, "a", datetime(2026, 1, 1)), (2, "b", datetime(2026, 1, 2))]
+        context: dict[str, Any] = {
+            "table_name": "test_table",
+            "last_synced_at": "2025-01-01T00:00:00+00:00",
+            "extra": {},
+            "drain_window": True,
+        }
+
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+            with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
+                records = data_warehouse_record_fetcher(team=MagicMock(), config=config, context=context)
+
+        query_arg = mock_parse.call_args[0][0]
+        assert "created_at AS __signal_window_position" in query_arg
+        assert "ORDER BY created_at ASC" in query_arg
+        assert records == [{"id": 1, "description": "a"}, {"id": 2, "description": "b"}]
+        assert (context["window_end"], context["window_capped"]) == (datetime(2026, 1, 2), True)
+
     def test_continuous_sync_uses_partition_field_and_placeholders(self):
         config = _make_config(partition_field="updated_at")
         mock_result = MagicMock()

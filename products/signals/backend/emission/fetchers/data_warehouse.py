@@ -25,6 +25,12 @@ FILTER_SOURCE_ALIAS = "signal_filter_source"
 MALFORMED_COLUMN = "__signal_filter_malformed"
 # A filtered fetch writes the number of rows it dropped for malformed filter fields to this context key.
 MALFORMED_COUNT_KEY = "malformed_count"
+# When the caller sets DRAIN_WINDOW_KEY, the fetch reads oldest first and reports where a capped batch ended,
+# so the caller can resume from there instead of losing the rows past `max_records`.
+DRAIN_WINDOW_KEY = "drain_window"
+WINDOW_END_KEY = "window_end"
+WINDOW_CAPPED_KEY = "window_capped"
+WINDOW_POSITION_COLUMN = "__signal_window_position"
 
 
 def escape_table_name(table_name: str) -> str:
@@ -97,8 +103,12 @@ def data_warehouse_record_fetcher(
     fields_sql = ", ".join(config.fields)
     saved_filter = saved_filter_from_source_config(context.get("source_config"))
     alias_sql = f" AS {FILTER_SOURCE_ALIAS}" if saved_filter is not None else ""
+    drain = bool(context.get(DRAIN_WINDOW_KEY))
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
     order_sql = f"ORDER BY {config.order_by}" if config.order_by else ""
+    if drain:
+        fields_sql = f"{fields_sql}, {partition_expr} AS {WINDOW_POSITION_COLUMN}"
+        order_sql = f"ORDER BY {partition_expr} ASC"
     query = f"""
         SELECT {fields_sql}
         FROM {escape_table_name(table_name)}{alias_sql}
@@ -154,6 +164,10 @@ def data_warehouse_record_fetcher(
     if not result.results or not result.columns:
         return []
     records = [dict(zip(result.columns, row)) for row in result.results]
+    if drain:
+        positions = [record.pop(WINDOW_POSITION_COLUMN) for record in records]
+        context[WINDOW_END_KEY] = positions[-1]
+        context[WINDOW_CAPPED_KEY] = len(records) >= config.max_records
     if filter_context is None:
         return records
     passing = [record for record in records if not record.pop(MALFORMED_COLUMN)]

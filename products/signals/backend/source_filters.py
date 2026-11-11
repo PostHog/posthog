@@ -161,11 +161,13 @@ def record_fetch_failure(key: FilterStateKey, *, window_start: datetime, error: 
         state.save()
 
 
-def record_window_processed(key: FilterStateKey, *, window_start: datetime | None, malformed_count: int) -> None:
-    """Record a processed window, and clear the stored one only when that window covered it.
+def record_window_processed(
+    key: FilterStateKey, *, window_start: datetime | None, malformed_count: int, resume_from: datetime | None
+) -> None:
+    """Record a processed window. Clear the stored one, or move it to `resume_from` after a capped batch.
 
-    Another emission run can store an earlier failed window after this run read its bound, so the clear is
-    a conditional update rather than a read followed by a write.
+    Another emission run can store an earlier failed window after this run read its bound, so the stored
+    window changes only through a conditional update that requires this window to cover it.
     """
     now = timezone.now()
     state, created = key.rows().get_or_create(
@@ -181,4 +183,4 @@ def record_window_processed(key: FilterStateKey, *, window_start: datetime | Non
     covered = Q(pending_window_start__isnull=True)
     if window_start is not None:
         covered |= Q(pending_window_start__gte=window_start)
-    rows.filter(covered).update(pending_window_start=None, last_error_code="", last_error_message="")
+    rows.filter(covered).update(pending_window_start=resume_from, last_error_code="", last_error_message="")

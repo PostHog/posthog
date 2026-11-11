@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -10,7 +10,12 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.contracts import HOGQL_FILTER_KEY
-from products.signals.backend.emission.fetchers.data_warehouse import MALFORMED_COUNT_KEY
+from products.signals.backend.emission.fetchers.data_warehouse import (
+    DRAIN_WINDOW_KEY,
+    MALFORMED_COUNT_KEY,
+    WINDOW_CAPPED_KEY,
+    WINDOW_END_KEY,
+)
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 from products.signals.backend.source_filters import (
     FilterStateKey,
@@ -30,6 +35,8 @@ class FetchedWindow:
     window_start: datetime | None
     malformed_count: int
     tracked: bool
+    # Where a capped batch ended. The next fetch resumes there instead of the stored window clearing.
+    resume_from: datetime | None
 
 
 def replay_window_start(
@@ -65,7 +72,11 @@ def fetch_records(
     window_start = replay_window_start(
         last_synced_at=last_synced_at, pending=pending, first_sync_start=first_sync_start
     )
-    context = {**context, "last_synced_at": window_start.isoformat() if window_start is not None else None}
+    context = {
+        **context,
+        "last_synced_at": window_start.isoformat() if window_start is not None else None,
+        DRAIN_WINDOW_KEY: tracked,
+    }
     if pending is not None:
         logger.info(
             "Replaying a window an earlier fetch failed to read",
@@ -93,10 +104,22 @@ def fetch_records(
         key=key,
         window_start=window_start,
         malformed_count=context.get(MALFORMED_COUNT_KEY, 0),
+        resume_from=_aware(context.get(WINDOW_END_KEY)) if context.get(WINDOW_CAPPED_KEY) else None,
         tracked=tracked,
     )
 
 
 def complete_fetch(fetched: FetchedWindow) -> None:
     if fetched.tracked:
-        record_window_processed(fetched.key, window_start=fetched.window_start, malformed_count=fetched.malformed_count)
+        record_window_processed(
+            fetched.key,
+            window_start=fetched.window_start,
+            malformed_count=fetched.malformed_count,
+            resume_from=fetched.resume_from,
+        )
+
+
+def _aware(value: object) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)

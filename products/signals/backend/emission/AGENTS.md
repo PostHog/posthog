@@ -70,6 +70,7 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   Unlike a malformed scope list, a saved filter that cannot be read or bound raises, so emission stops rather than reading unfiltered rows.
   The emit activity calls the fetcher through `fetch_window.fetch_records`, which keeps that failed window per warehouse schema: a filtered source's failed fetch stores its window start on `SignalSourceFilterState`, and the next fetch reads from there instead of `last_synced_at`.
   The activity calls `complete_fetch` only after the pipeline succeeds, and it clears the stored window only when the processed window covered it.
+  A tracked fetch reads oldest first, so a batch capped at `max_records` moves the stored window to its last row instead of clearing it, and the next fetch continues from there.
 - **Grouped warehouse fetcher** (`fetchers/grouped_warehouse.py`) — for high-volume tables that store one row per occurrence (Datadog error spans and logs).
   The generic fetcher has no `GROUP BY`, so it would emit one signal per row.
   The grouped fetcher reads a fixed trailing window of event time (`GROUPED_WINDOW_DAYS`) and ignores `last_synced_at`.

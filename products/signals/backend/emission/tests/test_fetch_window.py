@@ -49,14 +49,19 @@ class TestFetchRecords(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.windows: list[str | None] = []
-        self.outcomes: list[Exception | int] = []
+        self.outcomes: list[Exception | int | datetime] = []
 
     def fetcher(self, team: Any, config: SignalSourceTableConfig, context: dict[str, Any]) -> list[dict[str, Any]]:
         self.windows.append(context["last_synced_at"])
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
-        context["malformed_count"] = outcome
+        if isinstance(outcome, datetime):
+            assert context["drain_window"] is True
+            context["window_end"] = outcome.replace(tzinfo=None)
+            context["window_capped"] = True
+        else:
+            context["malformed_count"] = outcome
         return [{"id": 1}]
 
     def config(self) -> SignalSourceTableConfig:
@@ -112,6 +117,21 @@ class TestFetchRecords(BaseTest):
         assert self.windows == [MIDDLE.isoformat(), MIDDLE.isoformat(), LATE.isoformat(), MIDDLE.isoformat()]
         state.refresh_from_db()
         assert (state.pending_window_start, state.last_error_code, state.last_malformed_count) == (None, "", 2)
+
+    def test_capped_batch_resumes_where_it_stopped(self) -> None:
+        schema_id = uuid4()
+        self.outcomes = [RuntimeError("query failed"), MIDDLE, 0]
+
+        with self.assertRaises(RuntimeError):
+            self.fetch(schema_id, EARLY)
+        complete_fetch(self.fetch(schema_id, LATE))
+
+        assert self.state(schema_id).pending_window_start == MIDDLE
+
+        complete_fetch(self.fetch(schema_id, LATE))
+
+        assert self.windows == [EARLY.isoformat(), EARLY.isoformat(), MIDDLE.isoformat()]
+        assert self.state(schema_id).pending_window_start is None
 
     def test_first_sync_failure_keeps_the_window_it_read(self) -> None:
         schema_id = uuid4()
