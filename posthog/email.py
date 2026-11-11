@@ -540,8 +540,6 @@ def _send_one(
             _pin_to_workflows(idempotency_key, workflows_template_id)
             return "workflows", response
         except WorkflowsEmailError as err:
-            # A 400 `invalid_input` on `to` means the send API can never accept this address. The same code on another
-            # field is a fault in what PostHog sent, so it stays a failure that alerts.
             if (err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES) or (
                 err.status_code == 400 and err.code == "invalid_input" and err.attr == "to"
             ):
@@ -664,8 +662,7 @@ def _send_via_http_batch(
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
         unsent_count = len(to) - already_sent_count - sent_count - len(undeliverable)
-        # A 409 `idempotency_key_in_flight` means an earlier attempt with this key is still queueing the email, so a
-        # retry of it is expected and is not a failed send. On the last attempt the email is dropped, so it counts.
+        # An earlier attempt with this key is still queueing the email, so only a last attempt is a failed send.
         in_flight = isinstance(err, WorkflowsEmailError) and err.code == "idempotency_key_in_flight"
         if not (in_flight and retrying):
             EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(unsent_count)
