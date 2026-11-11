@@ -108,18 +108,14 @@ class ReviewPRWorkflowInputs:
 
 @frozen
 class FinishedStandardAutomaticTurn:
-    """A finished Standard automatic turn, to record its coverage and maybe start a silent stamphog review."""
+    """A finished Standard automatic turn, to record its coverage."""
 
     team_id: int
     report_id: str
-    repository: str
-    pr_number: int
     head_sha: str
     run_index: int
     lens_chunks_capped: bool
     delta_review: bool
-    # The turn's own event marked the PR ready at the head the turn reviewed.
-    marks_ready: bool
 
 
 @frozen

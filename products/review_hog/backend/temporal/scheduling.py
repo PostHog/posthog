@@ -20,7 +20,7 @@ from products.review_hog.backend.temporal.types import (
 )
 
 SILENT_STAMPHOG_PATCH = "reviewhog-silent-stamphog-2026-11"
-REPORT_UNREVIEWED_HEAD_PATCH = "reviewhog-report-failed-turn-2026-11"
+STAMPHOG_REPORT_AFTER_TURN_PATCH = "reviewhog-stamphog-report-after-turn-2026-11"
 
 
 async def request_silent_stamphog(request: ReviewPRWorkflowInputs, head_sha: str) -> None:
@@ -130,6 +130,29 @@ class ReviewPRQueueWorkflow:
     def requested_heads(self) -> dict[str, list[str | None]]:
         return self._requests.requested_heads()
 
+    async def _answer_ready_event(self, request: ReviewPRWorkflowInputs) -> None:
+        """Ask stamphog about the head of a ready event once the turn for it ended, whatever the outcome.
+
+        The activity queues the silent review for a head recorded clean and reports every other head as
+        unreviewed. A ready event can join the running turn, so the active request decides, not `request`.
+        A waiting request that a newer head replaces is not answered: its head is stale, stamphog acts on
+        the live head, and the newer event answers for itself.
+        """
+        active = self._requests.active
+        if workflow.patched(STAMPHOG_REPORT_AFTER_TURN_PATCH):
+            if active is not None and active.marks_ready and active.requested_head_sha is not None:
+                await request_silent_stamphog(active, active.requested_head_sha)
+            return
+        # Histories from before the patch: only a ready event that joined the turn was answered, and only on success.
+        if (
+            workflow.patched(SILENT_STAMPHOG_PATCH)
+            and active is not None
+            and active.marks_ready
+            and not request.marks_ready
+            and request.requested_head_sha is not None
+        ):
+            await request_silent_stamphog(request, request.requested_head_sha)
+
     @workflow.run
     async def run(self, inputs: ReviewPRQueueInputs) -> str:
         result = ""
@@ -151,27 +174,9 @@ class ReviewPRQueueWorkflow:
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
-                # The turn ran with `request`, so a ready event that joined it later is answered here.
-                active = self._requests.active
-                if (
-                    workflow.patched(SILENT_STAMPHOG_PATCH)
-                    and active is not None
-                    and active.marks_ready
-                    and not request.marks_ready
-                    and request.requested_head_sha is not None
-                ):
-                    await request_silent_stamphog(request, request.requested_head_sha)
+                await self._answer_ready_event(request)
             except ChildWorkflowError:
-                # A failed turn recorded no coverage, so the request reports the head as unreviewed.
-                active = self._requests.active
-                if (
-                    workflow.patched(REPORT_UNREVIEWED_HEAD_PATCH)
-                    and active is not None
-                    and active.marks_ready
-                    and not request.marks_ready
-                    and request.requested_head_sha is not None
-                ):
-                    await request_silent_stamphog(request, request.requested_head_sha)
+                await self._answer_ready_event(request)
                 if not self._requests.pending:
                     raise
                 workflow.logger.exception("Review failed; processing the next requested review")

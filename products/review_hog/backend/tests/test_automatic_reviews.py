@@ -45,7 +45,7 @@ from products.stamphog.backend.facade.finished_review_hooks import FinishedRevie
 _QUEUE = "products.review_hog.backend.tasks.process_authored_pr_event.delay"
 _HANDOFF_QUEUE = "products.review_hog.backend.tasks.process_stamphog_handoff.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
-_REPORT_UNREVIEWED = "products.review_hog.backend.automatic_reviews.report_unreviewed_head"
+_QUEUE_ROUTING = "products.review_hog.backend.automatic_reviews.queue_routing_after_external_review"
 _BUSY = "products.review_hog.backend.temporal.client.workflow_running"
 _HEAD_STATUS = "products.review_hog.backend.stamphog_handoff.HeadReviewStatusLookup.status"
 _SECRET = "test-review-hog-webhook-secret"
@@ -401,9 +401,9 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("skip_agent_review_label", "label_skipped", True),
         ]
     )
-    @patch(_REPORT_UNREVIEWED)
+    @patch(_QUEUE_ROUTING)
     @patch(_START)
-    def test_queued_events_recheck_ownership_consent_and_membership_and_tell_stamphog_about_ready_heads_left_unreviewed(
+    def test_queued_events_recheck_ownership_consent_and_membership(
         self, change: str, expected_outcome: str, expect_reported: bool, start: MagicMock, report: MagicMock
     ) -> None:
         queued = self._queued_event(

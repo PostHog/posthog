@@ -113,10 +113,21 @@ async def test_pushes_coalesce_and_full_requests_survive_an_active_flash_review(
 
 
 @pytest.mark.asyncio
-async def test_a_ready_event_for_the_running_turns_head_starts_silent_stamphog_once_the_turn_ends() -> None:
+@pytest.mark.parametrize(
+    "ready_request, fail_turn, expect_answered",
+    [
+        pytest.param("joined", False, True, id="ready-event-joins-the-running-turn"),
+        pytest.param("joined", True, True, id="ready-event-joins-a-turn-that-fails"),
+        pytest.param("own", False, True, id="turn-started-for-a-ready-event"),
+        pytest.param("own", True, True, id="failed-turn-started-for-a-ready-event"),
+        pytest.param(None, False, False, id="turn-for-a-draft"),
+    ],
+)
+async def test_the_queue_asks_stamphog_about_a_ready_head_once_its_turn_ends(
+    ready_request: str | None, fail_turn: bool, expect_answered: bool
+) -> None:
     entered = asyncio.Event()
     release = asyncio.Event()
-    reviews: list[ReviewPRWorkflowInputs] = []
     silent_requests: list[SilentStamphogRequest] = []
     draft_opened = ReviewPRWorkflowInputs(
         team_id=1,
@@ -131,12 +142,14 @@ async def test_a_ready_event_for_the_running_turns_head_starts_silent_stamphog_o
         publish=True,
     )
     marked_ready = replace(draft_opened, trigger_action="ready_for_review", marks_ready=True)
+    first = marked_ready if ready_request == "own" else draft_opened
 
     @activity.defn(name="record_scheduled_review")
     async def record(inputs: ReviewPRWorkflowInputs) -> str:
-        reviews.append(inputs)
         entered.set()
         await release.wait()
+        if fail_turn:
+            raise ApplicationError("Review unavailable", non_retryable=True)
         return "report"
 
     @activity.defn(name="review_resolution_running_activity")
@@ -157,79 +170,23 @@ async def test_a_ready_event_for_the_running_turns_head_starts_silent_stamphog_o
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
-                ReviewPRQueueWorkflow.run,
-                ReviewPRQueueInputs(requests=[draft_opened]),
-                id=queue,
-                task_queue=queue,
+                ReviewPRQueueWorkflow.run, ReviewPRQueueInputs(requests=[first]), id=queue, task_queue=queue
             )
             await asyncio.wait_for(entered.wait(), timeout=10)
-            await handle.signal("request_review", marked_ready)
+            if ready_request == "joined":
+                await handle.signal("request_review", marked_ready)
             release.set()
-            assert await handle.result() == "report"
+            if fail_turn:
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+            else:
+                assert await handle.result() == "report"
 
-    assert reviews == [draft_opened]
-    assert silent_requests == [
-        SilentStamphogRequest(team_id=1, repository="PostHog/posthog", pr_number=7, head_sha="a")
-    ]
-
-
-@pytest.mark.asyncio
-async def test_a_ready_event_for_a_running_turn_that_fails_is_still_answered() -> None:
-    entered = asyncio.Event()
-    release = asyncio.Event()
-    silent_requests: list[SilentStamphogRequest] = []
-    draft_opened = ReviewPRWorkflowInputs(
-        team_id=1,
-        user_id=1,
-        owner="PostHog",
-        repo="posthog",
-        pr_number=7,
-        review_mode="flash",
-        trigger_source="automatic",
-        requested_head_sha="a",
-        trigger_action="opened",
-        publish=True,
+    assert silent_requests == (
+        [SilentStamphogRequest(team_id=1, repository="PostHog/posthog", pr_number=7, head_sha="a")]
+        if expect_answered
+        else []
     )
-    marked_ready = replace(draft_opened, trigger_action="ready_for_review", marks_ready=True)
-
-    @activity.defn(name="record_scheduled_review")
-    async def record(inputs: ReviewPRWorkflowInputs) -> str:
-        entered.set()
-        await release.wait()
-        raise ApplicationError("Review unavailable", non_retryable=True)
-
-    @activity.defn(name="review_resolution_running_activity")
-    async def resolution_running(inputs: ReviewPRWorkflowInputs) -> bool:
-        return False
-
-    @activity.defn(name="start_silent_stamphog_activity")
-    async def start_silent_stamphog(request: SilentStamphogRequest) -> None:
-        silent_requests.append(request)
-
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        queue = str(uuid.uuid4())
-        async with Worker(
-            env.client,
-            task_queue=queue,
-            workflows=[ReviewPRQueueWorkflow, ScheduledReviewStub],
-            activities=[record, resolution_running, start_silent_stamphog],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            handle = await env.client.start_workflow(
-                ReviewPRQueueWorkflow.run,
-                ReviewPRQueueInputs(requests=[draft_opened]),
-                id=queue,
-                task_queue=queue,
-            )
-            await asyncio.wait_for(entered.wait(), timeout=10)
-            await handle.signal("request_review", marked_ready)
-            release.set()
-            with pytest.raises(WorkflowFailureError):
-                await handle.result()
-
-    assert silent_requests == [
-        SilentStamphogRequest(team_id=1, repository="PostHog/posthog", pr_number=7, head_sha="a")
-    ]
 
 
 @pytest.mark.asyncio

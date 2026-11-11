@@ -229,11 +229,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     plan_lens_chunks,
     reconcile_chunks,
 )
-from products.review_hog.backend.silent_stamphog import (
-    finish_standard_automatic_turn,
-    report_unreviewed_head,
-    start_silent_stamphog,
-)
+from products.review_hog.backend.silent_stamphog import finish_standard_automatic_turn, start_silent_stamphog
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.review_hog.backend.temporal.types import (
     REQUESTED_TRIGGERS,
@@ -2971,27 +2967,21 @@ def _log_silent_stamphog(repository: str, pr_number: int, head_sha: str) -> None
 
 
 def _finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> None:
-    queued = finish_standard_automatic_turn(
+    finish_standard_automatic_turn(
         team_id=input.team_id,
         report_id=input.report_id,
-        repository=input.repository,
-        pr_number=input.pr_number,
         head_sha=input.head_sha,
         run_index=input.run_index,
         lens_chunks_capped=input.lens_chunks_capped,
         delta_review=input.delta_review,
-        marks_ready=input.marks_ready,
     )
-    if queued:
-        _log_silent_stamphog(input.repository, input.pr_number, input.head_sha)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def finish_standard_automatic_turn_activity(input: FinishedStandardAutomaticTurn) -> None:
-    """Record on the turn marker whether the turn was clean with full coverage, and start a silent stamphog
-    review when the turn's own event marked the PR ready.
+    """Record on the turn marker whether the turn was clean with full coverage.
 
     The workflow catches the final failure. The turn then stays unrecorded, which never counts as clean.
     """
@@ -3016,24 +3006,6 @@ async def start_silent_stamphog_activity(input: SilentStamphogRequest) -> None:
     a missed stamphog review must never fail the review.
     """
     await database_sync_to_async(_start_silent_stamphog, thread_sensitive=False)(input)
-
-
-def _report_unreviewed_head(input: SilentStamphogRequest) -> None:
-    report_unreviewed_head(
-        team_id=input.team_id, repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
-    )
-
-
-@activity.defn
-@scoped_temporal()
-@close_db_connections
-async def report_unreviewed_head_activity(input: SilentStamphogRequest) -> None:
-    """Tell stamphog that a Standard automatic turn failed for good, so it can route reviewers now.
-
-    Never raises on a stamphog error. The workflow catches any other failure, because the failed
-    turn must keep its original error.
-    """
-    await database_sync_to_async(_report_unreviewed_head, thread_sensitive=False)(input)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------
