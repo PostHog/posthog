@@ -552,6 +552,7 @@ class PromptSetRankings:
     window_to: dt.date
     branded: BrandedSegment
     answers: int
+    competitors_confirmed: bool
     brands: tuple[RankedBrand, ...]
     daily: tuple[RankedBrandDay, ...]
     top_domains: tuple[RankedDomain, ...]
@@ -652,3 +653,11 @@ class KeywordModifierReport:
     answers: int
     baseline_cited_rate: float | None
     modifiers: tuple[KeywordModifier, ...]
+
+
+@frozen
+class VisibilityDashboard:
+    """A dashboard created for the team's AI visibility."""
+
+    id: int
+    name: str

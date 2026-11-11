@@ -362,6 +362,7 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |Release
                               |ReplayHighlightFeedEntry
                               |ReplayHighlightFeedState
                               |ReplayObservation
@@ -879,6 +880,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |Release
                         |ReplayHighlightFeedEntry
                         |ReplayHighlightFeedState
                         |ReplayObservation
@@ -1448,6 +1450,7 @@ rules:
                               |Role
                               |RoleExternalReference
                               |RoleMembership
+                              |SandboxSenderOrganizationBlock
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -1532,6 +1535,7 @@ rules:
                         |Role
                         |RoleExternalReference
                         |RoleMembership
+                        |SandboxSenderOrganizationBlock
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., organization_id=$O, ...)
@@ -1773,6 +1777,7 @@ rules:
                               |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
+                              |InsightAgentRead
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
@@ -1850,6 +1855,7 @@ rules:
                         |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
+                        |InsightAgentRead
                         |InsightViewed
                         |KernelRuntime
                         |PersonalInboxRanking

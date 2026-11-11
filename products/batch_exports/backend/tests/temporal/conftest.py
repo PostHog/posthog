@@ -32,7 +32,7 @@ from posthog.temporal.tests.utils.logger import restored_structlog_config
 from products.batch_exports.backend.facade.api import delete_batch_exports_for_teams
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_all
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import drop_clickhouse_kafka_tables, truncate_all
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     PersonDistinctId2Values,
     PersonValues,
@@ -163,6 +163,12 @@ async def s3_compatible_integration(ateam):
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def drop_kafka_tables_after_the_session():
+    yield
+    drop_clickhouse_kafka_tables()
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")

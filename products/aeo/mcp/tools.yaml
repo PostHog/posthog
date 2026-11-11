@@ -169,9 +169,27 @@ tools:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
         feature_flag: aeo-citation-tracking
+    aeo-prompts-create-dashboard:
+        operation: aeo_prompts_create_dashboard
+        enabled: false
+        disabled_reason: Enable after the aeo_prompts/create_dashboard route is deployed, so MCP never serves a tool whose route 404s.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create the AI visibility weekly dashboard
+        description: >
+            Create a dashboard named "AI visibility weekly" with SQL insights over the citation checks of non-branded
+            prompts: visibility (share of answers that mention the brand or cite the site) and citation rate for the
+            last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week
+            trend. Own and competitor pages, and which prompts are branded, come from `system.aeo_brands` when each
+            query runs. Each call creates a new dashboard, so check for an existing one first. To get it weekly, create
+            a dashboard subscription for the returned `id`.
+        feature_flag: aeo-citation-tracking
     aeo-prompts-get:
         operation: aeo_prompts_retrieve
         enabled: true
+        enrich_url: prompts/{id}
         title: Get a tracked AI prompt
         description: >
             Get one AI citation tracking prompt by id, with its topic, on/off state, when it last ran, and
@@ -200,6 +218,7 @@ tools:
     aeo-prompts-list:
         operation: aeo_prompts_list
         enabled: true
+        enrich_url: prompts/{id}
         list: true
         title: List tracked AI prompts
         description: >
@@ -242,6 +261,7 @@ tools:
     aeo-prompts-stats-get:
         operation: aeo_prompts_stats
         enabled: true
+        enrich_url: prompts/{params.id}
         title: Get a tracked AI prompt's citation stats
         description: >
             Get citation stats for one AI citation tracking prompt. `engines` has one row per answer engine over the
@@ -309,6 +329,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
+        enrich_url: prompts/{id}
         title: Update a tracked AI prompt
         description: >
             Change one AI citation tracking prompt. Send only the fields to change; the prompt keeps its id. `active`

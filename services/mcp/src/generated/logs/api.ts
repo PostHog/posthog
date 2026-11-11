@@ -6285,11 +6285,11 @@ export const LogsGroupByCreateBody = () => zod.object({
                     'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\". Ignored when groupBys is provided.'
                 ),
             groupBySource: zod
-                .enum(['log', 'resource', 'column'])
-                .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                .enum(['log', 'resource', 'column', 'body'])
+                .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body')
                 .default(logsGroupByCreateBodyQueryOneGroupBySourceDefault)
                 .describe(
-                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields, \"body\" for a JSON path into the body. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body'
                 ),
             groupBys: zod
                 .array(
@@ -6297,14 +6297,16 @@ export const LogsGroupByCreateBody = () => zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template).'
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\"); when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template); when source is \"body\", a dot-separated JSON path into the log body (e.g. \"fields.message\").'
                             ),
                         source: zod
-                            .enum(['log', 'resource', 'column'])
-                            .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                            .enum(['log', 'resource', 'column', 'body'])
+                            .describe(
+                                '\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body'
+                            )
                             .default(logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault)
                             .describe(
-                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields, \"body\" for a JSON path into the body.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column\n\* `body` - body'
                             ),
                     })
                 )
