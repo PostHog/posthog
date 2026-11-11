@@ -11,6 +11,7 @@ from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Team
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
 from products.ai_observability.backend.logic.traces import trace_queries
@@ -105,6 +106,34 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json() == {"available_trace_ids": ["application,trace"]}
+
+    def test_numbers_steps_that_share_a_name(self) -> None:
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "event_uuid": f"00000000-0000-0000-0000-00000000000{index}",
+                    "distinct_id": "user-1",
+                    "team": self.team,
+                    "timestamp": T0 + timedelta(seconds=index),
+                    "properties": {
+                        "$ai_trace_id": "trace-1",
+                        "$ai_parent_id": "trace-1",
+                        "$ai_span_name": "openai.chat",
+                    },
+                }
+                for index in (1, 2)
+            ]
+        )
+
+        response = self.client.get(self._url(encode_segment("trace-1")))
+
+        [root] = response.json()["tree"]
+        assert [root["label"], *(child["label"] for child in root["children"])] == [
+            "openai.chat #1",
+            "openai.chat #2",
+            "openai.chat #3",
+        ]
 
     @parameterized.expand([("plain id", "trace-1"), ("id with a dot", "run.42"), ("id with a slash", "a/b")])
     def test_returns_the_trace_in_camel_case(self, _name: str, trace_id: str) -> None:

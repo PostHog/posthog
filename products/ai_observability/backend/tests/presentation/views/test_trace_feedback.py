@@ -60,6 +60,10 @@ class TestTraceFeedbackView(ClickhouseTestMixin, APIBaseTest):
             ("text", "Too long, but correct.", "trace-1")
         ]
         assert body["summary"]["total"] == 2
+        assert [(step["nodeId"], step["responseCount"], step["total"]) for step in body["steps"]] == [
+            (GENERATION, 0, 1),
+            ("trace-1", 1, 1),
+        ]
         assert body["surveyResponsesStatus"] == "ok"
 
     @parameterized.expand(

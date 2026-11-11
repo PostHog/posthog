@@ -46,6 +46,7 @@ class TestTraceClustersView(ClickhouseTestMixin, APIBaseTest):
             "jobName": None,
             "clusterId": 3,
             "title": "Billing questions",
+            "label": "Billing questions",
             "description": "Users ask about invoices.",
             "isOutlier": False,
         }
