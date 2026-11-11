@@ -5,8 +5,8 @@ import path from 'path'
 export const SCENARIOS_DIR = path.join(__dirname, '..')
 const GENERATOR_DIR = 'generator'
 const VALVES_DIR = 'valves'
-const CARDS_DIR = 'cards'
-const CARD_FILE = /\.yaml$/
+const DATA_DIRS = ['cards', 'profiles']
+const DATA_FILE = /\.yaml$/
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
 export type Provenance = {
@@ -50,15 +50,15 @@ function mktree(scenariosDir: string, entries: TreeEntry[]): string {
 }
 
 function runnerTreeOf(scenariosDir: string, entries: TreeEntry[]): string {
-    const cardsEntry = (entry: TreeEntry): TreeEntry => {
-        const code = entriesOf(scenariosDir, entry.sha).filter(({ name }) => !CARD_FILE.test(name))
-        return { ...entry, line: `040000 tree ${mktree(scenariosDir, code)}\t${CARDS_DIR}` }
+    const codeEntry = (entry: TreeEntry): TreeEntry => {
+        const code = entriesOf(scenariosDir, entry.sha).filter(({ name }) => !DATA_FILE.test(name))
+        return { ...entry, line: `040000 tree ${mktree(scenariosDir, code)}\t${entry.name}` }
     }
     return mktree(
         scenariosDir,
         entries
             .filter(({ name }) => name !== GENERATOR_DIR && name !== VALVES_DIR)
-            .map((entry) => (entry.name === CARDS_DIR ? cardsEntry(entry) : entry))
+            .map((entry) => (DATA_DIRS.includes(entry.name) ? codeEntry(entry) : entry))
     )
 }
 
