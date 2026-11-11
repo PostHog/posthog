@@ -1,6 +1,6 @@
 import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
 
-import { execHog } from './hog-exec'
+import { execHog } from '../utils/hog-exec'
 
 describe('hog render queue benchmark', () => {
     const CEILING_MS = 1000
