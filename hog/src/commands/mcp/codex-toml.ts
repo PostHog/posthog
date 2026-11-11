@@ -259,6 +259,7 @@ export interface CodexServer {
     url?: string
     command?: string
     args: string[]
+    fields: string[]
 }
 
 export function codexServer(text: string, name: string): CodexServer | undefined {
@@ -267,6 +268,13 @@ export function codexServer(text: string, name: string): CodexServer | undefined
     if (!all.some((statement) => startsWith(fullKey(statement), server))) {
         return undefined
     }
+
+    const fields = new Set(
+        all.flatMap((statement) => {
+            const key = statement.kind === 'pair' ? fullKey(statement) : statement.table
+            return startsWith(key, server) && key.length > server.length ? [key[server.length] ?? ''] : []
+        })
+    )
 
     const value = (key: string): string => {
         const pair = all.find((statement) => statement.kind === 'pair' && sameKey(fullKey(statement), [...server, key]))
@@ -280,7 +288,12 @@ export function codexServer(text: string, name: string): CodexServer | undefined
     }
 
     const args = value('args')
-    return { url: scalar('url'), command: scalar('command'), args: args.startsWith('[') ? stringsIn(args) : [] }
+    return {
+        url: scalar('url'),
+        command: scalar('command'),
+        args: args.startsWith('[') ? stringsIn(args) : [],
+        fields: [...fields],
+    }
 }
 
 /**
