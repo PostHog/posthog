@@ -61,6 +61,12 @@ _ENTITY_NOUN_RE = re.compile(r"\s+(?:feature|flag|event|property|properties|colu
 # since those names do not resemble any MCP tool.
 _CALL_REFERENCE_RE = re.compile(r"`([a-z0-9]+(?:[_-][a-z0-9]+)+)\(")
 
+# Server-qualified names, e.g. `posthog:logs-services`. The prefix states intent, so a tool renamed by
+# gaining a suffix (logs-services -> logs-services-create) is caught even though it is far from the new
+# name by edit distance. Family globs (`posthog:accounts-*`) and one-word names (`posthog:exec`) are
+# left alone.
+_QUALIFIED_REFERENCE_RE = re.compile(r"\bposthog:([a-z0-9]+(?:-[a-z0-9]+)+)(?![a-z0-9_*-])")
+
 # Backticked snake_case whose kebab form is a real tool — wrong casing.
 _SNAKE_CASE_REFERENCE_RE = re.compile(r"`([a-z0-9]+(?:_[a-z0-9]+)+)`")
 
@@ -183,6 +189,20 @@ def _call_candidates(text: str, tool_names: set[str], skill_names: set[str]) -> 
         yield from _candidate(m.start(1), name, "tool", tool_names)
 
 
+def _qualified_candidates(text: str, tool_names: set[str], skill_names: set[str]) -> Iterator[_Candidate]:
+    for m in _QUALIFIED_REFERENCE_RE.finditer(text):
+        name = m.group(1)
+        if name in tool_names or name in skill_names:
+            continue
+        suggestions = sorted(t for t in tool_names if t.startswith(f"{name}-")) or _reference_suggestions(
+            name, tool_names
+        )
+        if suggestions:
+            yield _Candidate(
+                m.start(1), name, f"'{name}' looks like a tool but none exists{_did_you_mean(suggestions)}"
+            )
+
+
 def _casing_candidates(text: str, tool_names: set[str], _skill_names: set[str]) -> Iterator[_Candidate]:
     for m in _SNAKE_CASE_REFERENCE_RE.finditer(text):
         name = m.group(1)
@@ -191,7 +211,13 @@ def _casing_candidates(text: str, tool_names: set[str], _skill_names: set[str]) 
             yield _Candidate(m.start(1), name, f"'{name}' has wrong casing — the tool is named {kebab}")
 
 
-_REFERENCE_RULES = (_phrase_candidates, _invocation_candidates, _call_candidates, _casing_candidates)
+_REFERENCE_RULES = (
+    _phrase_candidates,
+    _invocation_candidates,
+    _call_candidates,
+    _qualified_candidates,
+    _casing_candidates,
+)
 
 
 def _check_tool_references(

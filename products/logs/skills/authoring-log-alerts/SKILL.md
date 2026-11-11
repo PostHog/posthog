@@ -26,14 +26,14 @@ are trying to land thresholds that fire 0–3 times per week on real production 
 
 ## Tools
 
-| Tool                                                                  | Job                                                                           | Where it fits      |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------ |
-| `posthog:logs-services`                                               | Top-25 services in window with log_count, error_count, error_rate, sparkline. | Step 1 — triage.   |
-| `posthog:logs-attributes-list` / `posthog:logs-attribute-values-list` | Discover keys/values for narrower filters.                                    | Step 2, optional.  |
-| `posthog:logs-count-ranges`                                           | Adaptive time-bucketed counts for a filter.                                   | Step 3 — baseline. |
-| `posthog:logs-alerts-simulate-create`                                 | Replay a draft config against `-7d` history with full state machine.          | Step 4 — validate. |
-| `posthog:logs-alerts-create`                                          | Persist the alert.                                                            | Step 5 — ship.     |
-| `posthog:logs-alerts-destinations-create`                             | Wire the alert to Slack, webhook, or Microsoft Teams.                         | Step 5: ship.      |
+| Tool                                                                  | Job                                                                    | Where it fits      |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------ |
+| `posthog:logs-services-create`                                        | Services in window with log_count, error_count, error_rate, sparkline. | Step 1 — triage.   |
+| `posthog:logs-attributes-list` / `posthog:logs-attribute-values-list` | Discover keys/values for narrower filters.                             | Step 2, optional.  |
+| `posthog:logs-count-ranges`                                           | Adaptive time-bucketed counts for a filter.                            | Step 3 — baseline. |
+| `posthog:logs-alerts-simulate-create`                                 | Replay a draft config against `-7d` history with full state machine.   | Step 4 — validate. |
+| `posthog:logs-alerts-create`                                          | Persist the alert.                                                     | Step 5 — ship.     |
+| `posthog:logs-alerts-destinations-create`                             | Wire the alert to Slack, webhook, or Microsoft Teams.                  | Step 5: ship.      |
 
 Do **not** call `posthog:query-logs` during authoring. You need distributions, not rows. Reserve `posthog:query-logs` for
 the very end if the user asks "show me a sample of what would have fired" — `limit: 10` is plenty.
@@ -42,8 +42,9 @@ the very end if the user asks "show me a sample of what would have fired" — `l
 
 ### 1. Triage — pick candidate services
 
-Call `posthog:logs-services` for the last 24h with no filters. The response is capped at 25 services and includes a
-sparkline, so it is small and bounded.
+Call `posthog:logs-services-create` for the last 24h with no filters (`{"query": {"dateRange": {"date_from": "-24h"}}}`).
+Read only `services[].{service_name, log_count, error_count, error_rate}`. Ignore the top-level `sparkline`: it holds a
+row per time bucket for each of the top 25 services, so it can be large.
 
 A service is a candidate when **both** are true:
 
@@ -178,7 +179,7 @@ Example minimum:
 
 ## Token-economy rules
 
-- One `posthog:logs-services` call at the start, not per-candidate.
+- One `posthog:logs-services-create` call at the start, not per-candidate.
 - One `posthog:logs-count-ranges` call per candidate at `targetBuckets: 24`. Don't go above 30 during authoring.
 - ≤ 3 `posthog:logs-alerts-simulate-create` calls per candidate.
 - Zero `posthog:query-logs` calls during the authoring loop.

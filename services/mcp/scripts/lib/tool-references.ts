@@ -11,10 +11,10 @@
  *
  * Used by scripts/lint-tool-names.ts. The skills lint
  * (products/posthog_ai/scripts/build_skills/tool_references.py) implements the same rules
- * for skill markdown, plus one deliberately
- * skills-only rule: call-syntax references like `read_data("experiments", id)` occur
- * only in skill prose, and detecting them here would false-positive on SDK/HogQL code
- * examples in tool descriptions.
+ * for skill markdown, plus two skills-only rules. Call-syntax references like
+ * `read_data("experiments", id)` occur only in skill prose, and detecting them here would
+ * false-positive on SDK/HogQL code examples in tool descriptions. Server-qualified
+ * references like `posthog:logs-services` are how skills name tools.
  */
 
 // Tool-name validation (length/pattern) findings — kept blocking by the caller.
