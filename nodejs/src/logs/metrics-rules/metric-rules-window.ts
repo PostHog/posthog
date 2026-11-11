@@ -10,6 +10,9 @@ const WINDOW_STEP_MS = 10_000
 
 export const DEFAULT_METRIC_RULES_WINDOW_MS = 60_000
 
+/** Under capture-logs' default 2 MiB body limit, with room for headers and the token. */
+export const MAX_METRIC_RULES_REQUEST_BYTES = 1_500_000
+
 export type MetricRuleTeamTallies = { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }
 
 export type MetricRuleWindowFlush = MetricRuleTeamTallies & { teamId: number; windowStartMs: number }
@@ -44,7 +47,7 @@ type PendingTeam = { token: string; rules: Map<string, CompiledMetricRule>; tall
 
 /**
  * Every consumer pod writes the same series, so a series gets pods × 3600 / window points an hour.
- * No timer: a window closes at the end of the next batch, keeping its start timestamp.
+ * A window closes at the end of the next batch, or on the idle timer in `MetricRulesEmission`, keeping its start timestamp.
  */
 export class MetricRulesWindowAggregator {
     private windowStartMs: number | null = null
@@ -104,6 +107,11 @@ export class MetricRulesWindowAggregator {
         }
     }
 
+    /** When the open window expires, or null when nothing is pending. */
+    public get closesAtMs(): number | null {
+        return this.windowStartMs === null ? null : this.windowStartMs + this.windowMs
+    }
+
     public takeClosed(nowMs: number): MetricRuleWindowFlush[] {
         if (this.windowStartMs === null || nowMs < this.windowStartMs + this.windowMs) {
             return []
@@ -129,8 +137,50 @@ export class MetricRulesWindowAggregator {
     }
 }
 
+/**
+ * Splits one team's tallies into parts whose OTLP payload stays under `maxBytes`, halving until each fits.
+ * A single label set over the limit is sent alone and left for capture to reject.
+ */
+export function buildSizeBoundedPayloads(
+    rules: CompiledMetricRule[],
+    tallies: BatchTallies,
+    timeMs: number,
+    maxBytes: number = MAX_METRIC_RULES_REQUEST_BYTES
+): Record<string, unknown>[] {
+    const payload = buildMetricRulesOtlpPayload(rules, tallies, timeMs)
+    if (!payload) {
+        return []
+    }
+    if (Buffer.byteLength(JSON.stringify(payload)) <= maxBytes) {
+        return [payload]
+    }
+    const entries: [string, string, MetricTallyEntry][] = []
+    for (const [ruleId, ruleTallies] of tallies.byRule) {
+        for (const [labelKey, entry] of ruleTallies) {
+            entries.push([ruleId, labelKey, entry])
+        }
+    }
+    if (entries.length <= 1) {
+        return [payload]
+    }
+    const half = Math.ceil(entries.length / 2)
+    return [entries.slice(0, half), entries.slice(half)].flatMap((part) => {
+        const partTallies = createBatchTallies()
+        for (const [ruleId, labelKey, entry] of part) {
+            let ruleTallies = partTallies.byRule.get(ruleId)
+            if (!ruleTallies) {
+                ruleTallies = new Map()
+                partTallies.byRule.set(ruleId, ruleTallies)
+            }
+            ruleTallies.set(labelKey, entry)
+        }
+        return buildSizeBoundedPayloads(rules, partTallies, timeMs, maxBytes)
+    })
+}
+
 export class MetricRulesEmission {
     private readonly aggregator: MetricRulesWindowAggregator
+    private idleTimer: NodeJS.Timeout | null = null
 
     constructor(
         private readonly emitter: Pick<LogsMetricsEmitter, 'emit'> | undefined,
@@ -150,11 +200,44 @@ export class MetricRulesEmission {
                 await this.send(teamId, batch.token, batch.rules, batch.tallies, nowMs)
             }
         }
+        this.scheduleIdleFlush(nowMs)
+        await this.sendFlushes(closed)
+    }
+
+    /** Sends the open window once it expires, for when no batch arrives to close it. */
+    public async flushExpired(nowMs: number = Date.now()): Promise<void> {
+        const closed = this.aggregator.takeClosed(nowMs)
+        this.scheduleIdleFlush(nowMs)
         await this.sendFlushes(closed)
     }
 
     public async flushAll(): Promise<void> {
+        this.clearIdleTimer()
         await this.sendFlushes(this.aggregator.takeAll())
+    }
+
+    private scheduleIdleFlush(nowMs: number): void {
+        this.clearIdleTimer()
+        const closesAtMs = this.aggregator.closesAtMs
+        if (closesAtMs === null) {
+            return
+        }
+        this.idleTimer = setTimeout(
+            () => {
+                this.idleTimer = null
+                void this.flushExpired()
+            },
+            Math.max(0, closesAtMs - nowMs)
+        )
+        // A pending window must not keep the process alive; shutdown sends it through `flushAll`.
+        this.idleTimer.unref()
+    }
+
+    private clearIdleTimer(): void {
+        if (this.idleTimer) {
+            clearTimeout(this.idleTimer)
+            this.idleTimer = null
+        }
     }
 
     private async sendFlushes(flushes: MetricRuleWindowFlush[]): Promise<void> {
@@ -170,15 +253,16 @@ export class MetricRulesEmission {
         tallies: BatchTallies,
         timeMs: number
     ): Promise<void> {
-        const payload = buildMetricRulesOtlpPayload(rules, tallies, timeMs)
-        if (!payload || !this.emitter) {
+        if (!this.emitter) {
             return
         }
-        try {
-            await this.emitter.emit(token, teamId, payload)
-        } catch (error) {
-            // Emission is best-effort: a failing metrics endpoint must never fail log ingestion.
-            logger.warn('[logs-metric-rules] emit threw', { teamId, error: String(error) })
+        for (const payload of buildSizeBoundedPayloads(rules, tallies, timeMs)) {
+            try {
+                await this.emitter.emit(token, teamId, payload)
+            } catch (error) {
+                // Emission is best-effort: a failing metrics endpoint must never fail log ingestion.
+                logger.warn('[logs-metric-rules] emit threw', { teamId, error: String(error) })
+            }
         }
     }
 }

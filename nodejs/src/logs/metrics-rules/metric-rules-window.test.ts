@@ -1,6 +1,6 @@
 import type { LogRecord } from '../log-record-avro'
 import { type CompiledMetricRule, type MetricRuleRow, compileMetricRules } from './compile-metric-rules'
-import { MetricRulesEmission, normalizeMetricRulesWindowMs } from './metric-rules-window'
+import { MetricRulesEmission, buildSizeBoundedPayloads, normalizeMetricRulesWindowMs } from './metric-rules-window'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './tally'
 
 const WINDOW_START_MS = 1_700_000_040_000 // a whole minute
@@ -188,6 +188,38 @@ describe('MetricRulesEmission', () => {
             [1, null],
             [null, 1],
         ])
+    })
+
+    it('sends an expired window when no further batch arrives', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.setSystemTime(WINDOW_START_MS)
+            const { sent, emission } = setup()
+            await emission.emitBatch(new Map([[TEAM, batch([rule()], [record(), record()], WINDOW_START_MS)]]))
+            await jest.advanceTimersByTimeAsync(59_999)
+            expect(sent).toEqual([])
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(points(sent).map((p) => [p.timeMs, p.dp.asDouble])).toEqual([[WINDOW_START_MS, 2]])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('splits a window too large for one request and sends every label set once', () => {
+        const routes = Array.from({ length: 40 }, (_, i) => `/route-${i}`)
+        const records = routes.map((route) => record({ attributes: { route: JSON.stringify(route) } }))
+        const { rules, tallies } = batch([rule()], records, WINDOW_START_MS)
+        const maxBytes = 2_000
+
+        const payloads = buildSizeBoundedPayloads(rules, tallies, WINDOW_START_MS, maxBytes)
+
+        expect(payloads.length).toBeGreaterThan(1)
+        for (const payload of payloads) {
+            expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(maxBytes)
+        }
+        const sentRoutes = points(payloads.map((payload) => ({ teamId: TEAM, payload }))).map((p) => p.route)
+        expect(sentRoutes.sort()).toEqual([...routes].sort())
     })
 
     it('sends teams outside the allowlist once per batch, as before', async () => {
