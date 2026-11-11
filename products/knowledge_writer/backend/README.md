@@ -1,6 +1,7 @@
 # Knowledge writer
 
-- `adapters/`: one per input, holding its source and the writer's opening sentence; `repo_merge.py` builds the verdict from a merge check report, and `command_tag.py` builds the docs command's until that command runs the merge check.
+- `adapters/`: one per input, holding its source and the writer's opening sentence; `repo_merge.py` builds every input's verdict from its merge check report, since the docs command runs the same check.
+- `facade/finished_check_hooks.py`: tells products that cannot be imported, such as commands, how a docs command's check ended.
 - `logic/intake.py`: caps, section routing, and the start-or-join decision.
 - `logic/launch.py`: creates the writer task.
 - `logic/pull_requests.py`: opens a draft docs pull request, or comments a joined request's source on the open one.

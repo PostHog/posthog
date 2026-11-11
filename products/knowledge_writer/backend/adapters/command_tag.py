@@ -1,33 +1,11 @@
 from typing import ClassVar
 
-from ..facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
-from ..facade.enums import DocsChangeKind, DocsRequestSource
-from .repo_merge import pull_request_dedupe_id
+from ..facade.enums import DocsRequestSource
 
 
 class CommandTagAdapter:
     source: ClassVar[DocsRequestSource] = DocsRequestSource.COMMAND_TAG
     instructions: ClassVar[str] = (
-        "A teammate asked for this docs change with the docs command, so the change is wanted. "
-        "Read the linked pull request to learn what shipped, then change the docs pages it affects."
+        "A teammate asked for this docs change with the docs command, and the docs check agreed. "
+        "Read the merged commit to learn what shipped, then change the docs pages it affects."
     )
-
-    def assess(self, event: DocsCommandRequest) -> AdapterVerdict:
-        dedupe_id = pull_request_dedupe_id(event.repository, event.pull_request_number)
-        return AdapterVerdict(
-            source=self.source,
-            subject_id=dedupe_id,
-            needs_docs=True,
-            reason="requested",
-            request=DocsRequest(
-                source=self.source,
-                source_url=event.pull_request_url,
-                evidence=f"Pull request {event.pull_request_url} at commit {event.head_sha}.",
-                change_kind=DocsChangeKind.UPDATE,
-                suggested_page_urls=(),
-                trigger_instructions=event.note,
-                dedupe_id=dedupe_id,
-                requested_by=event.requested_by,
-                requested_by_user_id=event.requested_by_user_id,
-            ),
-        )

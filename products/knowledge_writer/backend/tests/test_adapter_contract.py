@@ -4,12 +4,10 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.knowledge_writer.backend.adapters.command_tag import CommandTagAdapter
 from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.adapters.repo_merge import RepoMergeAdapter
 from products.knowledge_writer.backend.facade.contracts import (
     CriterionResult,
-    DocsCommandRequest,
     DocsRequest,
     InvalidAdapterVerdict,
     MergeCheckReport,
@@ -18,15 +16,6 @@ from products.knowledge_writer.backend.facade.enums import CriterionEffect, Docs
 from products.knowledge_writer.backend.logic import intake
 from products.knowledge_writer.backend.temporal.merge_workflow import MergeCheckInputs
 
-COMMAND = DocsCommandRequest(
-    repository="PostHog/posthog",
-    pull_request_number=123,
-    pull_request_url="https://github.com/PostHog/posthog/pull/123",
-    head_sha="abc123",
-    note="Document the new retention option.",
-    requested_by="@octo",
-    requested_by_user_id=42,
-)
 REPORT = MergeCheckReport(
     commit_sha="a" * 40,
     commit_url=f"https://github.com/PostHog/posthog/commit/{'a' * 40}",
@@ -106,8 +95,9 @@ def test_every_input_gets_its_verdict_from_the_shared_builder(origin: DocsReques
 
 def test_a_merge_and_a_docs_command_on_one_pull_request_share_a_dedupe_id_across_repository_casing() -> None:
     merge = RepoMergeAdapter().assess(REPORT, _inputs(DocsRequestSource.REPO_MERGE))
-    command = CommandTagAdapter().assess(
-        dataclasses.replace(COMMAND, repository="posthog/posthog", pull_request_number=REPORT.pull_request_number)
+    command = RepoMergeAdapter().assess(
+        dataclasses.replace(REPORT, repository="posthog/posthog"),
+        _inputs(DocsRequestSource.COMMAND_TAG, repository="posthog/posthog"),
     )
 
     assert merge.request is not None and command.request is not None
@@ -124,7 +114,7 @@ def test_a_merge_and_a_docs_command_on_one_pull_request_share_a_dedupe_id_across
         pytest.param(_valid_verdict(source="repo_merge"), id="request_from_another_source"),
         pytest.param(_valid_verdict(request=_valid_request(dedupe_id="anything")), id="bad_dedupe_id"),
         pytest.param(_valid_verdict(request=_valid_request(change_kind="rewrite")), id="unknown_change_kind"),
-        pytest.param(dataclasses.asdict(COMMAND), id="raw_event_instead_of_verdict"),
+        pytest.param(dataclasses.asdict(REPORT), id="raw_report_instead_of_verdict"),
     ],
 )
 def test_intake_rejects_anything_but_a_valid_verdict(payload: object) -> None:

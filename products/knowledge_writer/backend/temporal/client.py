@@ -11,7 +11,9 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.temporal.common.client import async_connect
 
 from ...merge_check.sources import LandedChange
-from .merge_workflow import MergeCheckInputs, MergeCheckWorkflow
+from ..facade.contracts import DocsCommandRequest
+from ..facade.enums import DocsRequestSource
+from .merge_workflow import ADD_DOCS_CHECK_WAITER_SIGNAL, MergeCheckInputs, MergeCheckWorkflow
 from .publish_workflow import PublishInputs, PublishWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -88,3 +90,45 @@ async def start_merge_check_workflow(
         logger.info("knowledge_writer_merge_check_already_ran", **log_context)
         return
     logger.info("knowledge_writer_merge_check_requested", **log_context)
+
+
+def docs_check_id(repository: str, pull_request_number: int) -> str:
+    owner, name = repository.lower().split("/", 1)
+    return f"knowledge_writer:command_tag:{owner}.{name}#{pull_request_number}"
+
+
+def start_command_check(command: DocsCommandRequest, *, team_id: int, waiter_id: str | None) -> None:
+    asyncio.run(
+        asyncio.wait_for(
+            start_command_check_workflow(command, team_id=team_id, waiter_id=waiter_id), START_TIMEOUT_SECONDS
+        )
+    )
+
+
+async def start_command_check_workflow(command: DocsCommandRequest, *, team_id: int, waiter_id: str | None) -> None:
+    temporal = await async_connect()
+    await temporal.start_workflow(
+        MergeCheckWorkflow.run,
+        MergeCheckInputs(
+            commit_sha=None,
+            team_id=team_id,
+            repository=command.repository,
+            pull_request_number=command.pull_request_number,
+            origin=DocsRequestSource.COMMAND_TAG,
+            requested_by=command.requested_by,
+            requested_by_user_id=command.requested_by_user_id,
+            note=command.note,
+        ),
+        id=docs_check_id(command.repository, command.pull_request_number),
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        start_signal=None if waiter_id is None else ADD_DOCS_CHECK_WAITER_SIGNAL,
+        start_signal_args=[] if waiter_id is None else [waiter_id],
+    )
+    logger.info(
+        "knowledge_writer_command_check_requested",
+        repository=command.repository,
+        pull_request_number=command.pull_request_number,
+        team_id=team_id,
+    )

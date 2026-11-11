@@ -16,8 +16,8 @@ from .sources import (
     MergedPullRequest,
     merged_pull_request,
     reached_default_branch,
-    read_numbered_pull_request,
     read_page_sources,
+    read_pull_request,
 )
 
 
@@ -66,7 +66,7 @@ def merge_reports_by_variant(
     is_pinned_to_merge: bool = False,
 ) -> dict[Variant, MergeCheckReport]:
     commit_sha = change.after
-    listed = read_numbered_pull_request(github, change)
+    listed = read_pull_request(github, change.repository, change.pull_request_number)
     if not reached_default_branch(github, change.repository, listed, commit_sha):
         if not is_final_attempt:
             raise MergeNotOnDefaultBranch(commit_sha)

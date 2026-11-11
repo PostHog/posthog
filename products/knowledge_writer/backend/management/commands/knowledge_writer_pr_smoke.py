@@ -19,7 +19,9 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from ...adapters.command_tag import CommandTagAdapter
+from ...adapters.repo_merge import pull_request_dedupe_id
 from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
+from ...facade.enums import DocsChangeKind
 from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, is_team_flag_enabled
 from ...logic import intake
 from ...logic.intake import pull_request_to_join
@@ -227,8 +229,29 @@ def unreachable_source(requested_by_user_id: int) -> DocsCommandRequest:
     )
 
 
+def command_verdict(source: DocsCommandRequest) -> AdapterVerdict:
+    dedupe_id = pull_request_dedupe_id(source.repository, source.pull_request_number)
+    return AdapterVerdict(
+        source=CommandTagAdapter.source,
+        subject_id=dedupe_id,
+        needs_docs=True,
+        reason="requested",
+        request=DocsRequest(
+            source=CommandTagAdapter.source,
+            source_url=source.pull_request_url,
+            evidence=f"Pull request {source.pull_request_url} at commit {source.head_sha}.",
+            change_kind=DocsChangeKind.UPDATE,
+            suggested_page_urls=(),
+            trigger_instructions=source.note,
+            dedupe_id=dedupe_id,
+            requested_by=source.requested_by,
+            requested_by_user_id=source.requested_by_user_id,
+        ),
+    )
+
+
 def smoke_verdict(section: str, source: DocsCommandRequest, smoke_suffix: str) -> AdapterVerdict:
-    verdict = CommandTagAdapter().assess(source)
+    verdict = command_verdict(source)
     return dataclasses.replace(verdict, request=smoke_request(verdict, section, smoke_suffix))
 
 
@@ -293,7 +316,7 @@ def run_writer_request(
     smoke_suffix: str,
     branches: list[str],
 ) -> tuple[WriterPullRequest, bool]:
-    request = smoke_request(CommandTagAdapter().assess(unreachable_source(writer.user_id)), section, smoke_suffix)
+    request = smoke_request(command_verdict(unreachable_source(writer.user_id)), section, smoke_suffix)
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)
     task_id = start_writer(request, routing, team=team, writer=writer, joining=joining, start_workflow=False)
