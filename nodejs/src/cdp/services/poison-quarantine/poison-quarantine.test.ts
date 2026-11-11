@@ -115,14 +115,25 @@ describe('PoisonQuarantine', () => {
         expect(await readQuarantinedValues(1)).toEqual(['poison'])
     })
 
-    it('fails the batch and quarantines nothing when a record that fails alone hits a dependency outage', async () => {
-        const handler = wrap((messages) =>
-            messages.some((message) => message.value!.toString() === 'uncached')
-                ? Promise.reject(new DependencyUnavailableError('lookup failed', 'Postgres', new Error('ENOTFOUND')))
-                : Promise.resolve()
-        )
+    it.each([
+        ['the whole batch', true],
+        ['a record that fails alone', false],
+    ])('fails the batch and quarantines nothing when %s hits a dependency outage', async (_, outageInBatch) => {
+        const delivered: string[] = []
+        const outage = new DependencyUnavailableError('lookup failed', 'Postgres', new Error('ENOTFOUND'))
+        const handler = wrap((messages) => {
+            const names = messages.map((message) => message.value!.toString())
+            if (names.includes('uncached')) {
+                return Promise.reject(outageInBatch || names.length === 1 ? outage : new Error('batch failed'))
+            }
+            delivered.push(...names)
+            return Promise.resolve()
+        })
 
-        await expect(handler([record('uncached', 0), record('cached', 1)])).rejects.toThrow('lookup failed')
+        await expect(handler([record('uncached', 0), record('cached', 1)])).rejects.toThrow(
+            outageInBatch ? 'lookup failed' : 'batch failed'
+        )
+        expect(delivered).toEqual(outageInBatch ? [] : ['cached'])
 
         await wrap(failNamed('poison'))([record('poison', 99), record('healthy', 100)])
         expect(await readQuarantinedValues(1)).toEqual(['poison'])
