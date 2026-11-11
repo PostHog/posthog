@@ -16,8 +16,15 @@ export const stamphogRepoConfigsCreateBodyRoutingForkLabelsMaxOne = 50
 
 export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
     .object({
-        provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
-        repository: zod.string().describe("Repository full name, e.g. 'PostHog\/posthog'."),
+        provider: zod
+            .string()
+            .optional()
+            .describe(
+                "SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it."
+            ),
+        repository: zod
+            .string()
+            .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
         enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
@@ -47,6 +54,12 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label."
             ),
+        review_on_clean_external_review: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
+            ),
     })
     .describe(
         "Input shape for creating\/updating a repo config.\n\nSeparate from the read serializer because the contract is an output shape: it carries a\nrequired id, which a create request has no way to supply. Same split as visual_review's\ninput serializers.\n\ninstallation_id is deliberately absent: it may only ever be set by the verified\nsync_installation flow, which proves the caller owns the installation before binding it. A\nclient-supplied value on this path is ignored, so a manually created config carries no\ninstallation and simply won't resolve webhooks until synced."
@@ -59,8 +72,15 @@ export const stamphogRepoConfigsUpdateBodyRoutingForkLabelsMaxOne = 50
 
 export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
     .object({
-        provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
-        repository: zod.string().describe("Repository full name, e.g. 'PostHog\/posthog'."),
+        provider: zod
+            .string()
+            .optional()
+            .describe(
+                "SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it."
+            ),
+        repository: zod
+            .string()
+            .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
         enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
@@ -90,6 +110,12 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label."
             ),
+        review_on_clean_external_review: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
+            ),
     })
     .describe(
         "Input shape for creating\/updating a repo config.\n\nSeparate from the read serializer because the contract is an output shape: it carries a\nrequired id, which a create request has no way to supply. Same split as visual_review's\ninput serializers.\n\ninstallation_id is deliberately absent: it may only ever be set by the verified\nsync_installation flow, which proves the caller owns the installation before binding it. A\nclient-supplied value on this path is ignored, so a manually created config carries no\ninstallation and simply won't resolve webhooks until synced."
@@ -102,8 +128,16 @@ export const stamphogRepoConfigsPartialUpdateBodyRoutingForkLabelsMaxOne = 50
 
 export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
-        repository: zod.string().optional().describe("Repository full name, e.g. 'PostHog\/posthog'."),
+        provider: zod
+            .string()
+            .optional()
+            .describe(
+                "SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it."
+            ),
+        repository: zod
+            .string()
+            .optional()
+            .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
         enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
@@ -132,6 +166,12 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label."
+            ),
+        review_on_clean_external_review: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
     })
     .describe(

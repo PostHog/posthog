@@ -149,7 +149,7 @@ function WatchPlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Elemen
 function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
 
-    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-horizontal',
@@ -178,7 +178,7 @@ function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
                     isPlaylistCollapsed
                         ? {}
                         : {
-                              width: desiredSize ?? 320,
+                              width: desiredSize ?? (isNewReplayLayout(replayLayout) ? 400 : 320),
                               minWidth: 'min-content',
                               maxWidth: '50%',
                           }

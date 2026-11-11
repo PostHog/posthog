@@ -61,6 +61,7 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_PREVIEW_PORT,
     FINAL_MESSAGE_MAX_CHARS,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
 )
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
@@ -1834,6 +1835,23 @@ class TestTaskAPI(BaseTaskAPITest):
         row = response.json()["results"][0]
         self.assertNotIn("description", row)
         self.assertEqual(row["description_preview"], "x" * 1000)
+
+    def test_basic_list_reads_only_a_slice_of_the_description(self):
+        self.create_task("Long", description="x" * 1500)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get("/api/projects/@current/tasks/?basic=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["description_preview"], "x" * TASK_DESCRIPTION_PREVIEW_LENGTH)
+        task_selects = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if 'FROM "posthog_task"' in query["sql"] and "COUNT(" not in query["sql"]
+        ]
+        self.assertEqual(len(task_selects), 1)
+        self.assertIn("SUBSTRING", task_selects[0])
+        self.assertEqual(task_selects[0].count('"posthog_task"."description"'), 1)
 
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
@@ -3674,18 +3692,24 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
-    def test_implementation_creation_respects_an_external_claim(self):
+    # A person and their agents count as one owner: their own agent's claim lets them start a task, a teammate's
+    # agent claim does not.
+    @parameterized.expand(
+        [("own_agent", True, status.HTTP_201_CREATED), ("teammate_agent", False, status.HTTP_429_TOO_MANY_REQUESTS)]
+    )
+    def test_implementation_creation_respects_an_external_claim(self, _name, own_agent, expected_status):
         from products.signals.backend.models import SignalReport, SignalReportAssignment
 
+        holder = self.user if own_agent else self.create_organization_user("teammate")
         report = SignalReport.objects.create(team=self.team)
         assignment = SignalReportAssignment.all_teams.create(
-            team=self.team, report=report, actor_kind="agent", actor_user=self.user, actor_agent="test-agent"
+            team=self.team, report=report, actor_kind="agent", actor_user=holder, actor_agent="test-agent"
         )
         response = self._post_signal_report_task(report.id, "implementation")
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.status_code, expected_status)
         assignment.refresh_from_db()
         self.assertEqual(assignment.actor_agent, "test-agent")
-        self.assertFalse(Task.objects.filter(title="Report task").exists())
+        self.assertEqual(Task.objects.filter(title="Report task").exists(), own_agent)
 
     @parameterized.expand(
         [
