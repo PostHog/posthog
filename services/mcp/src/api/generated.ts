@@ -38118,6 +38118,8 @@ export namespace Schemas {
       stage: EarlyAccessFeatureStageEnum;
       /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
+      /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+      image_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
@@ -38167,6 +38169,8 @@ export namespace Schemas {
       stage: EarlyAccessFeatureStageEnum;
       /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
+      /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+      image_url?: string;
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
       readonly created_at: string;
@@ -85016,6 +85020,8 @@ export namespace Schemas {
       stage?: EarlyAccessFeatureStageEnum;
       /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
+      /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+      image_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
