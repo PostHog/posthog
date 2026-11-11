@@ -31,7 +31,8 @@ deny:
     stamphog_policy:
         match:
             extend_paths:
-                # The dependency proof publisher. A PR that edits it changes what the proof checks.
+                # The dependency proof publisher and the shared setup-uv action it runs. A PR that edits
+                # either changes what the proof checks.
                 - '^\.github/workflows/dependency-proof'
                 - '^\.github/scripts/dependency_proof/'
                 - '^\.github/actions/setup-uv/'
@@ -122,8 +123,9 @@ attestations:
           - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
       sibling_files: [max_migration.txt]
     - name: dependency_proof
-      # Posted by the Dependency proof workflow with a posthog-dependency-proof token, after a
-      # replay of the pnpm update from the merge base wrote the same lockfile as the PR head.
+      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. It
+      # first replays the pnpm update from the merge base, and confirms that the replay writes the
+      # same lockfile as the PR head.
       check: 'Dependency proof'
       app_id: 5697920
       lifts: [deps_toolchain]
@@ -131,8 +133,8 @@ attestations:
           - '(?:^|/)package\.json$'
           - '(?:^|/)pnpm-lock\.yaml$'
           - '(?:^|/)pnpm-workspace\.yaml$'
-      # Keep in step with PROVER_FILES in .github/scripts/dependency_proof/prove.py. A proof whose
-      # marker does not pin every file listed here lifts nothing.
+      # This list is a copy of PROVER_FILES in .github/scripts/dependency_proof/prove.py, so update
+      # both together. The engine ignores a proof whose marker does not pin every file listed here.
       publisher_files:
           - .github/actions/setup-uv/action.yml
           - .github/scripts/dependency_proof/__init__.py
@@ -142,7 +144,7 @@ attestations:
           - .github/workflows/dependency-proof-trigger.yml
           - .github/workflows/dependency-proof.yml
           - .nvmrc
-# Bots whose PRs stamphog reviews. It approves one only when an attestation that declares
+# Stamphog reviews PRs from these bots. It approves one only when an attestation that declares
 # `publisher_files` proved every file the PR changes.
 bot_authors:
     - name: renovate
