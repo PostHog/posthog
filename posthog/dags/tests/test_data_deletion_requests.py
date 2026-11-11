@@ -3458,6 +3458,33 @@ def test_pickup_sensor_routes_person_removal_request():
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("older_created_by_staff", [False, None])
+def test_pickup_sensor_launches_staff_request_before_older_non_staff_request(older_created_by_staff):
+    def approved_request(created_by_staff: bool | None, approved_at: datetime) -> DataDeletionRequest:
+        return DataDeletionRequest.objects.create(
+            team_id=TEAM_ID,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=approved_at - timedelta(days=7),
+            end_time=approved_at,
+            status=RequestStatus.APPROVED,
+            approved_at=approved_at,
+            created_by_staff=created_by_staff,
+        )
+
+    now = timezone.now()
+    approved_request(older_created_by_staff, now - timedelta(days=2))
+    staff_request = approved_request(True, now - timedelta(hours=1))
+
+    result = data_deletion_request_pickup_sensor(
+        dagster.build_sensor_context(instance=dagster.DagsterInstance.ephemeral())
+    )
+
+    assert isinstance(result, dagster.RunRequest)
+    assert result.tags["deletion_request_id"] == str(staff_request.pk)
+
+
+@pytest.mark.django_db
 def test_pickup_sensor_run_key_changes_across_attempts():
     # A re-approved/retried request keeps its pk but has a higher attempt_count, so
     # the run_key must differ — otherwise Dagster dedupes and silently never relaunches.

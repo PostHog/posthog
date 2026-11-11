@@ -20,6 +20,7 @@ from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
+from products.alerts.backend.logic.destinations import retire_alert_hog_functions
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_cutover import (
     can_move,
@@ -28,7 +29,8 @@ from products.alerts.backend.platform_cutover import (
     has_begun_cutover,
     in_an_environment,
 )
-from products.alerts.backend.platform_source_cycle import interval_of, platform_upsert_of
+from products.alerts.backend.platform_insight_alert import insight_row_settings, interval_of
+from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -120,15 +122,19 @@ def close_moved_alert_firings(*, team_id: int, alert_id: UUID) -> None:
         close_owned_firings_now(team_id=team_id, legacy_configuration_id=alert_id)
 
 
-def delete_moved_alert_copy(*, team_id: int, alert_id: UUID) -> None:
-    """Deletes a moved alert's copy, inside the transaction that deletes the alert.
+def delete_alert_destinations_and_copy(*, team_id: int, alert_id: UUID) -> None:
+    """Removes an alert's HogFunction destinations, and a moved alert's copy, inside the transaction
+    that deletes the alert.
 
-    A copy whose alert is deleted another way, such as with its insight, switches itself off at its
-    next check.
+    A moved alert's destinations go with its copy, through the platform's delete. An alert insight
+    owns removes them here, and its copy goes after the commit (`delete_shadow_alert_copy`).
     """
     alert = _locked(team_id, alert_id)
-    if alert is not None and alert.platform_owned:
-        delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
+    if alert is None:
+        return
+    if alert.platform_owned and delete_copy(team_id=team_id, legacy_configuration_id=alert_id):
+        return
+    retire_alert_hog_functions(team_id=team_id, alert_id=str(alert_id))
 
 
 def delete_shadow_alert_copy(*, team_id: int, alert_id: UUID) -> None:
@@ -193,6 +199,12 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
             "enabled",
             "An AI detector alert can't be turned back on through this API. Turn it on in the insight's alert settings.",
         )
+    for key, stored in insight_row_settings(alert).items():
+        # Insight checks these against the insight's query or its model spend, so only the insight API may change them.
+        if key in edit.source_config and edit.source_config[key] != stored:
+            raise InvalidPlatformAlertEdit(
+                "source_config", f"{key} can't change through this API. Change it in the insight's alert settings."
+            )
     condition = edit.source_config[SOURCE_CONDITION_KEY]
     if condition.get("detector") != alert.detector_config:
         # A detector config is checked against its insight and its access rules in the insight API only.
@@ -266,3 +278,8 @@ def _write_threshold(alert: AlertConfiguration, configuration: dict | None) -> N
         alert.threshold = Threshold.objects.create(
             team_id=alert.team_id, insight_id=alert.insight_id, configuration=configuration
         )
+
+
+def remove_alert_destinations(*, team_id: int, alert_id: UUID) -> None:
+    """Removes the HogFunction destinations of an insight alert the platform owns, whatever their events."""
+    retire_alert_hog_functions(team_id=team_id, alert_id=str(alert_id))

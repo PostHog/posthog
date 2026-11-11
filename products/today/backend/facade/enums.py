@@ -60,6 +60,8 @@ class HighlightMetricReason(LabeledStrEnum):
     POPULAR = "popular", "Opened often in this project"
     WATCHED = "watched", "You get updates on this"
     BUILT = "built", "You created or edited this"
+    EXPERIMENT = "experiment", "An experiment you run"
+    AGENT = "agent", "Your agents query this"
 
 
 class HighlightPinStatus(LabeledStrEnum):

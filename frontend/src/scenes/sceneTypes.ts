@@ -373,6 +373,8 @@ export interface SceneConfig {
     iconType?: FileSystemIconType
     /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
     canvasBackground?: boolean
+    /** Self-hosted installs open the Move to PostHog Cloud page instead, and the scene's logic never mounts */
+    cloudOnly?: boolean
 }
 
 // Map scenes to their access control resource types

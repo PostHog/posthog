@@ -23,7 +23,7 @@ export function isStatusRedundantWithActionability(
     )
 }
 
-export const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
+export const STATUS_TOOLTIPS: Record<SignalReportStatus, string> = {
     [SignalReportStatus.READY]: 'Research is complete. You can create a task from this report.',
     [SignalReportStatus.PENDING_INPUT]: 'This report needs human input in PostHog before it can proceed.',
     [SignalReportStatus.IN_PROGRESS]: "An AI agent is actively researching this report's signals.",
@@ -37,7 +37,7 @@ export const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.DELETED]: 'This report has been deleted.',
 }
 
-export const STATUS_LABELS: Partial<Record<SignalReportStatus, string>> = {
+export const STATUS_LABELS: Record<SignalReportStatus, string> = {
     [SignalReportStatus.READY]: 'Ready',
     [SignalReportStatus.PENDING_INPUT]: 'Needs input',
     [SignalReportStatus.IN_PROGRESS]: 'Researching',
@@ -52,28 +52,18 @@ export const STATUS_LABELS: Partial<Record<SignalReportStatus, string>> = {
 }
 
 // Each pipeline status gets a distinct color so the inbox reads at a glance.
-function inboxStatusBadgeType(status: SignalReportStatus): LemonTagType {
-    switch (status) {
-        case SignalReportStatus.READY:
-            return 'success'
-        case SignalReportStatus.RESOLVED:
-            return 'completion'
-        case SignalReportStatus.PENDING_INPUT:
-        case SignalReportStatus.MONITORING:
-        case SignalReportStatus.CLOSED:
-            return 'caution'
-        case SignalReportStatus.IN_PROGRESS:
-            return 'warning'
-        case SignalReportStatus.CANDIDATE:
-            return 'highlight'
-        case SignalReportStatus.FAILED:
-            return 'danger'
-        case SignalReportStatus.POTENTIAL:
-            return 'default'
-        // Out-of-inbox terminal states (suppressed / deleted) and any unknown status.
-        default:
-            return 'muted'
-    }
+const STATUS_BADGE_TYPES: Record<SignalReportStatus, LemonTagType> = {
+    [SignalReportStatus.READY]: 'success',
+    [SignalReportStatus.RESOLVED]: 'completion',
+    [SignalReportStatus.PENDING_INPUT]: 'caution',
+    [SignalReportStatus.MONITORING]: 'caution',
+    [SignalReportStatus.CLOSED]: 'caution',
+    [SignalReportStatus.IN_PROGRESS]: 'warning',
+    [SignalReportStatus.CANDIDATE]: 'highlight',
+    [SignalReportStatus.FAILED]: 'danger',
+    [SignalReportStatus.POTENTIAL]: 'default',
+    [SignalReportStatus.SUPPRESSED]: 'muted',
+    [SignalReportStatus.DELETED]: 'muted',
 }
 
 export function SignalReportStatusBadge({
@@ -93,7 +83,7 @@ export function SignalReportStatusBadge({
 
     return (
         <Tooltip title={tooltip}>
-            <LemonTag size="small" type={inboxStatusBadgeType(status)} className="cursor-help select-none">
+            <LemonTag size="small" type={STATUS_BADGE_TYPES[status]} className="cursor-help select-none">
                 {label}
             </LemonTag>
         </Tooltip>

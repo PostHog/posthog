@@ -20,6 +20,7 @@ from posthog.models import Team
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     CheckFailure,
+    ControlChangeKind,
     Grouping,
     GroupingMode,
     GroupOutcome,
@@ -51,7 +52,11 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.alerts_platform.backend.logic import delivery_holds
-from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
+from products.alerts_platform.backend.logic.platform_alert_events import (
+    CONFIGURATION_ROW_ALERT_ID,
+    PlatformAlertEventRow,
+    insert_events,
+)
 from products.alerts_platform.backend.models import (
     PlatformAlert,
     PlatformAlertConfiguration,
@@ -360,11 +365,6 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     }
 
 
-# The `alert_id` of a history row that belongs to the check rather than to a group. The column is in
-# the table's sort key, which rejects Nullable, so the nil UUID stands in for "no instance".
-CONFIGURATION_ROW_ALERT_ID: Final = UUID(int=0)
-
-
 def _event_row(
     configuration: PlatformAlertConfiguration,
     outcome: PlatformAlertOutcome,
@@ -440,8 +440,68 @@ def event_row(
     )
 
 
-def record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
-    recorded = insert_events(team_id, rows)
+def shown_state(configuration: PlatformAlertConfiguration, *, now: datetime) -> PlatformAlertState:
+    """The whole alert's state as a source shows it: snoozed while its mute holds, else firing while
+    any group fires, else the ungrouped instance's, with a failing check status in its place."""
+    if configuration.snooze_until is not None and configuration.snooze_until > now:
+        return PlatformAlertState.SNOOZED
+    instances = PlatformAlert.objects.for_team(configuration.team_id).filter(configuration=configuration)
+    state: str | None
+    if instances.filter(state=PlatformAlertState.FIRING).exists():
+        state = PlatformAlertState.FIRING.value
+    else:
+        state = instances.filter(grouping_key="").values_list("state", flat=True).first()
+    return PlatformAlertState(
+        InstanceCheckState.composed(
+            grouping_key="",
+            state=state or PlatformAlertState.NOT_FIRING,
+            check_status=configuration.check_status,
+            configuration_snooze_until=None,
+        ).state
+    )
+
+
+def control_change_row(
+    configuration: PlatformAlertConfiguration,
+    kind: ControlChangeKind,
+    *,
+    previous_state: PlatformAlertState,
+    now: datetime,
+) -> PlatformAlertEventRow:
+    """The history row of a control-plane change, with the alert's state after it as it stands now."""
+    return event_row(
+        configuration,
+        alert=None,
+        # Its own prefix, so it never shares a key, and with it an insert's deduplication token,
+        # with the rows `control_plane.end_firings` writes for the same change.
+        evaluation_key=f"control-change:{kind.value}:{now.isoformat()}",
+        kind=kind.value,
+        previous_state=previous_state.value,
+        state=shown_state(configuration, now=now).value,
+        episode_started_at=None,
+        consecutive_failures=configuration.consecutive_failures,
+        now=now,
+    )
+
+
+# A request waits for this insert after its change commits, so a stalled ClickHouse costs it this
+# long at most, and the row is dropped as any failed insert is.
+_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS: Final = 5
+
+
+def record_history_after_commit(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
+    """Records rows once the change they describe commits, so a rolled-back change leaves none."""
+    if rows:
+        transaction.on_commit(
+            lambda: record_history(team_id, rows, send_receive_timeout=_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS),
+            robust=True,
+        )
+
+
+def record_history(
+    team_id: int, rows: Sequence[PlatformAlertEventRow], *, send_receive_timeout: int | None = None
+) -> int:
+    recorded = insert_events(team_id, rows, send_receive_timeout=send_receive_timeout)
     if recorded < len(rows):
         # One batch holds one source's checks.
         safe_record(increment_history_rows_dropped, rows[0].source_kind, len(rows) - recorded)
@@ -834,15 +894,19 @@ def create_native_configuration(
     source_kind: SourceKind,
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
+    recurrence_unit: str | None,
     destinations_owner: PlatformAlertOwner,
     created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
+    if recurrence_unit is not None:
+        to_recurrence_interval(recurrence_unit)
     configuration = PlatformAlertConfiguration(
         team_id=team_id,
         source_kind=source_kind.value,
         check_interval_minutes=check_interval_minutes,
+        recurrence_unit=recurrence_unit,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
         destinations_owner=destinations_owner,
@@ -1182,6 +1246,7 @@ def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
             raise ValueError("the platform does not own this alert, so its source resets it")
         if configuration.check_status != PlatformAlertConfiguration.CheckStatus.BROKEN:
             return None
+        previous_state = shown_state(configuration, now=at)
         cleared = configuration.consecutive_failures
         configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
         configuration.consecutive_failures = 0
@@ -1191,6 +1256,10 @@ def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
         # the next breach would find the old episode open and announce nothing.
         PlatformAlert.objects.for_team(team_id).filter(configuration=configuration).update(
             state=PlatformAlertState.NOT_FIRING.value, firing_started_at=None
+        )
+        record_history_after_commit(
+            team_id,
+            [control_change_row(configuration, ControlChangeKind.RESET, previous_state=previous_state, now=at)],
         )
     return cleared
 
