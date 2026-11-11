@@ -526,7 +526,6 @@ describe("AuthProxyService gateway sessions", () => {
   async function session(projectId = 42): Promise<string> {
     return service.startGatewaySession({
       projectId,
-      legacyGatewayUrl: "https://gateway.us.posthog.com/posthog_code",
     });
   }
 

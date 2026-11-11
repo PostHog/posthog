@@ -236,7 +236,7 @@ function createMockDependencies() {
         .mockResolvedValue(new Response(JSON.stringify({ models: [] }))),
       ensureGatewayProxy: vi.fn().mockResolvedValue({
         proxyUrl: "http://127.0.0.1:9999",
-        mode: "legacy",
+        mode: "go",
       }),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
       createPosthogConfig: vi.fn((credentials) => ({
@@ -536,11 +536,9 @@ describe("AgentService", () => {
       authToken: "gateway-token",
       projectId: 1,
     });
-    expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
-      "https://us.posthog.com",
-      1,
-      { awaitRecheck: false },
-    );
+    expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(1, {
+      awaitRecheck: false,
+    });
     const modelOption = options.find((option) => option.id === "model");
     expect(modelOption).toMatchObject({
       type: "select",
@@ -978,7 +976,6 @@ describe("AgentService", () => {
       const session = await service.startSession(baseSessionParams);
 
       expect(deps.agentAuthAdapter.ensureGatewayProxy).toHaveBeenCalledWith(
-        baseSessionParams.apiHost,
         baseSessionParams.projectId,
       );
       expect(session?.gatewayMode).toBe("go");

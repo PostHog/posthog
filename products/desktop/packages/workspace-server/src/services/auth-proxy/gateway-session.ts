@@ -38,7 +38,6 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 export interface SessionTarget {
   kind: "session";
   projectId: number;
-  legacyGatewayUrl: string;
   headers: Record<string, string>;
 }
 

@@ -1069,7 +1069,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
     const channel = `agent-event:${taskRunId}`;
     const gatewayProxy = await this.agentAuthAdapter.ensureGatewayProxy(
-      credentials.apiHost,
       credentials.projectId,
     );
     const proxyUrl = gatewayProxy.proxyUrl;
@@ -2695,7 +2694,7 @@ For git operations while detached:
   }
 
   async getPiModelCatalog(apiHost: string, region: CloudRegion) {
-    const source = await this.catalogueSource(apiHost);
+    const source = await this.catalogueSource();
     if (source === null) {
       return resolvePosthogPiModelCatalog(
         await this.taskModelRows(apiHost),
@@ -2714,7 +2713,7 @@ For git operations while detached:
    * Where the pickers read `/v1/models`: through the proxy for the selected
    * project, so Go's list gets the same filter and marks a session sees.
    */
-  private async catalogueSource(apiHost: string): Promise<{
+  private async catalogueSource(): Promise<{
     gatewayUrl: string;
     authToken: string | undefined;
     projectId: number;
@@ -2725,11 +2724,9 @@ For git operations while detached:
       (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined;
     try {
       // The pickers keep no mode, so a due re-check runs in the background.
-      const proxy = await this.agentAuthAdapter.ensureGatewayProxy(
-        apiHost,
-        projectId,
-        { awaitRecheck: false },
-      );
+      const proxy = await this.agentAuthAdapter.ensureGatewayProxy(projectId, {
+        awaitRecheck: false,
+      });
       return { gatewayUrl: proxy.proxyUrl, authToken, projectId };
     } catch (err) {
       this.log.warn("Gateway proxy unavailable for the model catalogue", {
@@ -2761,7 +2758,7 @@ For git operations while detached:
     adapter: Adapter = "claude",
     allHarnessModels = false,
   ): Promise<SessionConfigOption[]> {
-    const source = await this.catalogueSource(apiHost);
+    const source = await this.catalogueSource();
     const gatewayModels =
       source === null
         ? normalizeGatewayModelsResponse(await this.taskModelRows(apiHost))

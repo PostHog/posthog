@@ -1,7 +1,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { CloudRegion } from "@posthog/agent-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getLlmGatewayUrl } from "./gateway";
+import { getGatewayBaseUrl } from "./gateway";
 import {
   DEFAULT_MODEL,
   fallbackModelConfigs,
@@ -21,7 +21,7 @@ function makeModel(
     name: overrides.id,
     api: "anthropic-messages",
     provider: POSTHOG_PROVIDER_NAME,
-    baseUrl: "https://gateway.us.posthog.com/posthog_code",
+    baseUrl: "https://ai-gateway.us.posthog.com",
     reasoning: true,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -38,8 +38,8 @@ describe("buildPosthogProvider", () => {
     const config = buildPosthogProvider(models, { region: "us" });
 
     expect(config.api).toBe("anthropic-messages");
-    expect(config.baseUrl).toBe(getLlmGatewayUrl("us"));
-    expect(config.baseUrl).toBe("https://gateway.us.posthog.com/posthog_code");
+    expect(config.baseUrl).toBe(getGatewayBaseUrl("us"));
+    expect(config.baseUrl).toBe("https://ai-gateway.us.posthog.com");
   });
 
   it("uses the PostHog OAuth token as the gateway credential", () => {
@@ -156,7 +156,7 @@ describe("oauth.modifyModels", () => {
       region: "eu",
     });
 
-    expect(result?.[0]?.baseUrl).toBe(getLlmGatewayUrl("eu"));
+    expect(result?.[0]?.baseUrl).toBe(getGatewayBaseUrl("eu"));
   });
 
   it("remaps this provider's openai-responses models to the region's /v1 surface", () => {
@@ -165,7 +165,7 @@ describe("oauth.modifyModels", () => {
       makeModel({
         id: "gpt-5.5",
         api: "openai-responses",
-        baseUrl: `${getLlmGatewayUrl("us")}/v1`,
+        baseUrl: `${getGatewayBaseUrl("us")}/v1`,
       }),
     ];
 
@@ -176,7 +176,7 @@ describe("oauth.modifyModels", () => {
       region: "eu",
     });
 
-    expect(result?.[0]?.baseUrl).toBe(`${getLlmGatewayUrl("eu")}/v1`);
+    expect(result?.[0]?.baseUrl).toBe(`${getGatewayBaseUrl("eu")}/v1`);
   });
 
   it("keeps an explicit gateway override when OAuth credentials have another region", () => {
@@ -222,7 +222,7 @@ describe("oauth.modifyModels", () => {
       expires: 0,
     });
 
-    expect(result?.[0]?.baseUrl).toBe(getLlmGatewayUrl("eu"));
+    expect(result?.[0]?.baseUrl).toBe(getGatewayBaseUrl("eu"));
   });
 });
 
@@ -245,13 +245,13 @@ describe("resolvePosthogProvider", () => {
     const config = await resolvePosthogProvider({ region: "us" });
     expect(config.name).toBe("PostHog");
     expect(config.models?.length).toBeGreaterThan(0);
-    expect(config.baseUrl).toBe(getLlmGatewayUrl("us"));
+    expect(config.baseUrl).toBe(getGatewayBaseUrl("us"));
   });
 
   it("defaults the region when none is provided", async () => {
     delete process.env.POSTHOG_REGION;
     const config = await resolvePosthogProvider();
-    expect(config.baseUrl).toBe(getLlmGatewayUrl("us"));
+    expect(config.baseUrl).toBe(getGatewayBaseUrl("us"));
   });
 });
 
@@ -271,9 +271,7 @@ describe("model classification", () => {
       const model = models.get(id);
       expect(model, id).toBeDefined();
       expect(model?.api).toBe("openai-responses");
-      expect(model?.baseUrl).toBe(
-        "https://gateway.us.posthog.com/posthog_code/v1",
-      );
+      expect(model?.baseUrl).toBe("https://ai-gateway.us.posthog.com/v1");
     }
   });
 
@@ -281,7 +279,7 @@ describe("model classification", () => {
     const glm = byId("us").get("@cf/zai-org/glm-5.2");
     expect(glm).toBeDefined();
     expect(glm?.api).toBe("openai-completions");
-    expect(glm?.baseUrl).toBe("https://gateway.us.posthog.com/posthog_code/v1");
+    expect(glm?.baseUrl).toBe("https://ai-gateway.us.posthog.com/v1");
     expect(glm?.input).toEqual(["text"]);
   });
 
@@ -298,9 +296,7 @@ describe("model classification", () => {
     );
     expect(deepseek?.api).toBe("openai-completions");
     expect(deepseek?.reasoning).toBe(false);
-    expect(deepseek?.baseUrl).toBe(
-      "https://gateway.us.posthog.com/posthog_code/v1",
-    );
+    expect(deepseek?.baseUrl).toBe("https://ai-gateway.us.posthog.com/v1");
     expect(deepseek?.contextWindow).toBe(1_048_000);
   });
 
@@ -316,6 +312,6 @@ describe("model classification", () => {
 
   it("points OpenAI models at the region-specific gateway", () => {
     const eu = byId("eu").get("gpt-5.5");
-    expect(eu?.baseUrl).toBe("https://gateway.eu.posthog.com/posthog_code/v1");
+    expect(eu?.baseUrl).toBe("https://ai-gateway.eu.posthog.com/v1");
   });
 });

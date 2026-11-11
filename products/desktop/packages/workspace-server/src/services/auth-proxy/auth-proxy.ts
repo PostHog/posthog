@@ -93,14 +93,12 @@ export class AuthProxyService {
    */
   async startGatewaySession(input: {
     projectId: number;
-    legacyGatewayUrl: string;
     headers?: Record<string, string>;
   }): Promise<string> {
     this.requireSource();
-    return this.register(["session", input.projectId, input.legacyGatewayUrl], {
+    return this.register(["session", input.projectId], {
       kind: "session",
       projectId: input.projectId,
-      legacyGatewayUrl: input.legacyGatewayUrl,
       headers: { ...(input.headers ?? {}) },
     });
   }
