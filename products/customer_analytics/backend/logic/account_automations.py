@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
-ACCOUNT_AUTOMATION_WORKFLOW_TAG = "customer-analytics"
+ACCOUNT_AUTOMATION_WORKFLOW_TAG = "customer_analytics"
 MAX_RUN_LOG_ENTRIES = 200
 MAX_ACCOUNT_EVENT_UUIDS = 10_000
 WORKFLOW_FAILURE_PATTERN = (
