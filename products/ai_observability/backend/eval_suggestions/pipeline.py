@@ -73,6 +73,7 @@ DRAFT_ABORT_ERRORS = ("Execution timed out", "Memory limit exceeded")
 MAX_DEDUPED_EVALS = 50
 JUDGE_KINDS = frozenset({EvalSuggestionKind.NEW_LLM_JUDGE})
 PAID_STAGES = ("screening", "drafting")
+STAGE_ORDER = ("measure", "screening", "drafting")
 
 
 def judge_model(team: Team) -> str | None:
@@ -110,6 +111,8 @@ class Handoff:
     candidate_options: dict[str, str]
     # Dedupe key -> (evaluation id, confidence) from that matching.
     matches: dict[str, list[tuple[str, float]]] = field(default_factory=dict)
+    # The last stage that wrote this handoff.
+    written_by: str = "measure"
 
 
 _HANDOFF = TypeAdapter(Handoff)
@@ -133,14 +136,20 @@ def _load(run: EvalSuggestionRun) -> Handoff:
     return _HANDOFF.validate_python(run.handoff)
 
 
-def _save(run: EvalSuggestionRun, handoff: Handoff, stages: _Stages) -> None:
-    """Store a stage's result while the run still works, so a timed-out attempt that finishes late writes nothing
-    over a published or failed run."""
+def _save(run: EvalSuggestionRun, handoff: Handoff, stages: _Stages, stage: str) -> None:
+    """Store a stage's result while the run still works.
+
+    A timed-out attempt keeps running in its thread and can finish after its retry and the stages after it. Its write
+    is dropped when the run is no longer running, or when a later stage already wrote the handoff.
+    """
     with transaction.atomic():
         locked = EvalSuggestionRun.objects.for_team(run.team_id).select_for_update().get(id=run.id)
         if locked.status != EvalSuggestionRunStatus.RUNNING:
             return
-        locked.handoff = _HANDOFF.dump_python(handoff, mode="json")
+        written_by = (locked.handoff or {}).get("written_by")
+        if written_by in STAGE_ORDER and STAGE_ORDER.index(written_by) > STAGE_ORDER.index(stage):
+            return
+        locked.handoff = _HANDOFF.dump_python(replace(handoff, written_by=stage), mode="json")
         locked.stages = {**locked.stages, **stages.record}
         locked.save(update_fields=["handoff", "stages"])
 
@@ -350,6 +359,7 @@ def measure_stage(
                 candidate_options={},
             ),
             stages,
+            "measure",
         )
         return len(fixes)
 
@@ -434,6 +444,7 @@ def measure_stage(
             ),
         ),
         stages,
+        "measure",
     )
     return len(proposals)
 
@@ -464,7 +475,7 @@ def screen_stage(
         skip = "no traces to screen"
     if skip is not None:
         stages.set("screening", "skipped", detail=skip)
-        _save(run, handoff, stages)
+        _save(run, handoff, stages, "screening")
         return 0
     try:
         client = screening.build_client(team)
@@ -479,11 +490,11 @@ def screen_stage(
         screened = screening.screen(client, handoff.screened_judges, sample.main, deadline)
     except SystemOneNotConfigured:
         stages.set("screening", "skipped", detail="System One is not configured")
-        _save(run, handoff, stages)
+        _save(run, handoff, stages, "screening")
         return 0
     except SystemOneRequestFailed as error:
         stages.set("screening", "failed", detail=str(error))
-        _save(run, handoff, stages)
+        _save(run, handoff, stages, "screening")
         return 0
     proposals = [
         p
@@ -511,6 +522,7 @@ def screen_stage(
             matches={key: [(e.id, confidence) for e, confidence in pairs] for key, pairs in matches.items()},
         ),
         stages,
+        "screening",
     )
     return len(proposals)
 
@@ -541,7 +553,7 @@ def draft_stage(
         skip = "not enough time left"
     if skip is not None:
         stages.set("drafting", "skipped", detail=skip)
-        _save(run, handoff, stages)
+        _save(run, handoff, stages, "drafting")
         return 0
     sample = hydrate_sample(team, handoff.window, list(handoff.profile.segments), handoff.sample)
     try:
@@ -552,7 +564,7 @@ def draft_stage(
         drafted = []
     if handoff.judge_model is None:
         drafted = [p for p in drafted if p.kind not in JUDGE_KINDS]
-    _save(run, replace(handoff, proposals=[*handoff.proposals, *drafted]), stages)
+    _save(run, replace(handoff, proposals=[*handoff.proposals, *drafted]), stages, "drafting")
     return len(drafted)
 
 

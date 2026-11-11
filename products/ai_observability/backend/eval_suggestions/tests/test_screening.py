@@ -3,11 +3,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from posthog.schema import LLMTrace
 
 from posthog.llm.system_one import ChoiceAnswer, NoulAnswer, Question, SystemOneRequestFailed
 
+from products.ai_observability.backend.eval_suggestions import screening
 from products.ai_observability.backend.eval_suggestions.measure import SampledTrace
 from products.ai_observability.backend.eval_suggestions.screening import dedupe, screen
 
@@ -99,3 +101,15 @@ def test_dedupe_stops_at_the_run_deadline() -> None:
     client = _DedupeClient()
 
     assert dedupe(client, [SimpleNamespace(definition_text="Fails refusals")], {}, deadline=0.0) == {}  # type: ignore[arg-type, list-item]
+
+
+@pytest.mark.parametrize("privacy", [True, False])
+def test_the_screening_client_follows_the_organization_privacy_mode(privacy: bool) -> None:
+    team = MagicMock(pk=1)
+    with (
+        patch.object(screening, "is_privacy_mode_enabled", return_value=privacy),
+        patch.object(screening, "build_system_one_client") as build,
+    ):
+        screening.build_client(team)
+
+    assert build.call_args.kwargs["privacy_mode"] is privacy

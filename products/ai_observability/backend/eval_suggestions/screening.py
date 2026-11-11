@@ -23,6 +23,8 @@ from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, SystemOneClient
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.shared_activities import consented_team_ids
 
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
+
 from . import catalog
 from .coverage import ExistingEval
 from .measure import SampledTrace
@@ -55,8 +57,17 @@ _LABELS = {
 
 
 def build_client(team: Team) -> SystemOneClient:
-    """Raises SystemOneNotConfigured where no System One server is set up, which a caller treats as a skip."""
-    return build_system_one_client(model=settings.HOGQL_PROMPT_JEV_MODEL, ai_product=AI_PRODUCT, team_id=team.pk)
+    """Raises SystemOneNotConfigured where no System One server is set up, which a caller treats as a skip.
+
+    Calls carry trace text and evaluation definitions, so an organization in privacy mode keeps them out of the
+    gateway's analytics.
+    """
+    return build_system_one_client(
+        model=settings.HOGQL_PROMPT_JEV_MODEL,
+        ai_product=AI_PRODUCT,
+        team_id=team.pk,
+        privacy_mode=is_privacy_mode_enabled(team),
+    )
 
 
 def consented(team: Team) -> bool:

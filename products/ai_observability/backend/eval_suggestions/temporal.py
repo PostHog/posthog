@@ -176,7 +176,8 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
                 except ActivityError as error:
                     # The free cards still publish, and publish records the stage as unfinished.
                     workflow.logger.warning(
-                        "eval_suggestions_paid_stage_failed", team_id=inputs.team_id, error=str(error.cause or error)
+                        "eval_suggestions_paid_stage_failed",
+                        extra={"team_id": inputs.team_id, "error": str(error.cause or error)},
                     )
             return await workflow.execute_activity(
                 publish_eval_suggestions_activity, stage, **_options(PUBLISH, heartbeat=False)

@@ -1,4 +1,5 @@
 import uuid
+import logging
 from collections.abc import Iterator
 
 import pytest
@@ -64,7 +65,9 @@ async def test_a_start_that_never_returns_still_fails_its_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_failed_paid_stage_still_publishes_the_free_cards() -> None:
+async def test_a_failed_paid_stage_still_publishes_the_free_cards(caplog: pytest.LogCaptureFixture) -> None:
+    # The warning must really be emitted: a logger call the stdlib rejects would fail the workflow task.
+    caplog.set_level(logging.WARNING)
     calls: list[str] = []
 
     @temporalio.activity.defn(name="llma-eval-suggestions-start-run")
@@ -109,6 +112,7 @@ async def test_a_failed_paid_stage_still_publishes_the_free_cards() -> None:
 
     assert published == 2
     assert calls == ["measure", "screen", "draft", "publish"]
+    assert any(r.getMessage().startswith("eval_suggestions_paid_stage_failed") for r in caplog.records)
 
 
 _SEEN: list[TeamRunInputs] = []

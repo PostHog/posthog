@@ -258,6 +258,22 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
         )
         assert statuses[first.id] == ("proposed" if next_run_fails else "expired")
 
+    def test_a_stale_measure_attempt_cannot_overwrite_a_later_stage(self) -> None:
+        _dead_judge(self.team)
+        run = create_run(self.team, "scheduled")
+        settings = SuggestionSettings()
+        measure_stage(self.team.pk, str(run.id), settings=settings)
+        screen_stage(self.team.pk, str(run.id), include_paid=False, settings=settings)
+        run.refresh_from_db()
+        screened = run.handoff
+
+        # Attempt 1 of measure outlived its retry and finishes after screening wrote the handoff.
+        measure_stage(self.team.pk, str(run.id), settings=settings)
+
+        run.refresh_from_db()
+        assert run.handoff == screened
+        assert run.handoff["written_by"] == "screening"
+
     def test_a_stale_attempt_that_fails_leaves_the_newer_attempt_to_publish(self) -> None:
         dead_judge = _dead_judge(self.team)
         run = create_run(self.team, "scheduled")
