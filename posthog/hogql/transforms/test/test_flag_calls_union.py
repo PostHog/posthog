@@ -17,7 +17,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import param, parameterized
 
@@ -40,11 +40,13 @@ from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.test.test_prompt_jev import gateway_response
 from posthog.hogql.transforms.flag_calls_union import rename_flag_call_scans_to_union
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.test.persons import create_group_type_mapping
 
@@ -1628,6 +1630,19 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 ),
             )
 
+    def _flag_calls_read_at_each_execution(
+        self, query: str, mode: FlagEvaluationsMode, **modifiers: Any
+    ) -> list[list[str] | None]:
+        tagged: list[list[str] | None] = []
+
+        def record_tag(*args: Any, **kwargs: Any):
+            tagged.append(json.loads(get_query_tags().to_json()).get("flag_calls_read"))
+            return sync_execute(*args, **kwargs)
+
+        with patch("posthog.hogql.query.sync_execute", side_effect=record_tag):
+            self._run(query, mode, **modifiers)
+        return tagged
+
     @parameterized.expand(
         [
             *(
@@ -1737,6 +1752,57 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert [str(row[0]) for row in response.results] == [str(fresh.uuid)]
+
+    @parameterized.expand(
+        [
+            ("union", READ, f"SELECT count() FROM events WHERE {MIXED}", ["union"]),
+            ("swap", ONLY, "SELECT count() FROM events WHERE event = '$feature_flag_called'", ["flag_evaluations"]),
+            (
+                "union_and_swap",
+                ONLY,
+                "SELECT count() FROM events AS a JOIN events AS b ON a.uuid = b.uuid "
+                f"WHERE a.{MIXED} AND b.event = '$feature_flag_called'",
+                ["flag_evaluations", "union"],
+            ),
+            ("inline_cohort", ONLY, "SELECT id FROM persons WHERE id IN COHORT {cohort}", ["union"]),
+            ("no_flag_calls", ONLY, "SELECT count() FROM events WHERE event = '$pageview'", None),
+            (
+                "declined_union",
+                READ,
+                f"SELECT properties.a.b, properties.a___b FROM events WHERE {MIXED}",
+                None,
+            ),
+            (
+                "declined_swap",
+                READ,
+                "SELECT count() FROM posthog.events "
+                "JOIN (SELECT distinct_id AS d, properties AS posthog FROM events) AS s ON distinct_id = s.d "
+                "WHERE posthog.events.event = '$feature_flag_called' "
+                "AND posthog.events.properties.$feature_flag = 'probe-flag' "
+                "AND posthog__events.timestamp >= now() - INTERVAL 7 DAY",
+                None,
+            ),
+        ]
+    )
+    def test_log_comment_names_the_rewrites_that_read_flag_calls(
+        self, _name: str, mode: FlagEvaluationsMode, query: str, expected: list[str] | None
+    ):
+        cohort = _performed_flag_call_cohort(self.team, "probe-flag")
+
+        tagged = self._flag_calls_read_at_each_execution(
+            query.format(cohort=cohort.pk), mode, inlineCohortCalculation=InlineCohortCalculation.ALWAYS
+        )
+
+        assert tagged == [expected]
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+    def test_jev_source_query_keeps_its_tag_out_of_the_query_that_reads_its_rows(self):
+        with patch("httpx.AsyncClient.post", side_effect=gateway_response):
+            tagged = self._flag_calls_read_at_each_execution(
+                "SELECT jev(event, 'Flag call?') AS p FROM events WHERE event = '$feature_flag_called'", ONLY
+            )
+
+        assert tagged == [["flag_evaluations"], None]
 
     def test_ratio_sample_keeps_the_same_distinct_ids_in_both_tables(self):
         now = datetime.now(UTC)

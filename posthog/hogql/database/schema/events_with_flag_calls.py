@@ -160,6 +160,8 @@ class EventsWithFlagCallsTable(LazyTable):
         )
 
         assert context.database is not None
+        # An inline cohort renames its own scans during type resolution, so only this method sees every union scan.
+        context.flag_calls_read.add("union")
         # Lazy table resolution drops the scan's SAMPLE, so each branch applies the ratio itself.
         sample = union_scan_sample(node, self)
 
