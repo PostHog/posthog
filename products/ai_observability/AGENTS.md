@@ -40,7 +40,7 @@ A new backend feature in `products/ai_observability/backend/` has this shape fro
   Their tests need no database.
 - A view or a workflow calls one function in `facade/api.py`.
   A view only parses the request, calls the facade and serializes the result.
-- Workflows and activities live in `backend/temporal/`, beside `trace_summary.py`.
+- Workflows and activities live in `backend/temporal/`, like the existing `trace_summary.py`.
 - New code does not import from the workflow modules in `posthog/temporal/ai_observability/`.
   To reuse a helper there, move it into product logic and import it from there in both places.
 
