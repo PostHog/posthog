@@ -108,10 +108,13 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
 
 
-def native_insight_alert_view(team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
-    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None."""
+def native_insight_alert_view(
+    team_id: int, alert_id: UUID, *, lock: bool = False
+) -> PlatformAlertConfigurationView | None:
+    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None.
+    With `lock`, its row stays locked until the caller's transaction ends."""
     configuration = get_configuration(
-        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id, lock=lock
     )
     return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
 

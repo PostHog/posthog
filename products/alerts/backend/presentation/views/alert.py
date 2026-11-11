@@ -2125,6 +2125,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
                 raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+            # Admission skips the cap for an alert that is already on, so it reads the alert as stored
+            # under the lock, not as this request first read it.
+            locked = native_insight_alert_view(alert.team_id, alert.id, lock=True)
+            reloaded = AlertConfiguration.from_platform_view(locked, team_id=alert.team_id) if locked else None
+            if reloaded is None:
+                raise Http404
+            alert = reloaded
             assign_alert_owner(
                 team_id=alert.team_id, alert_id=alert.id, user=user, was_impersonated=get_was_impersonated()
             )
