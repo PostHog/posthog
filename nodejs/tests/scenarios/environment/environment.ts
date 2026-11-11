@@ -39,7 +39,7 @@ export interface Environment {
     down(): Promise<void>
 }
 
-export type RoleHandle = { name: Role; metricsUrl: string }
+export type RoleHandle = { name: Role; url: string; metricsUrl: string }
 
 export type Action = { kind: 'kill'; role: Role }
 
@@ -127,7 +127,11 @@ export function createEnvironment({
 
         edgeUrl: () => startedEdge('edgeUrl').url,
 
-        role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
+        role: (name) => ({
+            name,
+            url: `http://127.0.0.1:${ROLE_PORTS[name]}`,
+            metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics`,
+        }),
 
         async health() {
             const down = await downServices(edge?.url, postgresUrl, sesRateLimiterValkey)

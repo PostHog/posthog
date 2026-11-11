@@ -91,7 +91,7 @@ describe('runner', () => {
         up: () => Promise.resolve(),
         reset: () => Promise.resolve(duringReset()),
         edgeUrl: () => 'http://127.0.0.1:1',
-        role: (name) => ({ name, metricsUrl: processMetrics.url }),
+        role: (name) => ({ name, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
         health: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
@@ -414,7 +414,7 @@ describe('runner through seed, drive and judge', () => {
                       )
         },
         edgeUrl: () => edge.url,
-        role: (name) => ({ name, metricsUrl: processMetrics.url }),
+        role: (name) => ({ name, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
         actuate(action) {
             exits.push(...killExits(action.role))
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
@@ -427,14 +427,14 @@ describe('runner through seed, drive and judge', () => {
         },
     })
 
-    const shortSmoke = (valves: ValveEntry[] = []): LoadedCard => {
+    const shortSmoke = (valves: ValveEntry[] = [], traffic = 'event_email'): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
         const profile = path.join(cacheHome, 'profile.yaml')
         writeFileSync(
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: 'event_email' }] },
+                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }] },
                 valves,
                 convergeWithin: valves.length > 0 ? '8s' : '3s',
             })
@@ -443,7 +443,7 @@ describe('runner through seed, drive and judge', () => {
             profile,
             stringify({
                 name: SMOKE.profile.name,
-                traffic: { event_email: { ratePerSecond: 2 } },
+                traffic: { [traffic]: { ratePerSecond: 2 } },
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
@@ -622,6 +622,22 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+    it('fails a run whose intake role refused every unit, rather than calling it invalid', async () => {
+        const result = await createRunner(environmentOf('none'), env).run(
+            shortSmoke([], 'transactional_email'),
+            NEVER_ABORTED
+        )
+        results.push(result)
+
+        expect(result).toMatchObject({
+            status: 'failed',
+            statusReason: expect.stringMatching(
+                /^refused_at_intake failed: [\w-]+-1: the intake could not be reached: .*ECONNREFUSED/
+            ),
+            units: { targetUnits: 4, offeredUnits: 4 },
+        })
+    }, 30_000)
+
     const KILL_EMAIL_WORKER: ValveEntry = {
         valve: 'role.kill',
         target: 'cdp-cyclotron-worker-email',

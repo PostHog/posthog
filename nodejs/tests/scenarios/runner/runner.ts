@@ -13,7 +13,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
-import { ROLE_PORTS, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { STACK, cyclotronUrlOf } from '../environment/stack'
 import { DriveSummary, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
@@ -148,7 +148,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             const secrets = secretsOf(env)
             const specs = roleSpecs(env, { url: edgeUrl }, secrets, stateDir, profile.settings)
             const cdpApi = {
-                url: `http://127.0.0.1:${ROLE_PORTS['cdp-api']}`,
+                url: environment.role('cdp-api').url,
                 jwt: new ScopedServiceJwt(
                     PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
                     secrets.transactionalEmailJwtSecret

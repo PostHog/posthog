@@ -11,6 +11,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import type { TrafficDefinition } from '../cards/definitions'
+import type { Role } from '../environment/roles'
 import type { JournalEntry } from '../judge/judge'
 import { UNIT_EMAIL_DOMAIN, WEBHOOK_HOST } from '../provider-edge'
 
@@ -27,6 +28,7 @@ export type OfferContext = {
 export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
     profile: typeof Rate
     intake: JournalEntry['kind']
+    intakeRole?: Role
     deliveries: string[]
     flow(teamId: number, emailIntegrationId: number): Promise<HogFlow>
     offer(unit: Unit, context: OfferContext): Promise<JournalEntry['answer']>
@@ -172,6 +174,7 @@ export const transactionalEmail: TrafficKind = {
     params: z.object({}).strict(),
     profile: Rate,
     intake: 'transactional',
+    intakeRole: 'cdp-api',
     deliveries: [EMAIL_ACTION],
     flow: async (teamId, emailIntegrationId) =>
         oneStepFlow(
