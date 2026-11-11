@@ -2,12 +2,12 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs'
+import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import path from 'path'
 import { Pool } from 'pg'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -32,6 +32,7 @@ const RECORD_NEW_SHAPES = process.env.UPDATE_STORED_SHAPES === '1'
 const RUN_TIME_MS = '$RUN_TIME_MS'
 const RUN_TIME_ISO = '$RUN_TIME_ISO'
 const FETCH_TEMPLATE_ID = 'template-stored-job-state-fetch'
+const EVENT_UUID = 'b3a1fe86-b10c-43cc-acaf-d208977608d0'
 
 type CorpusEntry = { scenario: string; about: string; stored: unknown }
 type Workflow = Parameters<FixtureHogFlowBuilder['withWorkflow']>[0]
@@ -127,7 +128,7 @@ function withTokensAsTime(value: unknown, runAt: DateTime): unknown {
 function recordShapeIfChanged(scenario: string, stored: unknown): void {
     const current = path.join(CORPUS_DIR, `${scenario}.json`)
     const previous = existsSync(current) ? readEntry(`${scenario}.json`) : undefined
-    if (JSON.stringify(previous?.stored) === JSON.stringify(stored)) {
+    if (isEqual(previous?.stored, stored)) {
         return
     }
     if (previous) {
@@ -175,19 +176,13 @@ describe('Stored Cyclotron job state', () => {
         await insertHogFunctionTemplate(hub.postgres, {
             id: FETCH_TEMPLATE_ID,
             name: 'Stored job state fetch',
-            code: `let res := fetch(inputs.url, {'method': inputs.method});`,
+            code: `let res := fetch(f'{inputs.url}/{event.uuid}', {'method': inputs.method});`,
             inputs_schema: [
                 { key: 'url', type: 'string', required: true },
                 { key: 'method', type: 'string', required: false },
             ],
         })
-        const personRepository: jest.Mocked<PersonReadRepository> = {
-            fetchPerson: jest.fn().mockResolvedValue(undefined),
-            fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
-            fetchPersonsByPersonIds: jest.fn().mockResolvedValue([]),
-            fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
-        }
-        deps = { ...createCdpConsumerDeps(hub), personRepository }
+        deps = createCdpConsumerDeps(hub)
         hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         await hogflowQueue.startAsProducer()
         mockFetch.mockClear()
@@ -225,14 +220,16 @@ describe('Stored Cyclotron job state', () => {
         await createScenarioWorkflow(scenario)
         const events = new CdpEventsConsumer(hub, deps, { hogQueue: createMockJobQueue(), hogflowQueue })
         const globals = createHogExecutionGlobals({
-            project: { id: team.id } as any,
+            project: { id: team.id, name: 'test', url: 'http://localhost:8000/projects/1' },
             event: {
-                uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                uuid: EVENT_UUID,
                 event: '$pageview',
+                elements_chain: '',
                 distinct_id: 'stored-job-state-distinct-id',
+                url: 'http://localhost:8000/events/1',
                 properties: { $current_url: 'https://example.com' },
                 timestamp: '2024-09-03T09:00:00Z',
-            } as any,
+            },
         })
         await (
             await events.processBatch([globals])
@@ -286,7 +283,7 @@ describe('Stored Cyclotron job state', () => {
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledWith(
-                    fetchedUrl(entry.scenario),
+                    `${fetchedUrl(entry.scenario)}/${EVENT_UUID}`,
                     expect.objectContaining({ method: 'POST' })
                 )
             }, 10000)
