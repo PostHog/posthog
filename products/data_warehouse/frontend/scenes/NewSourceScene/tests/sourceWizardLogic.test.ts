@@ -2018,6 +2018,40 @@ describe('sourceWizardLogic', () => {
             }
         })
 
+        it('sends a wide table its leading candidates and keeps every column after a pick', async () => {
+            const extra: IncrementalField[] = Array.from({ length: 18 }, (_, n) => ({
+                field: `c${n}`,
+                field_type: 'integer',
+                label: `c${n}`,
+                type: 'integer',
+                recommended: false,
+            }))
+            const fields = [{ ...createdAt, recommended: true }, ...extra, { ...modelPick, recommended: false }]
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('public.wide', { incremental_fields: fields }),
+            ] as ExternalDataSourceSyncSchema[])
+            const sentFirst = fields.slice(0, 16)
+            const recommend = jest
+                .mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
+                .mockReset()
+                .mockResolvedValue({
+                    tables: [
+                        { table: 'public.wide', incremental_fields: [{ ...sentFirst[1], picked_by_model: true }] },
+                    ],
+                } as unknown as RecommendationsResponse)
+
+            const { logic, unmount } = await mountAndLoadSchemas(postgresSource)
+
+            try {
+                expect(recommend.mock.calls[0][1].tables[0].incremental_fields).toHaveLength(16)
+                const wide = logic.values.databaseSchema[0]
+                expect(wide.incremental_fields).toHaveLength(20)
+                expect(wide.incremental_fields[0].field).toBe('c0')
+            } finally {
+                unmount()
+            }
+        })
+
         it('keeps the any-timestamp fallback for other database sources', async () => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('public.users', {

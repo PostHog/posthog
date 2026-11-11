@@ -61552,9 +61552,15 @@ export namespace Schemas {
     }
 
     export interface IncrementalFieldCandidate {
-      /** Name of the field as shown in the UI. */
+      /**
+         * Name of the field as shown in the UI.
+         * @maxLength 4096
+         */
       label: string;
-      /** Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces. */
+      /**
+         * Name of the field in the source table. Kept verbatim, since a quoted identifier can have spaces.
+         * @maxLength 4096
+         */
       field: string;
       /**
          * Type of the field as shown in the UI, such as timestamp.
@@ -61583,11 +61589,14 @@ export namespace Schemas {
     }
 
     export interface IncrementalFieldTable {
-      /** Name of the table, as returned by database_schema. */
+      /**
+         * Name of the table, as returned by database_schema.
+         * @maxLength 4096
+         */
       table: string;
       /**
-         * Candidate incremental fields of the table, as returned by database_schema.
-         * @maxItems 10000
+         * The leading candidate incremental fields of the table, as returned by database_schema. The decision model reads at most this many.
+         * @maxItems 16
          */
       incremental_fields: IncrementalFieldCandidate[];
     }

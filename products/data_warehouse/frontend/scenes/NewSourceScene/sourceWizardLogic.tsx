@@ -436,6 +436,8 @@ export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, sele
 
 // The recommendations endpoint's limit on tables per request.
 const MAX_RECOMMENDATION_TABLES = 512
+// The decision model's option limit per table, which the endpoint also enforces.
+const MAX_RECOMMENDATION_CANDIDATES = 16
 
 export interface PollingSyncSettings {
     sync_type: 'full_refresh' | 'incremental' | 'append'
@@ -2004,7 +2006,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         externalDataSourcesIncrementalFieldRecommendationsCreate(String(values.currentTeamId), {
                             tables: batch.map((schema) => ({
                                 table: schema.table,
-                                incremental_fields: schema.incremental_fields,
+                                // The model reads only the leading ranked candidates, so the rest stay local.
+                                incremental_fields: schema.incremental_fields
+                                    .filter((field) => field.recommended !== undefined)
+                                    .slice(0, MAX_RECOMMENDATION_CANDIDATES),
                             })),
                         })
                     )
@@ -2032,10 +2037,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
             actions.setDatabaseSchemas(
                 values.databaseSchema.map((schema) => {
-                    const fields = picked.get(schema.table)
-                    if (!fields) {
+                    const reordered = picked.get(schema.table)
+                    if (!reordered) {
                         return schema
                     }
+                    const sent = new Set(reordered.map((field) => field.field))
+                    const fields = [
+                        ...reordered,
+                        ...schema.incremental_fields.filter((field) => !sent.has(field.field)),
+                    ]
                     const updated = { ...schema, incremental_fields: fields }
                     const previous = defaultPollingSyncSettings(schema, connectorName)
                     // A full-refresh default keeps whatever cursor discovery returned, so only the
