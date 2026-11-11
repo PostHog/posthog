@@ -214,7 +214,20 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
         return normalized
 
     def validate_id_jag_issuer_url(self, value: str | None) -> str | None:
-        return self._validate_id_jag_url(value)
+        normalized = self._validate_id_jag_url(value)
+        if normalized:
+            managed = IdentityProviderConfig.objects.with_id_jag_issuer(normalized).filter(
+                id_jag_registered_by_application__isnull=False
+            )
+            if self.instance is not None:
+                managed = managed.exclude(pk=self.instance.pk)
+            managed_elsewhere = managed.exists()
+            if managed_elsewhere:
+                raise serializers.ValidationError(
+                    "An application already manages this issuer through enterprise-managed auth.",
+                    code="issuer_in_use",
+                )
+        return normalized
 
     def validate_oidc_issuer_url(self, value: str) -> str:
         normalized = value.strip()
@@ -394,8 +407,10 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_id_jag_registered_by_application_name(self, obj: IdentityProviderConfig) -> str | None:
         application = obj.id_jag_registered_by_application
+        if application is None:
+            return None
         # Application names are HTML-escaped at ingestion.
-        return html.unescape(application.name) if application is not None else None
+        return html.unescape(application.name) or application.client_id
 
 
 class SCIMTokenResponseSerializer(serializers.Serializer):
@@ -420,6 +435,13 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        if cast(IdentityProviderConfig, self.get_object()).id_jag_registered_by_application_id is not None:
+            # The client keeps this configuration in step with its own issuer, so a hand edit would
+            # break the connection or trust an issuer the client no longer controls.
+            raise exceptions.ValidationError(
+                "This configuration is managed through enterprise-managed auth. To change it, set it up again from the application that manages it. To stop trusting that application, delete the configuration.",
+                code="managed_configuration",
+            )
         res = super().update(request, *args, **kwargs)
         _capture_idp_config_event(request, self.get_object(), "updated", {"fields": sorted(request.data.keys())})
         return res

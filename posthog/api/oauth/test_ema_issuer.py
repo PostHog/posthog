@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -43,7 +43,6 @@ class TestEmaIssuerScopeIsNotAdvertised(SimpleTestCase):
             self.assertNotIn(EMA_ISSUER_MANAGE_SCOPE, cast(list[str], document["scopes_supported"]))
 
 
-@override_settings(EMA_ISSUER_MANAGE_CLIENT_IDS=[CLIENT_ID])
 class TestEmaIssuerSetup(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -65,6 +64,8 @@ class TestEmaIssuerSetup(APIBaseTest):
             redirect_uris=REDIRECT_URI,
             hash_client_secret=True,
             algorithm="RS256",
+            scopes=["feature_flag:read"],
+            can_manage_ema_issuer=True,
         )
 
     def _authorize_url(self, client_id: str = CLIENT_ID) -> str:
@@ -166,7 +167,7 @@ class TestEmaIssuerSetup(APIBaseTest):
         self.assertEqual(reused.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(reused.json()["error"], "invalid_token")
 
-    def test_client_not_on_the_allowlist_gets_invalid_scope(self):
+    def test_client_without_the_flag_gets_invalid_scope(self):
         other = OAuthApplication.objects.create(
             name="Other agent",
             client_id="other-client",

@@ -70,13 +70,15 @@ export async function handleToken(request: Request, kv: KVNamespace, env: Signin
         return response
     }
 
-    const reissued = await reissueIdTokenInResponse(response, {
+    return reissueIdTokenInResponse(response, {
         issuer: proxyOrigin(request),
         audience: clientId,
         permittedUpstreamAudiences: response.ok && clientId ? await permittedUpstreamAudiences(kv, clientId) : [],
         env,
-    })
-    return rewriteEmaSetupEndpointInResponse(reissued, request)
+    }).then((reissued) =>
+        // Only a code exchange can return an EMA setup token, so refreshes skip the extra body read.
+        grantType === 'authorization_code' ? rewriteEmaSetupEndpointInResponse(reissued, request) : reissued
+    )
 }
 
 /** A client registered through the proxy is known to each region under its own id. */

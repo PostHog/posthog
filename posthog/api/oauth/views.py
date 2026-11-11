@@ -77,6 +77,7 @@ from posthog.api.oauth.ema_issuer import (
     client_may_manage_ema_issuer,
     ema_consent_context,
     ema_setup_endpoint,
+    impersonation_refused,
     requests_ema_issuer,
     validate_ema_grant,
 )
@@ -544,7 +545,7 @@ class OAuthValidator(OAuth2Validator):
 
     def _should_skip_refresh_token(self, request) -> bool:
         # No refresh tokens for impersonation-minted tokens.
-        if self._get_impersonator_id(request) is not None:
+        if self._get_impersonator_id(request) is not None or requests_ema_issuer(getattr(request, "scopes", None)):
             return True
 
         client_key: str | None = None
@@ -866,7 +867,7 @@ class OAuthValidator(OAuth2Validator):
         token whose resource calls 403; `oauth_scopes_clamped` is what surfaces it.
         """
         if requests_ema_issuer(scopes):
-            if not client_may_manage_ema_issuer(getattr(client, "client_id", None) or client_id):
+            if not client_may_manage_ema_issuer(client or getattr(request, "client", None)):
                 return False
             request.scopes = [EMA_ISSUER_MANAGE_SCOPE]
             return True
@@ -970,7 +971,10 @@ class OAuthValidator(OAuth2Validator):
         Impersonation-minted tokens are capped to the impersonation idle timeout so
         they can't outlive the admin's session. That check comes first so an
         impersonated first-party app can't inherit the longer window.
+        An EMA setup token only has to last until the setup call that follows it.
         """
+        if requests_ema_issuer(getattr(request, "scopes", None)):
+            return EMA_SETUP_TOKEN_EXPIRES_SECONDS
         if self._get_impersonator_id(request) is not None:
             return settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
         if self._is_first_party_client(request) or (
@@ -987,12 +991,11 @@ class OAuthValidator(OAuth2Validator):
         Sets token["expires_in"] before calling parent, which uses this value
         when calculating the actual expiry datetime stored in the database.
         """
-        is_ema_setup = requests_ema_issuer(getattr(request, "scopes", None))
-        expires_in = EMA_SETUP_TOKEN_EXPIRES_SECONDS if is_ema_setup else self._get_token_expires_in(request)
+        expires_in = self._get_token_expires_in(request)
         token["expires_in"] = expires_in
         # Impersonation-minted tokens are short-lived and refresh-less so they can't
         # outlive the admin's impersonation session; clients re-auth instead.
-        skip_refresh = is_ema_setup or self._should_skip_refresh_token(request)
+        skip_refresh = self._should_skip_refresh_token(request)
         if skip_refresh:
             # Dropping the key short-circuits DOT's refresh-token branch so no
             # OAuthRefreshToken is created and none is returned in the response.
@@ -1896,12 +1899,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         self, request, application: OAuthApplication, impersonator_id: int | None
     ) -> HttpResponse | Response:
         if impersonator_id is not None:
+            refused = impersonation_refused()
             return Response(
-                {
-                    "error": "access_denied",
-                    "error_description": "Enterprise-managed auth can't be set up while impersonating.",
-                },
-                status=status.HTTP_403_FORBIDDEN,
+                {"error": refused.error, "error_description": refused.description},
+                status=refused.http_status,
             )
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
@@ -1919,7 +1920,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 "grantable_scopes": [EMA_ISSUER_MANAGE_SCOPE],
             },
             "oauth_scope_resolution": {"scopes": [EMA_ISSUER_MANAGE_SCOPE], "was_defaulted": False},
-            "oauth_ema_issuer_consent": ema_consent_context(request.user, application),
+            "oauth_ema_issuer_consent": ema_consent_context(request.user),
         }
         return render_template("index.html", request, context=template_context)
 
@@ -1964,17 +1965,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         if serializer.validated_data["allow"] and requests_ema_issuer(scopes):
             try:
-                if _impersonator_id_for_request(request) is not None:
-                    raise EmaSetupError(
-                        "access_denied",
-                        "Enterprise-managed auth can't be set up while impersonating.",
-                        status.HTTP_403_FORBIDDEN,
-                    )
-                if serializer.validated_data.get("access_level") != OAuthApplicationAccessLevel.ORGANIZATION.value:
-                    raise EmaSetupError(
-                        "invalid_request", "Choose exactly one organization to set up enterprise-managed auth."
-                    )
-                validate_ema_grant(request.user, application, serializer.validated_data.get("scoped_organizations"))
+                validate_ema_grant(
+                    request.user,
+                    application,
+                    serializer.validated_data.get("scoped_organizations") or [],
+                    impersonated=_impersonator_id_for_request(request) is not None,
+                    access_level=serializer.validated_data.get("access_level"),
+                )
             except EmaSetupError as error:
                 posthoganalytics.capture(
                     distinct_id=str(request.user.distinct_id),
@@ -1995,7 +1992,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             # read-only downgrade applied to the grant, so impersonation doesn't 400.
             # Filtered to resource scopes to mirror the consent UI, which only renders
             # and force-includes `object:action` rows (identity scopes always pass).
-            required = {scope for scope in application.required_scopes if ":" in scope}
+            # An EMA grant carries only its own scope, so the app's resource floor does not apply.
+            required = (
+                set()
+                if requests_ema_issuer(scopes)
+                else {scope for scope in application.required_scopes if ":" in scope}
+            )
             if is_read_only_impersonation(request):
                 required = set(downgrade_scopes_to_read_only(" ".join(sorted(required))).split())
             missing_required = required - set(scopes.split())

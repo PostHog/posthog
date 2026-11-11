@@ -952,7 +952,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
     })),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
@@ -995,7 +995,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             } else if (earlierAccess?.scoped_organizations.length && requiredAccessLevel === 'organization') {
                 actions.setOauthAuthorizationValue('scoped_organizations', [earlierAccess.scoped_organizations[0]])
             }
-            const emaIssuerConsent = getAppContext()?.oauth_ema_issuer_consent
+            const emaIssuerConsent = values.emaIssuerConsent
             if (emaIssuerConsent) {
                 const firstEligible = emaIssuerConsent.organizations.find((org) => !org.disabled_reason)
                 actions.setOauthAuthorizationValues({
@@ -1004,7 +1004,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 })
             }
             actions.loadOAuthApplication()
-            actions.loadAllTeams()
+            if (!emaIssuerConsent) {
+                actions.loadAllTeams()
+            }
 
             if (scopesWereDefaulted && oauthMcpConsent?.is_mcp_resource) {
                 // The MCP branch narrows the resolved set to the scopes MCP tools actually

@@ -1,5 +1,6 @@
 import { type Region, proxyOrigin, regionForBaseUrl } from '@/lib/constants'
 import { proxyToRegion } from '@/lib/proxy'
+import { rebuildResponse } from '@/lib/token-response'
 import { errorResponse } from '@/lib/validation'
 
 /**
@@ -20,7 +21,7 @@ export async function handleEmaTrustedIssuer(request: Request): Promise<Response
             { 'Cache-Control': 'no-store' }
         )
     }
-    return proxyToRegion(request, regionParam as Region, EMA_SETUP_PATH)
+    return proxyToRegion(request, regionParam, EMA_SETUP_PATH)
 }
 
 export async function rewriteEmaSetupEndpointInResponse(response: Response, request: Request): Promise<Response> {
@@ -28,34 +29,25 @@ export async function rewriteEmaSetupEndpointInResponse(response: Response, requ
         return response
     }
 
-    const raw = await response.clone().text()
-    let payload: Record<string, unknown>
+    const raw = await response.text()
+    const payload = raw.includes('"ema_setup_endpoint"') ? parseObject(raw) : null
+    const region = typeof payload?.ema_setup_endpoint === 'string' ? regionOfUrl(payload.ema_setup_endpoint) : null
+    if (!payload || !region) {
+        return rebuildResponse(response, raw)
+    }
+
+    const ema_setup_endpoint = `${proxyOrigin(request)}${EMA_SETUP_PATH}?region=${region}`
+    return rebuildResponse(response, JSON.stringify({ ...payload, ema_setup_endpoint }))
+}
+
+function parseObject(raw: string): Record<string, unknown> | null {
     try {
-        payload = JSON.parse(raw) as Record<string, unknown>
+        return JSON.parse(raw) as Record<string, unknown>
     } catch {
-        return response
+        return null
     }
+}
 
-    if (typeof payload.ema_setup_endpoint !== 'string') {
-        return response
-    }
-
-    let region: Region | null = null
-    try {
-        region = regionForBaseUrl(new URL(payload.ema_setup_endpoint).origin)
-    } catch {
-        region = null
-    }
-    if (!region) {
-        return response
-    }
-
-    const rewritten = { ...payload, ema_setup_endpoint: `${proxyOrigin(request)}${EMA_SETUP_PATH}?region=${region}` }
-    const headers = new Headers(response.headers)
-    headers.delete('content-length')
-    return new Response(JSON.stringify(rewritten), {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-    })
+function regionOfUrl(url: string): Region | null {
+    return URL.canParse(url) ? regionForBaseUrl(new URL(url).origin) : null
 }

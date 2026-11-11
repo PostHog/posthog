@@ -943,7 +943,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         [
             ("ema_names_its_organization", True, "own", status.HTTP_200_OK),
             ("ema_names_another_organization", True, "other", status.HTTP_400_BAD_REQUEST),
-            ("ema_without_claim", True, None, status.HTTP_200_OK),
+            ("ema_without_claim", True, None, status.HTTP_400_BAD_REQUEST),
             ("manual_config_ignores_claim", False, "other", status.HTTP_200_OK),
         ]
     )

@@ -5,24 +5,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
-export function XAAConfigFields({
-    isReady,
-    registeredByApplicationName,
-}: {
-    isReady: boolean
-    registeredByApplicationName: string | null
-}): JSX.Element {
+export function XAAConfigFields({ isReady }: { isReady: boolean }): JSX.Element {
     return (
         <div className="space-y-4">
-            {registeredByApplicationName && (
-                <LemonBanner type="warning">
-                    {registeredByApplicationName} set this up through enterprise-managed auth. PostHog trusts{' '}
-                    {registeredByApplicationName} to sign in any member of this organization whose email is on the
-                    domains below, without that member approving the connection. Changing the issuer URL breaks the{' '}
-                    {registeredByApplicationName} connection. To stop trusting {registeredByApplicationName}, delete
-                    this configuration.
-                </LemonBanner>
-            )}
             <p>
                 Configure XAA for your organization.{' '}
                 <Link to="https://posthog.com/docs/settings/id-jag" target="_blank" targetBlankIcon>

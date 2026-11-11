@@ -125,7 +125,7 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
                                         disabledReason={restrictionReason}
                                         data-attr={`configure-${configScope}-identity-provider`}
                                     >
-                                        Configure
+                                        {config?.id_jag_registered_by_application_name ? 'View' : 'Configure'}
                                     </LemonButton>
                                 </div>
                             </LemonCard>

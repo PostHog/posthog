@@ -1,23 +1,47 @@
 """Automated setup of enterprise-managed auth (EMA) through the `ema_issuer:manage` scope.
 
-An organization admin approves one consent screen, and the client then registers its ID-JAG
-issuer for that organization with a single call to the setup endpoint. From then on PostHog
+Without it, an admin who turns on EMA for an MCP client copies the client's ID-JAG issuer URL
+into PostHog's XAA settings by hand. With it, the admin approves one consent screen, and the
+client registers its issuer for that organization with a single call. From then on PostHog
 accepts ID-JAGs from that issuer for every member whose email is on a verified domain of the
 organization, without each member connecting through OAuth. Granting the scope is therefore
 close to handing the client a sign-in for the whole organization, and every check here is
 about who may grant it and to which client.
 
-The scope stays out of `scopes_supported` and the scope pickers: only clients listed in
-`EMA_ISSUER_MANAGE_CLIENT_IDS` can request it, and those know about it without discovery.
+The flow:
+
+1. The client sends the admin to `/oauth/authorize/` with `scope=ema_issuer:manage`, PKCE, and
+   its usual `client_id`, `redirect_uri` and `resource`. The consent screen asks for exactly one
+   organization the person administers and says what approving turns on.
+2. The client exchanges the code at `/oauth/token/`. The response is a normal token response
+   with `scope: "ema_issuer:manage"`, a five-minute `expires_in`, no refresh token, and one
+   extra field, `ema_setup_endpoint`: the URL of `EmaTrustedIssuerView`.
+3. The client calls `PUT <ema_setup_endpoint>` with the access token and
+   `{"ema_issuer": "<issuer URL>"}`. PostHog stores the issuer as an XAA configuration for the
+   token's organization and answers `{"aud_tenant": "<organization ID>"}`. The client puts that
+   value in the `aud_tenant` claim of the ID-JAGs it issues later, and `id_jag` refuses an
+   ID-JAG for this issuer whose `aud_tenant` is missing or names another organization. The call
+   revokes the token, so it works once.
+
+The setup call repeats every consent check, because membership, plan and domains can change
+in between. A failure is an RFC 6749 style `error` and `error_description`, which the client
+shows to the admin: `access_denied` when the person no longer administers the organization or
+it can't use XAA, `issuer_in_use` when any other configuration already trusts the issuer, and
+`invalid_request` for a malformed issuer. A second registration from the same client replaces
+its configuration, so ID-JAGs from the previous issuer stop working.
+
+The configuration is read-only in PostHog. Admins see it in the authentication settings and
+turn it off by deleting it. The scope stays out of `scopes_supported` and the scope pickers:
+only applications that PostHog staff marked with `can_manage_ema_issuer` can request it, and
+those know about it without discovery.
 """
 
 import html
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
-from django.conf import settings
-from django.db import connection, models, transaction
+from django.db import connection, transaction
 
 import structlog
 import posthoganalytics
@@ -32,7 +56,7 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAccessLevel
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
@@ -57,20 +81,25 @@ def requests_ema_issuer(scopes: Iterable[str] | str | None) -> bool:
     return EMA_ISSUER_MANAGE_SCOPE in tokens
 
 
-def client_may_manage_ema_issuer(client_id: str | None) -> bool:
-    return bool(client_id) and client_id in settings.EMA_ISSUER_MANAGE_CLIENT_IDS
+def client_may_manage_ema_issuer(application: OAuthApplication | None) -> bool:
+    return bool(application is not None and application.can_manage_ema_issuer)
 
 
 def ema_setup_endpoint() -> str:
     return absolute_uri(EMA_SETUP_PATH)
 
 
-def _verified_domains(organization_id: Any) -> list[str]:
-    return sorted(
-        OrganizationDomain.objects.filter(organization_id=organization_id, verified_at__isnull=False).values_list(
-            "domain", flat=True
-        )
+def _verified_domains_by_organization(organization_ids: Iterable[Any]) -> dict[str, list[str]]:
+    rows = (
+        OrganizationDomain.objects.verified_domains()
+        .filter(organization_id__in=list(organization_ids))
+        .order_by("domain")
+        .values_list("organization_id", "domain")
     )
+    domains: dict[str, list[str]] = {}
+    for organization_id, domain in rows:
+        domains.setdefault(str(organization_id), []).append(domain)
+    return domains
 
 
 def _ineligibility_reason(
@@ -90,42 +119,24 @@ def _ineligibility_reason(
     return None
 
 
-@frozen
-class EmaConsentOrganization:
-    id: str
-    name: str
-    verified_domains: list[str]
-    disabled_reason: str | None
-
-
-def ema_consent_context(user: User, application: OAuthApplication) -> dict[str, object]:
+def ema_consent_context(user: User) -> dict[str, object]:
     """What the consent screen needs to name the organization and what approving turns on."""
-    memberships = OrganizationMembership.objects.filter(user=user).select_related("organization")
-    organizations: list[EmaConsentOrganization] = []
+    memberships = list(OrganizationMembership.objects.filter(user=user).select_related("organization"))
+    domains = _verified_domains_by_organization(membership.organization_id for membership in memberships)
+    organizations = []
     for membership in memberships:
         organization = membership.organization
-        verified_domains = _verified_domains(organization.id)
+        verified_domains = domains.get(str(organization.id), [])
         organizations.append(
-            EmaConsentOrganization(
-                id=str(organization.id),
-                name=organization.name,
-                verified_domains=verified_domains,
-                disabled_reason=_ineligibility_reason(organization, membership.level, verified_domains),
-            )
-        )
-    organizations.sort(key=lambda org: (org.disabled_reason is not None, org.name.lower()))
-    return {
-        "scope": EMA_ISSUER_MANAGE_SCOPE,
-        "organizations": [
             {
-                "id": org.id,
-                "name": org.name,
-                "verified_domains": org.verified_domains,
-                "disabled_reason": org.disabled_reason,
+                "id": str(organization.id),
+                "name": organization.name,
+                "verified_domains": verified_domains,
+                "disabled_reason": _ineligibility_reason(organization, membership.level, verified_domains),
             }
-            for org in organizations
-        ],
-    }
+        )
+    organizations.sort(key=lambda org: (org["disabled_reason"] is not None, str(org["name"]).lower()))
+    return {"scope": EMA_ISSUER_MANAGE_SCOPE, "organizations": organizations}
 
 
 class EmaSetupError(Exception):
@@ -138,15 +149,30 @@ class EmaSetupError(Exception):
         self.http_status = http_status
 
 
-def validate_ema_grant(user: User, application: OAuthApplication, scoped_organization_ids: list[str]) -> None:
-    """Checks a consent grant of `ema_issuer:manage` before the authorization code is minted.
+def impersonation_refused() -> EmaSetupError:
+    return EmaSetupError(
+        "access_denied", "Enterprise-managed auth can't be set up while impersonating.", status.HTTP_403_FORBIDDEN
+    )
 
-    The setup endpoint repeats every check, because membership, plan, and domains can all change
-    in the minutes between consent and the setup call.
+
+def validate_ema_grant(
+    user: User,
+    application: OAuthApplication,
+    scoped_organization_ids: list[str],
+    *,
+    impersonated: bool,
+    access_level: str = OAuthApplicationAccessLevel.ORGANIZATION.value,
+) -> Organization:
+    """Checks a grant of `ema_issuer:manage` and returns the one organization it is for.
+
+    Consent runs it before the authorization code is minted, and the setup endpoint runs it again,
+    because membership, plan, and domains can all change in the minutes between the two.
     """
-    if not client_may_manage_ema_issuer(application.client_id):
+    if impersonated:
+        raise impersonation_refused()
+    if not client_may_manage_ema_issuer(application):
         raise EmaSetupError("invalid_scope", f"{EMA_ISSUER_MANAGE_SCOPE} is not available to this application.")
-    if len(scoped_organization_ids) != 1:
+    if access_level != OAuthApplicationAccessLevel.ORGANIZATION.value or len(scoped_organization_ids) != 1:
         raise EmaSetupError("invalid_request", "Choose exactly one organization to set up enterprise-managed auth.")
     membership = (
         OrganizationMembership.objects.filter(user=user, organization_id=scoped_organization_ids[0])
@@ -156,94 +182,94 @@ def validate_ema_grant(user: User, application: OAuthApplication, scoped_organiz
     if membership is None:
         raise EmaSetupError("access_denied", "You aren't a member of this organization.", status.HTTP_403_FORBIDDEN)
     organization = membership.organization
-    reason = _ineligibility_reason(organization, membership.level, _verified_domains(organization.id))
+    verified_domains = _verified_domains_by_organization([organization.id]).get(str(organization.id), [])
+    reason = _ineligibility_reason(organization, membership.level, verified_domains)
     if reason:
         raise EmaSetupError("access_denied", reason, status.HTTP_403_FORBIDDEN)
+    return organization
 
 
-def _normalize_issuer(value: object) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise EmaSetupError("invalid_request", "ema_issuer must be a non-empty string.")
-    issuer = value.strip().rstrip("/")
-    if len(issuer) > _ISSUER_MAX_LENGTH:
-        raise EmaSetupError("invalid_request", f"ema_issuer must be at most {_ISSUER_MAX_LENGTH} characters.")
+def _normalize_issuer(value: str) -> str:
+    issuer = value.rstrip("/")
     parts = urlsplit(issuer)
-    if parts.scheme != "https" or not parts.hostname or parts.query or parts.fragment or parts.username:
-        raise EmaSetupError("invalid_request", "ema_issuer must be an https URL without a query or fragment.")
+    if (
+        parts.scheme != "https"
+        or not parts.hostname
+        or parts.query
+        or parts.fragment
+        or parts.username is not None
+        or parts.password is not None
+    ):
+        raise EmaSetupError(
+            "invalid_request", "ema_issuer must be an https URL without credentials, a query, or a fragment."
+        )
     # Not resolved here: `id_jag._get_jwks_client` applies the SSRF guard each time it fetches from the issuer.
     return issuer
-
-
-def _configs_with_issuer(issuer: str) -> models.QuerySet[IdentityProviderConfig]:
-    return (
-        IdentityProviderConfig.objects.annotate(
-            normalized_id_jag_issuer_url=models.Func(
-                "id_jag_issuer_url",
-                models.Value("/"),
-                function="RTRIM",
-                output_field=models.CharField(),
-            )
-        )
-        .filter(normalized_id_jag_issuer_url=issuer)
-        .select_related("organization")
-    )
 
 
 @frozen
 class EmaRegistration:
     config: IdentityProviderConfig
-    organization: Organization
-    replaced_issuer: str | None
+    replaced_issuer: bool
 
 
-def register_ema_issuer(access_token: OAuthAccessToken, raw_issuer: object) -> EmaRegistration:
+def register_ema_issuer(access_token: OAuthAccessToken, raw_issuer: str) -> EmaRegistration:
     user = access_token.user
     application = access_token.application
     if user is None or application is None:
         raise EmaSetupError("invalid_token", "The access token is not valid.", status.HTTP_401_UNAUTHORIZED)
-    if EMA_ISSUER_MANAGE_SCOPE not in (access_token.scope or "").split():
+    if not requests_ema_issuer(access_token.scope):
         raise EmaSetupError(
             "insufficient_scope",
             f"The access token does not carry {EMA_ISSUER_MANAGE_SCOPE}.",
             status.HTTP_403_FORBIDDEN,
         )
-    if access_token.impersonated_by_id is not None:
-        raise EmaSetupError(
-            "access_denied", "Enterprise-managed auth can't be set up while impersonating.", status.HTTP_403_FORBIDDEN
-        )
-    validate_ema_grant(user, application, [str(org_id) for org_id in access_token.scoped_organizations or []])
-
+    organization = validate_ema_grant(
+        user,
+        application,
+        [str(org_id) for org_id in access_token.scoped_organizations or []],
+        impersonated=access_token.impersonated_by_id is not None,
+    )
     issuer = _normalize_issuer(raw_issuer)
-    organization_id = (access_token.scoped_organizations or [])[0]
 
     with transaction.atomic():
-        # Two organizations registering the same issuer at once would both pass the in-use check.
+        # The token row lock makes a concurrent second call with the same token wait, then find the
+        # token gone. The two advisory locks stop two calls from adding a second configuration for this
+        # client, and two organizations from claiming one issuer. Every call takes them in this order.
+        if not OAuthAccessToken.objects.select_for_update().filter(pk=access_token.pk).exists():
+            raise EmaSetupError("invalid_token", "The access token was already used.", status.HTTP_401_UNAUTHORIZED)
         with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"ema-registration:{organization.id}:{application.pk}"],
+            )
             cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"ema-issuer:{issuer}"])
 
         own_config = (
             IdentityProviderConfig.objects.select_for_update()
-            .filter(organization_id=organization_id, id_jag_registered_by_application=application)
+            .filter(organization=organization, id_jag_registered_by_application=application)
             .first()
         )
-        for other in _configs_with_issuer(issuer):
-            if own_config is not None and other.pk == own_config.pk:
-                continue
-            if str(other.organization_id) == str(organization_id):
-                raise EmaSetupError(
-                    "issuer_in_use",
-                    "This organization already trusts this issuer in another XAA configuration. Remove that configuration in PostHog's authentication settings, then try again.",
-                    status.HTTP_409_CONFLICT,
-                )
+        others_with_issuer = IdentityProviderConfig.objects.for_scope(ConfigScope.ID_JAG).with_id_jag_issuer(issuer)
+        if own_config is not None:
+            others_with_issuer = others_with_issuer.exclude(pk=own_config.pk)
+        conflicting_organization_id = others_with_issuer.values_list("organization_id", flat=True).first()
+        if conflicting_organization_id == organization.id:
+            raise EmaSetupError(
+                "issuer_in_use",
+                "This organization already trusts this issuer in another XAA configuration. Remove that configuration in PostHog's authentication settings, then try again.",
+                status.HTTP_409_CONFLICT,
+            )
+        if conflicting_organization_id is not None:
             raise EmaSetupError(
                 "issuer_in_use",
                 "Another PostHog organization already trusts this issuer. Remove it from that organization's authentication settings, then try again.",
                 status.HTTP_409_CONFLICT,
             )
 
-        replaced_issuer = own_config.id_jag_issuer_url if own_config is not None else None
+        replaced_issuer = own_config is not None and (own_config.id_jag_issuer_url or "").rstrip("/") != issuer
         config = own_config or IdentityProviderConfig(
-            organization_id=organization_id, id_jag_registered_by_application=application
+            organization=organization, id_jag_registered_by_application=application
         )
         # The app name is HTML-escaped at ingestion.
         config.name = html.unescape(application.name or "")[:255]
@@ -256,12 +282,9 @@ def register_ema_issuer(access_token: OAuthAccessToken, raw_issuer: object) -> E
         # exchange already requires the presenting client to be the assertion's `client_id`.
         config.id_jag_allowed_clients = []
         config.save()
+        access_token.revoke()
 
-    return EmaRegistration(
-        config=config,
-        organization=config.organization,
-        replaced_issuer=replaced_issuer if replaced_issuer and replaced_issuer.rstrip("/") != issuer else None,
-    )
+    return EmaRegistration(config=config, replaced_issuer=replaced_issuer)
 
 
 class EmaTrustedIssuerSerializer(serializers.Serializer):
@@ -305,7 +328,10 @@ class EmaTrustedIssuerView(APIView):
         serializer = EmaTrustedIssuerSerializer(data=request.data)
         try:
             if not serializer.is_valid():
-                raise EmaSetupError("invalid_request", "The request body must be a JSON object with ema_issuer.")
+                raise EmaSetupError(
+                    "invalid_request",
+                    f"The request body must be a JSON object with ema_issuer, at most {_ISSUER_MAX_LENGTH} characters.",
+                )
             registration = register_ema_issuer(access_token, serializer.validated_data["ema_issuer"])
         except EmaSetupError as error:
             logger.info(
@@ -319,25 +345,24 @@ class EmaTrustedIssuerView(APIView):
                 status=error.http_status,
             )
 
-        access_token.revoke()
-
-        organization = registration.organization
+        config = registration.config
+        organization = config.organization
         posthoganalytics.capture(
-            distinct_id=str(access_token.user.distinct_id) if access_token.user else "unknown",
+            distinct_id=str(cast(User, access_token.user).distinct_id),
             event="ema issuer registered",
             properties={
-                "client_name": access_token.application.name if access_token.application else None,
+                "client_name": cast(OAuthApplication, access_token.application).name,
                 "application_id": str(access_token.application_id),
-                "identity_provider_config_id": str(registration.config.id),
-                "replaced_issuer": registration.replaced_issuer is not None,
+                "identity_provider_config_id": str(config.id),
+                "replaced_issuer": registration.replaced_issuer,
             },
             groups=groups(organization),
         )
         logger.info(
             "ema_issuer_registered",
             organization_id=str(organization.id),
-            identity_provider_config_id=str(registration.config.id),
+            identity_provider_config_id=str(config.id),
             application_id=str(access_token.application_id),
-            replaced_issuer=registration.replaced_issuer is not None,
+            replaced_issuer=registration.replaced_issuer,
         )
         return Response({"aud_tenant": str(organization.id)}, status=status.HTTP_200_OK)

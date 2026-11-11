@@ -94,6 +94,19 @@ class IdentityProviderConfigQuerySet(models.QuerySet["IdentityProviderConfig"]):
     def saml_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
         return self.for_scope(ConfigScope.SAML).filter(saml_configured_q()).with_verified_domain_for_email(email)
 
+    def with_id_jag_issuer(self, issuer: str) -> "IdentityProviderConfigQuerySet":
+        """Configs that trust `issuer`, ignoring trailing slashes on either side.
+
+        The ID-JAG verifier and the EMA setup's in-use check both match issuers here, so they agree
+        on which configs share an issuer.
+        """
+        normalized_id_jag_issuer_url = models.Func(
+            "id_jag_issuer_url", models.Value("/"), function="RTRIM", output_field=models.CharField()
+        )
+        return self.annotate(normalized_id_jag_issuer_url=normalized_id_jag_issuer_url).filter(
+            normalized_id_jag_issuer_url=(issuer or "").rstrip("/")
+        )
+
     def oidc_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
         return self.filter(config_scope=ConfigScope.OIDC).with_verified_domain_for_email(email)
 
@@ -102,24 +115,17 @@ class IdentityProviderConfigManager(models.Manager["IdentityProviderConfig"]):
     def get_queryset(self) -> IdentityProviderConfigQuerySet:
         return IdentityProviderConfigQuerySet(self.model, using=self._db)
 
+    def with_id_jag_issuer(self, issuer: str) -> IdentityProviderConfigQuerySet:
+        return self.get_queryset().with_id_jag_issuer(issuer)
+
+    def for_scope(self, config_scope: str) -> IdentityProviderConfigQuerySet:
+        return self.get_queryset().for_scope(config_scope)
+
     def saml_for_email(self, email: str) -> IdentityProviderConfigQuerySet:
         return self.get_queryset().saml_for_email(email)
 
     def get_id_jag_for_request(self, email: str, issuer: str) -> IDJagIdentityProviderResolution:
-        normalized_issuer = (issuer or "").rstrip("/")
-        issuer_configs = (
-            self.get_queryset()
-            .for_scope(ConfigScope.ID_JAG)
-            .annotate(
-                normalized_id_jag_issuer_url=models.Func(
-                    "id_jag_issuer_url",
-                    models.Value("/"),
-                    function="RTRIM",
-                    output_field=models.CharField(),
-                )
-            )
-            .filter(normalized_id_jag_issuer_url=normalized_issuer)
-        )
+        issuer_configs = self.get_queryset().for_scope(ConfigScope.ID_JAG).with_id_jag_issuer(issuer)
 
         matching: list[tuple[IdentityProviderConfig, OrganizationDomain]] = []
         if "@" in email:
@@ -248,9 +254,10 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     )
     # Set when an OAuth client registered the issuer through `ema_issuer:manage`, so a repeat
     # registration from that client replaces its own configuration instead of adding another.
+    # Deleting the client deletes the configuration, because the trust was granted to that client.
     id_jag_registered_by_application = models.ForeignKey(
         "posthog.OAuthApplication",
-        on_delete=models.SET_NULL,
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="+",
