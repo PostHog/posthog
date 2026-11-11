@@ -172,6 +172,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.ph_client import feature_enabled_or_false
@@ -3554,11 +3555,28 @@ def _attach_external_data_sources(
             table.external_data_source = source
 
 
-def _serialization_order(table: DataWarehouseTable) -> tuple[bool, str, bool, str, str, datetime]:
+@frozen(order=True)
+class _WarehouseTableSortKey:
+    prefix_missing: bool
+    prefix: str
+    source_type_missing: bool
+    source_type: str
+    name: str
+    created_at: datetime
+
+
+def _serialization_order(table: DataWarehouseTable) -> _WarehouseTableSortKey:
     source = table.external_data_source
     prefix = source.prefix if source else None
     source_type = source.source_type if source else None
-    return (prefix is None, prefix or "", source_type is None, source_type or "", table.name, table.created_at)
+    return _WarehouseTableSortKey(
+        prefix_missing=prefix is None,
+        prefix=prefix or "",
+        source_type_missing=source_type is None,
+        source_type=source_type or "",
+        name=table.name,
+        created_at=table.created_at,
+    )
 
 
 def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehouseTable]) -> None:
