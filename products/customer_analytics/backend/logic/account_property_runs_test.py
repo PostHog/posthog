@@ -101,7 +101,7 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
         assert {view.sync_phase for view in views} == {"staging"}
         assert {view.job_id for view in views} == {"job-1"}
         assert {view.workflow_id for view in views} == {None}
-        assert {view.workflow_run_id for view in views} == {None}
+        assert {str(view.workflow_run_id) for view in views} == {"00000000-0000-4000-8000-000000000001"}
         assert {view.temporal_url for view in views} == {None}
 
         staff_views = api.list_custom_property_sync_runs(

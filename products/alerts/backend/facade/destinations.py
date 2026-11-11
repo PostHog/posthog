@@ -203,6 +203,11 @@ def list_alert_destination_groups(
     )
 
 
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The platform's lookup for HogFunctions that still exist, which `products.alerts` registers when Django starts."""
+    return destinations.live_hog_function_ids(team_id=team_id, hog_function_ids=hog_function_ids)
+
+
 def owned_alert_destination_ids(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
 ) -> frozenset[UUID]:

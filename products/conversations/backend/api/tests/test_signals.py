@@ -1,15 +1,29 @@
 import uuid
+from collections.abc import Mapping
+from contextlib import nullcontext
+from typing import Any, cast
 
-from posthog.test.base import BaseTest
-from unittest.mock import patch
+import pytest
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import ANY, MagicMock, patch
 
 from django.db import transaction
 
+from celery.exceptions import Retry
 from parameterized import parameterized
+from rest_framework import status
+from rest_framework.test import APIClient
 
+from posthog.api.capture import CaptureInternalResult
 from posthog.models.comment import Comment
+from posthog.models.tag import Tag
+from posthog.models.tagged_item import TaggedItem
+from posthog.models.tagged_item_registry import content_type_id_for_legacy_field
+from posthog.models.team import Team
 
 from products.conversations.backend.ai.human_outcome import record_human_outcome
+from products.conversations.backend.api.internal import CONVERSATIONS_TICKETS_PURPOSE
+from products.conversations.backend.events import build_ticket_tag_added_event
 from products.conversations.backend.models import (
     ConversationDeliveryPart,
     EmailChannel,
@@ -17,7 +31,8 @@ from products.conversations.backend.models import (
     TeamConversationsSlackConfig,
     Ticket,
 )
-from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.models.constants import Channel, Status
+from products.conversations.backend.tasks.ticket_events import emit_ticket_tag_added
 
 
 # Patch on_commit to execute immediately in tests
@@ -677,6 +692,192 @@ class TestTicketCreatedEventSignal(BaseTest):
 
         assert ticket.id is not None
         mock_capture.assert_called_once()
+
+
+@patch("products.conversations.backend.events.capture_internal")
+class TestTicketTagAddedEventSignal(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="user-123",
+            channel_source=Channel.WIDGET,
+        )
+
+    def _task_kwargs(self) -> dict[str, Any]:
+        return {
+            "event": build_ticket_tag_added_event(self.ticket, str(uuid.uuid4()), "sf-lead"),
+            "event_uuid": str(uuid.uuid4()),
+            "timestamp": "2026-11-09T12:00:00+00:00",
+        }
+
+    @staticmethod
+    def _tag_added_events(mock_capture: MagicMock) -> list[Mapping[str, Any]]:
+        return [
+            call.kwargs
+            for call in mock_capture.call_args_list
+            if call.kwargs["event_name"] == "$conversation_ticket_tag_added"
+        ]
+
+    @parameterized.expand(
+        [
+            ("new_tag", [], ["sf-lead"], "json", ["sf-lead"]),
+            ("existing_tag", ["sf-lead"], ["sf-lead"], "json", []),
+            ("two_new_tags", ["billing"], ["billing", "sf-lead", "urgent"], "json", ["sf-lead", "urgent"]),
+            ("form_encoded_tag", [], ["sf-lead"], "multipart", ["sf-lead"]),
+        ]
+    )
+    def test_ticket_patch_emits_one_event_per_new_tag(
+        self, mock_capture, _name, existing_tags, patched_tags, request_format, expected_tags
+    ):
+        for name in existing_tags:
+            self.ticket.tagged_items.create(tag=Tag.objects.create(name=name, team=self.team))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+                {"tags": patched_tags},
+                format=request_format,
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        emitted = sorted(
+            (event["properties"]["tag"], event["properties"]["actor_type"], event["properties"]["actor_id"])
+            for event in self._tag_added_events(mock_capture)
+        )
+        assert emitted == [(tag, "user", self.user.id) for tag in expected_tags]
+
+    def test_workflow_patch_attributes_the_event_to_the_workflow(self, mock_capture):
+        self.team.conversations_enabled = True
+        self.team.save(update_fields=["conversations_enabled"])
+        flow_id = "0191d3e0-0000-7000-8000-000000000001"
+        token = CONVERSATIONS_TICKETS_PURPOSE.mint({"team_id": self.team.id, "ticket_id": str(self.ticket.id)})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = APIClient().patch(
+                f"/api/projects/{self.team.id}/internal/conversations/tickets/{self.ticket.id}",
+                {"tags": ["sf-lead"]},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+                HTTP_X_POSTHOG_HOG_FLOW_ID=flow_id,
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        [event] = self._tag_added_events(mock_capture)
+        assert event["distinct_id"] == self.ticket.distinct_id
+        assert {key: event["properties"][key] for key in ("tag", "actor_type", "actor_id", "workflow_id")} == {
+            "tag": "sf-lead",
+            "actor_type": "system",
+            "actor_id": None,
+            "workflow_id": flow_id,
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "bulk_create",
+                lambda tag, ticket: TaggedItem.objects.bulk_create([TaggedItem.for_content_object(tag, ticket)]),
+            ),
+            (
+                "other_model_with_the_ticket_uuid",
+                lambda tag, ticket: TaggedItem.objects.create(
+                    tag=tag, content_type_id=content_type_id_for_legacy_field("hog_flow"), object_uuid=ticket.id
+                ),
+            ),
+        ]
+    )
+    def test_bulk_or_non_ticket_tag_rows_emit_nothing(self, mock_capture, _name, write_tag):
+        tag = Tag.objects.create(name="sf-lead", team=self.team)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            write_tag(tag, self.ticket)
+
+        assert self._tag_added_events(mock_capture) == []
+
+    def test_child_environment_ticket_emits_the_event(self, mock_capture):
+        environment = Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
+        ticket = Ticket.objects.create_with_number(
+            team=environment,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="user-456",
+            channel_source=Channel.WIDGET,
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            ticket.tagged_items.get_or_create(tag=Tag.objects.create(name="sf-lead", team=environment))
+
+        [event] = self._tag_added_events(mock_capture)
+        assert (event["token"], event["properties"]["ticket_id"]) == (environment.api_token, str(ticket.id))
+
+    def test_tagging_queues_the_capture_instead_of_sending_it_inline(self, mock_capture):
+        tag = Tag.objects.create(name="sf-lead", team=self.team)
+
+        with patch("products.conversations.backend.signals.emit_ticket_tag_added") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                item, _ = self.ticket.tagged_items.get_or_create(tag=tag)
+
+        mock_capture.assert_not_called()
+        mock_task.delay.assert_called_once_with(
+            event=build_ticket_tag_added_event(self.ticket, str(tag.id), "sf-lead"),
+            event_uuid=str(item.id),
+            timestamp=ANY,
+        )
+
+    def test_queued_event_keeps_the_ticket_as_it_was_when_tagged(self, mock_capture):
+        with patch("products.conversations.backend.signals.emit_ticket_tag_added") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.ticket.tagged_items.get_or_create(tag=Tag.objects.create(name="sf-lead", team=self.team))
+        self.ticket.status = Status.RESOLVED
+        self.ticket.save(update_fields=["status"])
+
+        emit_ticket_tag_added(**mock_task.delay.call_args.kwargs)
+
+        [event] = self._tag_added_events(mock_capture)
+        assert event["properties"]["status"] == Status.NEW
+
+    @parameterized.expand(
+        [
+            ("transport_error", CaptureInternalResult(status_code=0, error={"error": "transport_error"}), 0, "retry"),
+            ("server_error", CaptureInternalResult(status_code=503, error={"error": "unavailable"}), 0, "retry"),
+            ("rate_limited", CaptureInternalResult(status_code=429, error={"error": "rate_limited"}), 0, "retry"),
+            ("request_timeout", CaptureInternalResult(status_code=408, error={"error": "timeout"}), 0, "retry"),
+            ("bad_request", CaptureInternalResult(status_code=400, error={"error": "invalid"}), 0, "report"),
+            ("billing_limited", CaptureInternalResult(status_code=402, error={"error": "billing_limit"}), 0, "skip"),
+            ("dropped", CaptureInternalResult(status_code=200, dropped=["event"]), 0, "report"),
+            ("retries_exhausted", CaptureInternalResult(status_code=503, error={"error": "unavailable"}), 5, "report"),
+        ]
+    )
+    def test_task_retries_only_a_capture_that_can_succeed_later(self, mock_capture, _name, result, retries, outcome):
+        mock_capture.return_value = result
+        task_kwargs = self._task_kwargs()
+
+        with patch("products.conversations.backend.tasks.ticket_events.capture_exception") as mock_report:
+            with pytest.raises(Retry) if outcome == "retry" else nullcontext():
+                cast(Any, emit_ticket_tag_added).apply(kwargs=task_kwargs, retries=retries)
+
+        assert mock_report.called == (outcome == "report")
+        sent = mock_capture.call_args.kwargs
+        assert (sent["event_uuid"], sent["timestamp"]) == (task_kwargs["event_uuid"], task_kwargs["timestamp"])
+
+    @parameterized.expand([("first_retry", 0, 60), ("third_retry", 2, 240)])
+    def test_task_waits_longer_before_each_retry(self, mock_capture, _name, retries, wait_seconds):
+        mock_capture.return_value = CaptureInternalResult(status_code=503, error={"error": "unavailable"})
+
+        with pytest.raises(Retry) as retry:
+            cast(Any, emit_ticket_tag_added).apply(kwargs=self._task_kwargs(), retries=retries)
+
+        assert retry.value.when == wait_seconds
+
+    def test_queueing_failure_does_not_break_the_tag_write(self, mock_capture):
+        tag = Tag.objects.create(name="sf-lead", team=self.team)
+
+        with patch("products.conversations.backend.signals.emit_ticket_tag_added") as mock_task:
+            mock_task.delay.side_effect = ConnectionError("broker is down")
+            with self.captureOnCommitCallbacks(execute=True):
+                self.ticket.tagged_items.get_or_create(tag=tag)
+
+        assert self.ticket.tagged_items.filter(tag=tag).exists()
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
