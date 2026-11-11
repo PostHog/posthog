@@ -27,7 +27,7 @@ const LIQUID_UNBOUNDED_FILTERS = ['where_exp', 'find_exp', 'find_index_exp', 're
 
 export const EMAIL_BODY_TAG_LIMIT = 10_000
 
-const LIQUID_BLOCK_OPENER = /-?\s*liquid(?=\s)/y
+const LIQUID_BLOCK_OPENER = /-?\s*liquid/y
 
 const countStatementLines = (body: string): number => {
     let count = 0
@@ -40,22 +40,21 @@ const countStatementLines = (body: string): number => {
 }
 
 export const countLiquidTags = (template: string): number => {
+    const parsed = decodeLiquidTags(template)
     let count = 0
-    for (let at = template.indexOf('{'); at !== -1; at = template.indexOf('{', at + 1)) {
-        const next = template[at + 1]
+    let statementsCountedUntil = 0
+    for (let at = parsed.indexOf('{'); at !== -1; at = parsed.indexOf('{', at + 1)) {
+        const next = parsed[at + 1]
         if (next !== '{' && next !== '%') {
             continue
         }
         count++
         at++
         LIQUID_BLOCK_OPENER.lastIndex = at + 1
-        if (next === '%' && LIQUID_BLOCK_OPENER.test(template)) {
-            const end = template.indexOf('%}', LIQUID_BLOCK_OPENER.lastIndex)
-            count += countStatementLines(template.slice(LIQUID_BLOCK_OPENER.lastIndex, end === -1 ? undefined : end))
-            if (end === -1) {
-                break
-            }
-            at = end + 1
+        if (next === '%' && at >= statementsCountedUntil && LIQUID_BLOCK_OPENER.test(parsed)) {
+            const end = parsed.indexOf('%}', LIQUID_BLOCK_OPENER.lastIndex)
+            statementsCountedUntil = end === -1 ? parsed.length : end
+            count += countStatementLines(parsed.slice(LIQUID_BLOCK_OPENER.lastIndex, statementsCountedUntil))
         }
     }
     return count

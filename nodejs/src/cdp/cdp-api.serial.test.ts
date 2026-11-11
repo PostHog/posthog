@@ -3693,6 +3693,24 @@ describe('CDP API', () => {
                         ),
                 ],
                 [
+                    'has a body whose quoted Liquid block opener comes before the Liquid tags over the limit',
+                    'email_body_too_many_tags',
+                    () =>
+                        storedTemplateRendering(
+                            { html: `{{ '{% liquid ' }}${'{{ variables.chunk }}'.repeat(EMAIL_BODY_TAG_LIMIT)}` },
+                            'x'
+                        ),
+                ],
+                [
+                    'has a body whose one Liquid block, opened with an encoded space, brings it one tag over the limit',
+                    'email_body_too_many_tags',
+                    () =>
+                        storedTemplateRendering(
+                            { html: `{% liquid%20\n${'echo variables.chunk\n'.repeat(EMAIL_BODY_TAG_LIMIT)}%}` },
+                            'x'
+                        ),
+                ],
+                [
                     'has a body full of Liquid tags, which would take seconds to parse',
                     'email_body_too_many_tags',
                     () => storedTemplateRendering({ html: '{{ x }}'.repeat(100_000) }, 'x'),
