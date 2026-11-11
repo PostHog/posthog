@@ -145,6 +145,11 @@ describe('intake message', () => {
         ],
         ['a team id past the INT column', wireValue({ ...validWireMessage, teamId: 2 ** 31 }), 'schema_invalid'],
         [
+            'an indexed text column too long for its index entry',
+            wireValue({ ...validWireMessage, job: { ...validWireMessage.job, distinctId: 'x'.repeat(4000) } }),
+            'schema_invalid',
+        ],
+        [
             'a text column holding a NUL character',
             wireValue({ ...validWireMessage, job: { ...validWireMessage.job, distinctId: 'person\u0000-1' } }),
             'schema_invalid',

@@ -20,6 +20,11 @@ const PG_SMALLINT_MAX = 2 ** 15 - 1
 // Any hex UUID, as Postgres takes. Run ids from UUIDT set no RFC version or variant bits, so z.uuid() refuses them.
 const pgUuid = z.guid()
 const pgText = z.string().refine((value) => !value.includes('\u0000'), { message: 'text cannot hold a NUL character' })
+// A B-tree index entry holds at most about 2.7 KB, so an indexed column is held well under that.
+const INDEXED_TEXT_MAX_BYTES = 1024
+const pgIndexedText = pgText.refine((value) => Buffer.byteLength(value) <= INDEXED_TEXT_MAX_BYTES, {
+    message: `an indexed column holds at most ${INDEXED_TEXT_MAX_BYTES} bytes`,
+})
 
 // Objects stay loose, so a consumer still reads a message that a newer producer of the same version extends.
 const IntakeJobStateSchema = z.looseObject({
@@ -34,17 +39,17 @@ const IntakeJobStateSchema = z.looseObject({
 const IntakeJobSchema = z.looseObject({
     id: pgUuid,
     functionId: pgUuid.nullable(),
-    queueName: pgText.min(1),
+    queueName: pgIndexedText.min(1),
     priority: z
         .number()
         .int()
         .min(-PG_SMALLINT_MAX - 1)
         .max(PG_SMALLINT_MAX),
     scheduled: z.iso.datetime(),
-    parentRunId: pgText.nullable(),
-    distinctId: pgText.nullable(),
-    personId: pgText.nullable(),
-    actionId: pgText.nullable(),
+    parentRunId: pgIndexedText.nullable(),
+    distinctId: pgIndexedText.nullable(),
+    personId: pgIndexedText.nullable(),
+    actionId: pgIndexedText.nullable(),
     // The same JSON the cyclotron row stores as bytes, kept as an object so the message stays readable.
     state: IntakeJobStateSchema.nullable(),
 })
