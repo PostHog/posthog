@@ -75,7 +75,6 @@ const MIN_UNEXPECTED_TO_BREAK = 3
  * come from the bytes, so it counts with `process`.
  */
 const UNEXPECTED_STEPS: ReadonlySet<DeadLetterStep> = new Set<DeadLetterStep>(['lookup', 'process'])
-const UNEXPECTED_STEPS_WITH_PARSE: ReadonlySet<DeadLetterStep> = new Set<DeadLetterStep>([...UNEXPECTED_STEPS, 'parse'])
 
 export interface CdpDeadLetterServiceConfig {
     CDP_DLQ_ENABLED: boolean
@@ -244,16 +243,13 @@ export class CdpDeadLetterService implements InvocationFailureSink {
                 .filter((entry) => entry.failures.some((failure) => UNEXPECTED_STEPS.has(failure.step)))
                 .map((entry) => entry.globals)
         )
-        const unexpectedSteps = this.options.parseFailuresStallBatch ? UNEXPECTED_STEPS_WITH_PARSE : UNEXPECTED_STEPS
-        const unexpectedMessagesAt = (step: DeadLetterStep): Set<Message> =>
-            new Set(
-                messageFailures
-                    .filter(({ failure }) => failure.step === step && unexpectedSteps.has(step))
-                    .map(({ message }) => message)
-            )
-        const lookupMessages = unexpectedMessagesAt('lookup')
-        const parseMessages = unexpectedMessagesAt('parse')
-        const unexpected = unexpectedEvents.size + lookupMessages.size + parseMessages.size
+        const messagesFailingAt = (counts: (step: DeadLetterStep) => boolean): Set<Message> =>
+            new Set(messageFailures.filter(({ failure }) => counts(failure.step)).map(({ message }) => message))
+        const unexpectedMessages = messagesFailingAt((step) => UNEXPECTED_STEPS.has(step))
+        const parseMessages = this.options.parseFailuresStallBatch
+            ? messagesFailingAt((step) => step === 'parse')
+            : new Set<Message>()
+        const unexpected = unexpectedEvents.size + unexpectedMessages.size + parseMessages.size
         if (
             unexpected >= MIN_UNEXPECTED_TO_BREAK &&
             messages.length &&
@@ -262,7 +258,7 @@ export class CdpDeadLetterService implements InvocationFailureSink {
             counterDeadLetterBatchFailures.labels({ output: this.options.output }).inc()
             throw new DeadLetterCircuitBreakerError(
                 unexpectedEvents.size,
-                lookupMessages.size,
+                unexpectedMessages.size,
                 messages.length,
                 this.options.parseFailuresStallBatch ? parseMessages.size : undefined
             )
