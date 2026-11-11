@@ -346,8 +346,8 @@ class DigestRun(ProductTeamModel):
     audience_key = models.CharField(max_length=255, default="", db_default="")
     slack_channel_id = models.CharField(max_length=64, default="", db_default="")
     slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
-    # How the destination was decided: the repo's own digest config, an owners.yaml entry, or a
-    # plain name match on the slug. It is what answers "why did my digest go there".
+    # How the destination was decided: the repo's own digest config or an owners.yaml opt-in (older
+    # runs can also carry a plain name match on the slug). It answers "why did my digest go there".
     resolution_source = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in ChannelResolutionSource],

@@ -2899,37 +2899,54 @@ def test_unreadable_owners_registry_posts_nothing(team, stamphog_chain: Stamphog
 _OWNERS_YAML_HEAD = "version: 1\nowners: []\n"
 
 
+def _opt_in_registry(slug: str, channel: str) -> str:
+    return _OWNERS_YAML_HEAD + f"teams:\n  {slug}:\n    notifications:\n      stamphog: '{channel}'\n"
+
+
 @pytest.mark.parametrize(
     "registry_yaml,workspace_channels,expected",
     [
         (
-            _OWNERS_YAML_HEAD + "teams:\n  logs:\n    slack: '#team-apm'\n",
+            _opt_in_registry("logs", "#team-apm"),
             [{"id": "C-APM", "name": "team-apm"}],
             ("C-APM", True, ChannelResolutionSource.OWNERS_CONTACT),
         ),
-        (_OWNERS_YAML_HEAD + "teams:\n  logs:\n    slack: false\n", [{"id": "C-LOGS", "name": "logs"}], None),
+        (
+            _OWNERS_YAML_HEAD + "teams:\n  logs:\n    notifications:\n      stamphog: false\n",
+            [{"id": "C-LOGS", "name": "logs"}],
+            None,
+        ),
         (
             _OWNERS_YAML_HEAD + "teams:\n  other-team:\n    slack: '#elsewhere'\n",
             [{"id": "C-LOGS", "name": "logs"}],
-            ("C-LOGS", True, ChannelResolutionSource.SLACK_NAME_MATCH),
+            None,
         ),
-        (_OWNERS_YAML_HEAD + "teams:\n  logs:\n    slack: '#team-apm'\n", [{"id": "C-LOGS", "name": "logs"}], None),
+        (
+            _OWNERS_YAML_HEAD + "teams:\n  logs:\n    slack: '#team-apm'\n    notifications: '#bots-apm'\n",
+            [
+                {"id": "C-LOGS", "name": "logs"},
+                {"id": "C-APM", "name": "team-apm"},
+                {"id": "C-BOTS", "name": "bots-apm"},
+            ],
+            None,
+        ),
+        (_opt_in_registry("logs", "#team-apm"), [{"id": "C-LOGS", "name": "logs"}], None),
     ],
     ids=[
-        "declared_channel_provisions_enabled",
-        "declared_no_channel_stops",
-        "no_entry_falls_through_to_name_match",
-        "declared_channel_missing_never_falls_back_to_the_slug",
+        "opted_in_channel_routes",
+        "silenced_stops",
+        "no_entry_never_name_matches",
+        "team_channels_are_not_a_request",
+        "opted_in_channel_missing_never_falls_back_to_the_slug",
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_owners_registry_routes_a_team_whose_channel_is_not_its_slug(
+def test_owners_registry_opts_a_team_into_the_digest(
     team, stamphog_chain: StamphogChain, registry_yaml: str, workspace_channels: list, expected: tuple | None
 ) -> None:
-    # The derived "#<slug>" is wrong for the teams whose channel was named before the slug existed
-    # ("logs" posts to #team-apm), which is exactly what the owners.yaml registry records. Two of
-    # these guard deliberate dead ends: `slack: false` is an answer, not a gap, and a declared
-    # channel that is missing must never retry the slug — the slug is the name it was correcting.
+    # The digest is opt-in: a team gets it only where its owners.yaml entry names a channel for the
+    # stamphog producer. A same-named channel, the team's own channel, and the channel every bot
+    # shares were nobody's request for it. A missing opted-in channel never retries the slug.
     repo_config = _repo_config(team.id)
     Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
@@ -2978,7 +2995,7 @@ def _merged_pr_with_audience(
     return pr
 
 
-_STANDUP_REGISTRY = _OWNERS_YAML_HEAD + "teams:\n  team-devex:\n    slack: '#team-devex-standup'\n"
+_STANDUP_REGISTRY = _opt_in_registry("team-devex", "#team-devex-standup")
 _DEVEX_WORKSPACE = [
     {"id": "C-STANDUP", "name": "team-devex-standup"},
     {"id": "C-DEVEX", "name": "team-devex"},
@@ -2991,11 +3008,10 @@ def test_registry_of_one_connected_repo_routes_an_audience_from_a_repo_without_o
     team, stamphog_chain: StamphogChain, registry_repo_digest_enabled: bool
 ) -> None:
     # A deployment repo carries no ownership metadata, so its merges resolve to the author's team
-    # slug and nothing else. Reading only the repo the merge came from would name-match that slug
-    # and bind the team to a disabled #team-devex, even though a repo it also connected declares
-    # the real channel. Every repo the team still uses is a candidate registry, so the declaration
-    # wins — including from a repo whose own digests are off, since the registry is ownership
-    # metadata rather than digest configuration.
+    # slug and nothing else. Reading only the repo the merge came from would find no opt-in, even
+    # though a repo the team also connected opts it in. Every repo the team still uses is a
+    # candidate registry, so the opt-in applies — including from a repo whose own digests are off,
+    # since the registry is ownership metadata rather than digest configuration.
     _repo_config(team.id, repository="acme/charts")
     _repo_config(team.id, repository="acme/widgets", digest_enabled=registry_repo_digest_enabled)
     Integration.objects.create(
@@ -3060,9 +3076,7 @@ def test_each_repos_registry_answers_for_its_own_merges(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
     )
     stamphog_chain.recorder.repo_files[("acme/aardvark", "owners.yaml")] = _STANDUP_REGISTRY
-    stamphog_chain.recorder.repo_files[("acme/widgets", "owners.yaml")] = (
-        _OWNERS_YAML_HEAD + "teams:\n  team-devex:\n    slack: '#team-devex'\n"
-    )
+    stamphog_chain.recorder.repo_files[("acme/widgets", "owners.yaml")] = _opt_in_registry("team-devex", "#team-devex")
     _merged_pr_with_audience(
         team.id,
         StamphogRepoConfig.objects.for_team(team.id).get(repository=audience_repository),
@@ -3077,13 +3091,30 @@ def test_each_repos_registry_answers_for_its_own_merges(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_daily_digest_posts_to_a_name_matched_channel_it_was_never_invited_to(
-    team, stamphog_chain: StamphogChain
-) -> None:
-    # A team's first digest must land without anyone wiring it up: the audience_key name-matches a
-    # workspace channel, the app joins one it was never invited to, and the merged PR goes out on
-    # that run rather than waiting on a human to flip a toggle nobody is watching.
+def test_daily_digest_never_posts_to_a_team_that_did_not_opt_in(team, stamphog_chain: StamphogChain) -> None:
+    # Teams used to get the digest in their same-named channel unasked, and had to opt out one by
+    # one. A merge from a team with no opt-in stays unclaimed, so an opt-in added later picks it up.
     repo_config = _repo_config(team.id)
+    Integration.objects.create(
+        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
+    )
+    pr = _merged_pr_with_audience(team.id, repo_config, number=101, audience_key="team-devex")
+    fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex"}], needs_join=["C-DEVEX"])
+
+    send_daily_digests()
+
+    assert fakes.FakeSlackIntegration.joined_channels == []
+    assert fakes.FakeSlackIntegration.posted_messages == []
+    assert not DigestRun.objects.for_team(team.id).exists()
+    assert PullRequestAudience.objects.for_team(team.id).get(pull_request=pr).digest_run_id is None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_daily_digest_posts_to_an_opted_in_channel_it_was_never_invited_to(team, stamphog_chain: StamphogChain) -> None:
+    # An opt-in is the whole setup: the app joins the opted-in channel it was never invited to, and
+    # the merged PR goes out on that run rather than waiting on a human to invite the bot.
+    repo_config = _repo_config(team.id)
+    stamphog_chain.recorder.policy_files["owners.yaml"] = _opt_in_registry("team-devex", "#team-devex")
     Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
     )
@@ -3107,7 +3138,7 @@ def test_daily_digest_posts_to_a_name_matched_channel_it_was_never_invited_to(
 
     run = DigestRun.objects.for_team(team.id).get(audience_key="team-devex")
     assert run.status == DigestRunStatus.COMPLETED
-    assert (run.slack_channel_id, run.resolution_source) == ("C-DEVEX", ChannelResolutionSource.SLACK_NAME_MATCH)
+    assert (run.slack_channel_id, run.resolution_source) == ("C-DEVEX", ChannelResolutionSource.OWNERS_CONTACT)
     posted = fakes.FakeSlackIntegration.posted_messages
     # The channel gets the lead, and the change lines hang off it in a thread.
     assert [p["channel"] for p in posted] == ["C-DEVEX", "C-DEVEX"]
@@ -3163,10 +3194,11 @@ def test_repo_declared_digest_channel_routes_alongside_owning_teams(team, stamph
 def test_routing_skips_shared_channels(
     team, stamphog_chain: StamphogChain, channel_flags: dict, expect_routed: bool
 ) -> None:
-    # A name match puts an audience_key onto a Slack channel nobody chose for it. A shared channel
-    # (Slack Connect or org-shared) carrying that name would route internal PR digests to another
-    # org — a leak. Only ordinary internal channels are matched this way.
+    # A registry entry can opt a team into a channel from a repo the team does not own. A shared
+    # channel (Slack Connect or org-shared) would route internal PR digests to another org — a leak.
+    # Only ordinary internal channels are matched this way.
     _repo_config(team.id)
+    stamphog_chain.recorder.policy_files["owners.yaml"] = _opt_in_registry("team-devex", "#team-devex")
     Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
     )

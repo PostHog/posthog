@@ -4,21 +4,23 @@ Routing is config, and the config lives in the repositories rather than in this 
 here is stored: a run resolves, posts, and records where it went. Change a declaration and the next
 morning's digest follows it.
 
+The digest is opt-in. Nothing posts to a channel that nobody asked for it, so a team's own channel,
+its general ``notifications`` channel, and a same-named Slack channel never receive it by default.
+
 The order is proximity, not alphabet. For an audience's merges that came from repository R:
 
 1. A ``repo:`` audience takes the channel R declared under ``digest:`` in ``.stamphog/policy.yml``.
-2. A team slug takes R's own root ``owners.yaml`` registry, read through ``owners_yaml``. A
+2. A team slug takes the channel R's own root ``owners.yaml`` registry names for the ``stamphog``
+   producer (``notifications: {stamphog: '#channel'}``), read through ``owners_yaml``. A
    repository that carries a registry answers for its own pull requests completely, including by
-   omission: a registry lists the teams whose derived name is wrong, so a slug missing from it
-   means "the derived name is right" rather than "no opinion".
+   omission: a slug it does not opt in gets no digest for that repository's merges.
 3. A repository carrying no registry inherits one, taking the first in a fixed order. This is the
    convenience layer: ``charts`` has no ownership metadata of its own, so ``logs`` still posts to
-   ``#team-apm`` because the monorepo says so.
-4. Otherwise the slug is matched against a same-named Slack channel, which is the derived
-   ``#<slug>`` rule that a registry entry exists to override.
+   ``#team-apm`` because the monorepo opted it in there.
+4. Otherwise the audience gets no digest.
 
 Step 2 answers by omission. This is what stops a peripheral repository from capturing a team it
-does not own. Without it, one repository that declares a slug routes every other repository's
+does not own. Without it, one repository that opts a slug in routes every other repository's
 merges for that team, because no other repository declared anything.
 
 Two repositories that declare one team is a scope, not a conflict. Each answers for its own merges.
@@ -28,11 +30,13 @@ them (see logic/digest_runs.py). No merge is posted twice, and no declaration is
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from django.db import router
 from django.db.models import Q
 
 import structlog
-from owners_yaml.resolver import Purpose, TeamChannel, team_channel, teams_registry
+from owners_yaml.resolver import teams_registry
 from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
@@ -52,10 +56,8 @@ logger = structlog.get_logger(__name__)
 # The distributed-ownership registry lives only in the repo-root file (owners_yaml.schema).
 _OWNERS_FILE_PATH = "owners.yaml"
 
-# The digest is automation, so it asks the registry where automation posts rather than where the
-# team's people are. That falls back to the people channel when a team never separates the two.
-_CHANNEL_PURPOSE: Purpose = "notifications"
-# Named so a team can keep the daily digest out of its channel while other bots keep posting there.
+# A team opts in by naming a channel for this producer under `notifications:`. Its other channels,
+# and a `notifications` channel that every bot shares, are not a request for the daily digest.
 _PRODUCER: Producer = "stamphog"
 
 
@@ -221,32 +223,30 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
     )
 
 
-def _registry_answer(context: RoutingContext, slug: str, repository: str) -> TeamChannel:
-    """What the closest registry says about this slug, for merges that came from ``repository``.
+def _requested_channel(context: RoutingContext, slug: str, repository: str) -> str | None:
+    """The channel the closest registry opted this slug into, for merges that came from ``repository``.
 
     A repository that holds a registry answers from that registry and never inherits one. This is
-    what makes it answer by omission. ``team_channel`` reports an absent slug as undeclared, and the
-    caller reads that as "the derived name is correct".
+    what makes it answer by omission: a slug it does not opt in gets no digest for its merges.
 
     An empty mapping means the repository carries no registry. It does not mean the repository
     carries an empty one. The difference only matters for a root file with an empty ``teams:``
     block, which no repository has a reason to write.
     """
     registry = context.registry_by_repo.get(repository) or context.inherited_registry
-    return team_channel(slug, registry, _CHANNEL_PURPOSE, _PRODUCER)
-
-
-def _silenced(answer: TeamChannel) -> bool:
-    return answer.declared and answer.channel is None
+    entry = registry.get(slug)
+    channels = entry.notifications if entry is not None else None
+    # A plain string or `false` is the team's channel for every bot, not a request for this digest.
+    channel = channels.get(_PRODUCER) if isinstance(channels, Mapping) else None
+    return channel if isinstance(channel, str) else None
 
 
 def resolve_destination(context: RoutingContext, audience_key: str, repository: str) -> Destination | None:
     """Where this audience's merges from ``repository`` go, or None when they go nowhere.
 
-    None covers three different situations that all mean "post nothing": a declaration silenced the
-    audience, a declared channel does not exist in the workspace, and a derived name matched
-    nothing. The caller leaves those merges unclaimed, so a declaration added later picks them up
-    on a later run rather than losing them.
+    None covers two different situations that both mean "post nothing": nobody opted the audience
+    in, and the opted-in channel does not exist in the workspace. The caller leaves those merges
+    unclaimed, so an opt-in added later picks them up on a later run rather than losing them.
     """
     if audience_key.startswith(REPO_AUDIENCE_PREFIX):
         channel_name = context.declared_repo_channel.get(audience_key[len(REPO_AUDIENCE_PREFIX) :])
@@ -255,29 +255,24 @@ def resolve_destination(context: RoutingContext, audience_key: str, repository: 
         # The maintainer named a destination for their own repository, shared or not. Their call.
         return _match(context, channel_name, ChannelResolutionSource.STAMPHOG_CONFIG, allow_shared=True)
 
-    answer = _registry_answer(context, audience_key, repository)
-    if _silenced(answer):
-        logger.info("stamphog_routing_silenced_by_config", audience_key=audience_key, repository=repository)
+    channel_name = _requested_channel(context, audience_key, repository)
+    if channel_name is None:
         return None
-    if answer.declared and answer.channel is not None:
-        # A registry entry can name a channel for a team the declaring repo does not own, so the
-        # shared-channel guard stays on: an externally shared match here leaves the workspace.
-        return _match(context, answer.channel, ChannelResolutionSource.OWNERS_CONTACT, allow_shared=False)
-
-    # The derived #<slug>, which is the name a registry entry exists to override.
-    return _match(context, audience_key, ChannelResolutionSource.SLACK_NAME_MATCH, allow_shared=False)
+    # A registry entry can name a channel for a team the declaring repo does not own, so the
+    # shared-channel guard stays on: an externally shared match here leaves the workspace.
+    return _match(context, channel_name, ChannelResolutionSource.OWNERS_CONTACT, allow_shared=False)
 
 
-def opted_out(context: RoutingContext, audience_key: str) -> bool:
-    """True when the registry of every repository in ``context`` silences this audience.
+def requested(context: RoutingContext, audience_key: str) -> bool:
+    """True when the registry of any repository in ``context`` opts this audience in.
 
-    ``resolve_destination`` returns None for an opt-out and for a routing gap alike. Only a gap needs
-    somebody to act, so the caller reports the two differently.
+    ``resolve_destination`` returns None for an audience nobody opted in and for a routing gap
+    alike. Only a gap needs somebody to act, so the caller reports the two differently.
     """
-    if audience_key.startswith(REPO_AUDIENCE_PREFIX) or not context.registry_by_repo:
-        return False
-    return all(
-        _silenced(_registry_answer(context, audience_key, repository)) for repository in context.registry_by_repo
+    if audience_key.startswith(REPO_AUDIENCE_PREFIX):
+        return True
+    return any(
+        _requested_channel(context, audience_key, repository) is not None for repository in context.registry_by_repo
     )
 
 
@@ -289,9 +284,8 @@ def _match(
     if match.channel is None:
         if match.reason == "shared":
             logger.info("stamphog_routing_shared_channel_skipped", channel_name=name, source=source)
-        # A declared channel that is not there is a dead end, never a reason to retry the slug: the
-        # slug is exactly the wrong name the declaration was written to correct.
-        elif source != ChannelResolutionSource.SLACK_NAME_MATCH:
+        # A declared channel that is not there is a dead end, never a reason to retry the slug.
+        else:
             logger.info("stamphog_routing_declared_channel_not_found", channel_name=name, source=source)
         return None
     return Destination(

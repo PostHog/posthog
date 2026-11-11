@@ -179,10 +179,10 @@ Only stamphog-approved merges are digested, so the digest needs reviews enabled 
 A merge fans out to every audience it belongs to, and each audience resolves to a channel in this order:
 
 - A `repo:` audience takes the channel that repository declared under `digest:`.
-- A team slug takes the root `owners.yaml` registry of the repository the merge came from.
+- A team slug gets a digest only when it opts in. The root `owners.yaml` registry of the repository the merge came from must name a channel for the `stamphog` producer, as in `notifications: {stamphog: '#my-team-merges'}`.
 - A repository carrying no registry inherits the first non-empty registry among the team's connected repositories, in repository name order.
-- Otherwise the slug name-matches a Slack channel, and the app joins it.
-- A registry-derived or name-matched channel that is shared outside the workspace is skipped. A channel the repository declared under `digest:` is posted to even when shared, because someone chose it on purpose. `notifications: false` on a registry entry opts a team out.
+- Otherwise the team gets no digest. The team's `slack` channel, a `notifications` channel that all bots share, and a same-named Slack channel do not count as an opt-in.
+- A registry channel that is shared outside the workspace is skipped. A channel the repository declared under `digest:` is posted to even when shared, because someone chose it on purpose.
 
 Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 

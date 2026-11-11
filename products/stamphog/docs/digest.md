@@ -25,15 +25,13 @@ Routing is config, and it lives in the repositories rather than in this database
 Nothing is stored: a run resolves, posts, and records where it went, so changing a declaration moves the next morning's digest.
 The order is proximity.
 A `repo:` audience takes the channel that repo declared.
-A team slug takes the root `owners.yaml` registry of the repo the merge came from.
-A repo that carries a registry answers for its own merges completely, including by omission: a registry lists the teams whose derived name is wrong, so a missing slug means the derived name is right.
-A repo carrying no registry inherits one, which is what lets `charts` route `team-data-stack` to `#group-data-stack` because the monorepo says so.
-Otherwise the slug name-matches a Slack channel, and the app joins one it was never invited to, so a team's digest starts without anyone wiring it up.
-A registry-derived or name-matched channel that is shared outside the workspace is skipped, because nobody chose it for the audience on purpose.
+A team slug is opt-in: it takes the channel that the root `owners.yaml` registry of the repo the merge came from names for the `stamphog` producer (`notifications: {stamphog: '#channel'}`).
+A team that never asked gets nothing, so a team's `slack` channel, a `notifications` channel that all bots share, and a same-named Slack channel never receive the digest by default.
+The digest used to name-match the slug to a channel and post there unasked, and teams had to opt out one at a time.
+A repo that carries a registry answers for its own merges completely, including by omission: a slug it does not opt in gets no digest for that repo's merges.
+A repo carrying no registry inherits one, which is what lets `charts` route a team's merges to the channel the monorepo opted it into.
+A registry channel that is shared outside the workspace is skipped, because the registry can name a channel for a team the repo does not own.
 A channel the repository declared under `digest:` is posted to even when shared.
-`notifications: false` on a registry entry is how a team opts out.
-The registry is asked where automation posts (`notifications`), which falls back to the team's own `slack` channel.
-A team that wants bots somewhere quieter says so once and every producer follows.
 
 ## Two repos, one team
 

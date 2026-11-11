@@ -188,7 +188,8 @@ class ChannelResolutionSource(StrEnum):
     # Retained because migration 0001 names this member as a field default, and a migration reads
     # the live enum, so deleting it makes the whole migration chain fail to load.
     MANUAL = "manual"
-    # No declaration anywhere, so the slug matched a same-named Slack channel.
+    # No longer produced: the digest is opt-in, so a slug never matches a same-named Slack channel.
+    # Retained because DigestRun.resolution_source defaults to it and older runs carry it.
     SLACK_NAME_MATCH = "slack_name_match"
     # Repo declared its digest channel under digest: in .stamphog/policy.yml (logic/digest_config.py).
     STAMPHOG_CONFIG = "stamphog_config"

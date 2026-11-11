@@ -116,6 +116,10 @@ def _channel(channel_id: str, shared: bool = False) -> SlackChannel:
     return SlackChannel(channel_id=channel_id, shared=shared)
 
 
+def _opted_in(channel: str) -> TeamEntry:
+    return TeamEntry(notifications={"stamphog": channel})
+
+
 def _routing_context(
     registry_by_repo: dict[str, dict[str, TeamEntry]] | None = None,
     declared_repo_channel: dict[str, str] | None = None,
@@ -123,13 +127,15 @@ def _routing_context(
 ) -> RoutingContext:
     """A routing context built in memory, so a task test never reaches GitHub or Slack.
 
-    The default routes AUDIENCE to C1 through the plain name match, which is what most of these
-    tests want: they are about claiming and posting, not about how the destination was decided.
+    The default opts AUDIENCE in to C1, which is what most of these tests want: they are about
+    claiming and posting, not about how the destination was decided.
     """
+    if registry_by_repo is None:
+        registry_by_repo = {REPO: {AUDIENCE: _opted_in(f"#{AUDIENCE}")}}
     return RoutingContext(
         slack_integration_id=1,
-        registry_by_repo=registry_by_repo if registry_by_repo is not None else {REPO: {}},
-        inherited_registry=next((r for r in (registry_by_repo or {}).values() if r), {}),
+        registry_by_repo=registry_by_repo,
+        inherited_registry=next((r for r in registry_by_repo.values() if r), {}),
         declared_repo_channel=declared_repo_channel or {},
         channels_by_name=channels_by_name if channels_by_name is not None else {AUDIENCE: _channel("C1")},
     )
@@ -300,7 +306,7 @@ def test_concurrent_runs_for_one_audience_post_to_slack_once(team) -> None:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_two_repos_declaring_one_team_partition_rather_than_duplicate(team) -> None:
-    # A repo declaring a team's channel is a scope, not a conflict: it answers for its own merges
+    # A repo opting a team in is a scope, not a conflict: it answers for its own merges
     # and leaves everyone else's alone. Picking a winner discards a declaration somebody wrote, and
     # fanning out posts every merge twice in the product whose problem is volume. Each PR must
     # appear in exactly one digest.
@@ -308,11 +314,8 @@ def test_two_repos_declaring_one_team_partition_rather_than_duplicate(team) -> N
     _seed_prs(team.id, pr_count=3, repository="acme/gadgets", first_number=10)
     context = _routing_context(
         registry_by_repo={
-            # REPO carries a registry that does not mention this team, which is an answer: the
-            # derived name is right. Without that, gadgets' declaration would capture REPO's merges
-            # too, since REPO declared nothing to the contrary.
-            REPO: {"team-other": TeamEntry(slack="#team-other")},
-            "acme/gadgets": {AUDIENCE: TeamEntry(notifications="#bots-devex")},
+            REPO: {AUDIENCE: _opted_in(f"#{AUDIENCE}")},
+            "acme/gadgets": {AUDIENCE: _opted_in("#bots-devex")},
         },
         channels_by_name={AUDIENCE: _channel("C1"), "bots-devex": _channel("C2")},
     )
@@ -332,7 +335,7 @@ def test_two_repos_declaring_one_team_partition_rather_than_duplicate(team) -> N
     with team_scope(team.id):
         assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
         sources = set(DigestRun.objects.values_list("resolution_source", flat=True))
-    assert sources == {ChannelResolutionSource.SLACK_NAME_MATCH, ChannelResolutionSource.OWNERS_CONTACT}
+    assert sources == {ChannelResolutionSource.OWNERS_CONTACT}
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -378,7 +381,8 @@ def test_unroutable_merges_do_not_starve_routable_ones_behind_them(team) -> None
     _seed_prs(team.id, pr_count=2, repository="acme/nowhere", first_number=1)
     _seed_prs(team.id, pr_count=2, repository=REPO, first_number=10)
     context = _routing_context(
-        registry_by_repo={REPO: {}},  # acme/nowhere is not a candidate repo, so it routes nowhere
+        # acme/nowhere is not a candidate repo, so it routes nowhere
+        registry_by_repo={REPO: {AUDIENCE: _opted_in(f"#{AUDIENCE}")}},
         channels_by_name={AUDIENCE: _channel("C1")},
     )
 
@@ -397,10 +401,10 @@ def test_unroutable_merges_do_not_starve_routable_ones_behind_them(team) -> None
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_repo_with_no_registry_inherits_one(team) -> None:
     # The convenience layer. charts carries no ownership file at all, so a team whose channel is not
-    # named after its slug still routes correctly there because the monorepo says where it goes.
+    # opted in still gets its charts merges there, because the monorepo says where they go.
     _seed_prs(team.id, pr_count=2, repository="acme/charts")
     context = _routing_context(
-        registry_by_repo={"acme/charts": {}, REPO: {AUDIENCE: TeamEntry(slack="#team-apm")}},
+        registry_by_repo={"acme/charts": {}, REPO: {AUDIENCE: _opted_in("#team-apm")}},
         channels_by_name={"team-apm": _channel("C9")},
     )
     with (
@@ -418,21 +422,40 @@ def test_a_repo_with_no_registry_inherits_one(team) -> None:
     [
         (
             {"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(notifications=False)}}},
-            ("stamphog_digest_opted_out", "info"),
+            ("stamphog_digest_not_requested", "info"),
         ),
-        # A team that silences this digest alone keeps its channel for every other bot.
         (
             {"registry_by_repo": {REPO: {AUDIENCE: TeamEntry(slack="#team-apm", notifications={"stamphog": False})}}},
-            ("stamphog_digest_opted_out", "info"),
+            ("stamphog_digest_not_requested", "info"),
+        ),
+        # The digest is opt-in, so a same-named channel, the team's own channel, and the channel
+        # every bot shares do not count as a request for it.
+        ({"registry_by_repo": {REPO: {}}}, ("stamphog_digest_not_requested", "info")),
+        (
+            {
+                "registry_by_repo": {REPO: {AUDIENCE: TeamEntry(slack="#team-apm", notifications="#bots-devex")}},
+                "channels_by_name": {
+                    AUDIENCE: _channel("C1"),
+                    "team-apm": _channel("C2"),
+                    "bots-devex": _channel("C3"),
+                },
+            },
+            ("stamphog_digest_not_requested", "info"),
         ),
         ({"channels_by_name": {}}, ("stamphog_digest_no_destination", "warning")),
     ],
-    ids=["silenced_everywhere", "silenced_for_this_digest_only", "no_channel_of_that_name"],
+    ids=[
+        "silenced_everywhere",
+        "silenced_for_this_digest_only",
+        "no_entry_is_not_a_request",
+        "team_channels_are_not_a_request",
+        "opted_in_channel_missing",
+    ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, logged: tuple[str, str]) -> None:
     # Claiming marks a PR as handled forever, so a merge that routes nowhere must not be claimed.
-    # A team that silences its digest today and declares a channel next week has to receive the
+    # A team that has no digest today and opts in next week has to receive the
     # merges in between, and a channel created after the declaration has to pick up the backlog.
     _seed_prs(team.id, pr_count=2)
 
@@ -447,7 +470,7 @@ def test_unroutable_merges_stay_unclaimed(team, context_kwargs: dict, logged: tu
     routing_events = [
         (entry["event"], entry["log_level"])
         for entry in logs
-        if entry["event"] in {"stamphog_digest_opted_out", "stamphog_digest_no_destination"}
+        if entry["event"] in {"stamphog_digest_not_requested", "stamphog_digest_no_destination"}
     ]
     assert routing_events == [logged]
     with team_scope(team.id):
@@ -1236,7 +1259,7 @@ def _slack_destination(team: Any) -> Destination:
         slack_integration_id=integration.id,
         channel_id="C1",
         channel_name="team-devex",
-        source=ChannelResolutionSource.SLACK_NAME_MATCH,
+        source=ChannelResolutionSource.OWNERS_CONTACT,
     )
 
 

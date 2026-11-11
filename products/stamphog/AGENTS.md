@@ -258,11 +258,12 @@ A field added to the engine context belongs in the fingerprint, or a stale verdi
   team's run (`RoutingUnavailable`) rather than falling through to derived channel names: the
   unreadable repo could be the one every other repo inherits from. A repo that is permanently
   broken gets switched off, which drops it from the candidate list.
-- A name match binds an audience to a Slack channel nobody chose for it, so the shared-channel
-  guard stays on for it and for registry entries alike — that is the only path where a digest
-  leaves the workspace. Only the repo's own `digest:` channel skips the guard, because the
-  `owners.yaml` registry can name a channel for a team the declaring repo does not own.
-- The app is not a member of a channel it only matched by name, so `post_digest` joins on
+- A team digest is opt-in: it posts only where an `owners.yaml` entry names a channel for the
+  `stamphog` producer. Never route to a same-named channel, the team's `slack` channel, or a shared
+  `notifications` channel — nobody asked for the digest there. The shared-channel guard stays on
+  for registry entries, because the registry can name a channel for a team the declaring repo does
+  not own. Only the repo's own `digest:` channel skips the guard.
+- The app is often not a member of the opted-in channel, so `post_digest` joins on
   `not_in_channel` and retries the post once. The join is attempted, never gated on the scope:
   `conversations.join` needs `channels:join`, and whether an install granted it is invisible to the
   person who set the digest up, so asking Slack is the only way to find out. A refused join fails
