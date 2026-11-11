@@ -119,37 +119,7 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     _, missing = check_person_run_preconditions()
     if missing:
         raise ValueError(f"Missing operator attestations: {', '.join(missing)}")
-    if row is None:
-        old_runs = list(
-            CohortBackfillRun.objects.for_team(team_id)
-            .filter(status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
-            .values_list("id", flat=True)
-        )
-        if old_runs:
-            raise ValueError(
-                "Active backfill runs from before the grant, which can stamp the cohorts after enable clears them: "
-                f"{', '.join(str(run_id) for run_id in old_runs)}. Cancel them with manage_cohort_backfill_runs "
-                "terminalize --run-id, then run enable again."
-            )
-        # Written by the legacy calculation workflow, or by runs from a time the env list named the team.
-        # Nothing has maintained that membership since, and `serving` routes flags to it. Deleted cohorts
-        # too, because an undelete keeps the stamps. Before the grant, because from `processing` on the
-        # team's own runs stamp its cohorts.
-        cleared_stamps = Cohort.objects.filter(
-            Q(last_backfill_events_at__isnull=False)
-            | Q(last_backfill_person_properties_at__isnull=False)
-            | Q(last_realtime_cohort_calculation_at__isnull=False),
-            team_id=team_id,
-        ).update(
-            last_backfill_events_at=None,
-            last_backfill_person_properties_at=None,
-            last_realtime_cohort_calculation_at=None,
-        )
-        # The update fires no save signal, and the resave rebuilds the flags cache only for the cohorts it
-        # changes. Queued even when nothing was cleared, so a rerun after a failed dispatch queues it again.
-        transaction.on_commit(lambda: refresh_readiness_caches(team_id))
-    else:
-        cleared_stamps = 0
+    cleared_stamps = _clear_unmaintained_stamps(team_id) if row is None else 0
 
     team = Team.objects.get(id=team_id)
     with termination_unwinds() as coalesce_rebuilds:
@@ -201,6 +171,38 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
             [team_id], level=RealtimeCohortLevel.SERVING, purpose=purpose, save_triggers_backfill=True
         )
     return enablement
+
+
+def _clear_unmaintained_stamps(team_id: int) -> int:
+    old_runs = list(
+        CohortBackfillRun.objects.for_team(team_id)
+        .filter(status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
+        .values_list("id", flat=True)
+    )
+    if old_runs:
+        raise ValueError(
+            "Active backfill runs from before the grant, which can stamp the cohorts after enable clears them: "
+            f"{', '.join(str(run_id) for run_id in old_runs)}. Cancel them with manage_cohort_backfill_runs "
+            "terminalize --run-id, then run enable again."
+        )
+    # These stamps come from the legacy calculation workflow, or from runs that ran while the env list
+    # named the team. Nothing has maintained that membership since, and `serving` routes flags to it.
+    # The clear includes deleted cohorts, because an undelete keeps the stamps. It runs before the
+    # grant, because from `processing` on the team's own runs stamp its cohorts.
+    cleared = Cohort.objects.filter(
+        Q(last_backfill_events_at__isnull=False)
+        | Q(last_backfill_person_properties_at__isnull=False)
+        | Q(last_realtime_cohort_calculation_at__isnull=False),
+        team_id=team_id,
+    ).update(
+        last_backfill_events_at=None,
+        last_backfill_person_properties_at=None,
+        last_realtime_cohort_calculation_at=None,
+    )
+    # The update fires no save signal, and the resave rebuilds the flags cache only for the cohorts it
+    # changes. Queued even when nothing was cleared, so a rerun after a failed dispatch queues it again.
+    transaction.on_commit(lambda: refresh_readiness_caches(team_id))
+    return cleared
 
 
 def _realtime_cohorts(team_id: int) -> list[Cohort]:

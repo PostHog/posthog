@@ -124,9 +124,7 @@ class TestEnableRealtimeCohorts(BaseTest):
         # The API accepts a behavioral leaf with no time window, and the catalog drops it.
         windowless = self._cohort({key: value for key, value in PAGEVIEW_LEAF.items() if not key.startswith("time_")})
         deleted = self._cohort(PAGEVIEW_LEAF)
-        Cohort.objects.filter(id=mixed.id).update(
-            last_backfill_events_at=STAMPED_AT, last_backfill_person_properties_at=STAMPED_AT
-        )
+        Cohort.objects.filter(id=mixed.id).update(last_backfill_person_properties_at=STAMPED_AT)
         Cohort.objects.filter(id=person_only.id).update(last_realtime_cohort_calculation_at=STAMPED_AT)
         Cohort.objects.filter(id=deleted.id).update(deleted=True, last_backfill_events_at=STAMPED_AT)
         self._old_team_run(CohortBackfillRunStatus.COMPLETED)
@@ -187,8 +185,14 @@ class TestEnableRealtimeCohorts(BaseTest):
         cohort = self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
         self.peak_day_events = 2_000
 
-        first = self._enable()
+        with (
+            mock.patch("products.cohorts.backend.backfill.finalize.current_app") as celery,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            first = self._enable()
 
+        assert first.cleared_stamps == 0
+        celery.send_task.assert_called_once_with(FLAGS_CACHE_TASK, args=(self.team.id,), queue="feature_flags")
         assert isinstance(first.behavioral, RunRefused)
         assert "2000 events on its busiest day (2026-11-01), above the limit of 1000" in first.behavioral.reason
         [person_run] = self._team_runs(CohortBackfillKind.PERSON_PROPERTY)
@@ -197,10 +201,11 @@ class TestEnableRealtimeCohorts(BaseTest):
         assert self._level() == RealtimeCohortLevel.PROCESSING
 
         # The operator accepts the scan volume through `create_cohort_backfill_run
-        # --max-scan-events-per-day 0`. That run finishes and stamps the cohort, and the person run fails.
+        # --max-scan-events-per-day 0`. The person run fails while that run is still reconciling. A stamp
+        # written since the grant must survive the rerun.
         behavioral_run = create_team_backfill_run(self.team.id, CohortBackfillTrigger.TEAM_ENABLEMENT)
         runs = CohortBackfillRun.objects.for_team(self.team.id)
-        runs.filter(id=behavioral_run.id).update(status=CohortBackfillRunStatus.COMPLETED)
+        runs.filter(id=behavioral_run.id).update(status=CohortBackfillRunStatus.RECONCILING)
         runs.filter(id=person_run.id).update(status=CohortBackfillRunStatus.FAILED)
         Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=STAMPED_AT)
         second = self._enable()
