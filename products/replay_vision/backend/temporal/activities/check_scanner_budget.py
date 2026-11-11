@@ -179,7 +179,7 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     # Resolve the period once so the cap decisions and the notification stamp cannot straddle a rollover.
     cap = org_credit_cap_for(scanner.team.organization, scanner.team.organization_id)
     # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
-    if scanner.has_spend_ceiling and unrunnable_reason(scanner):
+    if (scanner.has_spend_ceiling or cap.credit_limit is not None) and unrunnable_reason(scanner):
         return CheckScannerBudgetOutput(capped=False)
     # One read of the org's spend serves both a free-only scanner's budget and the org cap.
     org_state: QuotaState | None = None
