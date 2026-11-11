@@ -15,7 +15,7 @@ from products.workflows.backend.services.hog_flow_reads import get_workflow_ref
 
 if TYPE_CHECKING:
     from posthog.api.file_system.deletion import DeletionContext, RestoreContext
-    from posthog.models import Team
+    from posthog.models import Team, User
 
 
 class LinkedTemplate(Protocol):
@@ -30,13 +30,13 @@ class LinkedTemplate(Protocol):
 _access_controls_by_request: "WeakKeyDictionary[Any, dict[tuple[Any, int], UserAccessControl]]" = WeakKeyDictionary()
 
 
-def _access_control_for(context: "DeletionContext | RestoreContext", template: LinkedTemplate) -> UserAccessControl:
-    if context.request is None:
-        return UserAccessControl(user=context.user, team=template.team)
-    access_controls = _access_controls_by_request.setdefault(context.request, {})
-    key = (context.user.pk, template.team_id)
+def _access_control_for(request: Any | None, user: "User", template: LinkedTemplate) -> UserAccessControl:
+    if request is None:
+        return UserAccessControl(user=user, team=template.team)
+    access_controls = _access_controls_by_request.setdefault(request, {})
+    key = (user.pk, template.team_id)
     if key not in access_controls:
-        access_controls[key] = UserAccessControl(user=context.user, team=template.team)
+        access_controls[key] = UserAccessControl(user=user, team=template.team)
     return access_controls[key]
 
 
@@ -44,13 +44,14 @@ def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", 
     if template.transactional_hog_flow_id is None:
         return
     denied = "You need editor access to this template's transactional email workflow."
-    if context.user is None:
+    user = context.user
+    if user is None:
         raise PermissionDenied(denied)
     try:
         get_workflow_ref(
             team_id=template.team_id,
             workflow_id=str(template.transactional_hog_flow_id),
-            user_access_control=_access_control_for(context, template),
+            user_access_control=_access_control_for(context.request, user, template),
             required_level="editor",
         )
     except WorkflowAccessDenied:
