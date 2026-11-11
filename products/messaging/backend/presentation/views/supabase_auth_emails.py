@@ -1,5 +1,5 @@
 import time
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.urls import reverse
@@ -19,7 +19,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_team_action, report_user_action
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.permissions import get_authenticator_client, posthog_feature_flag_enabled
 
 from products.messaging.backend.facade.contracts import TransactionalEmailError
@@ -146,7 +146,7 @@ class SupabaseAuthEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def _require_flag(self) -> None:
         if not supabase_auth_emails_enabled(
             self.team,
-            str(self.request.user.distinct_id),
+            str(cast(User, self.request.user).distinct_id),
             get_authenticator_client(getattr(self.request, "successful_authenticator", None)),
         ):
             raise NotFound()
