@@ -539,6 +539,11 @@ export type projectTreeLogicType = MakeLogicType<
     projectTreeLogicMeta
 >
 
+const withoutItems = <T extends { results: FileSystemEntry[] }>(state: T, items: FileSystemEntry[]): T => {
+    const ids = new Set(items.map((item) => item.id))
+    return { ...state, results: state.results.filter((result) => !ids.has(result.id)) }
+}
+
 const isProjectTreeActive = (
     props: ProjectTreeLogicProps,
     values: Pick<projectTreeLogicValues, 'activePanelIdentifier'>
@@ -762,13 +767,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
-                dropStaleItems: (state, { items }) => {
-                    if (state.searchTerm && state.results.length > 0) {
-                        const ids = new Set(items.map((item) => item.id))
-                        return { ...state, results: state.results.filter((result) => !ids.has(result.id)) }
-                    }
-                    return state
-                },
+                dropStaleItems: (state, { items }) =>
+                    state.searchTerm && state.results.length > 0 ? withoutItems(state, items) : state,
                 deleteTypeAndRef: (state, { type, ref }) => {
                     return {
                         ...state,
@@ -815,13 +815,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     }
                     return state
                 },
-                dropStaleItems: (state, { items }) => {
-                    if (state.results.length > 0) {
-                        const ids = new Set(items.map((item) => item.id))
-                        return { ...state, results: state.results.filter((result) => !ids.has(result.id)) }
-                    }
-                    return state
-                },
+                dropStaleItems: (state, { items }) => (state.results.length > 0 ? withoutItems(state, items) : state),
                 deleteTypeAndRef: (state, { type, ref }) => {
                     return {
                         ...state,
