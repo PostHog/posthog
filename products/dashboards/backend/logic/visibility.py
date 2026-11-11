@@ -1,12 +1,18 @@
+from collections.abc import Collection
+
 from django.db.models import Q
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
-def hidden_dashboard_ids(*, team_id: int, user_access_control: UserAccessControl, include_deleted: bool) -> set[int]:
+def hidden_dashboard_ids(
+    *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl, include_deleted: bool
+) -> set[int]:
+    if not dashboard_ids:
+        return set()
     manager = Dashboard.objects_including_soft_deleted if include_deleted else Dashboard.objects
-    dashboards = manager.filter(team_id=team_id)
+    dashboards = manager.filter(team_id=team_id, id__in=dashboard_ids)
     has_resource_access = user_access_control.has_resource_access("dashboard")
     if has_resource_access:
         dashboards = dashboards.filter(

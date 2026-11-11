@@ -79,9 +79,9 @@ def delivered_queries(team_id: int, instance: Subscription | None, attrs: dict[s
             selected_ids = list(instance.dashboard_export_insights.values_list("id", flat=True)) if instance else []
         if selected_ids:
             placements = dashboards_api.insight_placements(
-                team_id=team_id, insight_ids=selected_ids, include_deleted=True
+                team_id=team_id, dashboard_ids=[dashboard_id], insight_ids=selected_ids, include_deleted=True
             )
-            insight_ids = [placement.insight_id for placement in placements if placement.dashboard_id == dashboard_id]
+            insight_ids = [placement.insight_id for placement in placements]
         else:
             insight_ids = dashboards_api.live_tile_insight_ids(dashboard_id)
         queries = Insight.objects.filter(team_id=team_id, id__in=insight_ids).values_list("query", flat=True)

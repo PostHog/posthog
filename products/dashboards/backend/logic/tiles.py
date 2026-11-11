@@ -49,20 +49,21 @@ def live_tile_placements(
     ]
 
 
-def insight_placements(*, team_id: int, insight_ids: Collection[int], include_deleted: bool) -> list[InsightPlacement]:
-    if not insight_ids:
+def insight_placements(
+    *, team_id: int, dashboard_ids: Collection[int], insight_ids: Collection[int] | None, include_deleted: bool
+) -> list[InsightPlacement]:
+    if not dashboard_ids or (insight_ids is not None and not insight_ids):
         return []
     if include_deleted:
-        dashboards = Dashboard.objects_including_soft_deleted.filter(team_id=team_id)
+        dashboards = Dashboard.objects_including_soft_deleted.filter(team_id=team_id, id__in=dashboard_ids)
         tiles = DashboardTile.objects_including_soft_deleted.all()
     else:
-        dashboards = Dashboard.objects.filter(team_id=team_id)
+        dashboards = Dashboard.objects.filter(team_id=team_id, id__in=dashboard_ids)
         tiles = DashboardTile.objects.all()
-    rows = (
-        tiles.filter(dashboard__in=dashboards, insight_id__in=insight_ids)
-        .order_by("id")
-        .values_list("insight_id", "dashboard_id")
-    )
+    tiles = tiles.filter(dashboard__in=dashboards, insight_id__isnull=False)
+    if insight_ids is not None:
+        tiles = tiles.filter(insight_id__in=insight_ids)
+    rows = tiles.order_by("id").values_list("insight_id", "dashboard_id")
     return [InsightPlacement(insight_id=insight_id, dashboard_id=dashboard_id) for insight_id, dashboard_id in rows]
 
 

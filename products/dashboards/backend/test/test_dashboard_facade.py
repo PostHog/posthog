@@ -231,12 +231,24 @@ class TestDashboardReadsUnderAccessControl(APIBaseTest):
                 team=self.team, resource="dashboard", organization_member=member, access_level="none"
             )
         access = UserAccessControl(user=self.user, team=self.team)
+        other_project = Team.objects.create(organization=self.organization)
+        elsewhere = create_dashboard(team_id=other_project.id)
 
         hidden = api.hidden_dashboard_ids(
-            team_id=self.team.id, user_access_control=access, include_deleted=include_deleted
+            team_id=self.team.id,
+            dashboard_ids=[*dashboards.values(), elsewhere],
+            user_access_control=access,
+            include_deleted=include_deleted,
+        )
+        bounded = api.hidden_dashboard_ids(
+            team_id=self.team.id,
+            dashboard_ids=[dashboards["visible"], dashboards["own"]],
+            user_access_control=access,
+            include_deleted=include_deleted,
         )
 
         assert hidden == {dashboards[name] for name in expected}
+        assert bounded == hidden & {dashboards["visible"], dashboards["own"]}
         rows = Dashboard.objects_including_soft_deleted.filter(id__in=dashboards.values())
         assert hidden == {
             row.id
@@ -521,10 +533,17 @@ class TestTilePlacements(APIBaseTest):
         deleted_dashboard = create_dashboard(team_id=self.team.id, deleted=True)
         create_insight_tile(dashboard_id=deleted_dashboard, insight_id=self.insight.id)
         other_project = Team.objects.create(organization=self.organization)
-        create_insight_tile(dashboard_id=create_dashboard(team_id=other_project.id), insight_id=self.insight.id)
+        elsewhere = create_dashboard(team_id=other_project.id)
+        create_insight_tile(dashboard_id=elsewhere, insight_id=self.insight.id)
+        bound = [self.opened, self.stale, deleted_dashboard, elsewhere]
         asked = [self.insight.id, self.removed.id]
 
-        placements = api.insight_placements(team_id=self.team.id, insight_ids=asked, include_deleted=include_deleted)
+        placements = api.insight_placements(
+            team_id=self.team.id, dashboard_ids=bound, insight_ids=asked, include_deleted=include_deleted
+        )
+        on_opened = api.insight_placements(
+            team_id=self.team.id, dashboard_ids=[self.opened], include_deleted=include_deleted
+        )
 
         live = [
             InsightPlacement(insight_id=self.insight.id, dashboard_id=self.opened),
@@ -535,10 +554,12 @@ class TestTilePlacements(APIBaseTest):
             InsightPlacement(insight_id=self.insight.id, dashboard_id=deleted_dashboard),
         ]
         assert placements == (live + deleted if include_deleted else live)
+        # The text tile on the opened dashboard places no insight, so it is left out.
+        assert on_opened == [p for p in placements if p.dashboard_id == self.opened]
         dashboard_manager = Dashboard.objects_including_soft_deleted if include_deleted else Dashboard.objects
         tile_manager = DashboardTile.objects_including_soft_deleted if include_deleted else DashboardTile.objects
         replaced = tile_manager.filter(
-            dashboard__in=dashboard_manager.filter(team_id=self.team.id), insight_id__in=asked
+            dashboard__in=dashboard_manager.filter(team_id=self.team.id, id__in=bound), insight_id__in=asked
         ).values_list("insight_id", "dashboard_id")
         assert {(p.insight_id, p.dashboard_id) for p in placements} == set(replaced)
 
