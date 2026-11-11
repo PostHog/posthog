@@ -400,10 +400,23 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **"Open full replay" appears once**, in the top-right pill. More holds "Share link at m:ss" (the native share sheet
   with the web URL at the linked `t`, else the key moment, else the start) and "Copy session ID". Open full replay
   opens at the same moment: a `t` from a report or link is what the person came to see.
+  With `mobile-replay-video` on, the pill button is Watch replay, and More starts with Open in PostHog for the web player.
+- **Watch replay plays a server-rendered MP4 in `expo-video`, behind `mobile-replay-video`.**
+  The video is the web's Export to MP4 render, so the app bundles no rrweb renderer, WebView page or build step.
+  It adds one Expo-owned native module, and the player is the platform's own, with fullscreen and Picture in Picture.
+  The costs: the first watch of a session waits for the render, usually a few minutes.
+  Each render counts against the team's monthly video export cap.
+  The file expires after 30 days, and the next watch renders it again.
+  Recordings longer than 3 hours do not render.
+  The render keeps going on the server when the player closes, so the next open picks it up.
+  Playback starts at the same moment as the share link, mapped onto the video through the export's inactivity periods, because the render skips idle time.
+  The error state offers Open in PostHog, and leads with it when the export cap or the length rules out a render.
+  With the flag off, the pill button opens the web player as before.
+  Events: `mobile_replay_video_requested`, `mobile_replay_video_ready` (wait and reuse), `mobile_replay_video_failed` (the error kind, `playback` for a player error) and `mobile_replay_video_closed` (the status at close).
 - **The Chat button matches the report's.** A round ink button with the compose glyph, bottom right, the one agent
   verb on the screen. It opens the chat with `RECORDING_OBJECT_TYPE` and the person label plus the date.
-- **No "Play from" in the frame sheet.** A play button would be a second way to the web player, and the phone has no
-  clip player yet. The sheet shows the frame, the chapter, Previous and Next.
+- **No "Play from" in the frame sheet.** A play button would be a second way to the replay, next to the one in the
+  chrome. The sheet shows the frame, the chapter, Previous and Next.
 - **Opening a session does not mark it viewed.** The web PATCHes `viewed`, which needs `session_recording:write`.
 - **"See the moment" replaces "Watch a session"** on the report's replay row, which now opens the session screen at the
   signal's `seek_seconds`. The demo keeps opening its `example.com` URL, because demo sessions exist in no project.

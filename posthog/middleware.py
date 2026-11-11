@@ -8,7 +8,7 @@ from collections.abc import Callable
 from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from functools import partial
+from functools import lru_cache, partial
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
 
@@ -78,7 +78,7 @@ from products.authorization.backend.facade.enums import (
     ResourceType,
 )
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -472,12 +472,7 @@ class AutoProjectMiddleware:
         path_parts = request.path.strip("/").split("/")
         # Sync the paths with urls.ts!
         if len(path_parts) >= 2:
-            if path_parts[0] == "dashboard":
-                dashboard_id = path_parts[1]
-                if dashboard_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Dashboard.objects.filter(deleted=False, id=dashboard_id)
-            elif path_parts[0] == "insights":
+            if path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
                 return Insight.objects.filter(deleted=False, short_id=insight_short_id)
             elif path_parts[0] == "notebooks":
@@ -502,6 +497,8 @@ class AutoProjectMiddleware:
         if len(path_parts) >= 2 and path_parts[0] == "action" and path_parts[1].isnumeric():
             # The permission check in switch_team_if_allowed guards the switch, so the lookup is unscoped.
             return find_action_team_id(action_id=int(path_parts[1]), include_deleted=False)
+        if len(path_parts) >= 2 and path_parts[0] == "dashboard" and path_parts[1].isnumeric():
+            return find_dashboard_team_id(dashboard_id=int(path_parts[1]))
         return None
 
     def switch_to_team_id_if_needed_and_allowed(self, request: HttpRequest, target_team_id: int) -> None:
@@ -553,13 +550,83 @@ class AutoProjectMiddleware:
         return True
 
 
+UNMATCHED_ROUTE = "unmatched"
+_PATH_CONVERTER = re.compile(r"<(?:\w+:)?(\w+)>")
+_REGEX_LEFTOVER = re.compile(r"[()\[\]*+|]")
+
+
+def _closing_paren(pattern: str, start: int) -> int:
+    depth = 0
+    in_class = False
+    i = start
+    while i < len(pattern):
+        char = pattern[i]
+        if char == "\\":
+            i += 2
+            continue
+        if in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return len(pattern)
+
+
+@lru_cache(maxsize=8192)
+def route_template(route: str) -> str:
+    """Turn a resolver route into a readable, id-free template.
+
+    `^api/projects/(?P<parent_lookup_project_id>[^/.]+)/feature_flags/(?P<pk>[^/.]+)/?$`
+    becomes `api/projects/{project_id}/feature_flags/{pk}/`. The input comes from the URLconf,
+    never the request path, so the set of outputs is bounded by the number of URL patterns.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(route):
+        char = route[i]
+        if route.startswith("(?P<", i):
+            name = route[i + 4 : route.index(">", i)]
+            out.append("{" + name.removeprefix("parent_lookup_") + "}")
+            i = _closing_paren(route, i) + 1
+        elif route.startswith("(?:", i) and route[(end := _closing_paren(route, i)) + 1 : end + 2] == "?":
+            # Optional suffixes such as opt_slash_path's `(?:[?#].*)?` share the base route's label.
+            i = end + 2
+        elif char == "\\" and i + 1 < len(route):
+            out.append(route[i + 1])
+            i += 2
+        elif char in "^$" or (char == "?" and out and out[-1] == "/"):
+            i += 1
+        else:
+            out.append(char)
+            i += 1
+    template = _PATH_CONVERTER.sub(r"{\1}", "".join(out))
+    # DRF registers a `.json`-style format-suffix twin of every route; fold it into the base route.
+    template = template.replace(".{format}", "").replace("//", "/")
+    if not template or _REGEX_LEFTOVER.search(template):
+        return UNMATCHED_ROUTE
+    return template
+
+
+def request_route(request: HttpRequest) -> str:
+    match = getattr(request, "resolver_match", None)
+    if match is None or not match.route:
+        return UNMATCHED_ROUTE
+    return route_template(match.route)
+
+
 API_REQUESTS_LATENCY_SECONDS = Histogram(
     "posthog_api_requests_latency_seconds",
     "Latency of api/ requests, labelled to expose agent vs browser traffic.",
     # `status_class` is "2xx" / "3xx" / "4xx" / "5xx" on a returned response,
     # or "error" when the view raised before producing one — keeps error-path
     # latency from polluting success buckets while still recording it.
-    labelnames=["view", "method", "source", "access_method", "status_class"],
+    labelnames=["view", "route", "method", "source", "access_method", "status_class"],
     # Same buckets as django_prometheus' default so we line up with
     # django_http_requests_latency_seconds_by_view_method.
     buckets=(
@@ -640,6 +707,7 @@ class CHQueries:
                     # otherwise. (Django builds view_name from url_name, so url_name as a
                     # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
                     view=route.view_name or route.func.__name__,
+                    route=request_route(request),
                     method=request.method or "",
                     # Read after get_response so view code that calls tag_queries(source=...)
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.

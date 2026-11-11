@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
+import { canResolveReport } from '@posthog/agent-contracts/signal-report-state'
 import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock, IconPerson } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -13,7 +14,7 @@ import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { canMonitorReport, canResolveReport } from '../../utils/reportActions'
+import { canMonitorReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
@@ -195,6 +196,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       onClick: () =>
                           openTakeOverReportDialog({
                               report,
+                              surface: 'detail_pane',
                               holder: teammateClaimHolder,
                               onConfirm: () => setReportClaimed(true, true, report.assignee),
                           }),
@@ -209,7 +211,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       icon: <IconClock />,
                       loading: reportStateSaving,
                       tooltip: 'PostHog watches to make sure the fix works',
-                      onClick: () => changeReportState('monitoring'),
+                      onClick: () => {
+                          captureInboxReportAction({ report, actionType: 'monitor', surface: 'detail_pane' })
+                          changeReportState('monitoring')
+                      },
                   },
               ]
             : []),
@@ -220,7 +225,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       label: 'Reopen',
                       icon: <IconUndo />,
                       loading: reportStateSaving,
-                      onClick: () => changeReportState('potential'),
+                      onClick: () => {
+                          captureInboxReportAction({ report, actionType: 'reopen', surface: 'detail_pane' })
+                          changeReportState('potential')
+                      },
                   },
               ]
             : []),

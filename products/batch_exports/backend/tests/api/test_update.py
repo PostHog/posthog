@@ -1228,3 +1228,28 @@ def test_updating_legacy_postgres_batch_export_keeps_inline_credentials(
     assert response.status_code == status.HTTP_200_OK, response.json()
     updated = get_batch_export_ok(client, team.pk, batch_export.id)
     assert updated["destination"]["config"]["table_name"] == "my_new_events"
+
+
+def test_updating_redshift_batch_export_without_integration_is_rejected(
+    client: HttpClient, temporal, organization, team, user
+):
+    destination = BatchExportDestination.objects.create(
+        type=BatchExportDestination.Destination.REDSHIFT,
+        config={"database": "my-db", "host": "8.8.8.8", "schema": "public", "table_name": "my_events"},
+    )
+    batch_export = BatchExport.objects.create(
+        name="export-without-integration", team=team, destination=destination, interval="hour"
+    )
+
+    client.force_login(user)
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export.id,
+        {"destination": {"type": "Redshift", "config": {"table_name": "my_new_events"}}},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Integration is required for Redshift batch exports"
+    destination.refresh_from_db()
+    assert destination.config["table_name"] == "my_events"

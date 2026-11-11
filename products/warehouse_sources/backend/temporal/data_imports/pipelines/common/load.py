@@ -1,4 +1,5 @@
 import asyncio
+import functools
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
 from django.db.models import F
@@ -145,7 +146,7 @@ async def notify_revenue_analytics_that_sync_has_completed(
                         posthoganalytics.capture(
                             distinct_id=user.distinct_id,
                             event="revenue_analytics_ready",
-                            properties={"source_type": source.source_type},
+                            properties={"source_type": source.source_type, "$update_person_last_seen_at": False},
                         )
 
                 # Mark the team as notified, avoiding spamming emails
@@ -512,6 +513,7 @@ async def _run_cdc_post_load(
     is_initial_load: bool,
     logger: FilteringBoundLogger,
 ) -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.incremental_history import registered_history_columns
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
         register_cdc_companion_table,
     )
@@ -531,6 +533,17 @@ async def _run_cdc_post_load(
                 set_as_schema_table=schema.cdc_table_mode == "cdc_only",
                 live_row_count=await delta_table_ref.get_live_row_count(),
                 live_size_mib=await delta_table_ref.get_live_size_mib(),
+                # An incremental history table keeps the past values of a column the user stopped syncing.
+                project_columns=(
+                    functools.partial(
+                        registered_history_columns,
+                        enabled_columns=schema.enabled_columns,
+                        primary_keys=schema.primary_key_columns,
+                        incremental_field=schema.incremental_field,
+                    )
+                    if schema.is_incremental and schema.keeps_history
+                    else None
+                ),
             )
         logger.debug("Finished registering CDC companion table")
         return

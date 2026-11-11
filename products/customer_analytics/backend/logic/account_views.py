@@ -1,5 +1,6 @@
 import re
 import json
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from products.notebooks.backend.facade.contracts import NotebookMarkdownContentI
 ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Properties": "Properties",
     "Notes": "Notes",
+    "Automations": "Automations",
     "Tasks": "Tasks",
     "Users": "Users",
     "Relationships": "Relationships",
@@ -130,6 +132,11 @@ def validate_properties_widget_config(config: dict[str, Any]) -> list[str]:
     return []
 
 
+ACCOUNT_VIEW_CONFIG_VALIDATORS: dict[str, Callable[[dict[str, Any]], list[str]]] = {
+    "Properties": validate_properties_widget_config,
+}
+
+
 def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, Any], str]:
     try:
         components = notebook_content.parse_markdown_component_document(content)
@@ -185,8 +192,8 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
                 )
             elif len(json.dumps(config, separators=(",", ":")).encode()) > ACCOUNT_VIEW_CONFIG_MAX_BYTES:
                 errors.append(f"Component {index} config is too large.")
-            elif component.tag_name == "Properties":
-                errors.extend(f"Component {index}: {error}" for error in validate_properties_widget_config(config))
+            elif validate_config := ACCOUNT_VIEW_CONFIG_VALIDATORS.get(component.tag_name):
+                errors.extend(f"Component {index}: {error}" for error in validate_config(config))
 
     if errors:
         raise InvalidAccountViewContent(errors)

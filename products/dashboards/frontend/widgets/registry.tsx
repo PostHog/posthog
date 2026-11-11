@@ -3,6 +3,8 @@ import { type ComponentType, type LazyExoticComponent } from 'react'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
+import type { DashboardFilter } from '~/queries/schema/schema-general'
+
 import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
 import type { DashboardWidgetProductAccess } from '../types'
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
@@ -221,6 +223,9 @@ export type DashboardWidgetComponentProps = {
     result: unknown
     loading: boolean
     error?: string | null
+    /** The date range and interval the dashboard forces on its insight tiles. Widget queries ignore them,
+     * but a widget that opens charts of its own uses them so the charts line up with the dashboard. */
+    dashboardFilters?: Pick<DashboardFilter, 'date_from' | 'date_to' | 'interval'>
     onRefresh?: () => void
     /** Debounced run_widgets refresh after tile data changes (filters). */
     onRefreshData?: () => void
