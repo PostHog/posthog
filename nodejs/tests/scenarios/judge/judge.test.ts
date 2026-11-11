@@ -189,6 +189,83 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'at_least_once', ...expected })
     })
 
+    it.each<[string, () => Promise<unknown>, number | undefined, object]>([
+        ['delivered once', () => deliver(UNIT), undefined, { passed: true, observed: 0, unitIds: [] }],
+        [
+            'accepted only on a retry',
+            async () => {
+                answerNextSendWith(503, 'ServiceUnavailable')
+                await deliver(UNIT)
+                await deliver(UNIT)
+            },
+            undefined,
+            { passed: true, observed: 0 },
+        ],
+        [
+            'accepted twice',
+            async () => {
+                await deliver(UNIT)
+                await deliver(UNIT)
+            },
+            undefined,
+            { passed: false, observed: 1, violation: `${UNIT} email: accepted 2 times`, unitIds: [UNIT] },
+        ],
+        [
+            'accepted twice under a gate of one',
+            async () => {
+                await deliver(UNIT)
+                await deliver(UNIT)
+            },
+            1,
+            { passed: true, observed: 1, gate: 1 },
+        ],
+    ])('duplicate_sends for a unit %s', async (_story, act, gate, expected) => {
+        judge.record(offered())
+        await act()
+
+        const [result] = await judge.check(
+            [{ name: 'duplicate_sends', params: {} }],
+            gate === undefined ? {} : { duplicate_sends: gate }
+        )
+
+        expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
+    })
+
+    it.each<[string, JournalEntry['answer'], number | undefined, object]>([
+        ['accepted', { accepted: true }, undefined, { passed: true, observed: 0, unitIds: [] }],
+        [
+            'refused with a status',
+            { accepted: false, status: 422, outcome: 'recipient_suppressed' },
+            undefined,
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT}: the intake answered 422 recipient_suppressed`,
+                unitIds: [UNIT],
+            },
+        ],
+        [
+            'never reached',
+            { accepted: false, transportError: 'connect ECONNREFUSED' },
+            undefined,
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT}: the intake could not be reached: connect ECONNREFUSED`,
+            },
+        ],
+        ['refused under a gate of one', { accepted: false, status: 503 }, 1, { passed: true, observed: 1 }],
+    ])('refused_at_intake for a unit %s', async (_story, answer, gate, expected) => {
+        judge.record(offered(answer))
+
+        const [result] = await judge.check(
+            [{ name: 'refused_at_intake', params: {} }],
+            gate === undefined ? {} : { refused_at_intake: gate }
+        )
+
+        expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
+    })
+
     it('ignores what the edge recorded before the run opened', async () => {
         await deliver(UNIT)
         await judge.open(SEED)

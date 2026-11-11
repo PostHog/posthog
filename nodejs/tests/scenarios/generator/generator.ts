@@ -11,7 +11,7 @@ import { durationMs } from '../duration'
 import type { Judge } from '../judge/judge'
 import { OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
 
-export type SeedState = { teamIds: number[] }
+export type SeedState = { teamIds: number[]; flowIds: Record<string, Record<number, string>> }
 
 export type DriveSummary = { targetUnits: number; offeredUnits: number }
 
@@ -42,6 +42,7 @@ const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeou
 
 export async function seed({ card }: LoadedCard, postgres: PostgresRouter): Promise<SeedState> {
     const teamIds: number[] = []
+    const flowIds: SeedState['flowIds'] = {}
     for (let i = 0; i < card.setup.teams; i++) {
         const { team } = await createTestTeamFixture(postgres)
         const integration = await insertIntegration(postgres, team.id, {
@@ -49,11 +50,12 @@ export async function seed({ card }: LoadedCard, postgres: PostgresRouter): Prom
             config: { ...SENDER, verified: true },
         })
         for (const { name } of card.drive.traffic) {
-            await insertHogFlow(postgres, await trafficKind(name).flow(team.id, integration.id))
+            const flow = await insertHogFlow(postgres, await trafficKind(name).flow(team.id, integration.id))
+            flowIds[name] = { ...flowIds[name], [team.id]: flow.id }
         }
         teamIds.push(team.id)
     }
-    return { teamIds }
+    return { teamIds, flowIds }
 }
 
 export async function drive(
@@ -88,9 +90,13 @@ export async function drive(
             break
         }
         const teamId = chance.pickone(seeded.teamIds)
+        const flowId = seeded.flowIds[kind.name]?.[teamId]
+        if (flowId === undefined) {
+            throw new Error(`Team ${teamId} has no seeded ${kind.name} flow`)
+        }
         const unitId = `${context.runId}-${n + 1}`
         const offeredAt = Date.now()
-        const offer = kind.offer({ unitId, teamId }, context).then((answer) => {
+        const offer = kind.offer({ unitId, teamId, flowId }, context).then((answer) => {
             if (stop.aborted) {
                 return
             }

@@ -384,7 +384,7 @@ describe('runner through seed, drive and judge', () => {
                     ? undefined
                     : await startDeliveringRoles(
                           cdp,
-                          roleSpecs(env, edge.url, secretsOf(env), defaultStateDir(env), settings),
+                          roleSpecs(env, { url: edge.url }, secretsOf(env), defaultStateDir(env), settings),
                           delivering !== 'all'
                       )
         },
@@ -405,7 +405,7 @@ describe('runner through seed, drive and judge', () => {
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5 },
+                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: 'event_email' }] },
                 convergeWithin: '3s',
             })
         )
@@ -513,7 +513,13 @@ describe('runner through seed, drive and judge', () => {
             'passes when the roles deliver every unit and finish every job',
             'all',
             () => undefined,
-            { status: 'passed', statusReason: 'every invariant held' },
+            {
+                status: 'passed',
+                statusReason: 'every invariant held',
+                measurements: expect.arrayContaining([
+                    expect.objectContaining({ name: 'delivery_latency_ms', key: 'p50', unit: 'ms' }),
+                ]),
+            },
             true,
         ],
         [
@@ -532,7 +538,11 @@ describe('runner through seed, drive and judge', () => {
                 statusReason: expect.stringMatching(
                     /^not converged: 0 unfinished jobs, [1-9]\d* units without a delivery record; at_least_once failed: [\w-]+-\d+ email: the edge never received it$/
                 ),
-                invariants: [{ name: 'at_least_once', passed: false, observed: expect.any(Number) }],
+                invariants: [
+                    { name: 'at_least_once', passed: false, observed: expect.any(Number) },
+                    { name: 'duplicate_sends', passed: true },
+                    { name: 'refused_at_intake', passed: true },
+                ],
             },
             false,
         ],

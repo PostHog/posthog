@@ -24,6 +24,18 @@ function invariantProperties(result: RunResult): Record<string, Property> {
     ])
 }
 
+function measurementProperties(result: RunResult): Record<string, Property> {
+    return Object.fromEntries(
+        result.measurements.map(({ name, key, value }) => [
+            ['m', name, key]
+                .filter((part) => part !== undefined)
+                .join('_')
+                .replace(/-/g, '_'),
+            value,
+        ])
+    )
+}
+
 export function scorecardOf(
     result: RunResult,
     { card, profile }: LoadedCard,
@@ -64,6 +76,7 @@ export function scorecardOf(
         converged: result.convergence?.converged ?? null,
         unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
         ...invariantProperties(result),
+        ...measurementProperties(result),
         valve_timeline: result.timeline,
         evidence_dir: result.evidenceDir,
     }

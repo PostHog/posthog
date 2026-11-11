@@ -11,10 +11,13 @@ import { INVARIANTS, deliveryKey } from './invariants'
 
 export type JournalEntry = {
     unitId: string
-    kind: 'event'
+    kind: 'event' | 'transactional'
     teamId: number
     offeredAt: number
-    answer: { accepted: true } | { accepted: false; transportError: string }
+    answer:
+        | { accepted: true }
+        | { accepted: false; transportError: string }
+        | { accepted: false; status: number; outcome?: string }
     expect: { deliveries: string[] }
 }
 
@@ -30,7 +33,7 @@ export type InvariantResult = {
 }
 
 export interface Judge {
-    open(seed: SeedState): Promise<void>
+    open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
     check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>

@@ -3,11 +3,18 @@ import path from 'path'
 
 import { LoadedCard, load } from '../cards'
 import type { JournalEntry } from '../judge/judge'
-import { drive } from './generator'
+import { SeedState, drive } from './generator'
 import type { OfferContext } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
 const NEVER_ABORTED = new AbortController().signal
+const EVENT_EMAIL = { name: 'event_email', params: {} }
+const CDP_API = { url: 'http://127.0.0.1:1', jwt: { mint: () => 'unused' } }
+
+const seededFor = (teamIds: number[]): SeedState => ({
+    teamIds,
+    flowIds: { event_email: Object.fromEntries(teamIds.map((teamId) => [teamId, `flow-${teamId}`])) },
+})
 
 type Produce = OfferContext['producer']['produce']
 type Summary = Awaited<ReturnType<typeof drive>>
@@ -15,7 +22,7 @@ type Summary = Awaited<ReturnType<typeof drive>>
 function cardWith({ seed = 1, ratePerSecond, driveFor }: { seed?: number; ratePerSecond: number; driveFor: string }) {
     return {
         ...SMOKE,
-        card: { ...SMOKE.card, seed, drive: { ...SMOKE.card.drive, for: driveFor } },
+        card: { ...SMOKE.card, seed, drive: { ...SMOKE.card.drive, for: driveFor, traffic: [EVENT_EMAIL] } },
         profile: { ...SMOKE.profile, traffic: { event_email: { ratePerSecond } } },
     } satisfies LoadedCard
 }
@@ -26,9 +33,10 @@ function startDrive(
     { teamIds = [7], signal = NEVER_ABORTED }: { teamIds?: number[]; signal?: AbortSignal } = {}
 ): { driving: Promise<Summary>; journal: JournalEntry[] } {
     const journal: JournalEntry[] = []
-    const driving = drive(loaded, { teamIds }, { record: (entry) => journal.push(entry) }, signal, {
+    const driving = drive(loaded, seededFor(teamIds), { record: (entry) => journal.push(entry) }, signal, {
         producer: { produce },
         eventsTopic: 'scenario_events_test',
+        cdpApi: CDP_API,
         runId: 'run-a',
     })
     return { driving, journal }
@@ -134,13 +142,13 @@ describe('drive', () => {
             const smoke = load(${JSON.stringify(path.join(__dirname, '..', 'cards', 'smoke.yaml'))})
             const card = {
                 ...smoke,
-                card: { ...smoke.card, drive: { ...smoke.card.drive, for: '${driveFor}' } },
+                card: { ...smoke.card, drive: { ...smoke.card.drive, for: '${driveFor}', traffic: [{ name: 'event_email', params: {} }] } },
                 profile: { ...smoke.profile, traffic: { event_email: { ratePerSecond: 50 } } },
             }
             const journal = { record: () => { throw new Error('journal full') } }
             const interrupt = new AbortController()
             const context = { producer: { produce: () => ${produce} }, eventsTopic: 'scenario_events_test', runId: 'run-a' }
-            drive(card, { teamIds: [7] }, journal, interrupt.signal, context).then(
+            drive(card, { teamIds: [7], flowIds: { event_email: { 7: 'flow-7' } } }, journal, interrupt.signal, context).then(
                 () => process.stdout.write('ended'),
                 (error) => process.stdout.write(error.message)
             )
