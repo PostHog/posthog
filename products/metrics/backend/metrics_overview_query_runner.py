@@ -108,7 +108,7 @@ class MetricsOverviewQueryRunner:
                 query_type="MetricsOverviewFreshnessQuery",
                 query=query,
                 team=self.team,
-                workload=Workload.LOGS,
+                workload=Workload.METRICS,
                 settings=_QUERY_SETTINGS,
             )
             _set_query_timing_attributes(span, response)
@@ -179,7 +179,7 @@ class MetricsOverviewQueryRunner:
                 query_type="MetricsOverviewNewestSampleQuery",
                 query=query,
                 team=self.team,
-                workload=Workload.LOGS,
+                workload=Workload.METRICS,
                 settings=_QUERY_SETTINGS,
                 modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
             )
@@ -206,7 +206,7 @@ class MetricsOverviewQueryRunner:
                 query_type="MetricsOverviewMetricNamesQuery",
                 query=query,
                 team=self.team,
-                workload=Workload.LOGS,
+                workload=Workload.METRICS,
                 settings=_QUERY_SETTINGS,
             )
             _set_query_timing_attributes(span, response)
@@ -243,7 +243,7 @@ class MetricsOverviewQueryRunner:
                 query_type="MetricsOverviewServicesQuery",
                 query=query,
                 team=self.team,
-                workload=Workload.LOGS,
+                workload=Workload.METRICS,
                 settings=_QUERY_SETTINGS,
                 modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
             )

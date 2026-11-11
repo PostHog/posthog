@@ -72,7 +72,6 @@ describe('transactionalEmailsLogic', () => {
                     ],
                 },
                 [CODE_EMAILS]: [codeEmail('k', 'password-changed', ['auth'])],
-                '/api/projects/:team_id/tags': ['auth', 'billing'],
             },
         })
         initKeaTests(

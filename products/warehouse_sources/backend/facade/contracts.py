@@ -25,6 +25,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationUsage
 
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
@@ -40,6 +41,8 @@ CREDENTIALS_REFERENCE_INPUT_KEY = "credentials_integration_id"
 WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
 # A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
 UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
+# The `IntegrationUsage.type` of a warehouse destination that writes through an integration row.
+WAREHOUSE_DESTINATION_USAGE_TYPE = "warehouse_destination"
 
 
 class SharedCredentialsError(Exception):
@@ -70,6 +73,14 @@ class SharedCredentialsEdit(StrEnum):
     REFUSE = "refuse"
     # The person confirmed the edit: write the shared row.
     CONFIRMED = "confirmed"
+
+
+class LegacyHistoryTableError(Exception):
+    """An incremental schema's history table uses the legacy `_cdc` naming.
+
+    Incremental history writes with deltalite's history upsert, which needs the month-partitioned layout of a
+    `_history` table. A legacy table is unpartitioned, so an incremental sync cannot write it.
+    """
 
 
 class UnsupportedSyncTypeError(ValueError):
@@ -649,3 +660,110 @@ class SourceReferencingIntegration:
     prefix: str | None
     # The inputs did not decode, so the source may point at the row. The search counts it as a user.
     unreadable: bool = False
+
+
+@frozen
+class StaffSchemaPartitioning:
+    enabled: bool | None
+    mode: str | None
+    format: str | None
+    size: int | None
+    count: int | None
+    # Pinned by staff. Applied on the next reset.
+    count_override: int | None
+    size_override: int | None
+    mode_override: str | None
+    keys_override: tuple[str, ...] | None
+    keys: tuple[str, ...] | None
+
+
+@frozen
+class StaffSchemaSummary:
+    """One schema as staff see it in PostHog Admin."""
+
+    id: UUID
+    name: str
+    team_id: int
+    team_name: str
+    source_id: UUID
+    source_type: str
+    is_cdc: bool
+    supports_scheduled_sync: bool
+    partitioning: StaffSchemaPartitioning
+    available_columns: tuple[str, ...] | None
+
+
+@frozen
+class StaffJobRow:
+    id: UUID
+    status: str
+    created_at: datetime
+    finished_at: datetime | None
+    rows_synced: int | None
+    workflow_id: str | None
+    workflow_run_id: str | None
+    latest_error: str | None
+
+
+@frozen
+class StaffJobsPage:
+    rows: tuple[StaffJobRow, ...]
+    number: int
+    num_pages: int
+    count: int
+
+
+@frozen
+class StaffSourceSummary:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    team_id: int
+    team_name: str
+
+
+@frozen
+class StaffSchemaRow:
+    id: UUID
+    name: str
+    deleted: bool
+    status: str | None
+    should_sync: bool
+    sync_type: str | None
+    sync_frequency_interval: timedelta | None
+    last_synced_at: datetime | None
+    table_id: UUID | None
+    table_name: str | None
+    table_row_count: int | None
+    latest_error: str | None
+
+
+@frozen
+class StaffSchemasPage:
+    rows: tuple[StaffSchemaRow, ...]
+    number: int
+    num_pages: int
+    count: int
+
+
+@frozen
+class RepartitionRequest:
+    """Partition settings staff chose. A value left empty keeps the schema's current one where that is allowed."""
+
+    partition_mode: str | None
+    partitioning_keys: tuple[str, ...]
+    partition_format: str | None
+    partition_count: int | None
+    partition_size: int | None
+
+
+@frozen
+class StaffActionResult:
+    ok: bool
+    message: str
+
+
+@dataclass(frozen=True)
+class DestinationReferencingIntegration:
+    id: UUID
+    name: str
