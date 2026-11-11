@@ -70,8 +70,9 @@ const DRAFT_PATTERN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"?|(\S*))$/
 // A token is complete when whitespace follows it, or when its quoted value is closed.
 const COMPLETE_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s))/g
 
+// A quote after an even run of backslashes is real: the serializer escapes each backslash it writes.
 const isInsideOpenQuote = (input: string, offset: number): boolean =>
-    (input.slice(0, offset).match(/(?<!\\)"/g)?.length ?? 0) % 2 === 1
+    (input.slice(0, offset).match(/(?<!\\)(?:\\\\)*"/g)?.length ?? 0) % 2 === 1
 
 /** Takes every complete, known `facet:value` token out of the input. The rest stays as typed. */
 function extractCompleteFilters(

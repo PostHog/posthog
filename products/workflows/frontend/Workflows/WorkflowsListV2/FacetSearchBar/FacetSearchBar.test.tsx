@@ -190,11 +190,20 @@ describe('FacetSearchBar', () => {
         expect(shown('text')).toEqual(text)
     })
 
-    it('turns a pasted query into pills', () => {
+    it.each([
+        ['a pasted query', 'status:draft -status:archived'],
+        [
+            'a pasted quoted value that ends in a backslash',
+            serializeFacetQuery([
+                { facet: 'sends', value: 'Path C:\\', negated: false },
+                { facet: 'status', value: 'active', negated: false },
+            ]),
+        ],
+    ])('turns %s into pills', (_, query) => {
         setup()
         clickInput()
-        changeInput('status:draft -status:archived ')
-        expect(shown('query')).toEqual('status:draft -status:archived')
+        changeInput(`${query} `)
+        expect(shown('query')).toEqual(query)
         expect(input()).toHaveValue('')
     })
 
