@@ -36,7 +36,7 @@ from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
 from posthog.integrations.backend.patching import changed_fields
-from posthog.integrations.contracts import IntegrationPatch, RepositoryCache
+from posthog.integrations.contracts import IntegrationPatch
 from posthog.redis import get_client as get_redis_client
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
@@ -239,6 +239,10 @@ class GitHubIntegrationError(Exception):
         self.status_code = status_code
 
 
+class ReauthorizationRequired(Exception):
+    """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
+
+
 def _jsonb_merge(column: str, patch: dict[str, Any]) -> Func:
     """Postgres ``column || patch``: a top-level key merge performed by the database.
 
@@ -309,13 +313,9 @@ class GitHubIntegrationBase:
         installation_id = self.github_installation_id
         if installation_id:
             return f"installation:{installation_id}"
-        return self._row_identity()
-
-    def _row_identity(self) -> str:
         # Integration and UserIntegration are separate tables with independent primary keys, so the
         # row id alone names two different rows.
-        table = "UserIntegration" if self.is_user_integration else "Integration"
-        return f"{table}:{self.integration.id}"
+        return f"{type(self.integration).__name__}:{self.integration.id}"
 
     # --- App-level JWT authentication ---
 
@@ -401,22 +401,18 @@ class GitHubIntegrationBase:
         being deleted via the ``exclude_*`` params so it is not counted against itself.
         """
         # Local imports: both model modules import this module at load time.
-        from posthog.integrations import IntegrationManager, IntegrationNotFound
+        from posthog.models.integration import Integration
         from posthog.models.user_integration import UserIntegration
 
-        team_rows = IntegrationManager.github.oauth.count_by_external_id(installation_id)
+        team_qs = Integration.objects.filter(kind="github", integration_id=installation_id)
         if exclude_team_integration_id is not None:
-            try:
-                IntegrationManager.github.oauth.get_by_external_id(installation_id, exclude_team_integration_id)
-                team_rows -= 1
-            except IntegrationNotFound:
-                pass
+            team_qs = team_qs.exclude(id=exclude_team_integration_id)
 
         user_qs = UserIntegration.objects.filter(kind="github", integration_id=installation_id)
         if exclude_user_integration_id is not None:
             user_qs = user_qs.exclude(id=exclude_user_integration_id)
 
-        return team_rows + user_qs.count()
+        return team_qs.count() + user_qs.count()
 
     @staticmethod
     def installation_reference_counts(
@@ -432,7 +428,7 @@ class GitHubIntegrationBase:
         deletes the personal rows sharing it.
         """
         # Local imports: both model modules import this module at load time.
-        from posthog.integrations import IntegrationManager
+        from posthog.models.integration import Integration
         from posthog.models.user_integration import UserIntegration
 
         ids = {installation_id for installation_id in installation_ids if installation_id}
@@ -440,10 +436,12 @@ class GitHubIntegrationBase:
         if not ids:
             return counts
 
-        counts.update(IntegrationManager.github.oauth.count_by_external_ids(ids))
+        models: list[type[Integration] | type[UserIntegration]] = [Integration]
         if include_personal:
+            models.append(UserIntegration)
+        for model in models:
             grouped = (
-                UserIntegration.objects.filter(kind="github", integration_id__in=ids)
+                model.objects.filter(kind="github", integration_id__in=ids)
                 .values("integration_id")
                 .annotate(count=Count("id"))
             )
@@ -807,7 +805,7 @@ class GitHubIntegrationBase:
         # against the App-wide quota. Claim the row for the duration of the call so only the first
         # of the burst goes out. A cache outage falls back to the cooldown alone rather than
         # blocking the heal.
-        claim_key = f"github_account_name_heal:{self._row_identity()}"
+        claim_key = f"github_account_name_heal:{type(self.integration).__name__}:{self.integration.pk}"
         if not safe_cache_add(claim_key, True, GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS):
             return False
         try:
@@ -2263,6 +2261,10 @@ class GitHubIntegrationBase:
     _TRANSIENT_GRAPHQL_ERROR_MESSAGES = ("something went wrong while executing your query",)
     # Total GraphQL attempts (initial + retries) when GitHub returns a transient body error.
     _GRAPHQL_TRANSIENT_ATTEMPTS = 3
+    # GitHub reports its GraphQL point limit as a 200 whose ``errors`` carry one of these types.
+    _GRAPHQL_RATE_LIMIT_ERROR_TYPES = frozenset({"RATE_LIMITED", "RATE_LIMIT"})
+    # The GraphQL point limit resets hourly, so a response without a reset header waits this long.
+    _GRAPHQL_RATE_LIMIT_DEFAULT_RETRY_SECONDS = 60
 
     @classmethod
     def _graphql_errors_are_transient(cls, errors: list) -> bool:
@@ -2285,6 +2287,21 @@ class GitHubIntegrationBase:
             return False
         return True
 
+    @classmethod
+    def _graphql_errors_are_rate_limited(cls, errors: Any) -> bool:
+        if not isinstance(errors, list):
+            return False
+        for error in errors:
+            if not isinstance(error, dict):
+                continue
+            extensions = error.get("extensions")
+            types = {error.get("type")}
+            if isinstance(extensions, dict):
+                types |= {extensions.get("type"), extensions.get("code")}
+            if types & cls._GRAPHQL_RATE_LIMIT_ERROR_TYPES:
+                return True
+        return False
+
     def _gh_graphql(
         self,
         query: str,
@@ -2293,6 +2310,8 @@ class GitHubIntegrationBase:
         endpoint: str,
         timeout: int = 10,
         retry_transient: bool = True,
+        priority: Priority | None = None,
+        raise_rate_limit: bool = False,
     ) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
@@ -2302,6 +2321,10 @@ class GitHubIntegrationBase:
         the status-code retry can't catch. A mutation passes ``retry_transient=False``: a
         network error can arrive after GitHub already ran the write, so a repeat is the
         caller's decision to make, not this method's.
+
+        GitHub answers an exhausted GraphQL point budget with a 200 and rate-limit errors, which
+        raises ``GitHubIntegrationError`` like any other GraphQL error. ``raise_rate_limit=True``
+        raises ``GitHubRateLimitError`` for it instead, so a caller that sends many queries can stop.
         """
         errors: Any = None
         attempts = self._GRAPHQL_TRANSIENT_ATTEMPTS if retry_transient else 1
@@ -2313,6 +2336,7 @@ class GitHubIntegrationBase:
                 json_body={"query": query, "variables": variables},
                 timeout=timeout,
                 retry_transient=retry_transient,
+                priority=priority,
             )
             if response.status_code != 200:
                 raise GitHubIntegrationError(
@@ -2324,6 +2348,15 @@ class GitHubIntegrationBase:
             errors = body.get("errors")
             if not errors:
                 return data or {}
+            if raise_rate_limit and self._graphql_errors_are_rate_limited(errors):
+                try:
+                    reset_at = int(response.headers.get("x-ratelimit-reset", ""))
+                    retry_after = max(1, reset_at - int(time.time()))
+                except (TypeError, ValueError):
+                    retry_after = self._GRAPHQL_RATE_LIMIT_DEFAULT_RETRY_SECONDS
+                raise GitHubRateLimitError(
+                    f"GitHubIntegration: GraphQL rate limited on {endpoint}", retry_after=retry_after
+                )
             if data:
                 # GitHub can return useful partial data with field-level permission errors.
                 logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
@@ -2990,28 +3023,9 @@ class GitHubIntegrationBase:
 
     # --- Cached repository operations ---
 
-    def _repository_cache(self) -> RepositoryCache:
-        """The repository list stored for the row. This base reads the `UserIntegration` row.
-
-        `GitHubIntegration` reads the team row through the integrations SDK.
-        """
-        return RepositoryCache(
-            repositories=self.integration.repository_cache,
-            updated_at=self.integration.repository_cache_updated_at,
-        )
-
-    def _store_repository_cache(self, repositories: list[dict] | None, updated_at: datetime) -> None:
-        """Store a repository list fetch. `repositories=None` keeps the stored list."""
-        update_fields = ["repository_cache_updated_at"]
-        if repositories is not None:
-            self.integration.repository_cache = repositories
-            update_fields.insert(0, "repository_cache")
-        self.integration.repository_cache_updated_at = updated_at
-        self.integration.save(update_fields=update_fields)
-
     def _get_stored_repository_list(self) -> list[dict] | None:
         """Repositories persisted on the integration row."""
-        cached = self._repository_cache().repositories
+        cached = self.integration.repository_cache
         if not isinstance(cached, list):
             return None
         return [
@@ -3028,13 +3042,8 @@ class GitHubIntegrationBase:
             and isinstance(repo.get("full_name"), str)
         ]
 
-    def repository_cache_confirmed_empty(self) -> bool:
-        """True when a fetched repository list holds no repository."""
-        cache = self._repository_cache()
-        return cache.updated_at is not None and cache.repositories == []
-
     def repository_cache_is_stale(self) -> bool:
-        updated_at = self._repository_cache().updated_at
+        updated_at = self.integration.repository_cache_updated_at
         if updated_at is None:
             return True
         return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
@@ -3043,7 +3052,7 @@ class GitHubIntegrationBase:
         self, min_refresh_interval_seconds: int | None = None, *, priority: Priority | None = None
     ) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
-        updated_at = self._repository_cache().updated_at
+        updated_at = self.integration.repository_cache_updated_at
         if (
             min_refresh_interval_seconds is not None
             and cached_repositories is not None
@@ -3053,7 +3062,13 @@ class GitHubIntegrationBase:
             return cached_repositories
 
         repositories = self.list_all_repositories(priority=priority)
-        self._store_repository_cache(repositories if repositories != cached_repositories else None, timezone.now())
+        refreshed_at = timezone.now()
+        update_fields = ["repository_cache_updated_at"]
+        if repositories != cached_repositories:
+            self.integration.repository_cache = repositories
+            update_fields.insert(0, "repository_cache")
+        self.integration.repository_cache_updated_at = refreshed_at
+        self.integration.save(update_fields=update_fields)
         return repositories
 
     def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:
@@ -3068,13 +3083,15 @@ class GitHubIntegrationBase:
         self, *, search: str = "", limit: int = 100, offset: int = 0
     ) -> tuple[list[dict], bool]:
         cached_repositories = self._get_stored_repository_list()
-        has_cached_snapshot = self._repository_cache().updated_at is not None
+        has_cached_snapshot = self.integration.repository_cache_updated_at is not None
         should_refresh = cached_repositories is None or self.repository_cache_is_stale()
         self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
                 cached_repositories = self.sync_repository_cache()
+            except ReauthorizationRequired:
+                raise
             except Exception:
                 logger.warning(
                     "GitHubIntegration: failed to refresh repository cache",
@@ -3101,7 +3118,7 @@ class GitHubIntegrationBase:
 
     def list_all_cached_repositories(self, max_repos: int | None = None, *, allow_refresh: bool = True) -> list[dict]:
         cached_repositories = self._get_stored_repository_list()
-        has_cached_snapshot = self._repository_cache().updated_at is not None
+        has_cached_snapshot = self.integration.repository_cache_updated_at is not None
         # `allow_refresh=False` keeps this a pure cache read — no live GitHub sync, no token refresh,
         # no DB write — for callers on a latency-sensitive path that accept a stale snapshot.
         should_refresh = allow_refresh and (cached_repositories is None or self.repository_cache_is_stale())

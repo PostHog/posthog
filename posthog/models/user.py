@@ -1,4 +1,4 @@
-from collections.abc import Callable, Collection, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import cached_property
@@ -259,6 +259,7 @@ class OnboardingSkippedReason(models.TextChoices):
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
     CONNECTOR = "connector", "Signed up through an OAuth connector"
+    DEVICE_LOGIN = "device_login", "Signed up through an OAuth device login"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
@@ -493,7 +494,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             .order_by("id")[:1]
         )
         for integration in team_github_integrations:
-            if isinstance(integration.config, Mapping):
+            if isinstance(integration.config, dict):
                 login = integration.config.get("connecting_user_github_login")
                 if login:
                     return str(login)

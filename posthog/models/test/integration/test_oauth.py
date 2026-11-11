@@ -40,7 +40,6 @@ from posthog.models.integration import (
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
 )
-from posthog.models.integration.model import integration_model
 from posthog.models.integration.oauth import posthog_slack_scope
 from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 
@@ -249,8 +248,8 @@ class TestOauthIntegrationModel(BaseTest):
                     },
                 )
 
-            assert integration.team_id == self.team.id
-            assert integration.created_by_id == self.user.id
+            assert integration.team == self.team
+            assert integration.created_by == self.user
 
             assert integration.config == {
                 "instance_url": "https://fake.salesforce.com",
@@ -564,8 +563,8 @@ class TestOauthIntegrationModel(BaseTest):
                     },
                 )
 
-            assert integration.team_id == self.team.id
-            assert integration.created_by_id == self.user.id
+            assert integration.team == self.team
+            assert integration.created_by == self.user
             # Verify sub and email were extracted from JWT
             assert integration.config["sub"] == "linkedin_user_123"
             assert integration.config["email"] == "user@example.com"
@@ -614,9 +613,7 @@ class TestOauthIntegrationModel(BaseTest):
 
         with self.settings(**self.mock_settings):
             with time_machine.travel("2026-01-01T12:00:00Z", tick=False):
-                connected = integration_model(
-                    OauthIntegration.integration_from_oauth_response("linear", self.team.id, self.user, params)
-                )
+                connected = OauthIntegration.integration_from_oauth_response("linear", self.team.id, self.user, params)
             assert LinearIntegration(connected).authorized_before_webhooks() is True
 
             with time_machine.travel("2026-11-03T12:00:00Z", tick=False):
@@ -1155,8 +1152,8 @@ class TestOauthIntegrationModel(BaseTest):
             }
             oauth_payload = {"code": "code", "state": "next=/projects/test"}
 
-            integration = integration_model(
-                OauthIntegration.integration_from_oauth_response("salesforce", self.team.id, self.user, oauth_payload)
+            integration = OauthIntegration.integration_from_oauth_response(
+                "salesforce", self.team.id, self.user, oauth_payload
             )
             integration.config.update(
                 {"refresh_failure_count": 5, "refresh_next_attempt_at": 1704117600, "refresh_terminal": True}

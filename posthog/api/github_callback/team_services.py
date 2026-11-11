@@ -40,15 +40,13 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
-from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationRecord
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import Team
 from posthog.models.integration import (
     GitHubInstallationAccess,
     GitHubInstallationAccessFetchError,
     GitHubIntegration,
-    Integration,
-    defer_repository_cache_fields,
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.integration.github_audit import GitHubAudit
@@ -120,8 +118,9 @@ def create_team_github_integration_from_oauth_code(
 
     if not is_valid_github_installation_id(installation_id):
         raise ValidationError("Invalid installation_id")
+    organization_id = Team.objects.get(pk=team_id).organization_id
     audit = GitHubAudit(
-        organization_id=Team.objects.get(pk=team_id).organization_id,
+        organization_id=organization_id,
         team_id=team_id,
         user=user,
         installation_id=installation_id,
@@ -147,8 +146,7 @@ def create_team_github_integration_from_oauth_code(
         audit.record("link_rejected", path="oauth", rejection_reason="installation_access_denied")
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
 
-    instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
-
+    instance: IntegrationRecord = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
     instance = IntegrationManager.github.oauth.update(
         team_id, instance.id, config_patch={"connecting_user_github_login": authorization.gh_login}
     )
@@ -166,7 +164,7 @@ def create_team_github_integration_from_oauth_code(
         ),
         authorization,
         create_only=True,
-        originating_organization_id=Team.objects.only("organization_id").get(id=instance.team_id).organization_id,
+        originating_organization_id=organization_id,
     )
 
     audit.record("link_completed", path="oauth", linked_integration_id=instance.id, after_commit=True)
@@ -254,7 +252,7 @@ def adopt_orphan_installation(
     if not has_access:
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
 
-    instance = GitHubIntegration.integration_from_installation_id(installation_id, team.id, user)
+    instance: IntegrationRecord = GitHubIntegration.integration_from_installation_id(installation_id, team.id, user)
 
     login = UserGitHubIntegration(
         credential.integration, source="github_callback", priority=Priority.NORMAL
@@ -480,8 +478,8 @@ def _org_linked_github_installation_ids(organization: Organization) -> set[str]:
     access error rather than being offered up for adoption, or the access boundary in
     ``_accessible_org_team_ids`` would leak through the adoption path.
     """
-    org_github = defer_repository_cache_fields(
-        Integration.objects.filter(team__organization_id=organization.id, kind="github")
+    org_github = IntegrationManager.github.oauth.list_across_teams(
+        CrossTeamFilter(team_ids=tuple(organization.teams.values_list("id", flat=True)))
     )
     return {
         str(installation_id)
@@ -547,16 +545,12 @@ def link_existing_team_github_integration(
         # No source specified: auto-resolve the org's existing GitHub installation. This backs the
         # one-click "Link existing installation" UI, where a second project reuses the org's single
         # install without the caller having to know a sibling team id or the installation id.
-        org_github = (
-            Integration.objects.filter(
-                team__organization_id=organization.id, team_id__in=accessible_team_ids, kind="github"
-            )
-            .exclude(team_id=team_id)
-            .order_by("id")
+        org_github = IntegrationManager.github.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(accessible_team_ids - {team_id}))
         )
         distinct_installation_ids = {
             str(config_installation_id)
-            for integration in defer_repository_cache_fields(org_github)
+            for integration in org_github
             if (config_installation_id := (integration.config or {}).get("installation_id"))
         }
         if not distinct_installation_ids:
@@ -568,7 +562,15 @@ def link_existing_team_github_integration(
             raise ValidationError(
                 "Your organization has multiple GitHub installations; specify which one to link via installation_id"
             )
-        source = org_github.for_github_installation_id(next(iter(distinct_installation_ids))).first()
+        only_installation_id = next(iter(distinct_installation_ids))
+        source = next(
+            (
+                integration
+                for integration in org_github
+                if str((integration.config or {}).get("installation_id")) == only_installation_id
+            ),
+            None,
+        )
         if source is None:
             raise ValidationError(
                 "No team in your organization has a GitHub installation to link",
@@ -606,7 +608,7 @@ class _InstallationAccount:
     type: str | None
 
 
-def _sibling_installation_account(integration: Integration) -> _InstallationAccount:
+def _sibling_installation_account(integration: IntegrationRecord) -> _InstallationAccount:
     """Account to show for an installation a project in the organization already has.
 
     The name must be the GitHub account the app is installed on, never the login of the person who
@@ -648,9 +650,8 @@ def list_org_github_installations(
     duplicated.
     """
     accessible_team_ids = _accessible_org_team_ids(user, organization)
-    org_github = defer_repository_cache_fields(
-        Integration.objects.filter(team__organization_id=organization.id, kind="github").select_related("team")
-    ).order_by("id")
+    team_names = dict(organization.teams.values_list("id", "name"))
+    org_github = IntegrationManager.github.oauth.list_across_teams(CrossTeamFilter(team_ids=tuple(team_names)))
 
     # One pass over the org's rows yields both the sibling entries and the org-wide linked set the
     # adoption merge below excludes against, instead of two near-identical queries.
@@ -684,7 +685,7 @@ def list_org_github_installations(
             "account_name": sibling_account.name,
             "account_type": sibling_account.type,
             "source_team_id": integration.team_id,
-            "source_team_name": integration.team.name,
+            "source_team_name": team_names[integration.team_id],
         }
 
     personal_installations = (
