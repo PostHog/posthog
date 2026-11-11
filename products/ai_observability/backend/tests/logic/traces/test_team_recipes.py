@@ -9,9 +9,10 @@ from django.test.utils import CaptureQueriesContext
 from posthog.models import Organization, Team
 
 from products.ai_observability.backend.logic.message_normalizer import run_limits as run_limits_module
+from products.ai_observability.backend.logic.message_normalizer.normalizer import compile_candidate_recipe
 from products.ai_observability.backend.logic.message_normalizer.run_limits import time_limit
 from products.ai_observability.backend.logic.message_normalizer.values import Value
-from products.ai_observability.backend.logic.traces.team_recipes import team_normalizer
+from products.ai_observability.backend.logic.traces.team_recipes import team_normalizer, team_normalizer_with
 from products.ai_observability.backend.models.parser_recipe import ParserRecipe
 
 TICKET_RECIPE = """
@@ -95,3 +96,13 @@ class TestTeamNormalizer(BaseTest):
 
         assert not overran.normalize_messages(TICKET, "user").recognized
         assert self._contents(self.team.id, TICKET) == ["Ticket T-42: Refund requested"]
+
+    def test_a_candidate_runs_after_the_teams_saved_recipes(self):
+        candidate = compile_candidate_recipe(TICKET_RECIPE.replace("Ticket", "Candidate"))
+
+        alone = team_normalizer_with(self.team.id, candidate).normalize_messages(TICKET, "user")
+        ParserRecipe.objects.unscoped().create(team=self.team, name="tickets", source=TICKET_RECIPE)
+        behind_saved = team_normalizer_with(self.team.id, candidate).normalize_messages(TICKET, "user")
+
+        assert [message["content"] for message in alone.messages] == ["Candidate T-42: Refund requested"]
+        assert [message["content"] for message in behind_saved.messages] == ["Ticket T-42: Refund requested"]
