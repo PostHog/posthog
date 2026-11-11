@@ -30,7 +30,6 @@ from rest_framework import (
     status as drf_status,
     viewsets,
 )
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.parsers import MultiPartParser
@@ -50,6 +49,7 @@ from posthog.api.tagged_item import (
     normalize_tag_names,
     set_tags_on_object,
 )
+from posthog.auth import SessionAuthentication
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
