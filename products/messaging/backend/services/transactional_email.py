@@ -713,11 +713,10 @@ def _queue(
         raise error_class(message)
 
     body = response.json()
-    replayed = bool(body.get("replayed", False))
-    sent_from_sandbox = replayed or body.get("sender_kind") == SANDBOX_SENDER_KIND
+    sent_from_sandbox = body.get("sender_kind") == SANDBOX_SENDER_KIND
     return QueuedEmail(
         message_id=str(body["invocation_id"]),
-        replayed=replayed,
+        replayed=bool(body.get("replayed", False)),
         warnings=(sandbox_warning,) if sandbox_warning and sent_from_sandbox else (),
     )
 
