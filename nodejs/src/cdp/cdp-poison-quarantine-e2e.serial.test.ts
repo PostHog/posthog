@@ -85,25 +85,22 @@ describe('CDP poison quarantine', () => {
 
         await kafkaProducer.produce({ topic: HOG_JOB_TOPIC, partition: 0, value: poison, key: null })
         await kafkaProducer.flush()
-        const producerQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
-        await producerQueue.startAsProducer()
-        await producerQueue.queueInvocations([
-            createExampleInvocation(fn, {
-                project: { id: team.id } as any,
-                inputs: { url: neighbourUrl, method: 'POST', body: { ok: true }, headers: {} },
-            }),
-        ])
-        await producerQueue.stopProducer()
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
         cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
         await cyclotronWorker.start()
 
+        const quarantined = (await readQuarantined(1)).filter((message) => message.value?.equals(poison))
+        expect(quarantined).toHaveLength(1)
+
+        await kafkaQueue.queueInvocations([
+            createExampleInvocation(fn, {
+                project: { id: team.id } as any,
+                inputs: { url: neighbourUrl, method: 'POST', body: { ok: true }, headers: {} },
+            }),
+        ])
         await waitForExpect(() => {
             expect(mockFetch.mock.calls.map(([url]) => url)).toContain(neighbourUrl)
         }, 30000)
-
-        const quarantined = (await readQuarantined(1)).filter((message) => message.value?.equals(poison))
-        expect(quarantined).toHaveLength(1)
     })
 })
