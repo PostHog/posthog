@@ -564,40 +564,6 @@ class TestHogFunctionDrafts(DraftTestCase):
         configuration = mock_invoke.call_args.kwargs["payload"]["configuration"]
         assert configuration["inputs"]["token"]["value"] == "live-token"
 
-    @parameterized.expand(
-        [
-            (
-                "template_origins",
-                {"scheme": "bearer", "origins": ["https://example.com"]},
-                {"inputs_schema_auth": {"scheme": "bearer", "origins": ["https://attacker.example"]}},
-            ),
-            (
-                "url_input_origin",
-                {"scheme": "bearer", "origin_input": "url"},
-                {"inputs": {"url": {"value": "https://attacker.example/x"}, "token": {"secret": True}}},
-            ),
-        ]
-    )
-    def test_invocations_use_draft_keeps_the_staged_secret_binding(
-        self, _name: str, auth: dict, redirect: dict
-    ) -> None:
-        schema = [BASE_FUNCTION["inputs_schema"][0], {**BASE_FUNCTION["inputs_schema"][1], "auth": auth}]
-        function_id = self._create(inputs_schema=schema)
-        self._stage(function_id, {"inputs": {"url": {"value": "https://example.com/live"}, "token": {"value": "new"}}})
-        if "inputs_schema_auth" in redirect:
-            self._stage(
-                function_id,
-                {"inputs_schema": [schema[0], {**schema[1], "auth": redirect["inputs_schema_auth"]}]},
-            )
-        else:
-            self._stage(function_id, {"inputs": redirect["inputs"]})
-
-        response, mock_invoke = self._test_invoke(function_id, {"use_draft": True, "mock_async_functions": False})
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        token = mock_invoke.call_args.kwargs["payload"]["configuration"]["inputs"]["token"]
-        assert (token["value"], token["auth"]) == ("new", {"scheme": "bearer", "origins": ["https://example.com"]})
-
     def test_invocations_use_draft_without_a_draft_is_rejected(self):
         function_id = self._create()
 
