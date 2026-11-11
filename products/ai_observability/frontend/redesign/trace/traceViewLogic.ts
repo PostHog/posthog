@@ -20,6 +20,7 @@ import type {
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
 import { encodeTraceIdSegment } from './traceIdSegment'
+import { traceViewTracking } from './traceViewTracking'
 import type { LoadFailure, NodeLoad, NodeLoadTrigger, RawLoad } from './types'
 
 export interface TraceViewLogicProps {
@@ -324,11 +325,8 @@ export const traceViewLogic = kea<traceViewLogicType>([
 
         return {
             loadTraceSuccess: ({ trace }) => {
-                posthog.capture('llma trace view loaded', {
-                    trace_load_ms: elapsedMs(cache.traceRequestedAt),
-                    // The timeline lists every step but the root.
-                    node_count: trace.timeline.length + 1,
-                })
+                // The timeline lists every step but the root.
+                traceViewTracking.viewLoaded(elapsedMs(cache.traceRequestedAt), trace.timeline.length + 1)
                 for (const nodeId of trace.threadNodeIds) {
                     actions.loadNode(nodeId, 'thread')
                 }
@@ -378,7 +376,7 @@ export const traceViewLogic = kea<traceViewLogicType>([
                 const loadMs = elapsedMs(firstRequestedAt)
                 const waitedMs = waitedSince === undefined ? null : elapsedMs(waitedSince)
                 actions.loadNodeSuccess(nodeId, result.value)
-                posthog.capture('llma trace node loaded', { load_ms: loadMs, trigger, waited_ms: waitedMs })
+                traceViewTracking.nodeLoaded(trigger, loadMs, waitedMs)
             },
             loadRawNode: ({ nodeId }) => {
                 const status = values.rawNodes[nodeId]?.status
