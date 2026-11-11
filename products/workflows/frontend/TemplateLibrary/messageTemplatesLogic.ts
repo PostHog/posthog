@@ -253,12 +253,16 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 transactionalOnly: boolean,
                 tagsFilter: string[]
             ): MessageTemplate[] =>
-                filterMessageTemplates(templates, {
-                    search,
-                    tags: tagsFilter,
-                    createdBy: createdByFilter,
-                    transactionalOnly,
-                }),
+                // The library edits email templates. A push template has its own page under Transactional.
+                filterMessageTemplates(
+                    templates.filter((template) => template.type !== 'push'),
+                    {
+                        search,
+                        tags: tagsFilter,
+                        createdBy: createdByFilter,
+                        transactionalOnly,
+                    }
+                ),
         ],
     }),
     afterMount(({ actions }) => {

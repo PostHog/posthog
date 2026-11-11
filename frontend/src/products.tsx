@@ -415,6 +415,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transactional/metrics': ['Transactional', 'transactional'],
     '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
     '/transactional/code-emails/:id': ['TransactionalCodeEmail', 'transactionalCodeEmail'],
+    '/transactional/push/:id': ['TransactionalPush', 'transactionalPush'],
     '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
@@ -1391,6 +1392,7 @@ export const productConfiguration: Record<string, any> = {
     },
     TransactionalEmailLogEntry: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     TransactionalCodeEmail: { name: 'Transactional', iconType: 'transactional', projectBased: true },
+    TransactionalPush: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
@@ -2107,6 +2109,7 @@ export const productUrls = {
     transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
     transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
     transactionalCodeEmail: (id: string): string => `/transactional/code-emails/${id}`,
+    transactionalPush: (id: string): string => `/transactional/push/${id}`,
     broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
 }
 
@@ -2569,6 +2572,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Transactional',
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
+            'TransactionalPush',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3495,6 +3499,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Transactional',
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
+            'TransactionalPush',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3619,6 +3624,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Transactional',
             'TransactionalEmailLogEntry',
             'TransactionalCodeEmail',
+            'TransactionalPush',
             'WorkflowsEmailDomain',
         ],
     },

@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
@@ -18,6 +18,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
+import { newTransactionalPushLogic } from './push/newTransactionalPushLogic'
+import { NewTransactionalPushModal } from './push/NewTransactionalPushModal'
 import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
 import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
@@ -31,6 +33,7 @@ export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const showWebhooks = useFeatureFlag('WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS')
+    const showPush = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API')
     // Leaving for another scene changes the URL before that scene has loaded, so this one keeps showing its last view.
     const route = transactionalRouteFor(location.pathname)
     const lastRoute = useRef<TransactionalRoute>(route ?? 'transactional')
@@ -55,12 +58,15 @@ export function TransactionalScene(): JSX.Element {
             />
             <EmailSuspensionBanner />
             <TransactionalTabs currentTab={currentTab} showWebhooks={showWebhooks} />
+            {showPush ? <NewTransactionalPushModal /> : null}
         </SceneContent>
     )
 }
 
 function TransactionalSceneActions({ tab }: { tab: Exclude<TransactionalRoute, 'new'> }): JSX.Element | null {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const showPush = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API')
+    const { openModal: openNewPushModal } = useActions(newTransactionalPushLogic)
     if (tab === 'webhooks') {
         return null
     }
@@ -68,28 +74,51 @@ function TransactionalSceneActions({ tab }: { tab: Exclude<TransactionalRoute, '
         return <MessagingTabActions tab={tab} channelsUrl={urls.transactional('channels')} />
     }
     return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.Workflow}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            {todayRailNav ? (
-                <Button
-                    data-attr="new-transactional-email"
-                    onClick={() => router.actions.push(urls.transactionalNew())}
-                    variant="primary"
+        <div className="flex items-center gap-2">
+            {showPush ? (
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Workflow}
+                    minAccessLevel={AccessControlLevel.Editor}
                 >
-                    New transactional email
-                </Button>
-            ) : (
-                <LemonButton
-                    data-attr="new-transactional-email"
-                    to={urls.transactionalNew()}
-                    type="primary"
-                    size="small"
-                >
-                    New transactional email
-                </LemonButton>
-            )}
-        </AccessControlAction>
+                    {todayRailNav ? (
+                        <Button data-attr="new-transactional-push" onClick={openNewPushModal} variant="outline">
+                            New push notification
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            data-attr="new-transactional-push"
+                            onClick={openNewPushModal}
+                            type="secondary"
+                            size="small"
+                        >
+                            New push notification
+                        </LemonButton>
+                    )}
+                </AccessControlAction>
+            ) : null}
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Workflow}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                {todayRailNav ? (
+                    <Button
+                        data-attr="new-transactional-email"
+                        onClick={() => router.actions.push(urls.transactionalNew())}
+                        variant="primary"
+                    >
+                        New transactional email
+                    </Button>
+                ) : (
+                    <LemonButton
+                        data-attr="new-transactional-email"
+                        to={urls.transactionalNew()}
+                        type="primary"
+                        size="small"
+                    >
+                        New transactional email
+                    </LemonButton>
+                )}
+            </AccessControlAction>
+        </div>
     )
 }

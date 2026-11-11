@@ -671,7 +671,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             {
                 loadTemplates: async () => {
                     const response = await api.messaging.getTemplates()
-                    return response.results
+                    // The picker fills an email, and a push template has no email content.
+                    return response.results.filter((template) => template.type !== 'push')
                 },
             },
         ],
