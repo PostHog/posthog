@@ -834,6 +834,7 @@ const experimentList = (): ToolBase<
                         event: params.event,
                         excluded_tags: params.excluded_tags,
                         feature_flag_id: params.feature_flag_id,
+                        feature_flag_ids: params.feature_flag_ids,
                         limit: params.limit,
                         offset: params.offset,
                         order: params.order,

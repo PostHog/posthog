@@ -126,6 +126,12 @@ export const FeatureFlagsListQueryParams = () => zod.object({
         .describe(
             "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without."
         ),
+    ids: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated flag IDs, at most 200. Returns exactly those flags, including archived flags and flags that surveys or product tours own. Other filters are ignored, and soft-deleted flags are left out unless deleted=true.'
+        ),
     key: zod.string().optional().describe('Filter by exact feature flag key match. Case insensitive.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),

@@ -2,9 +2,7 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -168,14 +166,7 @@ describe('traceViewModelLogic', () => {
                         failingRawNodeId = null
                         return [500, { detail: 'Server error.' }]
                     }
-                    return [
-                        200,
-                        makeRawNode({
-                            id: nodeId,
-                            properties: { $ai_input: 'hi', plan: 'pro' },
-                            ioKeys: { input: '$ai_input' },
-                        }),
-                    ]
+                    return [200, makeRawNode({ id: nodeId })]
                 },
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
@@ -226,6 +217,7 @@ describe('traceViewModelLogic', () => {
         ['a node in the tree', { requestedStepId: 'span-1' }, 'span-1'],
         ['an SDK id through its alias', { requestedStepId: 'sdk-gen-1' }, 'gen-1'],
         ['a stale id as the root', { requestedStepId: 'missing' }, 'trace-1'],
+        ['a stale id named like an object member as the root', { requestedStepId: 'constructor' }, 'trace-1'],
         ['the trace itself as the root, not the default node', { requestedStepId: 'trace-1' }, 'trace-1'],
         ['no id as the default node', {}, 'gen-1'],
         ['a trace-level link as the root', { openingMode: 'summary' }, 'trace-1'],
@@ -649,30 +641,13 @@ describe('traceViewModelLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.loadRawNode('span-1')
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawNodes['span-1']).toMatchObject({ status: 'error' })
+        expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'error' })
 
         logic.actions.selectNode('span-1')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(rawRequests).toEqual(['span-1', 'span-1'])
-        expect(logic.values.rawNodes['span-1']).toMatchObject({ status: 'ready' })
-    })
-
-    it('offers no dataset item until the raw read of the selected step arrives', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true })
-        mountAt({ requestedStepId: 'span-1' })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.datasetItemSource).toBeNull()
-
-        logic.actions.loadRawNode('span-1')
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.datasetItemSource).toMatchObject({
-            sourceId: 'span-1',
-            input: 'hi',
-            metadata: { plan: 'pro' },
-        })
+        expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'ready' })
     })
 
     it('keeps mode and step tab when the trace changes', async () => {

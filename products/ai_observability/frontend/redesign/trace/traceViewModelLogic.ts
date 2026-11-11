@@ -17,7 +17,6 @@ import type {
     TraceStepFeedbackApi,
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
-import { toDatasetItemSource } from './adapter/toDatasetItemSource'
 import type { TraceSearchBoxData } from './components/TraceSearchBox'
 import { traceClustersLogic } from './traceClustersLogic'
 import { traceFeedbackLogic } from './traceFeedbackLogic'
@@ -81,9 +80,9 @@ export interface traceViewModelLogicValues {
     evaluationResults: TraceEvaluationResultsApi | null // traceViewLogic
     evaluationResultsFailed: boolean // traceViewLogic
     loadFailure: LoadFailure | null // traceViewLogic
-    nodeIdsByAlias: Record<string, string> // traceViewLogic
-    nodes: Record<string, NodeLoad> // traceViewLogic
-    rawNodes: Record<string, RawLoad> // traceViewLogic
+    nodeIdsByAlias: ReadonlyMap<string, string> // traceViewLogic
+    nodes: ReadonlyMap<string, NodeLoad> // traceViewLogic
+    rawNodes: ReadonlyMap<string, RawLoad> // traceViewLogic
     sessionId: string | null // traceViewLogic
     status: TraceViewStatus // traceViewLogic
     threadNodeIds: string[] // traceViewLogic
@@ -94,7 +93,6 @@ export interface traceViewModelLogicValues {
     trace: TraceApi | null // traceViewLogic
     tree: TraceNodeApi[] // traceViewLogic
     canViewInThread: boolean
-    datasetItemSource: ReturnType<typeof toDatasetItemSource>
     datasetsEnabled: boolean
     evalOutcomes: ReadonlyMap<string, EvalRollupOutcome>
     feedbackCount: number | null
@@ -229,26 +227,20 @@ export interface traceViewModelLogicMeta {
             tree: TraceNodeApi[],
             status: TraceViewStatus,
             defaultNodeId: string,
-            nodeIdsByAlias: Record<string, string>,
+            nodeIdsByAlias: ReadonlyMap<string, string>,
             traceId: string
         ) => string
         nodeIdToRead: (status: TraceViewStatus, requestedStepId: string | null, selectedNodeId: string) => string | null
         selectedTreeNode: (tree: TraceNodeApi[], selectedNodeId: string) => TraceNodeApi | null
-        selectedNodeLoad: (selectedNodeId: string, nodes: Record<string, NodeLoad>) => NodeLoad
-        selectedRaw: (selectedNodeId: string, rawNodes: Record<string, RawLoad>) => RawLoad | undefined
+        selectedNodeLoad: (selectedNodeId: string, nodes: ReadonlyMap<string, NodeLoad>) => NodeLoad
+        selectedRaw: (selectedNodeId: string, rawNodes: ReadonlyMap<string, RawLoad>) => RawLoad | undefined
         rawNodeIdToRead: (
             detailTab: NodeDetailTab,
             nodeIdToRead: string | null,
             createdAt: string | null
         ) => string | null
-        threadNodeLoad: (threadNodeIds: string[], nodes: Record<string, NodeLoad>) => NodeLoad | null
+        threadNodeLoad: (threadNodeIds: string[], nodes: ReadonlyMap<string, NodeLoad>) => NodeLoad | null
         datasetsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        datasetItemSource: (
-            datasetsEnabled: boolean,
-            selectedRaw: RawLoad | undefined,
-            createdAt: string | null,
-            traceId: string
-        ) => ReturnType<typeof toDatasetItemSource>
         thread: (
             status: TraceViewStatus,
             threadNodeLoad: NodeLoad | null,
@@ -396,7 +388,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 tree: TraceNodeApi[],
                 status: TraceViewStatus,
                 defaultNodeId: string,
-                nodeIdsByAlias: Record<string, string>,
+                nodeIdsByAlias: ReadonlyMap<string, string>,
                 traceId: string
             ): string => {
                 if (status !== 'ready') {
@@ -409,7 +401,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 if (findTreeNode(tree, requestedStepId)) {
                     return requestedStepId
                 }
-                return nodeIdsByAlias[requestedStepId] ?? traceId
+                return nodeIdsByAlias.get(requestedStepId) ?? traceId
             },
         ],
         // Until the trace names its default step, only a step the URL asks for is worth reading.
@@ -425,12 +417,13 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         // Each consumer reads its own node load, so a prefetch of another node does not rebuild its heavy messages.
         selectedNodeLoad: [
             (s) => [s.selectedNodeId, s.nodes],
-            (selectedNodeId: string, nodes: Record<string, NodeLoad>): NodeLoad => nodes[selectedNodeId] ?? LOADING,
+            (selectedNodeId: string, nodes: ReadonlyMap<string, NodeLoad>): NodeLoad =>
+                nodes.get(selectedNodeId) ?? LOADING,
         ],
         selectedRaw: [
             (s) => [s.selectedNodeId, s.rawNodes],
-            (selectedNodeId: string, rawNodes: Record<string, RawLoad>): RawLoad | undefined =>
-                rawNodes[selectedNodeId],
+            (selectedNodeId: string, rawNodes: ReadonlyMap<string, RawLoad>): RawLoad | undefined =>
+                rawNodes.get(selectedNodeId),
         ],
         // The raw read waits for the trace's timestamp, which it sends as a hint to find steps past the ai_events retention.
         rawNodeIdToRead: [
@@ -440,22 +433,12 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         ],
         threadNodeLoad: [
             (s) => [s.threadNodeIds, s.nodes],
-            (threadNodeIds: string[], nodes: Record<string, NodeLoad>): NodeLoad | null =>
-                threadNodeIds[0] ? (nodes[threadNodeIds[0]] ?? LOADING) : null,
+            (threadNodeIds: string[], nodes: ReadonlyMap<string, NodeLoad>): NodeLoad | null =>
+                threadNodeIds[0] ? (nodes.get(threadNodeIds[0]) ?? LOADING) : null,
         ],
         datasetsEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
-        ],
-        datasetItemSource: [
-            (s, p) => [s.datasetsEnabled, s.selectedRaw, s.createdAt, p.traceId],
-            (
-                datasetsEnabled: boolean,
-                raw: RawLoad | undefined,
-                createdAt: string | null,
-                traceId: string
-            ): ReturnType<typeof toDatasetItemSource> =>
-                datasetsEnabled && createdAt ? toDatasetItemSource({ traceId, createdAt, raw }) : null,
         ],
         thread: [
             (s, p) => [s.status, s.threadNodeLoad, s.createdAt, p.traceId],
@@ -534,7 +517,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         // selected changes no value and the subscription does not fire, so this read also retries a failed node.
         const select = ({ id }: { id: string }): void => {
             actions.loadNode(id, 'selection')
-            if (values.detailTab === 'raw' || values.rawNodes[id]?.status === 'error') {
+            if (values.detailTab === 'raw' || values.rawNodes.get(id)?.status === 'error') {
                 actions.loadRawNode(id)
             }
             actions.requestStep(id, props.traceId)
