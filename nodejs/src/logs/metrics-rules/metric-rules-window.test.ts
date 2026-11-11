@@ -242,6 +242,41 @@ describe('MetricRulesEmission', () => {
         }
     })
 
+    it('runs one idle flush at a time when the endpoint is slower than the window', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.setSystemTime(WINDOW_START_MS)
+            let release!: () => void
+            const gate = new Promise<void>((resolve) => (release = resolve))
+            let inFlight = 0
+            let maxInFlight = 0
+            const sentTimes: number[] = []
+            const emitter = {
+                emit: async (_token: string, _teamId: number, payload: any) => {
+                    inFlight++
+                    maxInFlight = Math.max(maxInFlight, inFlight)
+                    await gate
+                    inFlight--
+                    sentTimes.push(...points([{ teamId: TEAM, payload }]).map((p) => p.timeMs))
+                    return true
+                },
+            }
+            const emission = new MetricRulesEmission(emitter, () => true, 60_000)
+            await emission.emitBatch(new Map([[TEAM, batch([rule()], [record()], WINDOW_START_MS)]]))
+            await jest.advanceTimersByTimeAsync(60_000)
+            await emission.emitBatch(new Map([[TEAM, batch([rule()], [record()], WINDOW_START_MS)]]))
+            await jest.advanceTimersByTimeAsync(60_000)
+            expect(maxInFlight).toBe(1)
+
+            release()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(sentTimes).toEqual([WINDOW_START_MS, WINDOW_START_MS + 60_000])
+            expect(maxInFlight).toBe(1)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('splits a window too large for one request and sends every label set once', () => {
         const routes = Array.from({ length: 40 }, (_, i) => `/route-${i}`)
         const records = routes.map((route) => record({ attributes: { route: JSON.stringify(route) } }))

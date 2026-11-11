@@ -182,6 +182,7 @@ export class MetricRulesEmission {
     private readonly aggregator: MetricRulesWindowAggregator
     private idleTimer: NodeJS.Timeout | null = null
     private idleFlush: Promise<void> | null = null
+    private stopping = false
 
     constructor(
         private readonly emitter: Pick<LogsMetricsEmitter, 'emit'> | undefined,
@@ -213,6 +214,7 @@ export class MetricRulesEmission {
     }
 
     public async flushAll(): Promise<void> {
+        this.stopping = true
         this.clearIdleTimer()
         // The timer may already hold the expired window; shutdown must not close the HTTP agents under its sends.
         await this.idleFlush
@@ -222,14 +224,21 @@ export class MetricRulesEmission {
     private scheduleIdleFlush(nowMs: number): void {
         this.clearIdleTimer()
         const closesAtMs = this.aggregator.closesAtMs
-        if (closesAtMs === null) {
+        if (closesAtMs === null || this.stopping) {
             return
         }
         this.idleTimer = setTimeout(
             () => {
                 this.idleTimer = null
+                // One timer flush at a time, so a slow endpoint cannot pile up windows in memory.
+                // Batch-path flushes are awaited by the consumer, so at most two windows are ever sending.
+                if (this.idleFlush) {
+                    return
+                }
                 this.idleFlush = this.flushExpired().finally(() => {
                     this.idleFlush = null
+                    // A window that expired while this flush was sending had its timer skipped.
+                    this.scheduleIdleFlush(Date.now())
                 })
             },
             Math.max(0, closesAtMs - nowMs)
