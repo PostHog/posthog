@@ -1,5 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import {
@@ -76,6 +76,8 @@ function TimeCell({ time }: { time: string | null }): JSX.Element {
 const VISIBLE_TAGS = 2
 
 function TagsCell({ tags }: { tags: string[] }): JSX.Element {
+    const { filters } = useValues(analyticsListLogic)
+    const { setFilters } = useActions(analyticsListLogic)
     if (!tags.length) {
         return (
             <Text size="xs" variant="muted">
@@ -88,7 +90,19 @@ function TagsCell({ tags }: { tags: string[] }): JSX.Element {
         <div className="flex min-w-0 items-center gap-1">
             <ChipGroup className="min-w-0 max-w-full flex-1 flex-nowrap">
                 {tags.slice(0, VISIBLE_TAGS).map((tag) => (
-                    <Chip key={tag} size="xs" className="min-w-0 max-w-24 flex-1" title={tag}>
+                    <Chip
+                        key={tag}
+                        size="xs"
+                        className="min-w-0 max-w-24 flex-1"
+                        title={`Filter by ${tag}`}
+                        render={<button type="button" />}
+                        onClick={() => {
+                            if (!filters.tags.includes(tag)) {
+                                setFilters({ tags: [...filters.tags, tag] })
+                            }
+                        }}
+                        data-attr="analytics-list-row-tag"
+                    >
                         <span className="min-w-0 truncate">{tag}</span>
                     </Chip>
                 ))}
