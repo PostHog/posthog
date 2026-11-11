@@ -158,11 +158,10 @@ export interface DataTableProps<TData, TValue> {
      */
     empty?: React.ReactNode
     /**
-     * Adds a leading checkbox column so the user can select rows. A function decides per row, and a row it rejects
-     * shows a disabled checkbox. Shift-click a checkbox to set every row between it and the last one clicked. The
-     * header checkbox selects or clears every selectable row on the page.
+     * Adds a leading checkbox column so the user can select rows. Shift-click a checkbox to set every row between it
+     * and the last one clicked. The header checkbox selects or clears every selectable row on the page.
      */
-    selectable?: boolean | ((row: TData) => boolean)
+    selectable?: boolean
     /** Controls the selection, as `true` by row id. Pass `getRowId` so that a selection survives a change of `data`. */
     rowSelection?: RowSelectionState
     /** Called with the next selection when the user checks or clears a row. */
@@ -171,6 +170,11 @@ export interface DataTableProps<TData, TValue> {
     getRowId?: (row: TData, index: number) => string
     /** The accessible name of a row's checkbox. Defaults to "Select row". */
     rowSelectionLabel?: (row: TData) => string
+    /**
+     * Why a row can't be selected. A reason disables the row's checkbox and shows in its tooltip, and `null` lets the
+     * user select the row. A shift-click range skips the disabled rows.
+     */
+    rowSelectionDisabledReason?: (row: TData) => string | null
     /**
      * Enables client-side pagination at this page size and renders a pager below
      * the table. Omit for a single, un-paginated list.
@@ -452,7 +456,7 @@ const DataTableBody = React.memo(DataTableBodyInner) as typeof DataTableBodyInne
 const SELECTION_COLUMN_ID = '__select'
 
 function isShiftClick(event: Event | undefined): boolean {
-    return !!event && 'shiftKey' in event && (event as MouseEvent).shiftKey
+    return (event instanceof MouseEvent || event instanceof KeyboardEvent) && event.shiftKey
 }
 
 // Shift-click would otherwise select the page's text between the two checkboxes.
@@ -462,11 +466,40 @@ function preventShiftTextSelection(event: React.MouseEvent): void {
     }
 }
 
+function selectRange<TData>(
+    current: RowSelectionState,
+    rows: Row<TData>[],
+    fromId: string,
+    toId: string,
+    checked: boolean
+): RowSelectionState {
+    const from = rows.findIndex((row) => row.id === fromId)
+    const to = rows.findIndex((row) => row.id === toId)
+    const next = { ...current }
+    for (const row of rows.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+        if (!row.getCanSelect()) {
+            continue
+        }
+        if (checked) {
+            next[row.id] = true
+        } else {
+            delete next[row.id]
+        }
+    }
+    return next
+}
+
 function useSelectionColumn<TData>(
     selectable: boolean,
-    rowSelectionLabel: ((row: TData) => string) | undefined
+    rowSelectionLabel: ((row: TData) => string) | undefined,
+    rowSelectionDisabledReason: ((row: TData) => string | null) | undefined
 ): ColumnDef<TData, unknown> | null {
     const anchorRowId = React.useRef<string | null>(null)
+    // Read through refs so that inline callbacks keep the column, and with it the memoized body, the same between renders.
+    const labelRef = React.useRef(rowSelectionLabel)
+    labelRef.current = rowSelectionLabel
+    const disabledReasonRef = React.useRef(rowSelectionDisabledReason)
+    disabledReasonRef.current = rowSelectionDisabledReason
     return React.useMemo(() => {
         if (!selectable) {
             return null
@@ -489,41 +522,29 @@ function useSelectionColumn<TData>(
             ),
             cell: ({ row, table }) => (
                 <Checkbox
-                    aria-label={rowSelectionLabel?.(row.original) ?? 'Select row'}
+                    aria-label={labelRef.current?.(row.original) ?? 'Select row'}
                     checked={row.getIsSelected()}
                     disabled={!row.getCanSelect()}
+                    disabledReason={disabledReasonRef.current?.(row.original)}
                     onMouseDown={preventShiftTextSelection}
                     onCheckedChange={(checked, details) => {
-                        const rows = table.getRowModel().rows
-                        const anchorIndex = anchorRowId.current
-                            ? rows.findIndex((candidate) => candidate.id === anchorRowId.current)
-                            : -1
+                        const anchorId = anchorRowId.current
                         anchorRowId.current = row.id
-                        if (!isShiftClick(details.event) || anchorIndex === -1) {
+                        const rows = table.getRowModel().rows
+                        if (
+                            anchorId !== null &&
+                            isShiftClick(details.event) &&
+                            rows.some((candidate) => candidate.id === anchorId)
+                        ) {
+                            table.setRowSelection((current) => selectRange(current, rows, anchorId, row.id, checked))
+                        } else {
                             row.toggleSelected(checked)
-                            return
                         }
-                        const index = rows.findIndex((candidate) => candidate.id === row.id)
-                        const range = rows.slice(Math.min(anchorIndex, index), Math.max(anchorIndex, index) + 1)
-                        table.setRowSelection((current) => {
-                            const next = { ...current }
-                            for (const rangeRow of range) {
-                                if (!rangeRow.getCanSelect()) {
-                                    continue
-                                }
-                                if (checked) {
-                                    next[rangeRow.id] = true
-                                } else {
-                                    delete next[rangeRow.id]
-                                }
-                            }
-                            return next
-                        })
                     }}
                 />
             ),
         }
-    }, [selectable, rowSelectionLabel])
+    }, [selectable])
 }
 
 /**
@@ -560,6 +581,7 @@ function DataTable<TData, TValue>({
     onRowSelectionChange,
     getRowId,
     rowSelectionLabel,
+    rowSelectionDisabledReason,
 }: DataTableProps<TData, TValue>): React.ReactElement {
     const paginated = pageSize != null
     const [rowSelection, setRowSelection] = useControllable<RowSelectionState>(
@@ -567,7 +589,7 @@ function DataTable<TData, TValue>({
         onRowSelectionChange,
         {}
     )
-    const selectionColumn = useSelectionColumn<TData>(selectable !== false, rowSelectionLabel)
+    const selectionColumn = useSelectionColumn<TData>(selectable, rowSelectionLabel, rowSelectionDisabledReason)
     const tableColumns = React.useMemo(
         () => (selectionColumn ? [selectionColumn as ColumnDef<TData, TValue>, ...columns] : columns),
         [selectionColumn, columns]
@@ -590,9 +612,9 @@ function DataTable<TData, TValue>({
         data,
         columns: tableColumns,
         getRowId,
-        // Left unset without `selectable`, so a caller's own selection column keeps working.
-        ...(typeof selectable === 'function'
-            ? { enableRowSelection: (row: Row<TData>) => selectable(row.original) }
+        // Left unset without a reason, so a caller's own selection column keeps working.
+        ...(rowSelectionDisabledReason
+            ? { enableRowSelection: (row: Row<TData>) => rowSelectionDisabledReason(row.original) === null }
             : {}),
         onRowSelectionChange: setRowSelection,
         enableColumnResizing: resizableColumns,

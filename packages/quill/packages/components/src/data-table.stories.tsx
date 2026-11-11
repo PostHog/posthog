@@ -268,7 +268,8 @@ export const FullWidthPaginated: Story = {
 }
 
 // `selectable` adds a checkbox column. Shift-click a second checkbox to set every row between the two. Invited users
-// can't be selected here, so their checkboxes are disabled and a shift-click range skips them.
+// can't be selected here: `rowSelectionDisabledReason` disables their checkboxes, says why in a tooltip, and a
+// shift-click range skips them.
 export const SelectableRows: Story = {
     render: function Render() {
         const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({ 'USR-2': true, 'USR-3': true })
@@ -279,9 +280,12 @@ export const SelectableRows: Story = {
                 <DataTable
                     columns={columns}
                     data={people}
-                    selectable={(person) => person.status === 'Active'}
+                    selectable
                     getRowId={(person) => person.id}
                     rowSelectionLabel={(person) => `Select ${person.name}`}
+                    rowSelectionDisabledReason={(person) =>
+                        person.status === 'Active' ? null : "Invited users can't be selected until they accept."
+                    }
                     rowSelection={rowSelection}
                     onRowSelectionChange={setRowSelection}
                     className="rounded-md border border-[var(--border)]"

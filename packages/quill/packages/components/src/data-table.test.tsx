@@ -76,7 +76,8 @@ describe('DataTable', () => {
             <DataTable
                 columns={[{ accessorKey: 'name', header: 'Name' }]}
                 data={people}
-                selectable={(row) => row.name !== 'Barbara'}
+                selectable
+                rowSelectionDisabledReason={(row) => (row.name === 'Barbara' ? 'Not selectable' : null)}
                 getRowId={(row) => row.name}
                 rowSelectionLabel={(row) => `Select ${row.name}`}
                 rowSelection={Object.fromEntries(initial.map((name) => [name, true]))}

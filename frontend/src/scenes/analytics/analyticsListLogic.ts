@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -183,8 +184,8 @@ export interface analyticsListLogicValues {
     loading: boolean
     mode: AnalyticsListMode
     narrowingFiltersActive: boolean
-    scope: AnalyticsListScope
     rowSelection: Record<string, boolean>
+    scope: AnalyticsListScope
     searchInput: string
     selectedCount: number
     shownQuery: AnalyticsFeedQuery | null
@@ -237,6 +238,9 @@ export interface analyticsListLogicActions {
         value: true
     }
     clearNarrowingFilters: () => {
+        value: true
+    }
+    clearSelection: () => {
         value: true
     }
     itemOpened: (
@@ -309,9 +313,6 @@ export interface analyticsListLogicActions {
     }
     setRowSelection: (rowSelection: Record<string, boolean>) => {
         rowSelection: Record<string, boolean>
-    }
-    clearSelection: () => {
-        value: true
     }
     setScope: (scope: AnalyticsListScope) => {
         scope: AnalyticsListScope
@@ -524,17 +525,11 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
         ],
         feedSearch: ['', { setFeedSearch: (_, { search }) => search }],
-        // A change of list clears the checks, so a bulk action never reaches rows the person can no longer see.
         rowSelection: [
             {} as Record<string, boolean>,
             {
                 setRowSelection: (_, { rowSelection }) => rowSelection,
                 clearSelection: () => ({}),
-                setScope: () => ({}),
-                setFilters: () => ({}),
-                setFiltersFromUrl: () => ({}),
-                clearFilters: () => ({}),
-                clearNarrowingFilters: () => ({}),
             },
         ],
         shownQuery: [null as AnalyticsFeedQuery | null, { setShownQuery: (_, { query }) => query }],
@@ -549,7 +544,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
     selectors({
         selectedCount: [
             (s) => [s.rowSelection],
-            (rowSelection: Record<string, boolean>): number => Object.values(rowSelection).filter(Boolean).length,
+            (rowSelection: Record<string, boolean>): number => Object.keys(rowSelection).length,
         ],
         mode: [
             (s) => [s.filters],
@@ -989,6 +984,11 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
         }
     }),
+    // Any change of list clears the checks, so a bulk action never reaches rows the person can no longer see.
+    subscriptions(({ actions }) => ({
+        filters: () => actions.clearSelection(),
+        scope: () => actions.clearSelection(),
+    })),
     actionToUrl(({ values }) => {
         const toUrl = (): string => {
             return values.scope === 'mine'
