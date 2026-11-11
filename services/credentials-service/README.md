@@ -221,6 +221,17 @@ on the two staleness signals, or neither degradation is observable.
 `/metrics` listens on its own port, which the chart keeps off the ingress; in-cluster Prometheus
 scrapes it unauthenticated, the same shape as every other service.
 
+## Isolation
+
+This package must not depend on the rest of the monorepo. It shares the pnpm workspace only for
+resolution — nothing from `nodejs/`, `frontend/` or `common/`. The package's own
+`.oxlintrc.json` enforces that with a `no-restricted-imports` rule over static import specifiers
+that name another part of the monorepo. It does not see `require()`, dynamic `import()`, or a new
+npm dependency, so those still rest on review of `package.json` and the lockfile.
+
+Installs run `--ignore-scripts`; nothing in the tree needs an install-time script, and that is
+the npm-specific supply-chain path worth closing here.
+
 ## Provider registry
 
 `src/providers/` holds one spec per integration kind: authorize and token URLs, scopes, PKCE, client secret names with fallbacks for rotated apps, token info paths, refresh policy, minter, and the secret fields that `/resolve` may return.
@@ -251,17 +262,6 @@ The mount must keep `__PROVIDER_` entries for the registry in the exchange and r
 Every provider HTTP call goes through smokescreen. The chart sets `NODE_USE_ENV_PROXY=1` and an egress NetworkPolicy.
 The exchange and refresh PR must use the proxy-aware `fetch`, and must not open its own connection.
 KMS and the internal capture host are the only direct egress.
-
-## Isolation
-
-This package must not depend on the rest of the monorepo. It shares the pnpm workspace only for
-resolution — nothing from `nodejs/`, `frontend/` or `common/`. The package's own
-`.oxlintrc.json` enforces that with a `no-restricted-imports` rule over static import specifiers
-that name another part of the monorepo. It does not see `require()`, dynamic `import()`, or a new
-npm dependency, so those still rest on review of `package.json` and the lockfile.
-
-Installs run `--ignore-scripts`; nothing in the tree needs an install-time script, and that is
-the npm-specific supply-chain path worth closing here.
 
 ## Local development
 
