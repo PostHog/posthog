@@ -313,7 +313,9 @@ const apmSpansTree = (): ToolBase<ReturnType<typeof ApmSpansTreeSchema>, Schemas
 const ApmTraceGetSchema = () => {
     const TracingSpansTraceCreateBody = orvalSchemas.TracingSpansTraceCreateBody()
     const TracingSpansTraceCreateParams = orvalSchemas.TracingSpansTraceCreateParams()
-    return TracingSpansTraceCreateParams.omit({ project_id: true }).extend(TracingSpansTraceCreateBody.shape)
+    return TracingSpansTraceCreateParams.omit({ project_id: true })
+        .extend(TracingSpansTraceCreateBody.shape)
+        .extend({ summary: TracingSpansTraceCreateBody.shape['summary'].default(true).optional() })
 }
 
 const apmTraceGet = (): ToolBase<ReturnType<typeof ApmTraceGetSchema>, WithPostHogUrl<Schemas._TracingTraceResponse>> =>
@@ -332,12 +334,23 @@ const apmTraceGet = (): ToolBase<ReturnType<typeof ApmTraceGetSchema>, WithPostH
             if (params.offset !== undefined) {
                 body['offset'] = params.offset
             }
+            if (params.summary !== undefined) {
+                body['summary'] = params.summary
+            }
+            if (params.summaryLimit !== undefined) {
+                body['summaryLimit'] = params.summaryLimit
+            }
             const result = await context.api.request<Schemas._TracingTraceResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
                 body,
             })
-            const filtered = pickResponseFields(result, ['results']) as typeof result
+            const filtered = pickResponseFields(result, [
+                'results',
+                'summary',
+                'hasMore',
+                'nextOffset',
+            ]) as typeof result
             return await withPostHogUrl(context, filtered, `/tracing?trace=${params.trace_id}`)
         },
     })

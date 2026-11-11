@@ -24,7 +24,7 @@ When the question asks for SLO burn, call `posthog:metric-list` before the APM t
 | -------------------------------------- | ------------------------------------------------- |
 | `posthog:apm-service-health`           | Status per service against a baseline: start here |
 | `posthog:query-apm-spans`              | Search and filter spans (compact list view)       |
-| `posthog:apm-trace-get`                | Get the full span list for one hex `trace_id`     |
+| `posthog:apm-trace-get`                | Summarize one hex `trace_id` (or list its spans)  |
 | `posthog:apm-spans-aggregate`          | Per-operation aggregates (count, p50/p95, errors) |
 | `posthog:apm-spans-tree`               | Call-tree aggregates per `(parent, child)` edge   |
 | `posthog:apm-spans-count`              | Scalar span count — cheap filter pre-flight       |
@@ -48,15 +48,21 @@ posthog:apm-trace-get
 }
 ```
 
-The response is `{ results: [span, span, …], _posthogUrl: "…" }` — a flat list of every span in the trace.
-The list can be very large for fan-out request flows; when it exceeds the inline limit, Claude Code auto-persists it to a file.
+By default the response is `{ summary: {…}, results: [], _posthogUrl: "…" }`: a digest of about 3 KB, whatever the trace size. Entries name their `service` only when it differs from the root's.
 
-From the result you get:
-
-- Every span with `name`, `service_name`, `kind`, `status_code`, `parent_span_id`, `duration_nano`, `is_root_span`
+- `duration_ms`, `span_count`, `service_count`, `error_count`, `root`, and `services` (spans per service)
+- `top_self_time` — spans with the most self time (duration not covered by children); a parent near the top is an **uninstrumented gap**
+- `critical_path` — the spans the trace's end time waits on, from the root down (`depth`), with a run of same-named siblings collapsed into one entry with a `count`; spans under 1% of the root's duration are left out and counted in `critical_path_omitted`
+- `repeated_spans` — service and name pairs that occur more than once, by total time; many fast repeats are an N+1 pattern
+- `errors` — error spans with the exception `message`
+- `truncated` — true when the trace has more than 2000 spans and the digest covers only the first 2000
 - The `_posthogUrl` — a deep link to this trace in the tracing UI; **always include this in your response** so the user can click through
 
-### Step 2 — Parse large results with scripts
+Use the `span_id`s in the summary to say which span you mean, and pass `summaryLimit` (up to 50) for longer lists.
+
+### Step 2 — Fetch every span only when the summary is not enough
+
+Pass `"summary": false` to get `{ results: [span, span, …], hasMore, nextOffset }`: every span with `name`, `service_name`, `kind`, `status_code`, `parent_span_id`, `duration_nano`, `self_time_nano`, `is_root_span`, its `attributes` and `events`. Set `"excludeAttributes": true` unless you need the attributes. The list can be very large for fan-out request flows; when it exceeds the inline limit, Claude Code auto-persists it to a file.
 
 When the result is persisted to a file (traces with hundreds of spans across services), use the [parsing scripts](./scripts/) to explore it.
 
@@ -116,15 +122,15 @@ To rebuild the tree:
 
 ### "Where is time going?"
 
-1. Every span from `apm-trace-get` carries `self_time_nano` — duration not covered by children. Sort by it: the top span is where wall-clock actually went. A parent with large `self_time_nano` is an **uninstrumented gap** (the work happened inside it, not in any recorded child).
-2. Run `print_summary.py` — it surfaces the top-5 slowest spans by `duration_nano`.
+1. Read `top_self_time` and `critical_path` in the `apm-trace-get` summary. The top self-time span is where wall-clock actually went; a parent there is an **uninstrumented gap** (the work happened inside it, not in any recorded child). A `critical_path` entry with a large `count`, or a big `repeated_spans` entry, is an N+1 loop.
+2. With `"summary": false`, run `print_summary.py` — it surfaces the top-5 slowest spans by `duration_nano`.
 3. For a noisy trace, run `print_timeline.py` and scan the indented durations — you can see whether time is dominated by one child span or fan-out across many.
 4. To dig into one slow span, `SPAN="<name>" python3 scripts/extract_span.py FILE`.
 5. For aggregate "which child dominates" questions use `apm-spans-tree` and read `calls_per_parent_invocation` — it separates a child that's slow per call from one that merely runs 20× per parent.
 
 ### "Where did the error happen?"
 
-1. `print_summary.py` lists every span with `status_code == 2` (Error). Each entry shows service, span name, and parent context.
+1. The summary's `errors` lists error spans with their exception message. With `"summary": false`, `print_summary.py` lists every span with `status_code == 2` (Error), with service, span name, and parent context.
 2. Walk up the tree from an error span via `parent_span_id` to see what request path led there.
 3. Error detail lives in each span's `attributes` map (e.g. `exception.message`, `exception.type`), which **is** returned in the trace payload — read it directly off the error span. `apm-attribute-values-list` is for discovering values across spans, not a prerequisite for reading one span's attributes.
 

@@ -1,6 +1,6 @@
 # APM span field reference
 
-Fields returned by `apm-trace-get` and `query-apm-spans`.
+Span fields returned by `query-apm-spans` and by `apm-trace-get` with `"summary": false`. By default `apm-trace-get` returns a `summary` digest instead; see the skill's Step 1.
 
 ## Span fields
 
