@@ -737,7 +737,10 @@ describe('aiObservabilityDatasetLogic', () => {
                 mockDatasetsApi.listDatasets.mockResolvedValue({ results: [targetDataset], count: 1 })
                 const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
                 logic.mount()
-                const button = saveToDatasetButtonLogic({ partialDatasetItem: { input: { message: 'hello' } } })
+                const button = saveToDatasetButtonLogic({
+                    partialDatasetItem: { input: { message: 'hello' } },
+                    step: null,
+                })
                 button.mount()
                 await expectLogic(logic).toFinishAllListeners()
                 await expectLogic(button).toFinishAllListeners()

@@ -4,7 +4,14 @@ import collections.abc
 import aiohttp.client_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
-from posthog.models.app_metrics2.sql import APP_METRICS2_DATA_TABLE_SQL, APP_METRICS2_MV_TABLE_SQL
+from posthog.clickhouse.client import sync_execute
+from posthog.models.app_metrics2.sql import (
+    APP_METRICS2_DATA_TABLE_SQL,
+    APP_METRICS2_MV_TABLE_SQL,
+    DROP_APP_METRICS2_MV_TABLE_SQL,
+    DROP_KAFKA_APP_METRICS2_TABLE_SQL,
+    KAFKA_APP_METRICS2_TABLE_SQL,
+)
 from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 
@@ -25,9 +32,10 @@ async def execute_query(clickhouse_client: ClickHouseClient, query: str, *data):
     return await clickhouse_client.execute_query(query, *data)
 
 
-async def create_clickhouse_tables_and_views(clickhouse_client):
-    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
+_kafka_tables_created = False
 
+
+async def create_clickhouse_tables_and_views(clickhouse_client):
     from products.batch_exports.backend.sql import (
         CREATE_EVENTS_BATCH_EXPORT_VIEW,
         CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
@@ -47,7 +55,7 @@ async def create_clickhouse_tables_and_views(clickhouse_client):
     )
 
     clickhouse_tasks = set()
-    for query in create_view_queries + tuple(map(build_query, CREATE_KAFKA_TABLE_QUERIES)):
+    for query in create_view_queries:
         task = asyncio.create_task(execute_query(clickhouse_client, query))
         clickhouse_tasks.add(task)
         task.add_done_callback(clickhouse_tasks.discard)
@@ -61,14 +69,29 @@ async def create_clickhouse_tables_and_views(clickhouse_client):
         if exc := task.exception():
             raise exc
 
+    # Tests read the batch export metrics that Kafka delivers to app_metrics2, so they need its Kafka table.
+    # The MV reads from the Kafka table, so create them in this order.
     for query in (
+        KAFKA_APP_METRICS2_TABLE_SQL(),
         APP_METRICS2_DATA_TABLE_SQL(),
         APP_METRICS2_MV_TABLE_SQL(),
     ):
-        # NOTE: Must be executed in order and after Kafka tables
         await execute_query(clickhouse_client, query)
 
-    return
+    global _kafka_tables_created
+    _kafka_tables_created = True
+
+
+def drop_clickhouse_kafka_tables() -> None:
+    # A Kafka engine table polls Kafka until it is dropped, which keeps ClickHouse busy after the test run.
+    # The drop waits for the end of the session, because a recreated table rejoins its Kafka consumer group
+    # and the first test after that can time out waiting for its metrics.
+    global _kafka_tables_created
+    if not _kafka_tables_created:
+        return
+    for query in (DROP_APP_METRICS2_MV_TABLE_SQL, DROP_KAFKA_APP_METRICS2_TABLE_SQL):
+        sync_execute(query)
+    _kafka_tables_created = False
 
 
 EVENTS_TABLES = (

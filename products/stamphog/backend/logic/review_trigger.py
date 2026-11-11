@@ -12,6 +12,14 @@ from typing import Any
 from ..facade.enums import ReviewMode, ReviewTrigger
 
 
+def is_silent_output(output: dict[str, Any] | None) -> bool:
+    """Whether a run with this output posts only an approval and keeps every other verdict off the PR.
+
+    Read from the stamped trigger, which every silent run carries from its creation.
+    """
+    return (output or {}).get("review_trigger") == ReviewTrigger.REVIEWHOG_CLEAN
+
+
 def derive_review_trigger(
     *,
     has_inbox_review: bool,
