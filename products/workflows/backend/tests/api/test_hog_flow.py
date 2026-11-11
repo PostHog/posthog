@@ -5270,11 +5270,17 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert message in response.json().get("detail", "")
 
-    @parameterized.expand([("is_set",), ("is_not_set",)])
-    def test_hog_flow_user_blast_radius_counts_a_valueless_operator_with_an_empty_value(self, operator):
+    @parameterized.expand(
+        [
+            ("is_set_with_empty_value", {"key": "email", "type": "person", "value": [], "operator": "is_set"}),
+            ("is_not_set_with_empty_value", {"key": "email", "type": "person", "value": [], "operator": "is_not_set"}),
+            ("hogql_expression", {"key": "properties.email = 'a@b.com'", "type": "hogql"}),
+        ]
+    )
+    def test_hog_flow_user_blast_radius_counts_a_finished_condition_without_a_value(self, _name, condition):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-            {"filters": {"properties": [{"key": "email", "type": "person", "value": [], "operator": operator}]}},
+            {"filters": {"properties": [condition]}},
             format="json",
         )
 
