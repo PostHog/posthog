@@ -21,6 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
+import { InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import {
@@ -753,6 +754,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     })),
 
     afterMount(({ actions }) => {
+        void InsightVizRenderer.preload()
         actions.loadCreators()
         actions.loadScannerStats()
         // tagsModel is lazy; load it here so a direct visit doesn't start with an empty tags filter.

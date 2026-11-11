@@ -23,18 +23,21 @@ const TRENDS_VIZ: InsightVizNode = {
 describe('VisionInsightChart', () => {
     describe('chartOverlayState', () => {
         // `insightData` is always a truthy object from the selector, so the decision must hinge on `result`, not the object.
-        const cases: [string, { result?: unknown } | null | undefined, boolean, ChartOverlayState][] = [
-            ['null insightData while loading', null, true, 'loading'],
-            ['null insightData settled (cancelled/never-loaded)', null, false, 'error'],
-            ['truthy object with no result while loading', { result: undefined }, true, 'loading'],
-            ['truthy object with no result settled', { result: undefined }, false, 'error'],
-            ['loaded with rows', { result: [{ x: 1 }] }, false, 'none'],
-            ['loaded but empty result', { result: [] }, false, 'none'],
-            ['loaded, ignores a stale loading flag during refresh', { result: [{ x: 1 }] }, true, 'none'],
+        const cases: [string, { result?: unknown } | null | undefined, boolean, boolean, ChartOverlayState][] = [
+            ['before the renderer starts a query', null, false, false, 'loading'],
+            ['before a result exists', { result: undefined }, false, false, 'loading'],
+            ['pending query', { result: undefined }, true, false, 'loading'],
+            ['query failed', { result: undefined }, false, true, 'error'],
+            ['null response after failure', null, false, true, 'error'],
+            ['retrying a failed query', null, true, true, 'loading'],
+            ['loaded with rows', { result: [{ x: 1 }] }, false, false, 'none'],
+            ['loaded but empty result', { result: [] }, false, false, 'none'],
+            ['refreshing with existing rows', { result: [{ x: 1 }] }, true, false, 'none'],
+            ['existing result despite error', { result: [] }, false, true, 'none'],
         ]
 
-        it.each(cases)('%s', (_label, insightData, loading, expected) => {
-            expect(chartOverlayState(insightData, loading)).toEqual(expected)
+        it.each(cases)('%s', (_label, insightData, loading, hasError, expected) => {
+            expect(chartOverlayState(insightData, loading, hasError)).toEqual(expected)
         })
     })
 
