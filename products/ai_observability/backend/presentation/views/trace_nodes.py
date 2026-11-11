@@ -32,7 +32,7 @@ class TraceNodeParserTestRequestSerializer(serializers.Serializer):
     source = serializers.CharField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         # Preserve the YAML verbatim
         trim_whitespace=False,
-        max_length=api.PARSER_RECIPE_MAX_SOURCE_LENGTH,
+        max_length=contracts.PARSER_RECIPE_MAX_SOURCE_LENGTH,
         help_text="The parser recipe to test, as raw YAML in the custom parser DSL.",
     )
 
