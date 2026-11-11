@@ -894,15 +894,19 @@ def create_native_configuration(
     source_kind: SourceKind,
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
+    recurrence_unit: str | None,
     destinations_owner: PlatformAlertOwner,
     created_by_id: int | None,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
+    if recurrence_unit is not None:
+        to_recurrence_interval(recurrence_unit)
     configuration = PlatformAlertConfiguration(
         team_id=team_id,
         source_kind=source_kind.value,
         check_interval_minutes=check_interval_minutes,
+        recurrence_unit=recurrence_unit,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
         destinations_owner=destinations_owner,
