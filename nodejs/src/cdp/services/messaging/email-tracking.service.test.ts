@@ -192,6 +192,67 @@ describe('EmailTrackingService', () => {
 
             it.each([
                 [
+                    'a single-quoted href',
+                    `<a href='https://example.com/a'>a</a>`,
+                    `<a href='https://example.com/a' ses:tags="phl:0">a</a>`,
+                ],
+                [
+                    'an unquoted href',
+                    '<a href=https://example.com/a>a</a>',
+                    '<a href=https://example.com/a ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'spaces around the equals sign',
+                    '<a href = "https://example.com/a">a</a>',
+                    '<a href = "https://example.com/a" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'an uppercase tag',
+                    '<A HREF="https://example.com/a">a</A>',
+                    '<A HREF="https://example.com/a" ses:tags="phl:0">a</A>',
+                ],
+                [
+                    'a self-closing opening tag',
+                    '<a href="https://example.com/a" />a</a>',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'a stray opener inside the tag',
+                    '<a <a href="https://example.com/a">a</a>',
+                    '<a <a href="https://example.com/a" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'an unclosed anchor before a closed one',
+                    '<a href="https://example.com/a">a<a href="https://example.com/b">b</a>',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a<a href="https://example.com/b">b</a>',
+                ],
+                [
+                    'a named anchor after a link',
+                    '<a href="https://example.com/a">a</a><a name="top">b</a>',
+                    '<a href="https://example.com/a" ses:tags="phl:0">a</a><a name="top">b</a>',
+                ],
+                [
+                    'a named anchor before a link',
+                    '<a name="top">a<a href="https://example.com/b">b</a>',
+                    '<a name="top">a<a href="https://example.com/b" ses:tags="phl:0">b</a>',
+                ],
+                [
+                    'an anchor that never closes',
+                    '<a href="https://example.com/a">a',
+                    '<a href="https://example.com/a">a',
+                ],
+                [
+                    'a tag that only starts with a',
+                    '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
+                    '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
+                ],
+            ])('tags the anchors in %s', (_name, body, tagged) => {
+                const out = sesTrack(`<body>${body}</body>`)
+                expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${tagged}`)
+            })
+
+            it.each([
+                [
                     'clicktracking="off"',
                     '<body><a href="https://example.com" clicktracking="off">x</a></body>',
                     invocation,
@@ -371,6 +432,32 @@ describe('EmailTrackingService', () => {
                 expect(res.headers.location).toBe('https://example.com/?a=1&b=2')
 
                 await expectLinkClickedMetrics(1)
+            })
+
+            it.each([
+                [
+                    'two valid hrefs',
+                    `<a href="https://example.com/a" href='https://example.com/b'>x</a>`,
+                    'https://example.com/b',
+                ],
+                [
+                    'a javascript: href after a valid one',
+                    '<a href="https://example.com/a" href="javascript:x">x</a>',
+                    'https://example.com/a',
+                ],
+                ['a quoted href holding a >', '<a href="https://example.com/?a>b">x</a>', 'https://example.com/?a%3Eb'],
+            ])('should redirect a tracked link in %s to its last trackable href', async (_name, anchor, expected) => {
+                const html = addTrackingToEmail(
+                    `<body>${anchor}</body>`,
+                    { functionId: hogFunction.id, id: invocationId, teamId: team.id, state: {} } as any,
+                    signer
+                )
+                const link = new URL(html.match(/href="([^"]+\/public\/m\/redirect[^"]+)"/)![1])
+
+                const res = await supertest(app).get(`${link.pathname}${link.search}`)
+
+                expect(res.status).toBe(302)
+                expect(res.headers.location).toBe(expected)
             })
 
             it.each([
