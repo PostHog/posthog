@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { COMMANDS } from '@/commands'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
+import { inCIWithoutAPerson } from '@/core/approval'
 import {
     argumentSyntax,
     longFlag,
@@ -227,6 +228,13 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             }
 
             ctx = new Context(commandRuntime, globals, mode, COMMANDS, config, telemetry)
+            if (node.refusesCI && inCIWithoutAPerson(ctx)) {
+                throw new HogError(
+                    'not_in_ci',
+                    `\`hog ${path}\` ${node.refusesCI.reason}, so it does not run in CI.`,
+                    node.refusesCI.hint
+                )
+            }
             let result: unknown
             try {
                 result = await node.run({ args, options, ctx })

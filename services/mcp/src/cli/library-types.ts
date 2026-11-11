@@ -50,6 +50,9 @@ export interface ApiToolError {
         | 'tool_error'
     message: string
     status?: number
+    /** PostHog's own reason for refusing the request. It can repeat request values, so it stays out of
+     *  `message` and the caller decides where it is safe to show. */
+    detail?: string
     /** The scope PostHog named when it refused the request. */
     missingScope?: string
 }

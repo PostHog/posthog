@@ -184,6 +184,27 @@ class OwnershipSource:
     glob: str | None = None
 
 
+@dataclass(frozen=True, kw_only=True)
+class Attestation:
+    """A CI check that may lift deny categories for the files it vouches for.
+
+    `check` and `app_id` pin the check run to its publisher App, because any workflow can post a
+    check run under any name as github-actions. `lifts` names the deny categories the check may
+    lift, `paths` the files it may lift them for, and `sibling_files` the companion filenames that are
+    lifted with a file beside them. `publisher_files` are the default-branch paths the publisher runs
+    from. When set, a result counts only when it pins each of them to a blob, and only while the
+    default branch still holds every blob the result pins.
+    """
+
+    name: str
+    check: str
+    app_id: int
+    lifts: tuple[str, ...]
+    paths: tuple[str, ...]
+    sibling_files: tuple[str, ...] = ()
+    publisher_files: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class Policy:
     version: int
@@ -196,6 +217,7 @@ class Policy:
     familiarity: FamiliarityPolicy
     ownership: tuple[OwnershipSource, ...]
     deny_exceptions: dict[str, tuple[DenyException, ...]] = field(default_factory=dict)
+    attestations: tuple[Attestation, ...] = ()
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -284,7 +306,12 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
-_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions"}
+_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations"}
+# GitHub Actions. Any workflow's GITHUB_TOKEN posts check runs as this App, so a result from it
+# proves nothing about who produced it.
+_GITHUB_ACTIONS_APP_ID = 15368
+_ATTESTATION_REQUIRED_KEYS = {"name", "check", "app_id", "lifts", "paths"}
+_ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_files"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -379,6 +406,61 @@ def _parse_deny(raw: Any, lockfile_names: Iterable[str]) -> dict[str, DenyCatego
             "deny: missing 'deps_toolchain' category (the code-derived lockfile patterns splice into it)",
         )
     return deny
+
+
+def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Attestation, ...]:
+    _require(isinstance(raw, list), "attestations: must be a list")
+    attestations: list[Attestation] = []
+    for index, entry in enumerate(raw):
+        context = f"attestations[{index}]"
+        _require(isinstance(entry, dict), f"{context}: must be a mapping")
+        unknown = set(entry) - _ATTESTATION_KEYS
+        _require(not unknown, f"{context}: unknown keys {sorted(unknown)}")
+        missing = _ATTESTATION_REQUIRED_KEYS - set(entry)
+        _require(not missing, f"{context}: missing keys {sorted(missing)}")
+        name = entry["name"]
+        _require(isinstance(name, str) and bool(name), f"{context}.name: must be a non-empty string")
+        _require(name not in {a.name for a in attestations}, f"{context}.name: duplicate {name!r}")
+        _require(
+            isinstance(entry["check"], str) and bool(entry["check"]), f"{context}.check: must be a non-empty string"
+        )
+        app_id = _require_positive_int(entry["app_id"], f"{context}.app_id")
+        _require(
+            app_id != _GITHUB_ACTIONS_APP_ID, f"{context}.app_id: github-actions cannot attest, pin the publisher App"
+        )
+        lifts = _parse_string_list(entry["lifts"], f"{context}.lifts", non_empty=True)
+        for category in lifts:
+            _require(category in deny, f"{context}.lifts: unknown deny category {category!r}")
+            _require(category != "stamphog_policy", f"{context}.lifts: stamphog_policy cannot be lifted")
+        paths = _parse_string_list(entry["paths"], f"{context}.paths", non_empty=True)
+        for pattern in paths:
+            _compile_or_raise(pattern, f"{context}.paths")
+        siblings = _parse_string_list(entry.get("sibling_files", []), f"{context}.sibling_files")
+        for sibling in siblings:
+            _require("/" not in sibling, f"{context}.sibling_files: {sibling!r} must be a bare filename")
+        publisher_files = _parse_string_list(entry.get("publisher_files", []), f"{context}.publisher_files")
+        for path in publisher_files:
+            _require_repo_relative(path, f"{context}.publisher_files")
+        attestations.append(
+            Attestation(
+                name=name,
+                check=entry["check"],
+                app_id=app_id,
+                lifts=lifts,
+                paths=paths,
+                sibling_files=siblings,
+                publisher_files=publisher_files,
+            )
+        )
+    return tuple(attestations)
+
+
+def _parse_string_list(raw: object, context: str, *, non_empty: bool = False) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        raise PolicyError(f"{context}: must be a list")
+    _require(not non_empty or bool(raw), f"{context}: must be a non-empty list")
+    _require(all(isinstance(v, str) and bool(v) for v in raw), f"{context}: entries must be non-empty strings")
+    return tuple(raw)
 
 
 def _parse_deny_exception_prefixes(raw: object, context: str) -> tuple[str, ...]:
@@ -707,6 +789,7 @@ def _parse_policy(raw: Any, *, lockfile_names: Iterable[str], ownership_formats:
         familiarity=_parse_familiarity(raw["familiarity"]),
         ownership=_parse_ownership(raw["ownership"], ownership_formats),
         deny_exceptions=_parse_deny_exceptions(raw.get("deny_exceptions", {}), deny),
+        attestations=_parse_attestations(raw.get("attestations", []), deny),
     )
 
 

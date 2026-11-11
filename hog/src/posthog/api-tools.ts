@@ -8,7 +8,7 @@ import type {
 } from '@posthog/mcp/src/cli/library-types'
 
 import type { Context } from '@/core/context'
-import { HogError } from '@/core/errors'
+import { EXIT_FAILURE, HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { ApiError, stepUpRequired } from './api'
@@ -154,17 +154,21 @@ export function missingScopesError(
 }
 
 export function toHogError(error: ApiToolError, tool?: string, credentials?: Credentials): HogError {
+    const { detail } = error
     switch (error.code) {
         case 'permission_denied':
             return error.missingScope && tool
                 ? missingScopesError(tool, [error.missingScope], credentials)
-                : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT)
+                : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT, undefined, detail)
         case 'validation_error':
         case 'invalid_input':
             return new HogError(
                 error.code,
                 error.message,
-                tool ? `Run \`hog api schema ${tool}\` to see the input it takes.` : undefined
+                tool ? `Run \`hog api schema ${tool}\` to see the input it takes.` : undefined,
+                EXIT_FAILURE,
+                undefined,
+                detail
             )
         case 'needs_confirmation':
             return new HogError(error.code, error.message, 'Run it again with --confirm.')
@@ -184,7 +188,7 @@ export function toHogError(error: ApiToolError, tool?: string, credentials?: Cre
                 404: 'Check the IDs in the input, and the project ID.',
             }
             const status = error.status ?? 500
-            return new ApiError(status, undefined, `http_${status}`, error.message, hints[status])
+            return new ApiError(status, undefined, `http_${status}`, error.message, hints[status], undefined, detail)
         }
         case 'tool_error':
             return new HogError(error.code, error.message)

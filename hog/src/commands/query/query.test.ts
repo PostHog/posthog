@@ -146,31 +146,56 @@ describe('hog query', () => {
     test.each([
         [
             'a validation error points to query check',
+            {},
             400,
             { type: 'validation_error', code: 'hogql_query_error', detail: 'Unable to resolve field: nope' },
             {
                 code: 'hogql_query_error',
-                message: 'Unable to resolve field: nope',
+                message: 'PostHog answered with HTTP 400: Unable to resolve field: nope',
                 hint: expect.stringContaining('hog query check'),
             },
         ],
         [
             'a field of another type keeps the rest of the error',
+            {},
             400,
             { type: 'validation_error', code: null, detail: 'Unable to resolve field: nope' },
-            { message: 'Unable to resolve field: nope', hint: expect.stringContaining('hog query check') },
+            {
+                message: 'PostHog answered with HTTP 400: Unable to resolve field: nope',
+                hint: expect.stringContaining('hog query check'),
+            },
         ],
         [
             'a 403 names the scope the command needs',
+            {},
             403,
             { type: 'authentication_error', code: 'permission_denied', detail: 'No access' },
             { code: 'permission_denied', hint: expect.stringContaining('query:read') },
         ],
-    ])('run: %s', async (_name, status, body, error) => {
+        [
+            "a validation error in CI leaves out PostHog's reason",
+            { CI: 'true' },
+            400,
+            { type: 'validation_error', code: 'hogql_query_error', detail: 'Unable to resolve field: nope' },
+            {
+                code: 'hogql_query_error',
+                message: 'PostHog answered with HTTP 400.',
+                hint: expect.stringContaining('hidden in CI'),
+            },
+        ],
+        [
+            "a validation error on a CI service that doesn't set CI leaves out PostHog's reason",
+            { JENKINS_URL: 'https://jenkins.example.com/' },
+            400,
+            { type: 'validation_error', code: 'hogql_query_error', detail: 'Unable to resolve field: nope' },
+            { message: 'PostHog answered with HTTP 400.', hint: expect.stringContaining('hidden in CI') },
+        ],
+    ])('run: %s', async (_name, env, status, body, error) => {
         const result = await runHog(['query', 'run', 'select nope from events'], {
-            env: TEST_CREDENTIALS,
+            env: { ...TEST_CREDENTIALS, ...env },
             respond: () => ({ status, body }),
         })
+
         expect(result.exitCode).toBe(1)
         expect(result.error()).toMatchObject(error)
     })
