@@ -7,6 +7,7 @@ import csv
 import sys
 import json
 import errno
+import shlex
 import signal
 import hashlib
 import subprocess
@@ -1756,8 +1757,14 @@ class TestDevboxWorktreeCommand:
         box_repo = box_home / "posthog"
         (box_repo / "bin").mkdir(parents=True)
         hogli_stub = box_repo / "bin" / "hogli"
-        hogli_stub.write_text('#!/bin/sh\necho "$@" >> "$HOME/hogli-calls"\n')
+        hogli_stub.write_text('#!/bin/sh\necho "$@ (flox: ${FLOX_ENV:-off})" >> "$HOME/hogli-calls"\n')
         hogli_stub.chmod(0o755)
+        flox_stub = box_home / "tools" / "flox"
+        flox_stub.parent.mkdir()
+        flox_stub.write_text(
+            '#!/bin/sh\n[ "$1" = activate ] && [ "$2" = -- ] || exit 2\nshift 2\nFLOX_ENV=on exec "$@"\n'
+        )
+        flox_stub.chmod(0o755)
         if marker_on_box:
             (box_home / ".config" / "hogli").mkdir(parents=True)
             (box_home / ".config" / "hogli" / "start-app").touch()
@@ -1784,11 +1791,13 @@ class TestDevboxWorktreeCommand:
                 code, out, err = clone_reply if argv[2] == "clone" and clone_reply else (0, up_reply, "")
                 return subprocess.CompletedProcess(argv, code, out, err)
             if argv[0] == "ssh":
+                shell, login_flag, script = shlex.split(argv[-1])
+                assert (shell, login_flag) == ("bash", "-lc")
                 return real_run(
-                    ["bash", "-c", argv[-1]],
+                    ["bash", "--noprofile", "--norc", "-c", script],
                     capture_output=True,
                     text=True,
-                    env={"HOME": str(box_home), "PATH": os.environ["PATH"]},
+                    env={"HOME": str(box_home), "PATH": f"{flox_stub.parent}:{os.environ['PATH']}"},
                 )
             return subprocess.CompletedProcess(argv, 1, "", "")
 
@@ -1800,7 +1809,7 @@ class TestDevboxWorktreeCommand:
         assert output_has in result.output
         assert hogland_calls == expected_hogland
         events = box_events.read_text() if box_events.exists() else ""
-        assert events == ("sync flushed\nup -d -y\n" if app_started else "")
+        assert events == ("sync flushed\nup -d -y (flox: on)\n" if app_started else "")
 
 
 class TestWorkspaceRegion:

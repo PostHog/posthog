@@ -162,7 +162,8 @@ def save_start_app(name: str, enable: bool | None) -> bool:
 
 
 def start_app(name: str) -> bool:
-    return _run_on_box(name, f"cd {REMOTE_REPO_PATH} && ./bin/hogli up -d -y", "start the app") is not None
+    script = f"cd {REMOTE_REPO_PATH} && flox activate -- ./bin/hogli up -d -y"
+    return _run_on_box(name, script, "start the app") is not None
 
 
 def _run_on_box(name: str, script: str, action: str) -> subprocess.CompletedProcess[str] | None:
