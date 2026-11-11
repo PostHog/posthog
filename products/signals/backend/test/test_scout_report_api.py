@@ -1739,8 +1739,8 @@ class TestScoutReportAPI(APIBaseTest):
         assert (content["repository"], content["autostart_eligible"]) == ("acme/widgets", False)
 
     def test_combined_rewrite_and_reviewer_edit_autostarts_on_the_refreshed_repository(self) -> None:
-        # One edit can both move the report onto a new repository and add the reviewer that lets an
-        # inferred target autostart. Autostart reads the selection as it stands and is idempotent, so
+        # One edit can both move the report onto a new repository and add a reviewer, which re-runs
+        # autostart. Autostart reads the selection as it stands and is idempotent, so
         # refreshing after it would open the implementation task against the repository the same edit
         # just replaced, with no second chance to correct it.
         run = _make_run(self.team)
