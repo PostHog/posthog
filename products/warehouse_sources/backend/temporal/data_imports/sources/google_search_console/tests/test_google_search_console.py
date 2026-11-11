@@ -854,6 +854,14 @@ def _appearance_row(appearance: str) -> dict:
             ],
             [dt.date(2026, 4, 25), dt.date(2026, 4, 26), dt.date(2026, 4, 27)],
         ),
+        # A one-day window would ask the same question twice, so it skips the window call.
+        (
+            dt.date(2026, 4, 27),
+            None,
+            [],
+            [("2026-04-27", "2026-04-27")],
+            [dt.date(2026, 4, 27)],
+        ),
         # A resumed run only asks about the days it has left.
         (
             dt.date(2026, 4, 20),

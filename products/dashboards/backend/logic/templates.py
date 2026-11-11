@@ -43,8 +43,7 @@ def create_starter_dashboard(*, team_id: int) -> Dashboard:
         pinned=True,
         team=team,
         description=template.dashboard_description or "",
-        # Created with the template's settings, the template step below changes no field, so the
-        # dashboard gets one "created" activity entry rather than a second "updated" one.
+        # With the template's values set here, the template step logs no second "updated" activity entry.
         filters=template.dashboard_filters,
         customization=stored_customization(template.customization),
     )
