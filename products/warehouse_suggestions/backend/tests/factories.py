@@ -4,9 +4,21 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from django.utils import timezone
+
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
-from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
+from products.warehouse_suggestions.backend.facade.contracts import (
+    PAYLOAD_VERSION,
+    MaterializePayload,
+    SuggestionDraft,
+    SuggestionPayload,
+)
+from products.warehouse_suggestions.backend.facade.enums import (
+    WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
+    WarehouseSuggestionSubjectKind,
+)
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.inventory import TeamInventory
 from products.warehouse_suggestions.backend.logic.reads import (
@@ -18,6 +30,8 @@ from products.warehouse_suggestions.backend.logic.reads import (
     TeamReads,
 )
 from products.warehouse_suggestions.backend.logic.rules import RULES, Rules, Surface
+from products.warehouse_suggestions.backend.logic.suggestions import upsert_suggestions
+from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
 TODAY = date(2026, 10, 7)
 CREATED_AT = datetime(2026, 8, 1, tzinfo=UTC)
@@ -118,3 +132,56 @@ def context(
 
 def days_ago(count: int) -> datetime:
     return datetime.combine(TODAY, datetime.min.time(), tzinfo=UTC) - timedelta(days=count)
+
+
+def materialize_payload(**overrides: Any) -> MaterializePayload:
+    payload = MaterializePayload(
+        subject_name="orders",
+        refresh_interval_seconds=3600,
+        saves_seconds_per_month=2400.0,
+        saves_bytes_per_month=0.0,
+        freshness_today_seconds=None,
+        freshness_after_seconds=3600,
+        waiting_seconds_saved_per_month=2400.0,
+        background_seconds_saved_per_month=0.0,
+        main_saving=WarehouseSuggestionMainSaving.WAITING,
+        read_seconds=20.0,
+        live_sources=(),
+        unknown_sources=(),
+    )
+    return replace(payload, **overrides)
+
+
+def make_surfaced_suggestion(
+    team_id: int,
+    view_id: UUID,
+    *,
+    kind: WarehouseSuggestionKind = WarehouseSuggestionKind.MATERIALIZE,
+    payload: SuggestionPayload | None = None,
+    surfaced: bool = True,
+) -> WarehouseSuggestion:
+    fingerprint = f"{kind}:{view_id}"
+    upsert_suggestions(
+        team_id,
+        [
+            SuggestionDraft(
+                kind=kind,
+                fingerprint=fingerprint,
+                subject_kind=WarehouseSuggestionSubjectKind.SAVED_QUERY,
+                subject_id=view_id,
+                payload=payload or materialize_payload(),
+                payload_version=PAYLOAD_VERSION,
+                rules_version="test",
+                evidence={},
+                evidence_window_start=days_ago(30),
+                evidence_window_end=days_ago(0),
+                score=1.0,
+                score_inputs={},
+                run_id="run-1",
+            )
+        ],
+    )
+    suggestions = WarehouseSuggestion.objects.for_team(team_id).filter(fingerprint=fingerprint)
+    if surfaced:
+        suggestions.update(surfaced_at=timezone.now())
+    return suggestions.get()

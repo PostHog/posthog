@@ -20,12 +20,7 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.tailscale._config import TailscaleSourceConfig
-from products.warehouse_sources.sources.tailscale.settings import (
-    AUDIT_LOG_RETENTION_DAYS,
-    AUDIT_LOGS_ENDPOINT,
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
+from products.warehouse_sources.sources.tailscale.settings import INCREMENTAL_FIELDS, TAILSCALE_ENDPOINTS
 from products.warehouse_sources.sources.tailscale.tailscale import (
     OAUTH_CREDENTIALS_ERROR,
     TailscaleResumeConfig,
@@ -59,9 +54,9 @@ class TailscaleSource(ResumableSource[TailscaleSourceConfig, TailscaleResumeConf
             label="Tailscale",
             releaseStatus=ReleaseStatus.GA,
             keywords=["vpn", "wireguard", "tailnet"],
-            caption="""Sync your Tailscale devices, users, keys, and configuration audit logs into the PostHog Data warehouse.
+            caption="""Sync your Tailscale devices, users, keys, services, configuration audit logs, and network flow logs into the PostHog Data warehouse.
 
-An **OAuth client** is the recommended credential for recurring syncs — API access tokens expire after at most 90 days. Create one in the [Tailscale admin console](https://login.tailscale.com/admin/settings/oauth) under **Settings > OAuth clients**, with read scopes for the tables you want to sync (for example `devices:core:read`, `users:read`, `auth_keys:read`, and `logs:configuration:read`).
+An **OAuth client** is the recommended credential for recurring syncs — API access tokens expire after at most 90 days. Create one in the [Tailscale admin console](https://login.tailscale.com/admin/settings/oauth) under **Settings > OAuth clients**, with read scopes for the tables you want to sync (for example `devices:core:read`, `users:read`, `auth_keys:read`, `services:read`, `logs:configuration:read`, and `logs:network:read`).
 
 Alternatively, generate an API access token under **Settings > Keys**. Leave the tailnet field blank to use the credential's default tailnet.""",
             iconPath="/static/services/tailscale.png",
@@ -158,16 +153,16 @@ Alternatively, generate an API access token under **Settings > Keys**. Leave the
         schemas = [
             SourceSchema(
                 name=endpoint,
-                # Audit log records carry no unique id, so incremental (merge) syncs are
+                # Log records carry no unique id, so incremental (merge) syncs are
                 # impossible — the server-side time filter powers append syncs instead.
                 supports_incremental=False,
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description=f"Only syncs the last {AUDIT_LOG_RETENTION_DAYS} days (Tailscale's audit log retention)"
-                if endpoint == AUDIT_LOGS_ENDPOINT
+                description=f"Only syncs the last {endpoint_config.retention_days} days (Tailscale's log retention)"
+                if endpoint_config.retention_days
                 else None,
             )
-            for endpoint in ENDPOINTS
+            for endpoint, endpoint_config in TAILSCALE_ENDPOINTS.items()
         ]
         if names is not None:
             names_set = set(names)

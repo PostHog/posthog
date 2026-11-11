@@ -429,6 +429,7 @@ const eventsRetentionUpdatePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'events-retention-update',
+            inputSchema: EventsRetentionUpdateSchema(),
             actionLabel: 'set events retention period',
             messageTemplate:
                 "About to change how long this project keeps events. If the new period is shorter, events in this project that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to proceed.\n",
@@ -451,8 +452,8 @@ const eventsRetentionUpdateExecute = (): ToolBase<
         const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof EventsRetentionUpdateSchema>>>(context, {
             incomingArgs: confirmationParams,
             purpose: 'events-retention-update',
+            inputSchema: EventsRetentionUpdateSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -966,6 +967,7 @@ const organizationEventsRetentionUpdatePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'organization-events-retention-update',
+            inputSchema: OrganizationEventsRetentionUpdateSchema(),
             actionLabel: 'set organization events retention period',
             messageTemplate:
                 "About to change how long projects without their own period keep events. If the new period is shorter, events in those projects that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to proceed.\n",
@@ -993,8 +995,8 @@ const organizationEventsRetentionUpdateExecute = (): ToolBase<
         >(context, {
             incomingArgs: confirmationParams,
             purpose: 'organization-events-retention-update',
+            inputSchema: OrganizationEventsRetentionUpdateSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { orgId: String(__scopeOrgId) },
         })
