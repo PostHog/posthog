@@ -3,6 +3,7 @@
 Use `posthog:inbox-usage-get` for the monthly overview; run these drilldowns with `posthog:execute-sql` in its returned `project_id`.
 Read the `querying-posthog-data` skill's Self-driving usage reference for schema and access details.
 Replace `{date_from}` and `{date_to}` with inclusive/exclusive UTC bounds, for example `toDateTime('2026-10-01 00:00:00', 'UTC')` and `toDateTime('2026-11-01 00:00:00', 'UTC')`.
+For a billing period, use `billing_period.current_period_start` and `current_period_end` from `posthog:billing-subscription-get`. They are UTC timestamps, so `2026-10-17T00:00:00Z` becomes `toDateTime('2026-10-17 00:00:00', 'UTC')`.
 Replace `{yield_from}` with the start of the last 60 days, in the same format.
 Multiply credits by the monthly tool's `pricing.usd_per_credit`; do not assume credits are cents.
 
@@ -10,7 +11,7 @@ Multiply credits by the monthly tool's `pricing.usd_per_credit`; do not assume c
 
 | Question                                                    | File                                               | Sections                                                                                                                 |
 | ----------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| What was spent, by day, source, or scout?                   | [queries-spend.md](queries-spend.md)               | First receipt, Spend by day, Spend by signal source, Spend by scout                                                      |
+| What was spent, by day, source, or scout?                   | [queries-spend.md](queries-spend.md)               | First receipt, Spend in a billing period, Spend by day, Spend by signal source, Spend by scout                           |
 | Is a source or scout worth what it costs?                   | [queries-yield.md](queries-yield.md)               | Yield, Baselines, Yield by signal source, Yield by scout, Outcomes of reports too new to settle, What a quiet scout does |
 | Which part of a large source drives its spend?              | [queries-source-parts.md](queries-source-parts.md) | Breakdown inside a source                                                                                                |
 | Should a daily report limit or a priority threshold change? | [queries-controls.md](queries-controls.md)         | Reports shown per day, Pull requests linked and merged                                                                   |
