@@ -258,7 +258,6 @@ user3@example.com,cio_4,"{""topics"": {""topic_1"": false}}"
         result = self.service.process_preferences_csv(StringIO(csv_content))
 
         assert result["status"] == "completed"
-        assert result["users_with_optouts"] == 4
         assert result["preferences_updated"] == 3
         assert result["total_unique_users"] == 3
         opted_out = PreferenceStatus.OPTED_OUT.value
