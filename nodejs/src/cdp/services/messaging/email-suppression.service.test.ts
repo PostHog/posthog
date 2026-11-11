@@ -57,19 +57,21 @@ describe('EmailSuppressionService', () => {
             process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
         })
 
-        it.each([
-            ['below threshold — 2 consecutive bounces stay unsuppressed', 2, false],
-            ['at threshold — the 3rd consecutive bounce flips suppressed', 3, true],
-        ] as const)('%s', async (_label, bounces, expectedSuppressed) => {
+        it.each<[string, (string | undefined)[], number, boolean]>([
+            ['below threshold — 2 consecutive bounces stay unsuppressed', ['a', 'b'], 2, false],
+            ['at threshold — the 3rd consecutive bounce flips suppressed', ['a', 'b', 'c'], 3, true],
+            ['a redelivered bounce counts once', ['a', 'b', 'b', 'b'], 2, false],
+            ['bounces without an event id each count', [undefined, undefined, undefined], 3, true],
+        ])('%s', async (_label, eventIds, expectedCount, expectedSuppressed) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
             const email = 'flaky@example.com'
-            for (let i = 0; i < bounces; i++) {
-                await svc.recordTransientBounces(team.id, [email], 'temp')
+            for (const eventId of eventIds) {
+                await svc.recordTransientBounces(team.id, [email], 'temp', undefined, eventId)
             }
             expect(await readRow(email)).toMatchObject({
                 identifier: email,
                 source: 'BOUNCE',
-                transient_bounce_count: bounces,
+                transient_bounce_count: expectedCount,
                 suppressed: expectedSuppressed,
                 deleted: false,
             })
@@ -225,6 +227,15 @@ describe('EmailSuppressionService', () => {
                 transient_bounce_count: 0,
                 deleted: false,
             })
+        })
+
+        it('suppresses the other addresses of a bounce that names one Postgres cannot store', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'deliverable-sibling@example.com'
+
+            await svc.recordHardBounces(team.id, [email, 'nul\u0000@example.com', `${'x'.repeat(520)}@example.com`])
+
+            expect(await readRow(email)).toMatchObject({ suppressed: true })
         })
 
         it('escalates an unsuppressed BOUNCE counter to suppressed when a hard bounce lands', async () => {

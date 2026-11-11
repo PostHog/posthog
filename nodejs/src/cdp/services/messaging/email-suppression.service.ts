@@ -9,15 +9,49 @@ import type { ValueMatcher } from '~/types'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_cleared` = an address removed from that list after a delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_cleared` = an address removed from that list after a delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced; `transient_bounce_repeat` = a soft bounce already counted, seen again on a redelivery; `unstorable_address` = an address left out of a write because Postgres cannot store it.',
     labelNames: ['result'],
 })
+
+const cdpEmailSuppressionWriteFailures = new Counter({
+    name: 'cdp_email_suppression_write_failures_total',
+    help: 'A suppression-list write for an SES notification failed. `retried` = the notification fails so Kafka redelivers it; `dropped` = logged and lost, for a team outside CDP_SES_SUPPRESSION_RETRY_TEAMS.',
+    labelNames: ['write', 'outcome'],
+})
+
+type SuppressionWrite =
+    | 'transient_bounce'
+    | 'hard_bounce'
+    | 'global_hard_bounce'
+    | 'complaint'
+    | 'delivery_reset'
+    | 'global_hard_bounce_clear'
 
 const DIAGNOSTIC_MAX_LENGTH = 1000
 
 const normalizeIdentifier = (email: string): string => email.trim().toLowerCase()
 
 const toKey = (teamId: number, identifier: string): string => `${teamId}:${identifier}`
+
+const IDENTIFIER_MAX_LENGTH = 512
+
+// Postgres text cannot hold a NUL byte and the identifier columns hold 512 characters. Such an address would fail
+// every retry of its write, and take the other addresses in the statement with it.
+const toStorableIdentifiers = (emails: string[]): string[] => {
+    const identifiers = new Set<string>()
+    for (const email of emails) {
+        const identifier = normalizeIdentifier(email)
+        if (!identifier) {
+            continue
+        }
+        if (identifier.length > IDENTIFIER_MAX_LENGTH || identifier.includes('\u0000')) {
+            cdpEmailSuppressionTotal.inc({ result: 'unstorable_address' })
+            continue
+        }
+        identifiers.add(identifier)
+    }
+    return Array.from(identifiers)
+}
 
 const toTimestampPostgresAccepts = (timestamp?: string): string | null => {
     const parsed = timestamp ? Date.parse(timestamp) : NaN
@@ -29,6 +63,18 @@ export type EmailSuppressionConfig = {
     transientBounceThreshold: number
     globalHardBounceEnforce?: boolean
     softBounceEventTimeTeams?: string
+    retryFailedWritesTeams?: string
+}
+
+/** A suppression write failed for a team whose SES notifications retry, so the notification must not be acknowledged. */
+export class SuppressionWriteError extends Error {
+    constructor(
+        public readonly write: SuppressionWrite,
+        cause: unknown
+    ) {
+        super(`Could not write the suppression list (${write})`, { cause })
+        this.name = 'SuppressionWriteError'
+    }
 }
 
 // Test helper — production paths take config from `CdpConfig`; tests that still mutate process.env
@@ -110,6 +156,7 @@ export class EmailSuppressionService {
     private readonly threshold: number
     private readonly globalHardBounceEnforce: boolean
     private readonly stampsSoftBounceWithEventTime: ValueMatcher<number>
+    private readonly retriesFailedWrites: ValueMatcher<number>
     // A key's active suppression, or false when it has none.
     private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
@@ -120,6 +167,7 @@ export class EmailSuppressionService {
         this.threshold = config.transientBounceThreshold
         this.globalHardBounceEnforce = config.globalHardBounceEnforce ?? false
         this.stampsSoftBounceWithEventTime = buildIntegerMatcher(config.softBounceEventTimeTeams, true)
+        this.retriesFailedWrites = buildIntegerMatcher(config.retryFailedWritesTeams, true)
         this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
@@ -128,6 +176,19 @@ export class EmailSuppressionService {
 
     public clear(): void {
         this.lazyLoader.clear()
+    }
+
+    private async write(write: SuppressionWrite, teamId: number | undefined, run: () => Promise<void>): Promise<void> {
+        try {
+            await run()
+        } catch (error) {
+            const retried = teamId !== undefined && this.retriesFailedWrites(teamId)
+            cdpEmailSuppressionWriteFailures.inc({ write, outcome: retried ? 'retried' : 'dropped' })
+            logger.error('[EmailSuppression] Failed to write the suppression list', { write, teamId, retried, error })
+            if (retried) {
+                throw new SuppressionWriteError(write, error)
+            }
+        }
     }
 
     /** Pre-send check: does the team's suppression list block this recipient for this kind of email? */
@@ -181,14 +242,17 @@ export class EmailSuppressionService {
      * Record one or more soft (Transient) bounces. Increments each address's consecutive-bounce
      * counter and auto-suppresses it in the same statement once it reaches the threshold. Manual
      * entries keep their suppressed state untouched, and complaint entries keep their reason.
+     * A bounce whose `eventId` is the last one counted for the address changes nothing, so a
+     * redelivered notification counts once.
      */
     public async recordTransientBounces(
         teamId: number,
         emails: string[],
         diagnostic?: string,
-        bounceTimestamp?: string
+        bounceTimestamp?: string,
+        eventId?: string
     ): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
         }
@@ -197,7 +261,7 @@ export class EmailSuppressionService {
         const reason = `Auto-suppressed after ${this.threshold} consecutive soft bounces`
 
         // Build a single multi-row upsert. Params: teamId, reason, threshold, diag, legacy reasons,
-        // global-copy diagnostic, bounce time, then one identifier per row.
+        // global-copy diagnostic, bounce time, event id, then one identifier per row.
         const valueClauses: string[] = []
         const params: (number | string | string[] | null)[] = [
             teamId,
@@ -207,13 +271,14 @@ export class EmailSuppressionService {
             LEGACY_HARD_BOUNCE_REASONS,
             GLOBAL_HARD_BOUNCE_DIAGNOSTIC,
             this.stampsSoftBounceWithEventTime(teamId) ? toTimestampPostgresAccepts(bounceTimestamp) : null,
+            eventId ?? null,
         ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             // gen_random_uuid() for the id, mirroring RecipientsManagerService.optOut. First bounce
             // starts the count at 1 and only suppresses immediately if the threshold is 1.
             valueClauses.push(
-                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', NULL, 1, COALESCE($7::timestamptz, NOW()), $4, (1 >= $3), CASE WHEN 1 >= $3 THEN NOW() ELSE NULL END, false, NOW(), NOW())`
+                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', NULL, 1, COALESCE($7::timestamptz, NOW()), $4, (1 >= $3), CASE WHEN 1 >= $3 THEN NOW() ELSE NULL END, false, NOW(), NOW(), $8)`
             )
         })
         params.push(...identifiers)
@@ -221,10 +286,12 @@ export class EmailSuppressionService {
         const query = `
             INSERT INTO posthog_messagesuppression
                 (id, team_id, identifier, source, reason, transient_bounce_count, last_bounce_at,
-                 last_bounce_diagnostic, suppressed, suppressed_at, deleted, created_at, updated_at)
+                 last_bounce_diagnostic, suppressed, suppressed_at, deleted, created_at, updated_at,
+                 last_transient_bounce_event_id)
             VALUES ${valueClauses.join(', ')}
             ON CONFLICT (team_id, identifier) DO UPDATE SET
                 transient_bounce_count = posthog_messagesuppression.transient_bounce_count + 1,
+                last_transient_bounce_event_id = EXCLUDED.last_transient_bounce_event_id,
                 last_bounce_at = GREATEST(posthog_messagesuppression.last_bounce_at, EXCLUDED.last_bounce_at),
                 -- The diagnostic marks a copy of a global hard bounce, which a delivery must still be able to release.
                 last_bounce_diagnostic = CASE
@@ -262,16 +329,21 @@ export class EmailSuppressionService {
                         AND posthog_messagesuppression.transient_bounce_count + 1 >= $3 THEN false
                     ELSE posthog_messagesuppression.deleted END,
                 updated_at = NOW()
+            WHERE EXCLUDED.last_transient_bounce_event_id IS NULL
+               OR posthog_messagesuppression.last_transient_bounce_event_id
+                  IS DISTINCT FROM EXCLUDED.last_transient_bounce_event_id
         `
 
-        try {
-            await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordTransientBounces')
-            cdpEmailSuppressionTotal.inc({ result: 'transient_bounce' }, identifiers.length)
+        await this.write('transient_bounce', teamId, async () => {
+            const result = await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordTransientBounces')
+            const counted = result.rowCount ?? identifiers.length
+            cdpEmailSuppressionTotal.inc({ result: 'transient_bounce' }, counted)
+            if (counted < identifiers.length) {
+                cdpEmailSuppressionTotal.inc({ result: 'transient_bounce_repeat' }, identifiers.length - counted)
+            }
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
-        } catch (error) {
-            logger.error('[EmailSuppression] Failed to record transient bounces', { teamId, error })
-        }
+        })
     }
 
     /**
@@ -282,19 +354,17 @@ export class EmailSuppressionService {
      * diagnostic without relabelling why the address is suppressed.
      */
     public async recordHardBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
         }
 
-        try {
+        await this.write('hard_bounce', teamId, async () => {
             await this.upsertHardBounces(teamId, identifiers, diagnostic)
             cdpEmailSuppressionTotal.inc({ result: 'hard_bounce' }, identifiers.length)
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
-        } catch (error) {
-            logger.error('[EmailSuppression] Failed to record hard bounces', { teamId, error })
-        }
+        })
     }
 
     private async upsertHardBounces(
@@ -354,8 +424,9 @@ export class EmailSuppressionService {
     }
 
     /** Only for a bounce that proves the address does not exist, or one team could block valid addresses for all. */
-    public async recordGlobalHardBounces(emails: string[], bounceTimestamp?: string): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+    /** `teamId` is the team whose notification reported the bounce, which decides whether a failed write retries. */
+    public async recordGlobalHardBounces(emails: string[], bounceTimestamp?: string, teamId?: number): Promise<void> {
+        const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
         }
@@ -363,7 +434,7 @@ export class EmailSuppressionService {
         const valueClauses = identifiers.map(
             (_, i) => `($${i + 2}, COALESCE($1::timestamptz, NOW()), COALESCE($1::timestamptz, NOW()))`
         )
-        try {
+        await this.write('global_hard_bounce', teamId, async () => {
             await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at)
@@ -375,9 +446,7 @@ export class EmailSuppressionService {
                 'recordGlobalHardBounces'
             )
             cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce' }, identifiers.length)
-        } catch (error) {
-            logger.error('[EmailSuppression] Failed to record global hard bounces', { error })
-        }
+        })
     }
 
     /**
@@ -388,7 +457,7 @@ export class EmailSuppressionService {
      * bounce paths then treat COMPLAINT as authoritative, so a later bounce can't relabel the row.
      */
     public async recordComplaints(teamId: number, emails: string[], feedbackType?: string): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
         }
@@ -445,14 +514,12 @@ export class EmailSuppressionService {
                 updated_at = NOW()
         `
 
-        try {
+        await this.write('complaint', teamId, async () => {
             await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordComplaints')
             cdpEmailSuppressionTotal.inc({ result: 'complaint' }, identifiers.length)
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
-        } catch (error) {
-            logger.error('[EmailSuppression] Failed to record complaints', { teamId, error })
-        }
+        })
     }
 
     /**
@@ -470,7 +537,7 @@ export class EmailSuppressionService {
         deliveryTimestamp?: string,
         { clearGlobal = false }: { clearGlobal?: boolean } = {}
     ): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
         }
@@ -489,7 +556,7 @@ export class EmailSuppressionService {
               AND transient_bounce_count > 0
               AND (last_bounce_at IS NULL OR ($3::timestamptz IS NOT NULL AND last_bounce_at < $3::timestamptz))
         `
-        try {
+        await this.write('delivery_reset', teamId, async () => {
             await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 query,
@@ -497,9 +564,7 @@ export class EmailSuppressionService {
                 'resetBounceCounts'
             )
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
-        } catch (error) {
-            logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
-        }
+        })
 
         if (!clearGlobal) {
             return
@@ -507,7 +572,7 @@ export class EmailSuppressionService {
 
         // A delivery proves the address exists. The timestamp guard stops a late, older delivery from
         // clearing a fresh bounce.
-        try {
+        await this.write('global_hard_bounce_clear', teamId, async () => {
             const result = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `DELETE FROM posthog_emailhardbounce
@@ -520,9 +585,7 @@ export class EmailSuppressionService {
             if (result.rowCount) {
                 cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_cleared' }, result.rowCount)
             }
-        } catch (error) {
-            logger.error('[EmailSuppression] Failed to clear global hard bounces on delivery', { teamId, error })
-        }
+        })
     }
 
     private async loadSuppressed(keys: string[]): Promise<Record<string, SuppressionEntry | false>> {

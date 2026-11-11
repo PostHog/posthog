@@ -24,7 +24,7 @@ import { HogFunctionManagerService } from '../managers/hog-function-manager.serv
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { EmailStatusService } from './email-status.service'
-import { EmailSuppressionService } from './email-suppression.service'
+import { EmailSuppressionService, SuppressionWriteError } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
 import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler, SnsEnvelope } from './helpers/ses'
@@ -644,7 +644,11 @@ export class EmailTrackingService {
 
     // The signature was verified on the request that queued this envelope.
     public async recordQueuedSesNotification(envelope: SnsEnvelope): Promise<SesRecordingOutcome> {
-        const recording = await this.recordSesNotification({ body: envelope, verifySignature: false })
+        const recording = await this.recordSesNotification({
+            body: envelope,
+            verifySignature: false,
+            eventId: envelope.MessageId,
+        })
         if (recording.outcome === 'recorded') {
             sesQueuedNotificationsCounter.inc({ stage: 'recorded' })
         } else {
@@ -689,6 +693,8 @@ export class EmailTrackingService {
     private async recordSesNotification(opts: {
         body: unknown
         verifySignature: boolean
+        // Stays the same when Kafka redelivers the notification, so a soft bounce in it counts once.
+        eventId?: string
     }): Promise<SesRecordingOutcome> {
         try {
             const {
@@ -757,8 +763,8 @@ export class EmailTrackingService {
                 }
             }
 
-            // Feed bounces, complaints and successful deliveries into the suppression list. Wrapped
-            // so a failure here never affects the webhook's 200 response to SNS. Deliveries are
+            // Feed bounces, complaints and successful deliveries into the suppression list. A failure here
+            // fails the notification only when the suppression service says it retries. Deliveries are
             // processed first so a delivery + bounce in the same batch nets out conservatively
             // (count resets, then the fresh bounce re-counts from a clean slate).
             try {
@@ -778,7 +784,8 @@ export class EmailTrackingService {
                             parsedTeamId,
                             emailAddresses,
                             diagnostic,
-                            bounceTimestamp
+                            bounceTimestamp,
+                            opts.eventId
                         )
                     }
                 }
@@ -795,7 +802,8 @@ export class EmailTrackingService {
                         if (nonexistentAddresses) {
                             await this.emailSuppressionService.recordGlobalHardBounces(
                                 nonexistentAddresses,
-                                bounceTimestamp
+                                bounceTimestamp,
+                                parsedTeamId
                             )
                         }
                     }
@@ -809,6 +817,9 @@ export class EmailTrackingService {
             } catch (error) {
                 logger.error('[EmailTrackingService] Failed to update suppression list', { error })
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
+                if (error instanceof SuppressionWriteError) {
+                    throw error
+                }
             }
 
             return { outcome: 'recorded', body }

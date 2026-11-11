@@ -602,6 +602,8 @@ describe('EmailTrackingService', () => {
                 snsMessageId = new UUIDT().toString(),
                 topicArn = 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 sesMessage,
+                bounceType = 'Permanent',
+                recipient = 'user@example.com',
             }: {
                 functionId: string
                 parentRunId?: string
@@ -613,6 +615,8 @@ describe('EmailTrackingService', () => {
                 snsMessageId?: string
                 topicArn?: string
                 sesMessage?: string
+                bounceType?: 'Permanent' | 'Transient'
+                recipient?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -632,18 +636,18 @@ describe('EmailTrackingService', () => {
                         timestamp: '2024-01-01T00:00:00.000Z',
                         source: 'sender@posthog.com',
                         messageId: 'ses-message-id',
-                        destination: ['user@example.com'],
+                        destination: [recipient],
                         headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode }],
                         ...(transactionalMessageId
                             ? {
-                                  commonHeaders: { to: ['user@example.com'] },
+                                  commonHeaders: { to: [recipient] },
                                   tags: { ph_email_status: ['true'] },
                               }
                             : {}),
                     },
                     bounce: {
-                        bounceType: 'Permanent',
-                        bouncedRecipients: [{ emailAddress: 'user@example.com' }],
+                        bounceType,
+                        bouncedRecipients: [{ emailAddress: recipient }],
                         timestamp: '2024-01-01T00:00:00.000Z',
                     },
                 }
@@ -1131,6 +1135,79 @@ describe('EmailTrackingService', () => {
                     await expect(consumer.processBatch(queuedNotifications())).rejects.toThrow('column does not exist')
 
                     expect(await queuedAtStage('failed')).toBe(failedBefore + 1)
+                })
+
+                describe('when a suppression write fails', () => {
+                    const failHardBounceWriteOnce = (): void => {
+                        const realQuery = hub.postgres.query.bind(hub.postgres)
+                        let failed = false
+                        jest.spyOn(hub.postgres, 'query').mockImplementation(((...args: any[]) => {
+                            if (args[3] === 'recordHardBounces' && !failed) {
+                                failed = true
+                                return Promise.reject(new Error('Connection terminated unexpectedly'))
+                            }
+                            return (realQuery as any)(...args)
+                        }) as any)
+                    }
+
+                    const suppressionRows = async (): Promise<
+                        { identifier: string; suppressed: boolean; transient_bounce_count: number }[]
+                    > =>
+                        (
+                            await hub.postgres.query(
+                                PostgresUse.COMMON_READ,
+                                `SELECT identifier, suppressed, transient_bounce_count
+                                 FROM posthog_messagesuppression WHERE team_id = $1 ORDER BY identifier`,
+                                [team.id],
+                                'test-read-suppression'
+                            )
+                        ).rows
+
+                    const writeFailures = async (outcome: string): Promise<number> =>
+                        (
+                            await register.getSingleMetric('cdp_email_suppression_write_failures_total')!.get()
+                        ).values.find((v) => v.labels.write === 'hard_bounce' && v.labels.outcome === outcome)?.value ??
+                        0
+
+                    const queueHardAndSoftBounce = async (): Promise<Message[]> => {
+                        await postBounce({ functionId: hogFunction.id, recipient: 'hard@example.com' })
+                        await postBounce({
+                            functionId: hogFunction.id,
+                            recipient: 'soft@example.com',
+                            bounceType: 'Transient',
+                        })
+                        return queuedNotifications()
+                    }
+
+                    it('fails the batch, and its redelivery suppresses each address once', async () => {
+                        hub.CDP_SES_SUPPRESSION_RETRY_TEAMS = String(team.id)
+                        startApiAndConsumer()
+                        const batch = await queueHardAndSoftBounce()
+                        failHardBounceWriteOnce()
+                        const retriedBefore = await writeFailures('retried')
+
+                        await expect(consumer.processBatch(batch)).rejects.toThrow('hard_bounce')
+                        await consumer.processBatch(batch)
+
+                        expect(await suppressionRows()).toEqual([
+                            { identifier: 'hard@example.com', suppressed: true, transient_bounce_count: 0 },
+                            { identifier: 'soft@example.com', suppressed: false, transient_bounce_count: 1 },
+                        ])
+                        expect(await writeFailures('retried')).toBe(retriedBefore + 1)
+                    })
+
+                    it('drops the write and counts it for a team outside the retry switch', async () => {
+                        const batch = await queueHardAndSoftBounce()
+                        failHardBounceWriteOnce()
+                        const droppedBefore = await writeFailures('dropped')
+
+                        await consumer.processBatch(batch)
+
+                        expect(await suppressionRows()).toEqual([
+                            { identifier: 'soft@example.com', suppressed: false, transient_bounce_count: 1 },
+                        ])
+                        expect(await writeFailures('dropped')).toBe(droppedBefore + 1)
+                    })
                 })
             })
 
