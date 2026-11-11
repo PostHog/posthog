@@ -1,7 +1,11 @@
+import { Message } from 'node-rdkafka'
+
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
+import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -31,6 +35,32 @@ describe('cohort membership mark and sweep, end to end', () => {
         await closeHub(hub)
     })
 
+    /** Reads the membership topic from its start with a group of its own until `until` passes. */
+    const readMembershipTopic = async (until: (messages: Message[]) => void): Promise<Message[]> => {
+        const reader = new KafkaConsumer(
+            {
+                topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                groupId: `cohort-sweep-e2e-read-${new UUIDT().toString()}`,
+                autoCommit: false,
+                autoOffsetStore: false,
+            },
+            { 'auto.offset.reset': 'earliest' } as never
+        )
+        const messages: Message[] = []
+        await reader.connect((batch) => {
+            messages.push(...batch)
+            return Promise.resolve()
+        })
+        try {
+            await waitForExpect(() => until(messages), 60_000)
+        } finally {
+            await reader.disconnect()
+        }
+        return messages
+    }
+
+    const valueOf = (message: Message): Record<string, unknown> => parseJSON(message.value?.toString() ?? 'null') ?? {}
+
     it('deletes rows the completed reconcile run did not re-assert', async () => {
         const runId = new UUIDT().toString()
         const stillMember = new UUIDT().toString()
@@ -49,6 +79,9 @@ describe('cohort membership mark and sweep, end to end', () => {
             'seedStaleRow'
         )
 
+        // The sweep publishes its floors through this producer too, so they reach the real topic.
+        producer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+
         consumer = new CdpCohortMembershipConsumer(
             {
                 ...hub,
@@ -56,11 +89,9 @@ describe('cohort membership mark and sweep, end to end', () => {
                 COHORT_MEMBERSHIP_SWEEP_ENABLED: true,
                 COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: 1000,
             },
-            createCdpConsumerDeps(hub)
+            createCdpConsumerDeps(hub, producer)
         )
         await consumer.start()
-
-        producer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
 
         await producer.produce({
             topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
@@ -132,5 +163,32 @@ describe('cohort membership mark and sweep, end to end', () => {
                 snapshot_rows: '1',
             })
         }, 120_000)
+
+        const ledger = await hub.postgres.query<{ membership_hwms: Record<string, number> }>(
+            PostgresUse.BEHAVIORAL_COHORTS_RW,
+            'SELECT membership_hwms FROM cohort_membership_sweeps WHERE run_id = $1',
+            [runId],
+            'readCapturedPartitions'
+        )
+        const captured = Object.keys(ledger.rows[0].membership_hwms)
+            .map(Number)
+            .sort((a, b) => a - b)
+        const isFloor = (message: Message): boolean =>
+            valueOf(message).type === 'sweep_floor' && valueOf(message).run_id === runId
+
+        const messages = await readMembershipTopic((read) => {
+            const floorPartitions = new Set(read.filter(isFloor).map((message) => message.partition))
+            expect([...floorPartitions].sort((a, b) => a - b)).toEqual(captured)
+        })
+
+        const floors = messages.filter(isFloor)
+        expect(floors.map(valueOf)).toEqual(
+            captured.map(() => expect.objectContaining({ threshold: SNAPSHOT_VERSION, partitions: captured.length }))
+        )
+        // A reader of the topic applies the floor once it holds every copy, which is safe only
+        // because each copy sits after the run's rows in its partition.
+        const row = messages.find((message) => valueOf(message).person_id === stillMember)
+        const floorInRowPartition = floors.find((message) => message.partition === row?.partition)
+        expect(floorInRowPartition?.offset).toBeGreaterThan(row?.offset ?? Infinity)
     })
 })

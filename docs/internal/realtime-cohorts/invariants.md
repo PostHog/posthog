@@ -245,12 +245,22 @@ Most of these are not enforced by a single test, and a violation usually shows u
 **30. The sweep deletes only rows the latest reconcile did not re-assert, and only after they could have arrived.**
 
 - Why: a premature sweep deletes members whose re-assertion is still queued.
-- Kept by: the threshold is the lower of the snapshot's and the markers' lowest versions, and the sweep waits until the consumer has applied the membership topic up to the ends captured after all markers arrived.
+- Kept by: the threshold is the lower of the snapshot's and the markers' lowest versions, frozen at the run's first claim, and the sweep waits until the consumer has applied the membership topic up to the ends captured after all markers arrived.
 
 **31. Readers trust only `in_cohort = true`, and flags read the table only with positive proof of readiness.**
 
 - Why: the table holds non-members too, and an unready cohort's table is incomplete.
 - Kept by: both readers filter on `in_cohort`, and the flags service routes a cohort to the table only for enabled teams, realtime cohorts with a behavioral condition, and stamps its policy accepts.
+
+**32. Every delete of a member row is on the membership topic before Postgres makes it.**
+
+- Why: a reader of the topic must remove the same members as Postgres without reading Postgres.
+- Kept by: the sweeper produces the run's floor record to every partition named in the run's captured ends, and waits for every acknowledgment, before its first delete page.
+  A run with a frozen threshold is never abandoned for its age, and the gate does not hold it back again, so the delete follows its floor.
+  Any other code that deletes member rows, including a manual cleanup, has to publish a floor first.
+  Deleting non-member rows, or rows of teams nobody reads, changes no member set and needs no floor.
+- If broken: a reader of the topic keeps members that Postgres deleted.
+- See [membership output and readers](membership-output-and-readers.md#the-floor-record).
 
 ## Delivery, in one table
 
@@ -265,6 +275,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 | Merge state and its transfer                                                                            | At least once while the slice survives. A store wipe deletes a pending transfer, and a pod that does not process the team drops it | The outbox and its redrive, and backfill for a dropped transfer |
 | Seeds and reconcile, including their first-hop cascades                                                 | At least once                                                                                                                      | Replays after holds                                             |
 | Membership consumer                                                                                     | At least once, applied idempotently                                                                                                | The version guard, when version writes are on                   |
+| Sweep floor records                                                                                     | At least once, before the delete                                                                                                   | The next claim of the run publishes the same floor again        |
 
 "At most once" means the path never retries a failed produce.
 It does not rule out duplicates: a store that loses unflushed writes, or is wiped, replays its inputs against older state and can emit a change a second time.

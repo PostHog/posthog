@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 import { Counter, Gauge } from 'prom-client'
 import { z } from 'zod'
 
+import { KafkaProducer } from '~/common/kafka/producer'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -100,6 +101,8 @@ type ClaimableRun = {
     membership_cluster: string | null
     membership_topic: string | null
     threshold: string | null
+    /** Whether a claim has frozen the threshold, which makes the run's floor possibly already published. */
+    frozen: boolean
     claim_token: string | null
 }
 
@@ -120,9 +123,17 @@ function claimablePredicate(intervalParam: string): string {
                        OR (status = 'sweeping' AND claimed_at < CURRENT_TIMESTAMP - ${intervalParam}::interval))`
 }
 
+/** The first claim freezes this into `floor_threshold`, and every later claim reuses the frozen value. */
+const SWEEP_THRESHOLD = 'COALESCE(floor_threshold, LEAST(min_snapshot_version, min_marker_version))'
+
+/**
+ * The threshold leaves Postgres as text because the timestamp parser keeps only milliseconds,
+ * and the floor record and the delete must both carry the exact value.
+ */
 const CLAIMABLE_PROJECTION = `run_id, cohort_id, team_id, membership_hwms,
                        membership_cluster, membership_topic,
-                       LEAST(min_snapshot_version, min_marker_version) AS threshold, claim_token`
+                       to_char(${SWEEP_THRESHOLD}, 'YYYY-MM-DD HH24:MI:SS.US') AS threshold,
+                       floor_threshold IS NOT NULL AS frozen, claim_token`
 
 const markersConsumed = new Counter({
     name: 'cdp_cohort_membership_markers_consumed',
@@ -157,6 +168,12 @@ const sweepCycles = new Counter({
     labelNames: ['status'],
 })
 
+const floorPublishes = new Counter({
+    name: 'cdp_cohort_membership_floor_publishes',
+    help: 'Sweep floors published to the membership topic, by outcome. A failed publish holds its run back from deleting',
+    labelNames: ['outcome'],
+})
+
 const sweepGateWaitSeconds = new Gauge({
     name: 'cdp_cohort_membership_sweep_gate_wait_seconds',
     help: 'Time since the oldest gate-blocked run completed its marker set',
@@ -180,7 +197,7 @@ export class CohortMembershipSweeper {
     constructor(
         private config: CohortMembershipSweepConfig,
         private postgres: PostgresRouter,
-        /** All three describe the membership consumer's own client: the marker topic may live on another cluster. */
+        /** All of these describe the membership consumer's own feed: the marker topic may live on another cluster. */
         private kafka: {
             /** Broker identity half of the progress-row key; offsets are only comparable within one cluster. */
             cluster: string
@@ -188,6 +205,8 @@ export class CohortMembershipSweeper {
             topic: string
             captureMembershipWatermarks: () => Promise<MembershipWatermarks>
             refreshConsumerProgress: () => Promise<void>
+            /** Must write to `cluster`: a floor anywhere else is invisible to every reader of `topic`. */
+            producer: Pick<KafkaProducer, 'produce'>
         }
     ) {}
 
@@ -383,7 +402,10 @@ export class CohortMembershipSweeper {
                 break
             }
 
-            if (!this.gateSatisfied(run, progress)) {
+            // A frozen run passed the gate before its first claim, and its floor may already be in
+            // the log. Checking the gate again would strand its delete after a feed change, which
+            // the gate refuses for good, and a frozen run is never abandoned.
+            if (!run.frozen && !this.gateSatisfied(run, progress)) {
                 result.blocked += 1
                 sweepsGateBlocked.inc()
                 continue
@@ -398,12 +420,17 @@ export class CohortMembershipSweeper {
                 continue
             }
 
-            const deleted = await this.sweep(claimed)
-            if (deleted === null) {
+            const outcome = await this.sweep(claimed)
+            if (outcome === 'unpublished') {
+                // Every run publishes to the same partitions, so the runs after this one would fail
+                // the same way, each holding its claim until the producer gives up.
+                break
+            }
+            if (outcome === 'refused') {
                 continue
             }
 
-            result.rowsDeleted += deleted
+            result.rowsDeleted += outcome
             result.swept += 1
             sweepsExecuted.inc()
         }
@@ -519,7 +546,7 @@ export class CohortMembershipSweeper {
             `
                 UPDATE cohort_membership_sweeps
                 SET status = 'sweeping', claimed_at = CURRENT_TIMESTAMP, claim_token = $4,
-                    updated_at = CURRENT_TIMESTAMP
+                    floor_threshold = ${SWEEP_THRESHOLD}, updated_at = CURRENT_TIMESTAMP
                 WHERE run_id = $1 AND cohort_id = $2
                   AND ${claimablePredicate('$3')}
                 RETURNING ${CLAIMABLE_PROJECTION}
@@ -536,10 +563,17 @@ export class CohortMembershipSweeper {
         return result.rows[0] ?? null
     }
 
-    /** Returns the deleted row count, or null when the run was refused rather than swept. */
-    private async sweep(run: ClaimableRun): Promise<number | null> {
+    /** Returns the deleted row count, or why the run was not swept. */
+    private async sweep(run: ClaimableRun): Promise<number | 'refused' | 'unpublished'> {
         if (!run.threshold) {
             return await this.abandonThresholdless(run)
+        }
+
+        // A failed publish deletes nothing. The run goes back to 'ready', and the next claim
+        // publishes the same frozen floor again.
+        if (!(await this.publishFloor(run, run.threshold))) {
+            await this.finishSweep(run, 0, false)
+            return 'unpublished'
         }
 
         const { deleted, claimLost, interrupted } = await this.deleteStaleRowsInPages(run)
@@ -555,11 +589,12 @@ export class CohortMembershipSweeper {
     }
 
     /**
-     * Unreachable while claim() requires a snapshot minimum; kept so a future claim change cannot
-     * silently delete below no bound. Abandoning gives the row a terminal state instead of
-     * leaving it wedged in 'sweeping'.
+     * Reached when a reconcile change with no usable version collapsed the threshold to the
+     * versionless sentinel, which `to_char` renders as NULL: there is no bound to publish a floor
+     * at or to delete below. Abandoning gives the row a terminal state instead of leaving it
+     * wedged in 'sweeping'.
      */
-    private async abandonThresholdless(run: ClaimableRun): Promise<null> {
+    private async abandonThresholdless(run: ClaimableRun): Promise<'refused'> {
         logger.error('Refusing to sweep a run with no threshold', {
             run_id: run.run_id,
             cohort_id: run.cohort_id,
@@ -576,7 +611,46 @@ export class CohortMembershipSweeper {
             'abandonThresholdlessCohortMembershipSweep'
         )
         sweepsAbandoned.inc({ reason: 'no_threshold' })
-        return null
+        return 'refused'
+    }
+
+    /**
+     * Puts the delete into the membership topic, so a reader of the topic alone can apply it. Each
+     * copy goes to a partition the run's watermarks name, after those watermarks were captured, so
+     * it lands above every row the run re-asserted. A reader that applies the floor only once it
+     * holds every copy has by then read the run's whole snapshot.
+     */
+    private async publishFloor(run: ClaimableRun, threshold: string): Promise<boolean> {
+        const partitions = Object.keys(run.membership_hwms ?? {}).map(Number)
+        const value = Buffer.from(
+            JSON.stringify({
+                type: 'sweep_floor',
+                team_id: Number(run.team_id),
+                cohort_id: Number(run.cohort_id),
+                run_id: run.run_id,
+                threshold,
+                partitions: partitions.length,
+            })
+        )
+
+        try {
+            await Promise.all(
+                partitions.map((partition) =>
+                    this.kafka.producer.produce({ topic: this.kafka.topic, partition, key: null, value })
+                )
+            )
+        } catch (error) {
+            floorPublishes.inc({ outcome: 'failed' })
+            logger.error('Failed to publish a sweep floor, deleting nothing', {
+                error: String(error),
+                run_id: run.run_id,
+                cohort_id: run.cohort_id,
+            })
+            return false
+        }
+
+        floorPublishes.inc({ outcome: 'published' })
+        return true
     }
 
     private async deleteStaleRowsInPages(
@@ -600,11 +674,6 @@ export class CohortMembershipSweeper {
             // re-checks it against the newest row version, so a row a concurrent upsert just
             // refreshed past the threshold is left alone instead of deleted anyway. A refreshed
             // row also leaves the cursor range entirely, so skipping past it loses nothing.
-            //
-            // The threshold bound into `version < $3` was parsed to millisecond precision on the
-            // way out of Postgres, so it can sit up to 999 microseconds below the stored minimum.
-            // Truncation only ever lowers it, which makes the sweep under-delete, never
-            // over-delete; the next reconcile deletes the sliver it leaves behind.
             const result = await this.postgres.query<{ version: string; id: string }>(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 `
@@ -726,7 +795,9 @@ export class CohortMembershipSweeper {
      * marker-retention horizon instead, because abandoning it sooner would discard a run that
      * would have swept: a `ready` run is only waiting on consumer lag, a `sweeping` run only ever
      * fails transiently, and a `collecting` run holding every marker is only waiting on watermark
-     * capture, which the sweep loop retries each tick.
+     * capture, which the sweep loop retries each tick. A run with a frozen floor is never
+     * abandoned, because its floor may already be in the log, and the delete has to catch
+     * Postgres up with it.
      *
      * These filters and the GC below scan without an index; the ledger is bounded by the GC to a
      * month of reconcile runs, so a sequential scan stays trivial.
@@ -758,6 +829,7 @@ export class CohortMembershipSweeper {
                 SET status = 'abandoned', claim_token = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE (status IN ('ready', 'sweeping')
                        OR (status = 'collecting' AND marker_bits = ${ALL_MARKERS}))
+                  AND floor_threshold IS NULL
                   AND created_at < CURRENT_TIMESTAMP - INTERVAL '${MARKER_RETENTION_DAYS} days'
             `,
             undefined,
