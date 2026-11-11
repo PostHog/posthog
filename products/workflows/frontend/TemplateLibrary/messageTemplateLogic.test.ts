@@ -482,6 +482,9 @@ describe('messageTemplateLogic', () => {
                         new URL(request.url).searchParams.get('ref') === 'existing-id'
                             ? [200, { results: [treeEntry('Renamed')], count: 1 }]
                             : [200, { results: [], count: 0 }],
+                    '/api/projects/:team_id/messaging_templates/:id/placement/': {
+                        path: 'Unfiled/Email templates/Existing',
+                    },
                 },
                 patch: {
                     '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'Renamed' },

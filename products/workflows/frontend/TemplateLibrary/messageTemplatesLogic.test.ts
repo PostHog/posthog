@@ -85,16 +85,10 @@ describe('messageTemplatesLogic', () => {
     })
 
     it.each([
-        ['loaded in the project tree', true],
-        ['not loaded in the project tree', false],
-    ])('deletes a template for good and brings it back into its folder on undo, %s', async (_name, inTree) => {
+        ['while the tree shows a shortcut to it', true],
+        ['while the tree hides it', false],
+    ])('deletes a template for good and brings it back into its folder on undo, %s', async (_name, withShortcut) => {
         await expectLogic(logic).toFinishAllListeners()
-        const filedAt = (path: string): Record<string, string> => ({
-            id: 'file-a',
-            path,
-            type: 'message_template',
-            ref: 'a',
-        })
         let deleted = false
         let restoredPath: string | undefined
         useMocks({
@@ -103,10 +97,11 @@ describe('messageTemplatesLogic', () => {
                     200,
                     { results: deleted ? [] : [template('a', 'Welcome', [])] },
                 ],
-                '/api/environments/:team_id/file_system/': ({ request }) =>
-                    new URL(request.url).searchParams.get('ref') === 'a' && !deleted
-                        ? [200, { results: [filedAt(restoredPath ?? 'Campaigns/Welcome')], count: 1 }]
-                        : [200, { results: [], count: 0 }],
+                '/api/projects/:team_id/messaging_templates/:id/placement/': () => [
+                    200,
+                    { path: deleted ? null : (restoredPath ?? 'Campaigns/Welcome') },
+                ],
+                '/api/environments/:team_id/file_system/': () => [200, { results: [], count: 0 }],
             },
             patch: {
                 '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
@@ -126,10 +121,15 @@ describe('messageTemplatesLogic', () => {
                 },
             },
         })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: withShortcut })
         projectTreeDataLogic.mount()
-        if (inTree) {
-            projectTreeDataLogic.actions.addLoadedResults({ results: [filedAt('Campaigns/Welcome')] } as any)
+        if (withShortcut) {
+            projectTreeDataLogic.actions.addLoadedResults({
+                results: [
+                    { id: 'file-a', path: 'Campaigns/Welcome', type: 'message_template', ref: 'a' },
+                    { id: 'shortcut-a', path: 'Shortcuts/Welcome', type: 'message_template', ref: 'a', shortcut: true },
+                ],
+            } as any)
         }
         const toast = jest.spyOn(lemonToast, 'info')
 
@@ -138,16 +138,12 @@ describe('messageTemplatesLogic', () => {
         }).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.loadTemplates()).toFinishAllListeners()
         expect(logic.values.templates.map((t) => t.id)).toEqual([])
-        expect(projectTreeDataLogic.values.itemsByRef['message_template::a']).toBeUndefined()
 
         await toast.mock.calls[0][1]?.button?.action?.()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         expect(logic.values.templates.map((t) => t.id)).toEqual(['a'])
         expect(restoredPath).toBe('Campaigns/Welcome')
-        expect(projectTreeDataLogic.values.itemsByRef['message_template::a']?.path).toBe(
-            inTree ? 'Campaigns/Welcome' : undefined
-        )
 
         toast.mockRestore()
         projectTreeDataLogic.unmount()
@@ -159,17 +155,8 @@ describe('messageTemplatesLogic', () => {
         let deleted = false
         useMocks({
             get: {
-                '/api/environments/:team_id/file_system/': () =>
-                    lookupFails
-                        ? [500, { detail: 'Server error' }]
-                        : [
-                              200,
-                              {
-                                  results: [
-                                      { id: 'row-a', path: 'Campaigns/Welcome', type: 'message_template', ref: 'a' },
-                                  ],
-                              },
-                          ],
+                '/api/projects/:team_id/messaging_templates/:id/placement/': () =>
+                    lookupFails ? [500, { detail: 'Server error' }] : [200, { path: 'Campaigns/Welcome' }],
             },
             patch: {
                 '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {

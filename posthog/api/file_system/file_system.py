@@ -1202,7 +1202,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if ref:
                 refs_by_type.setdefault((team_id, file_type), set()).add(ref)
         prepare_file_system_deletes(self.request, refs_by_type)
-        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id, _file_type in refs_by_type}
+        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id in {key[0] for key in refs_by_type}}
         spellings_by_type = {
             key: _stored_spellings(key[0], key[1], refs, any_surface_by_team[key[0]])
             for key, refs in sorted(refs_by_type.items())

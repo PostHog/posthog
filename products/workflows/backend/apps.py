@@ -75,12 +75,12 @@ class WorkflowsConfig(AppConfig):
             lock_template_for_delete(cast("Model", template))
             require_linked_workflow_editor(context, template)
 
-        def prepare_linked_workflows(request: Any | None, templates: "QuerySet[Any]") -> None:
+        def prepare_linked_workflows(request: Any | None, team_id: int, templates: "QuerySet[Any]") -> None:
             from products.workflows.backend.services.template_file_guard import (  # noqa: PLC0415 — keeps access control dependencies off startup
                 prepare_linked_workflows,
             )
 
-            prepare_linked_workflows(request, templates)
+            prepare_linked_workflows(request, team_id, templates)
 
         register_prepare_delete_hook("message_template", prepare_linked_workflows)
         register_pre_delete_hook("message_template", lock_then_require_linked_workflow_editor)

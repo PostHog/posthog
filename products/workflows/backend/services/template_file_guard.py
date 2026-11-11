@@ -44,11 +44,12 @@ def _access_control_for(request: Any | None, user: "User", template: LinkedTempl
     return access_controls[key]
 
 
-def prepare_linked_workflows(request: Any | None, templates: "QuerySet[Any]") -> None:
+def prepare_linked_workflows(request: Any | None, team_id: int, templates: "QuerySet[Any]") -> None:
     if request is None:
         return
     linked = HogFlow.objects.filter(
-        pk__in=templates.filter(transactional_hog_flow_id__isnull=False).values("transactional_hog_flow_id")
+        team_id=team_id,
+        pk__in=templates.filter(transactional_hog_flow_id__isnull=False).values("transactional_hog_flow_id"),
     ).only(*_ACCESS_FIELDS)
     workflows = _workflows_by_request.setdefault(request, {})
     for flow in linked:
