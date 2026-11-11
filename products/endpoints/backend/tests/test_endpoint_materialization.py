@@ -21,7 +21,7 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS, AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -406,8 +406,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_query_edit_under_a_plan_floor(self, _name, was_materialized):
-        self.organization.has_active_subscription = False
-        self.organization.save(update_fields=["has_active_subscription"])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
         endpoint = create_endpoint_with_version(
             name="floored_query_edit",
             team=self.team,
@@ -430,7 +432,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 key="data-modeling-refresh-floor",
                 enabled=True,
                 variant=None,
-                payload={"min_interval": "6hour"},
+                payload=None,
                 reason=None,
             ),
         ):
@@ -449,8 +451,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(new_version.data_freshness_seconds, 900)
 
     def _endpoint_with_a_cadence_below_the_floor(self, name):
-        self.organization.has_active_subscription = False
-        self.organization.save(update_fields=["has_active_subscription"])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
         endpoint = create_endpoint_with_version(
             name=name,
             team=self.team,
@@ -476,7 +480,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 key="data-modeling-refresh-floor",
                 enabled=enabled,
                 variant=None,
-                payload={"min_interval": "6hour"},
+                payload=None,
                 reason=None,
             ),
         )
@@ -599,8 +603,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.get_version().saved_query_id)
 
     def test_query_edit_cannot_speed_up_a_cadence_past_the_plan_floor(self):
-        self.organization.has_active_subscription = False
-        self.organization.save(update_fields=["has_active_subscription"])
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
         endpoint = create_endpoint_with_version(
             name="floored_speed_up",
             team=self.team,
@@ -621,7 +627,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 key="data-modeling-refresh-floor",
                 enabled=True,
                 variant=None,
-                payload={"min_interval": "6hour"},
+                payload=None,
                 reason=None,
             ),
         ):

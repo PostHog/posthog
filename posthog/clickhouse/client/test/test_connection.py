@@ -310,6 +310,23 @@ def test_get_client_from_pool_http_branch_sends_fresh_token(settings, monkeypatc
     assert mock_http_client.call_args.kwargs["password"] == "tok-0"
 
 
+@pytest.mark.parametrize("use_http", [pytest.param(True, id="http"), pytest.param(False, id="native")])
+def test_get_client_from_pool_bounds_the_socket_on_either_transport(settings, use_http):
+    settings.CLICKHOUSE_USE_HTTP = use_http
+
+    with (
+        patch.object(connection, "get_http_client") as http_client,
+        patch.object(connection, "get_pool") as pool,
+    ):
+        connection.get_client_from_pool(Workload.ONLINE, team_id=2, send_receive_timeout=5)
+
+    if use_http:
+        assert http_client.call_args.kwargs["send_receive_timeout"] == 5
+    else:
+        assert pool.call_args.kwargs["send_receive_timeout"] == 5
+        assert pool.call_args.kwargs["team_id"] == 2
+
+
 @pytest.mark.parametrize(
     "kwargs,expected_user,expected_password",
     [

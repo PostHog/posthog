@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.19.2 — 2026-11-10
+
+### Patch changes
+
+- [721abaaaaf9](https://github.com/PostHog/posthog/commit/721abaaaaf964528281ff5df90afd9a372d3e5b6) Update dependencies: `dirs` 7, `inquire` 0.8, `similar` 3 and `posthog-rs` 0.30 — Thanks @rnegron!
+
 ## 0.19.1 — 2026-11-10
 
 ### Patch changes

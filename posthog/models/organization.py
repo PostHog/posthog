@@ -35,8 +35,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-BILLING_PACKAGE_USAGE_KEY = "billing_package"
-
 
 class OrganizationUsageResource(TypedDict):
     usage: int | None
@@ -516,26 +514,6 @@ class Organization(ModelActivityMixin, UUIDTModel):
             return "enterprise"
         return "paid"
 
-    def billing_plan_label(self) -> Literal["free", "paid", "unknown"]:
-        """The `organization_plan` person property that staged-rollout flags target.
-
-        Read from `has_active_subscription`, which billing syncs, rather than from `get_plan_tier`,
-        which calls an organization "paid" as soon as it has any product feature. "unknown" until
-        billing has synced the organization once.
-        """
-        if self.has_active_subscription is None:
-            return "unknown"
-        return "paid" if self.has_active_subscription else "free"
-
-    def billing_package_label(self) -> Literal["paid", "none", "unknown"]:
-        """The `organization_package` person property: "paid" on a Teams, Boost, Scale or Enterprise package.
-
-        Billing sync stores it in `usage`. "unknown" until a billing status names the plan and billing has sent a
-        usage summary.
-        """
-        package = (self.usage or {}).get(BILLING_PACKAGE_USAGE_KEY)
-        return package if package in ("paid", "none") else "unknown"
-
     def limit_product_until_end_of_billing_cycle(self, resource: "QuotaResource") -> None:
         """
         Limit a resource for all teams of this organization until the end of the current billing cycle.
@@ -989,12 +967,9 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from products.alerts.backend.models.alert import AlertSubscription
+    from products.alerts.backend.facade.api import remove_member_subscriptions
 
-    deleted_count, _ = AlertSubscription.objects.filter(
-        user=instance.user,
-        alert_configuration__team__organization_id=instance.organization_id,
-    ).delete()
+    deleted_count = remove_member_subscriptions(user_id=instance.user_id, organization_id=instance.organization_id)
 
     if deleted_count > 0:
         logger.info(

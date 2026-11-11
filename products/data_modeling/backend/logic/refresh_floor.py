@@ -1,7 +1,11 @@
-"""The `data-modeling-refresh-floor` flag: the finest cadence an organization's plan lets a view refresh at.
+"""The finest cadence an organization's plan lets a view refresh at.
 
-The payload names the floor in the same terms as a view's `sync_frequency`, for example
-`{"min_interval": "1hour", "clamp_existing": false}`. With `clamp_existing` false only new and
+Billing sets the floor per plan as the `limit`, in minutes, of the `data_modeling_refresh_interval` product
+feature. An organization without that feature has no floor. The `data-modeling-refresh-floor` flag rolls the
+floor out, and no floor applies while it is off for an organization.
+
+The flag payload, for example `{"clamp_existing": false}`, decides what happens to views already set faster
+than the floor. With `clamp_existing` false only new and
 changed cadences are held to the floor, and views already set faster keep running at their setting.
 With it true the scheduler also runs those views at the floor, and an endpoint keeps serving such a
 view's table for the floor's interval, because the table cannot refresh sooner. A view's saved cadence
@@ -15,11 +19,12 @@ from datetime import timedelta
 import structlog
 import posthoganalytics
 
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 from posthog.run_mode import run_mode
 
-from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, format_cadence
+from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS
 
 logger = structlog.get_logger(__name__)
 
@@ -27,11 +32,11 @@ REFRESH_FLOOR_FLAG = "data-modeling-refresh-floor"
 
 # An endpoint's freshness stops at seven days, so a coarser floor would leave its materialization no cadence to pick.
 _COARSEST_FLOOR = timedelta(days=7)
-_BUCKETS_BY_NAME = {format_cadence(bucket): bucket for bucket in SCHEDULABLE_BUCKETS if bucket <= _COARSEST_FLOOR} | {
-    "24hour": timedelta(days=1)
-}
+_FLOOR_MINUTES = sorted(
+    int(bucket.total_seconds()) // 60 for bucket in SCHEDULABLE_BUCKETS if bucket <= _COARSEST_FLOOR
+)
 
-_reported_payload_errors: set[str] = set()
+_reported_floor_errors: set[str] = set()
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -45,7 +50,7 @@ class PlanRefreshFloor:
         return self.min_interval if self.clamp_existing else None
 
 
-class InvalidRefreshFloorPayload(ValueError):
+class InvalidRefreshFloor(ValueError):
     pass
 
 
@@ -80,25 +85,27 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
             REFRESH_FLOOR_FLAG,
             organization_id,
             groups={"organization": organization_id},
-            person_properties={
-                "organization_plan": organization.billing_plan_label(),
-                "organization_package": organization.billing_package_label(),
-            },
             group_properties={"organization": {"id": organization_id}},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
         if result is None:
             return PlanRefreshFloorReading(floor=None, evaluated=_no_result_means_no_floor())
-        if not result.enabled or result.payload is None:
+        if not result.enabled:
             return PlanRefreshFloorReading(floor=None, evaluated=True)
-        return PlanRefreshFloorReading(floor=_parse(result.payload), evaluated=True)
-    except InvalidRefreshFloorPayload as error:
-        # The payload is typed by hand into the flag, which only checks that it is JSON. Report a value
-        # the code cannot use, so the person who set it hears about it. Every graph build reads the floor,
-        # so each bad payload is reported once per process.
-        if str(error) not in _reported_payload_errors:
-            _reported_payload_errors.add(str(error))
+        min_interval = _plan_min_interval(organization)
+        if min_interval is None:
+            return PlanRefreshFloorReading(floor=None, evaluated=True)
+        return PlanRefreshFloorReading(
+            floor=PlanRefreshFloor(min_interval=min_interval, clamp_existing=_clamp_existing(result.payload)),
+            evaluated=True,
+        )
+    except InvalidRefreshFloor as error:
+        # The flag payload and the billing feature limit are both set by hand, and neither is checked against
+        # the cadences a view can run at. Report a value the code cannot use, so the person who set it hears
+        # about it. Every graph build reads the floor, so each bad value is reported once per process.
+        if str(error) not in _reported_floor_errors:
+            _reported_floor_errors.add(str(error))
             capture_exception(error, {"flag": REFRESH_FLOOR_FLAG, "organization_id": organization_id})
         return PlanRefreshFloorReading(floor=None, evaluated=False)
     except Exception:
@@ -127,19 +134,29 @@ def _no_result_means_no_floor() -> bool:
     return True
 
 
-def _parse(payload: object) -> PlanRefreshFloor:
+def _plan_min_interval(organization: Organization) -> timedelta | None:
+    feature = organization.get_available_feature(AvailableFeature.DATA_MODELING_REFRESH_INTERVAL)
+    minutes = feature.get("limit") if feature else None
+    if minutes is None:
+        return None
+    if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes not in _FLOOR_MINUTES:
+        raise InvalidRefreshFloor(
+            f"{AvailableFeature.DATA_MODELING_REFRESH_INTERVAL} limit must be one of {_FLOOR_MINUTES} minutes, got {minutes!r}"
+        )
+    return timedelta(minutes=minutes)
+
+
+def _clamp_existing(payload: object) -> bool:
+    if payload is None:
+        return False
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
         except ValueError as error:
-            raise InvalidRefreshFloorPayload("payload is not JSON") from error
+            raise InvalidRefreshFloor("payload is not JSON") from error
     if not isinstance(payload, dict):
-        raise InvalidRefreshFloorPayload(f"payload must be an object, got {payload!r}")
-    name = payload.get("min_interval")
-    min_interval = _BUCKETS_BY_NAME.get(name) if isinstance(name, str) else None
-    if min_interval is None:
-        raise InvalidRefreshFloorPayload(f"min_interval must be one of {sorted(_BUCKETS_BY_NAME)}, got {name!r}")
+        raise InvalidRefreshFloor(f"payload must be an object, got {payload!r}")
     clamp_existing = payload.get("clamp_existing", False)
     if not isinstance(clamp_existing, bool):
-        raise InvalidRefreshFloorPayload(f"clamp_existing must be a boolean, got {clamp_existing!r}")
-    return PlanRefreshFloor(min_interval=min_interval, clamp_existing=clamp_existing)
+        raise InvalidRefreshFloor(f"clamp_existing must be a boolean, got {clamp_existing!r}")
+    return clamp_existing

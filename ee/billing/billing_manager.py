@@ -13,11 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
-from django.db import transaction
-from django.db.models import DateTimeField, F, Q
-from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Cast
-from django.db.models.lookups import IsNull, LessThanOrEqual
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -34,7 +30,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization import BILLING_PACKAGE_USAGE_KEY, OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     billed_events_retention_months,
@@ -44,17 +40,10 @@ from posthog.models.team.event_retention import (
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
-from products.data_modeling.backend.facade import api as data_modeling_api
-
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
 from ee.billing.grants import EffectiveBillingGrants
-from ee.billing.quota_limiting import (
-    BILLING_STATUS_STAMP_KEYS,
-    set_org_usage_summary,
-    update_org_billing_quotas,
-    usage_patch_expression,
-)
+from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -97,7 +86,6 @@ class FundingStatusUnavailable(Exception):
 
 
 _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE = "__funding_status_unavailable__"
-_PAID_PACKAGES = ("boost", "teams", "scale", "enterprise")
 
 
 @frozen
@@ -149,32 +137,9 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
     return False
 
 
-def _billing_package(customer: CustomerInfo) -> Literal["paid", "none"] | None:
-    billing_plan = customer.get("billing_plan")
-    trial = customer.get("trial")
-    # billing_plan ignores trials, so a package trial is read from the trial target.
-    if billing_plan in _PAID_PACKAGES or (
-        isinstance(trial, dict) and trial.get("status") == "active" and trial.get("target") in _PAID_PACKAGES
-    ):
-        return "paid"
-    if billing_plan in ("free", "paid"):
-        return "none"
-    return None
-
-
 def _is_older_than_applied_billing_status(organization: Organization, computed_at: datetime) -> bool:
     applied_at = parse_datetime((organization.usage or {}).get("billing_status_computed_at") or "")
     return applied_at is not None and computed_at < applied_at
-
-
-def _patch_usage_unless_a_newer_status_applied(
-    organization: Organization, ops: list[tuple[list[str], Any]], computed_at: datetime | None
-) -> bool:
-    rows = Organization.objects.filter(id=organization.id)
-    if computed_at is not None:
-        applied_at = Cast(KeyTextTransform("billing_status_computed_at", "usage"), DateTimeField())
-        rows = rows.filter(IsNull(applied_at, True) | LessThanOrEqual(applied_at, computed_at))
-    return rows.update(usage=usage_patch_expression(ops)) > 0
 
 
 def _free_trial_active(customer: CustomerInfo) -> bool:
@@ -885,7 +850,6 @@ class BillingManager:
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
-        plan_changed = False
         previous_retention_months: int | None = None
         previous_standard_retention = False
         # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
@@ -918,7 +882,6 @@ class BillingManager:
             if has_active_subscription != organization.has_active_subscription:
                 organization.has_active_subscription = has_active_subscription
                 org_modified = True
-                plan_changed = True
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
@@ -946,42 +909,15 @@ class BillingManager:
                 organization.customer_trust_scores = updated_customer_trust_scores
                 org_modified = True
 
-        package = _billing_package(data)
-        usage = organization.usage
-        package_changed = False
-        package_switched = False
-        if package is not None and usage is not None and usage.get(BILLING_PACKAGE_USAGE_KEY) != package:
-            package_switched = BILLING_PACKAGE_USAGE_KEY in usage
-            usage[BILLING_PACKAGE_USAGE_KEY] = package
-            package_changed = True
-
-        # The stamp goes out only with a write that a change already needs. A save for the stamp
+        # The stamp goes out only with a save that a change already needs. A save for the stamp
         # alone writes this in-memory copy back over counters and quota markers that the quota
         # run wrote in the meantime.
-        patched_keys = [BILLING_PACKAGE_USAGE_KEY]
-        if (org_modified or package_changed) and computed_at is not None and usage is not None:
-            usage["billing_status_computed_at"] = computed_at.isoformat()
-            patched_keys.append("billing_status_computed_at")
-            if org_modified:
-                usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
+        if org_modified and computed_at is not None and organization.usage is not None:
+            organization.usage["billing_status_computed_at"] = computed_at.isoformat()
+            organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
-        if org_modified or package_changed:
-            with transaction.atomic():
-                applied = True
-                if org_modified:
-                    organization.save()
-                elif usage is not None:
-                    applied = _patch_usage_unless_a_newer_status_applied(
-                        organization, [([key], usage[key]) for key in patched_keys], computed_at
-                    )
-                    if not applied:
-                        logger.info(
-                            "billing_status_out_of_order_skipped",
-                            organization_id=str(organization.id),
-                            computed_at=computed_at.isoformat() if computed_at else None,
-                        )
-                if applied and (plan_changed or (package_switched and organization.billing_plan_label() == "paid")):
-                    data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
+        if org_modified:
+            organization.save()
 
         if events_retention_changed:
             apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
