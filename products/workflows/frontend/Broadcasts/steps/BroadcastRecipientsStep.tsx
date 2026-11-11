@@ -16,6 +16,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { ActorsQuery, DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPersonScopeFilter, PropertyFilterType } from '~/types'
 
+import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/components/RealtimeCohortAudienceNotice'
@@ -164,7 +165,8 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 
 export function BroadcastRecipientsStep(): JSX.Element {
     const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
-    const { audienceProperties, linkAudienceRejected, blastRadius, channel } = useValues(broadcastWizardLogic)
+    const { audienceProperties, linkAudienceRejected, blastRadius, channel, aiEmailDraftLoading } =
+        useValues(broadcastWizardLogic)
     // A realtime cohort has to be the audience's only condition.
     const realtimeCohortAlone = !!blastRadius?.realtime_cohort || !!blastRadius?.realtime_cohort_with_other_conditions
     const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
@@ -175,6 +177,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
     return (
         <div className="flex flex-col gap-2 @container">
             <BroadcastChannelPicker />
+            {aiEmailDraftLoading ? <AiEmailDraftStatus status="loading" /> : null}
             <div>
                 <h2 className="m-0 text-xl font-semibold">
                     Who should receive this {channel === 'push' ? 'notification' : 'email'}?
