@@ -173,11 +173,9 @@ export const tracesAlertFormLogic = kea<tracesAlertFormLogicType>([
                     }
                     actions.loadAlerts()
                     props.onSubmitSuccess?.()
-                    // The alert exists now, so a retry belongs in its edit modal, not in a second create.
+                    // The destinations logic reports the failure. The alert exists now, so a retry belongs in its
+                    // edit modal, not in a second create.
                     if (created && destinationsLogic && destinationsLogic.values.pendingDestinations.length > 0) {
-                        lemonToast.error(
-                            'Alert created, but some destinations could not be added. Add them again here.'
-                        )
                         actions.openEditAlertModal(created)
                     }
                     return form
