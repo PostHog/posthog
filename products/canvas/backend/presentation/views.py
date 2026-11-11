@@ -282,15 +282,12 @@ def _activity_changes(changes: list[CanvasFieldChange]) -> list[Change]:
     ]
 
 
-def _not_in_project_tree_response() -> Response:
-    return Response(
+def _not_in_project_tree_error() -> ValidationError:
+    return ValidationError(
         {
-            "move_to_folder": [
-                "This canvas doesn't appear in the project tree, so it can't be filed in a folder. "
-                "Only standalone freeform canvases are listed there."
-            ]
-        },
-        status=status.HTTP_400_BAD_REQUEST,
+            "move_to_folder": "This canvas doesn't appear in the project tree, so it can't be filed in a folder. "
+            "Only standalone freeform canvases are listed there."
+        }
     )
 
 
@@ -638,8 +635,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 generation_task_id=sandbox_task_id,
                 move_to_folder=payload.validated_data.get("move_to_folder"),
             )
-        except CanvasNotInProjectTreeError:
-            return _not_in_project_tree_response()
+        except CanvasNotInProjectTreeError as e:
+            raise _not_in_project_tree_error() from e
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
         self._report_canvas_action(
             "canvas created",
@@ -688,8 +685,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             result = canvas_api.update_canvas(
                 self.team_id, canvas.id, dict(data), user_id=requester.id if requester else None
             )
-        except CanvasNotInProjectTreeError:
-            return _not_in_project_tree_response()
+        except CanvasNotInProjectTreeError as e:
+            raise _not_in_project_tree_error() from e
         if result.changes:
             self._log_canvas_activity(
                 result.canvas, "updated", Detail(name=result.canvas.name, changes=_activity_changes(result.changes))
