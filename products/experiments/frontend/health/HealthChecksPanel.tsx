@@ -82,10 +82,8 @@ export function HealthChecksPanel({
                         isDetailOpenWhenNarrow ? 'hidden' : 'flex'
                     )}
                 >
-                    {/* The nav keeps the border at the height of the panel, and this inner column scrolls on its own
-                        under the scene header, so a long list never pushes the detail off screen. The sticky offset
-                        counts from inside the top padding of `#main-content` (`p-4`), so the height leaves out that
-                        padding as well as the header to end at the bottom of the scroller. */}
+                    {/* An inner column, so the nav border keeps the panel height. Sticky offsets start inside the `p-4`
+                        of `#main-content`, so the height leaves out that padding as well as the header. */}
                     <div className="flex flex-col @min-[48rem]/health-checks:sticky @min-[48rem]/health-checks:top-(--scene-layout-header-height) @min-[48rem]/health-checks:max-h-[calc(var(--scene-layout-rect-height,100dvh)_-_var(--scene-layout-header-height)_-_var(--spacing)*4)] @min-[48rem]/health-checks:overflow-y-auto">
                         <div className="p-2">
                             <LemonButton
