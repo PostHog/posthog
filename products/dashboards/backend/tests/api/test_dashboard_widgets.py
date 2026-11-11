@@ -22,12 +22,12 @@ from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.dashboards.backend.api.dashboard import DashboardsViewSet, DashboardTileSerializer
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_GROUPS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.presentation.views.dashboard import DashboardsViewSet, DashboardTileSerializer
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
 from products.product_analytics.backend.facade.models import Insight
 
@@ -869,7 +869,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_add_widget_tile_via_patch_fires_tile_added_event(self, mock_report_user_action) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
@@ -903,7 +903,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert "widget_id" in widget_added_calls[0][0][2]
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_add_widget_tile_via_batch_endpoint_fires_tile_added_event(self, mock_report_user_action) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
@@ -941,7 +941,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert "widget_id" in widget_added_calls[0][0][2]
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_add_session_replay_widget_fires_dashboard_widget_added_event(self, mock_report_user_action) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
@@ -971,7 +971,7 @@ class TestDashboardWidgets(APIBaseTest):
         ]
     )
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_dashboard_widget_added_records_feature_enabled(
         self, _name: str, widget_type: str, team_field: str, expected: bool, mock_report_user_action
     ) -> None:
@@ -994,7 +994,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert widget_added_calls[0][0][2]["feature_enabled"] is expected
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_delete_widget_tile_fires_tile_removed_and_widget_removed_events(self, mock_report_user_action) -> None:
         dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
             dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
@@ -1032,7 +1032,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert "widget_id" in widget_removed_calls[0][0][2]
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_soft_delete_widget_tile_via_dashboard_patch_fires_removed_events(self, mock_report_user_action) -> None:
         dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
             dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
@@ -1069,7 +1069,7 @@ class TestDashboardWidgets(APIBaseTest):
             assert call[0][1] not in ("dashboard tile removed", "dashboard widget removed")
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_update_widget_filters_via_dashboard_patch_fires_filters_updated_event(
         self, mock_report_user_action
     ) -> None:
@@ -1116,7 +1116,7 @@ class TestDashboardWidgets(APIBaseTest):
         ]
     )
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_experiments_widget_top_level_filter_change_fires_filters_updated_event(
         self, widget_type, initial_config, changed_config, expected_count, mock_report_user_action
     ) -> None:
@@ -1143,7 +1143,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert filters_updated_calls[0][0][2]["filters_count"] == expected_count
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_update_widget_config_without_filters_change_does_not_fire_filters_updated_event(
         self, mock_report_user_action
     ) -> None:
@@ -1257,7 +1257,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert dashboard.tiles.filter(widget__isnull=False).count() == 0
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_dashboard_widget_count_increments_with_each_add(self, mock_report_user_action) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
@@ -1279,7 +1279,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert second_add[0][2]["dashboard_widget_count"] == 2
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_update_widget_tile_does_not_fire_tile_added_event(self, mock_report_user_action) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
@@ -1609,7 +1609,7 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
         assert after["layouts"] == layout
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_update_does_not_fire_tile_added_event(self, mock_report_user_action) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
@@ -1624,7 +1624,7 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
             assert call[0][1] != "dashboard widget added"
 
     @override_settings(IN_UNIT_TESTING=True)
-    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    @patch("products.dashboards.backend.presentation.views.dashboard.report_user_action")
     def test_update_fires_widget_updated_event(self, mock_report_user_action) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
