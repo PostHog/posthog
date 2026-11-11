@@ -1,3 +1,4 @@
+import structlog
 from celery import Task, shared_task
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
@@ -8,9 +9,7 @@ from posthog.models.integration import (
     FirebaseIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
-    Integration,
     OauthIntegration,
-    defer_repository_cache_fields,
     refresh_backoff_active,
 )
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -18,6 +17,8 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.facade.api import delete_ses_identity
+
+logger = structlog.get_logger(__name__)
 
 GITHUB_BRANCH_REFRESH_RETRY_SECONDS = 5 * 60
 
@@ -128,11 +129,9 @@ def refresh_integration(id: int, team_id: int | None = None) -> int:
 )
 @skip_team_scope_audit
 def delete_ses_identity_if_unused(domain: str) -> None:
-    from posthog.models.integration import Integration
-
     # Re-check at execution time: the domain may have been re-added since this
     # task was enqueued, and deleting the identity would break the new sender.
-    if Integration.objects.filter(kind="email", config__domain=domain).exists():
+    if IntegrationManager.email.any.list_across_teams(CrossTeamFilter(where={"domain": domain}, limit=1)):
         return
 
     delete_ses_identity(domain)
@@ -152,7 +151,7 @@ def push_vercel_secrets(team_id: int) -> None:
 @shared_task(bind=True, ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, max_retries=5)
 @skip_team_scope_audit
 def refresh_github_branch_cache(
-    self: Task, integration_id: str, repo: str, is_user_integration: bool, lock_token: str
+    self: Task, integration_id: str, repo: str, is_user_integration: bool, lock_token: str, team_id: int | None = None
 ) -> None:
     """Refresh one repository's cached branch list for the branch picker, on the batch lane."""
     github: GitHubIntegrationBase
@@ -162,8 +161,13 @@ def refresh_github_branch_cache(
             return
         github = UserGitHubIntegration(user_integration, source="github_branch_picker", priority=Priority.BATCH)
     else:
-        integration = defer_repository_cache_fields(Integration.objects.filter(id=integration_id)).first()
-        if integration is None:
+        if team_id is None:
+            # Queued before the team id was added to the task arguments: the row cannot be read by id alone.
+            logger.warning("refresh_github_branch_cache_skipped_without_team_id", integration_id=integration_id)
+            return
+        try:
+            integration = IntegrationManager.github.any.get(team_id, int(integration_id))
+        except IntegrationNotFound:
             return
         github = GitHubIntegration(integration, source="github_branch_picker", priority=Priority.BATCH)
     try:

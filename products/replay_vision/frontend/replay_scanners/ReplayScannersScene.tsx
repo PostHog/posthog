@@ -58,6 +58,7 @@ import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { UNRUNNABLE_DETAIL, limitReachedTooltip } from './scannerCopy'
 import { scannerStatus } from './scannerStatus'
+import { ScannerTagsFilter } from './ScannerTagsFilter'
 import { ENABLED_OPTIONS, EnabledFilter, scannerTypeOptions, ScannerType, ReplayScanner } from './types'
 
 const HedgehogExplorer = pngHoggie(explorerPng)
@@ -186,7 +187,6 @@ export function ReplayScannersScene(): JSX.Element {
         createdByFilter,
         createdByOptions,
         tagsFilter,
-        tagOptions,
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
@@ -396,11 +396,7 @@ export function ReplayScannersScene(): JSX.Element {
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
                                 />
-                                <FilterPill<string>
-                                    label="Tags"
-                                    dataAttr="vision-scanners-tags-filter"
-                                    searchable
-                                    options={tagOptions}
+                                <ScannerTagsFilter
                                     value={tagsFilter}
                                     onChange={(v) => setScannersFilters({ tagsFilter: v })}
                                 />

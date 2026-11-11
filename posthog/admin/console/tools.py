@@ -1,9 +1,10 @@
 import re
+import dataclasses
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from django import forms
 
-from posthog.admin.console.panels import Gate, Owner, Tone, check_danger
+from posthog.admin.console.panels import Gate, Owner, Tone, check_danger, is_internal_path
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
@@ -59,7 +60,7 @@ class Notice:
     href: str | None = None
 
     def __post_init__(self) -> None:
-        if self.href is not None and (not self.href.startswith("/") or self.href.startswith(("//", "/\\"))):
+        if self.href is not None and not is_internal_path(self.href):
             raise ValueError(f"Notice links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
@@ -104,7 +105,7 @@ class Link:
     pending_label: str = ""
 
     def __post_init__(self) -> None:
-        if not self.href.startswith("/") or self.href.startswith(("//", "/\\")):
+        if not is_internal_path(self.href):
             raise ValueError(f"Link {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
@@ -166,7 +167,21 @@ class Live:
             raise ValueError(f"Live block key {self.key!r} must be lowercase and dash-separated, like a URL slug")
 
 
-Block = Notice | Table | Paging | Output | Stats | Links | Filters | Live
+@frozen
+class Secret:
+    """A credential that staff must copy now, for example a password the control plane returns only once.
+
+    Only an operation's result page may show one. The console keeps the result for one read and then
+    forgets it, so the value is never in the audit log, a confirm token, a URL or a message.
+    """
+
+    kind: ClassVar[str] = "secret"
+    label: str
+    value: str = dataclasses.field(repr=False)
+    note: str = "Copy it now. It is not shown again."
+
+
+Block = Notice | Table | Paging | Output | Stats | Links | Filters | Live | Secret
 INNER_BLOCKS = Notice | Table | Output | Stats
 
 
@@ -193,12 +208,17 @@ class Page:
             if isinstance(inner, Table):
                 _check_table(inner)
 
+    def refuse_secrets(self, where: str) -> "Page":
+        if any(isinstance(block, Secret) for block in self.blocks):
+            raise ValueError(f"A {where} shows a Secret block. Return secrets only from an operation's result page.")
+        return self
+
 
 class ToolOperationHandler(Protocol):
     """Returns None when done, and the console sends staff back to the tool with the messages the handler added.
 
-    It may return a `Page` instead, which the console shows as the result. Do that only when running the
-    operation again is harmless, for example a dry run, because reloading a result page submits the form again.
+    It may return a `Page` instead, which the console shows once as the result. A reload does not run the
+    operation again. A `Secret` block may appear only on such a result page.
     To report a failure, add an error message and return a 4xx or 5xx response.
     """
 

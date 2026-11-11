@@ -386,6 +386,7 @@ class TestEmail(BaseTest):
                     "provider": "customer_io",
                     "delivery_id": "test_delivery_id",
                     "queued_at": 1604977406,
+                    "$update_person_last_seen_at": False,
                 },
             )
 
@@ -532,6 +533,22 @@ class TestEmail(BaseTest):
                 ["workflows"],
                 None,
                 ["transactional email workflows rejected"],
+            ),
+            (
+                "workflows_rejects_invalid_recipient_address_drops_email",
+                True,
+                [(400, {"type": "validation_error", "code": "invalid_input", "attr": "to"})],
+                ["workflows"],
+                None,
+                ["transactional email workflows rejected"],
+            ),
+            (
+                "workflows_rejects_other_invalid_field_sends_nothing",
+                True,
+                [(400, {"type": "validation_error", "code": "invalid_input", "attr": "message_data"})],
+                ["workflows"],
+                None,
+                ["transactional email failed"],
             ),
             (
                 "workflows_key_already_used_sends_nothing",
@@ -684,6 +701,9 @@ class TestEmail(BaseTest):
             )
 
         self.assertEqual([c.kwargs["event"] for c in mock_capture.call_args_list], expected_events)
+        self.assertTrue(
+            all(c.kwargs["properties"]["$update_person_last_seen_at"] is False for c in mock_capture.call_args_list)
+        )
         self.assertTrue(
             all(c.kwargs["properties"]["template_name"] == "2fa_enabled" for c in mock_capture.call_args_list)
         )
@@ -918,26 +938,38 @@ class TestEmail(BaseTest):
 
     @parameterized.expand(
         [
-            ("first_attempt_waits_10s", 0, 10, True, 0.0),
-            ("last_attempt_gives_up", len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS), None, False, 1.0),
+            ("first_attempt_waits_10s", False, 0, 10, True, 1.0, 0.0),
+            ("last_attempt_gives_up", False, len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS), None, False, 1.0, 1.0),
+            ("in_flight_retries_without_failing", True, 0, 10, True, 0.0, 0.0),
+            ("in_flight_last_attempt_gives_up", True, len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS), None, False, 1.0, 1.0),
         ]
     )
     @patch.object(_send_email, "apply_async")
     @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.email.requests.post", side_effect=requests.ReadTimeout("no response"))
+    @patch("posthog.email.requests.post")
     def test_worker_retries_a_workflows_failure_on_the_http_schedule(
         self,
         _name: str,
+        in_flight: bool,
         retries: int,
         expected_countdown: int | None,
         expected_retrying: bool,
+        expected_failed: float,
         expected_dropped: float,
-        _mock_post: MagicMock,
+        mock_post: MagicMock,
         _mock_feature_enabled: MagicMock,
         mock_scoped_capture: MagicMock,
         mock_apply_async: MagicMock,
     ) -> None:
+        if in_flight:
+            mock_post.return_value = MagicMock(
+                status_code=409, text="error", json=MagicMock(return_value={"code": "idempotency_key_in_flight"})
+            )
+        else:
+            mock_post.side_effect = requests.ReadTimeout("no response")
+        failed_labels = {"outcome": "failed", "transport": "http"}
+        failed_before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         dropped_labels = {"transport": "http"}
         dropped_before = REGISTRY.get_sample_value("posthog_email_send_dropped_total", dropped_labels) or 0.0
         _send_email.push_request(id="worker-task", retries=retries, is_eager=False, called_directly=False)
@@ -972,6 +1004,8 @@ class TestEmail(BaseTest):
         capture = mock_scoped_capture.return_value.__enter__.return_value
         failed = [c.kwargs for c in capture.call_args_list if c.kwargs.get("event") == "transactional email failed"]
         self.assertEqual([f["properties"]["retrying"] for f in failed], [expected_retrying])
+        failed_after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+        self.assertEqual(failed_after - failed_before, expected_failed)
         dropped_after = REGISTRY.get_sample_value("posthog_email_send_dropped_total", dropped_labels) or 0.0
         self.assertEqual(dropped_after - dropped_before, expected_dropped)
 
