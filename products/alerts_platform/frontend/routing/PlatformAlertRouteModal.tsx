@@ -8,9 +8,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { PlatformAlertDestinationEventKindEnumApi } from '../generated/api.schemas'
 import {
     ALL_ROUTE_EVENT_KINDS,
-    INCIDENT_RECEIVER_TYPES,
     ROUTE_EVENT_KIND_OPTIONS,
+    opensIncidents,
     receiverTarget,
+    receiverTypeOf,
 } from './platformAlertRoutingFormat'
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 import { RouteMatchersField } from './RouteMatchersField'
@@ -20,9 +21,8 @@ export function PlatformAlertRouteModal(): JSX.Element {
         useValues(platformAlertRoutingLogic)
     const { closeRouteModal, submitRouteForm } = useActions(platformAlertRoutingLogic)
     const customEvents = routeForm.eventKinds.length !== ALL_ROUTE_EVENT_KINDS.length
-    // An incident manager hears every trigger and resolve, so the events a route lists change nothing for it.
-    const incidentReceiverType = (receivers ?? []).find((receiver) => receiver.id === routeForm.receiverId)?.type
-    const pagesIncidents = !!incidentReceiverType && INCIDENT_RECEIVER_TYPES.includes(incidentReceiverType)
+    const receiverType = receiverTypeOf(receivers, routeForm.receiverId)
+    const pagesIncidents = opensIncidents(receiverType)
 
     return (
         <LemonModal
@@ -75,7 +75,7 @@ export function PlatformAlertRouteModal(): JSX.Element {
                 </LemonField>
                 {pagesIncidents ? (
                     <p className="text-secondary text-sm m-0">
-                        {incidentReceiverType === 'incident_io'
+                        {receiverType === 'incident_io'
                             ? 'incident.io opens an alert when a matching alert fires and resolves it when the alert resolves.'
                             : 'PagerDuty opens an incident when a matching alert fires and resolves it when the alert resolves.'}
                     </p>

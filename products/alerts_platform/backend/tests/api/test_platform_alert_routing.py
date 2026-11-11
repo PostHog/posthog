@@ -112,12 +112,19 @@ class TestPlatformAlertRouting(APIBaseTest):
             ("pagerduty_matching_route", _PAGERDUTY, True, "apm", True),
             ("pagerduty_route_matches_another_team", _PAGERDUTY, True, "web", False),
             ("pagerduty_routing_off_for_the_team", _PAGERDUTY, False, "apm", False),
+            # A dropped resolve would leave the incident open for good, so a failed lookup keeps the actions.
+            ("pagerduty_flag_lookup_fails", _PAGERDUTY, RuntimeError("flags down"), "apm", True),
             ("incident_io_matching_route", _INCIDENT_IO, True, "apm", True),
         ]
     )
     def test_an_incident_receiver_makes_the_alerts_its_routes_match_open_and_close_incidents(
-        self, _name: str, body: dict[str, str], routing_on: bool, alert_team: str, expected: bool
+        self, _name: str, body: dict[str, str], routing_on: bool | Exception, alert_team: str, expected: bool
     ) -> None:
+        def feature_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
+            if isinstance(routing_on, Exception):
+                raise routing_on
+            return routing_on and flag == ROUTING_FLAG
+
         receiver = self.client.post(self.receivers_url, {"name": "Pager", **body}, format="json").json()
         self.client.post(
             self.routes_url,
@@ -135,7 +142,7 @@ class TestPlatformAlertRouting(APIBaseTest):
             )
             with patch(
                 "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                side_effect=lambda flag, *args, **kwargs: routing_on and flag == ROUTING_FLAG,
+                side_effect=feature_enabled,
             ):
                 follows = has_incident_destination(team_id=self.team.id, configuration_id=configuration.id)
 

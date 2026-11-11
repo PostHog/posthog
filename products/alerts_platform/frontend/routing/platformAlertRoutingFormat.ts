@@ -127,7 +127,7 @@ export function routeFormFor(route: AlertRouteApi): RouteForm {
 }
 
 export function usesWebhookUrl(type: ReceiverType): boolean {
-    return type !== 'slack' && !INCIDENT_RECEIVER_TYPES.includes(type)
+    return type !== 'slack' && !opensIncidents(type)
 }
 
 /** An edit to a webhook-style receiver of the same type may leave the URL blank, because reads return it redacted. */
@@ -273,11 +273,27 @@ export function receiverFormErrors(form: ReceiverForm, editing: AlertReceiverApi
     }
 }
 
-export function routeFormErrors(form: RouteForm): { receiverId?: string; eventKinds?: string } {
+export function receiverTypeOf(
+    receivers: AlertReceiverApi[] | null,
+    receiverId: string | null
+): ReceiverType | undefined {
+    return receivers?.find((receiver) => receiver.id === receiverId)?.type
+}
+
+/** An incident manager hears every trigger and resolve, so the events a route lists change nothing for it. */
+export function opensIncidents(type: ReceiverType | undefined): boolean {
+    return !!type && INCIDENT_RECEIVER_TYPES.includes(type)
+}
+
+export function routeFormErrors(
+    form: RouteForm,
+    receiverType: ReceiverType | undefined
+): { receiverId?: string; eventKinds?: string } {
     // Conditions are checked by the API, which names the label at fault.
     return {
         receiverId: form.receiverId ? undefined : 'Choose a receiver',
-        eventKinds: form.eventKinds.length ? undefined : 'Choose at least one event',
+        // The event options are hidden for an incident manager, so an error there could not be seen or fixed.
+        eventKinds: form.eventKinds.length || opensIncidents(receiverType) ? undefined : 'Choose at least one event',
     }
 }
 
