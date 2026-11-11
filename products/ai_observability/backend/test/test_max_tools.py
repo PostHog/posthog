@@ -112,11 +112,19 @@ class TestCreateParserRecipeTool(BaseTest):
         self.assertIsNone(artifact)
         self.assertFalse(await ParserRecipe.objects.unscoped().filter(team=self.team).aexists())
 
-    async def test_the_trace_timestamp_lets_an_old_event_load(self):
+    @parameterized.expand(
+        [
+            ("an ISO timestamp", "2026-01-02T03:04:05Z", datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)),
+            ("one without a zone, read as UTC", "2026-01-02T03:04:05", datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)),
+            ("one too close to the end of time for the read window", "9999-12-31T00:00:00+00:00", None),
+            ("a garbled value", "(none)", None),
+        ]
+    )
+    async def test_the_trace_timestamp_narrows_the_read_when_usable(self, _name, trace_timestamp, hint):
         with patch.object(ai_observability_api, "run_trace_node_parser_test", return_value=lambda: PASSED) as run:
-            await self._create_tool()._arun_impl(**{**ARGS, "trace_timestamp": "2026-01-02T03:04:05Z"})
+            await self._create_tool()._arun_impl(**{**ARGS, "trace_timestamp": trace_timestamp})
 
-        self.assertEqual(run.call_args.args[4], datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
+        self.assertEqual(run.call_args.args[4], hint)
 
     async def test_an_event_that_cannot_be_read_names_retention(self):
         missing = ai_observability_api.TraceNodeNotFoundError("event-1")

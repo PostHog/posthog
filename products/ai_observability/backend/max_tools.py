@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -193,11 +193,16 @@ class CreateParserRecipeTool(MaxTool):
 
 
 def _timestamp_hint(trace_timestamp: str | None) -> datetime | None:
-    # The hint only narrows the read, so a value the agent garbled is dropped rather than failing the tool.
+    # The hint only narrows the read, so a value the agent garbled, or one the read window cannot hold, is dropped
+    # rather than failing the tool.
     try:
-        return datetime.fromisoformat(trace_timestamp) if trace_timestamp else None
+        hint = datetime.fromisoformat(trace_timestamp) if trace_timestamp else None
     except ValueError:
         return None
+    if hint is None:
+        return None
+    hint = hint if hint.tzinfo is not None else hint.replace(tzinfo=UTC)
+    return hint if ai_observability_api.is_usable_timestamp_hint(hint) else None
 
 
 def _failure_reason(result: contracts.TraceNodeParserTest) -> str:
