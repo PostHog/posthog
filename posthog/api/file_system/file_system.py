@@ -164,9 +164,10 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
     )
-    path__iexact = serializers.CharField(
+    path = serializers.CharField(
         required=False,
-        help_text="Only the file or folder at this exact path, compared without case.",
+        allow_blank=True,
+        help_text="Only the file or folder at this exact path.",
     )
 
 
@@ -800,8 +801,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 pass
         if path_param:
             queryset = queryset.filter(path=path_param)
-        if path_iexact_param := self.request.query_params.get("path__iexact"):
-            queryset = queryset.filter(path__iexact=path_iexact_param)
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
         if type_param:

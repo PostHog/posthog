@@ -841,10 +841,19 @@ class TestFileSystemAPI(APIBaseTest):
         data = response.json()
         self.assertEqual(data["count"], 1, data["results"])
 
-        for path_iexact, expected in [("somefolder/FILE1", ["SomeFolder/File1"]), ("SomeFolder/File", [])]:
-            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path__iexact": path_iexact})
+        for path, expected in [("SomeFolder/File1", ["SomeFolder/File1"]), ("somefolder/FILE1", [])]:
+            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": path})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual([obj["path"] for obj in response.json()["results"]], expected)
+
+        # Folder names are checked with this lookup on every create and rename, so its count and its page compare
+        # the raw path that the (team, surface, path) index holds.
+        with CaptureQueriesContext(connection) as captured:
+            self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "SomeFolder/File1", "limit": 2})
+        lookups = [query["sql"] for query in captured.captured_queries if "SomeFolder/File1" in query["sql"]]
+        self.assertEqual(len(lookups), 2, lookups)
+        for sql in lookups:
+            self.assertIn(""""posthog_filesystem"."path" = 'SomeFolder/File1'""", sql)
 
     def test_folder_counts_counts_the_files_directly_in_each_folder(self) -> None:
         for path, file_type, shortcut in [

@@ -133250,10 +133250,9 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Only the file or folder at this exact path, compared without case.
-     * @minLength 1
+     * Only the file or folder at this exact path.
      */
-    path__iexact?: string;
+    path?: string;
     /**
      * A search term.
      */
