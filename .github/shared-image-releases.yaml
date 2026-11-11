@@ -72,12 +72,19 @@ filters:
     alertsPlatformSharedOrchestration:
         - 'products/alerts_platform/backend/**'
         - products/actions/backend/facade/api.py
+        - products/actions/backend/logic/saved_handlers.py
         - products/cohorts/backend/models/__init__.py
         - products/cohorts/backend/models/cohort.py
         - products/cohorts/backend/models/team_access.py
         - products/experiments/backend/models/__init__.py
         - products/experiments/backend/models/experiment.py
+        - products/ai_observability/backend/logic/traces/trace_export.py
         - products/surveys/backend/models.py
+        - products/signals/backend/facade/taxonomy.py
+        - 'products/*/backend/__init__.py'
+        - 'products/*/backend/facade/__init__.py'
+        - products/__init__.py
+        - 'products/*/__init__.py'
         - 'products/cdp/backend/models/**'
         - posthog/celery.py
         - posthog/celery_queues.py
@@ -90,12 +97,17 @@ filters:
         - posthog/caching/tasks_redis_cache.py
         - posthog/cloud_utils.py
         - posthog/redis.py
+        - 'posthog/egress/observability/**'
         - 'posthog/integrations/**'
+        - 'posthog/credentials_service/**'
         - posthog/helpers/__init__.py
         - posthog/helpers/encrypted_fields.py
+        - posthog/helpers/email_utils.py
         - 'posthog/kafka_client/**'
         - posthog/metrics.py
         - posthog/clickhouse/query_tagging.py
+        - 'posthog/clickhouse/client/**'
+        - posthog/clickhouse/workload.py
         - posthog/sync.py
         - posthog/dataclasses.py
         - posthog/enums.py
@@ -118,7 +130,8 @@ filters:
         - posthog/dbrouter.py
         - posthog/person_db_router.py
         - posthog/product_db_router.py
-        - 'posthog/db_backends/postgresql/**'
+        - 'posthog/db_backends/**'
+        - posthog/db_circuit_breaker.py
         - posthog/apps.py
         - 'products/*/backend/apps.py'
         - ee/apps.py
@@ -129,10 +142,14 @@ filters:
         - products/warehouse_sources/backend/facade/credential_auth_types.py
         - posthog/otel_instrumentation.py
         - posthog/egress/transport/transport.py
+        - 'posthog/egress/github/**'
+        - 'posthog/egress/gitlab/**'
+        - 'posthog/egress/limiter/**'
         - posthog/openapi/enum_names.py
         - posthog/utils_cors.py
         - posthog/helpers/orjson_jsonfield.py
         - posthog/security/command_exec_audit.py
+        - posthog/security/outbound_proxy.py
         - posthog/ph_client.py
         - posthog/storage/object_storage.py
         - posthog/storage/hypercache.py
@@ -144,6 +161,7 @@ filters:
         - 'products/feature_flags/backend/**'
         - 'products/cdp/backend/tasks/**'
         - posthog/plugins/plugin_server_api.py
+        - posthog/plugins/__init__.py
         - 'products/mcp_store/backend/tasks/**'
         - products/mcp_store/backend/models.py
         - products/mcp_store/backend/catalog_sync.py
@@ -153,12 +171,29 @@ filters:
         - products/tracing/backend/alerts/registration.py
         - products/warehouse_sources/backend/sync_alerts/registration.py
         - products/conversations/backend/learning_provider.py
+        - products/business_knowledge/backend/constants.py
+        - products/business_knowledge/backend/learning/__init__.py
+        - products/business_knowledge/backend/learning/contracts.py
+        - products/business_knowledge/backend/learning/providers.py
+        - products/business_knowledge/backend/models/__init__.py
+        - products/business_knowledge/backend/models/constants.py
+        - products/replay_vision/backend/scout_source.py
         - products/data_modeling/backend/facade/managed_viewset_hooks.py
         - products/signals/backend/facade/source_scouts.py
         - products/skills/backend/api/archive_guards.py
         - products/warehouse_sources/backend/temporal/data_imports/external_product_hooks.py
+        - products/warehouse_sources/backend/facade/hooks.py
         - products/workflows/backend/services/account_audience.py
+        - products/workflows/backend/facade/account_audience.py
         - 'products/*/backend/task_profiles.py'
+        - products/posthog_ai/backend/receivers.py
+        - products/review_hog/backend/receivers.py
+        - products/commands/backend/receivers.py
+        - products/tasks/backend/facade/task_run_signals.py
+        - products/stamphog/backend/facade/inbox_hooks.py
+        - products/stamphog/backend/facade/review_evidence.py
+        - products/stamphog/backend/facade/finished_review_hooks.py
+        - products/review_hog/backend/facade/finished_review_hooks.py
         - products/tasks/backend/facade/profiles.py
         - posthog/schema.py
         - posthog/schema_enums.py
@@ -166,6 +201,10 @@ filters:
         - posthog/migration_helpers/__init__.py
         - posthog/migration_helpers/deprecate_field.py
         - 'posthog/models/**'
+        - posthog/workload_identity/__init__.py
+        - posthog/workload_identity/providers.py
+        - posthog/workload_identity/resolvers.py
+        - posthog/workload_identity/subjects.py
         - 'posthog/migrations/**'
         - 'products/*/backend/migrations/**'
         - 'posthog/clickhouse/migrations/**'
@@ -186,217 +225,243 @@ filters:
         - products/warehouse_sources/backend/types.py
         - products/warehouse_sources/backend/duckgres_naming.py
         - products/warehouse_sources/backend/temporal/sync_alert_evaluate.py
+        - products/warehouse_sources/backend/temporal/__init__.py
+        - products/warehouse_sources/backend/temporal/data_imports/__init__.py
         - 'products/warehouse_sources/backend/sync_alerts/**'
         - 'products/warehouse_sources/backend/models/**'
         - products/warehouse_sources/backend/presentation/views/external_data_source/helpers.py
+        - products/warehouse_sources/backend/presentation/__init__.py
+        - products/warehouse_sources/backend/presentation/views/__init__.py
+        - products/warehouse_sources/backend/presentation/views/external_data_source/__init__.py
         - 'products/warehouse_sources/backend/logic/**'
         - products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py
         - 'products/warehouse_sources/backend/temporal/data_imports/sources/common/**'
-        - 'products/warehouse_sources/backend/temporal/data_imports/sources/*/source.py'
-        - 'products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**'
-        - products/warehouse_sources/backend/temporal/data_imports/sources/snowflake/snowflake.py
-        - products/warehouse_sources/backend/temporal/data_imports/sources/bigquery/bigquery.py
-        - products/warehouse_sources/backend/temporal/data_imports/sources/clickhouse/clickhouse.py
-        - products/warehouse_sources/backend/temporal/data_imports/sources/motherduck/motherduck.py
-        - products/warehouse_sources/backend/temporal/data_imports/sources/postgres/postgres.py
-        - products/warehouse_sources/backend/temporal/data_imports/sources/trino/trino.py
+        - 'products/warehouse_sources/backend/temporal/data_imports/sources/*/*.py'
+        - products/batch_exports/backend/facade/destinations/bigquery.py
+        - products/batch_exports/backend/temporal/__init__.py
+        - products/batch_exports/backend/temporal/destinations/bigquery_batch_export.py
+        - products/batch_exports/backend/temporal/utils.py
         - products/warehouse_sources/backend/temporal/data_imports/pipelines/helpers.py
+        - products/warehouse_sources/backend/temporal/data_imports/pipelines/__init__.py
+        - products/warehouse_sources/backend/temporal/data_imports/pipelines/core/consts.py
+        - products/warehouse_sources/backend/temporal/data_imports/pipelines/core/partitioning.py
         - products/warehouse_sources/backend/temporal/data_imports/naming_convention.py
-        - 'products/warehouse_sources/sources/*/source.py'
-        - 'products/warehouse_sources/sources/*/_config.py'
+        - products/warehouse_sources/backend/temporal/data_imports/schema_flags.py
+        - products/warehouse_sources/backend/temporal/data_imports/retry_limits.py
+        - 'products/warehouse_sources/sources/**'
+        - 'products/notifications/backend/**'
         - 'products/access_control/backend/**'
+        - products/authorization/backend/facade/enums.py
         - 'products/actions/backend/**'
         - 'products/cohorts/backend/**'
         - products/experiments/backend/models/__init__.py
         - products/experiments/backend/models/experiment.py
+        - products/experiments/backend/metric_resolution.py
+        - products/experiments/backend/metric_utils.py
+        - products/experiments/backend/models/team_experiments_config.py
+        - products/experiments/backend/facade/replay.py
+        - products/experiments/backend/facade/contracts.py
+        - products/experiments/backend/replay_linkage.py
+        - products/experiments/backend/session_exposure.py
+        - products/experiments/backend/facade/enums.py
+        - products/experiments/stats/__init__.py
+        - products/experiments/stats/shared/__init__.py
+        - products/experiments/stats/shared/enums.py
+        - products/experiments/stats/shared/statistics.py
+        - products/experiments/stats/bayesian/__init__.py
+        - products/experiments/stats/bayesian/tests.py
+        - products/experiments/stats/frequentist/__init__.py
+        - products/experiments/stats/frequentist/tests.py
+        - products/ai_observability/backend/facade/api.py
+        - products/ai_observability/backend/facade/contracts.py
+        - products/ai_observability/backend/logic/__init__.py
+        - products/ai_observability/backend/logic/traces/__init__.py
+        - products/ai_observability/backend/logic/traces/trace_export.py
+        - products/ai_observability/backend/logic/evaluations/__init__.py
+        - products/ai_observability/backend/logic/evaluations/pass_filters.py
+        - products/ai_observability/backend/models/__init__.py
+        - products/ai_observability/backend/models/evaluations.py
+        - products/ai_observability/backend/models/evaluation_configs.py
+        - products/ai_observability/backend/models/evaluation_outcomes.py
         - products/surveys/backend/models.py
+        - products/surveys/backend/facade/api.py
+        - products/surveys/backend/responses/__init__.py
+        - products/surveys/backend/responses/linked.py
         - 'products/event_definitions/backend/**'
-        - products/aeo/backend/facade/hogql.py
-        - products/annotations/backend/facade/hogql.py
-        - products/customer_analytics/backend/facade/hogql.py
-        - products/customer_analytics/backend/facade/customer_tasks_hogql.py
+        - 'products/*/backend/facade/hogql.py'
+        - 'products/customer_analytics/backend/**'
         - products/signals/backend/facade/constants.py
+        - products/signals/backend/facade/spend.py
+        - 'products/signals/backend/queries/**'
+        - products/signals/backend/models.py
+        - products/signals/backend/signal_metadata.py
+        - products/signals/backend/enums.py
+        - products/signals/backend/report_checks.py
+        - products/signals/backend/report_metrics.py
+        - products/signals/backend/report_monitoring_aggregation.py
+        - products/signals/backend/facade/taxonomy.py
         - products/endpoints/backend/facade/models.py
         - products/endpoints/backend/models.py
         - 'products/data_modeling/backend/**'
         - 'products/data_quality/backend/**'
         - 'products/data_catalog/backend/**'
-        - 'products/data_tools/backend/models/**'
+        - 'products/data_tools/backend/**'
         - 'products/mcp_analytics/backend/**'
         - 'products/revenue_analytics/backend/**'
-        - products/data_warehouse/backend/facade/hogql.py
+        - 'products/data_warehouse/backend/facade/**'
+        - 'products/data_warehouse/backend/models/**'
         - products/data_warehouse/backend/sync_status.py
-        - products/data_warehouse/backend/facade/direct_query.py
-        - products/data_warehouse/backend/direct_virtual_tables.py
-        - products/data_warehouse/backend/clickhouse_helpers.py
-        - products/data_warehouse/backend/motherduck_helpers.py
-        - products/data_warehouse/backend/mysql_helpers.py
-        - products/data_warehouse/backend/postgres_helpers.py
-        - products/data_warehouse/backend/redshift_helpers.py
-        - products/data_warehouse/backend/snowflake_helpers.py
-        - products/data_warehouse/backend/facade/sources.py
-        - products/data_warehouse/backend/direct_clickhouse.py
-        - products/data_warehouse/backend/direct_motherduck.py
-        - products/data_warehouse/backend/direct_mysql.py
-        - products/data_warehouse/backend/direct_postgres.py
-        - products/data_warehouse/backend/direct_redshift.py
-        - products/data_warehouse/backend/direct_snowflake.py
-        - products/data_warehouse/backend/direct_trino.py
+        - 'products/data_warehouse/backend/direct_*.py'
+        - 'products/data_warehouse/backend/*_helpers.py'
         - 'products/managed_warehouse/backend/**'
         - 'products/product_analytics/backend/facade/**'
         - products/product_analytics/backend/logic.py
         - 'products/product_analytics/backend/models/**'
-        - 'products/product_analytics/backend/hogql_queries/trends/**'
-        - 'products/product_analytics/backend/hogql_queries/funnels/**'
+        - 'products/*/backend/hogql_queries/**'
+        - 'products/*/backend/facade/queries.py'
+        - 'products/*/backend/__init__.py'
+        - 'products/*/backend/facade/__init__.py'
+        - products/__init__.py
+        - 'products/*/__init__.py'
         - 'products/web_analytics/backend/**'
         - 'products/marketing_analytics/backend/**'
         - 'products/analytics_platform/backend/**'
         - 'products/cdp/backend/models/**'
         - products/cdp/backend/facade/models.py
         - products/cdp/backend/internal_events.py
+        - products/cdp/backend/filters.py
         - 'products/exports/backend/facade/**'
         - 'products/exports/backend/models/**'
         - products/exports/backend/tasks/failure_handler.py
+        - products/exports/backend/tasks/__init__.py
         - 'posthog/temporal/alerts/**'
+        - posthog/temporal/__init__.py
         - posthog/tasks/__init__.py
+        - 'posthog/async_migrations/**'
         - 'posthog/tasks/alerts/**'
+        - posthog/tasks/email.py
         - posthog/tasks/utils.py
         - posthog/tasks/query_scan.py
-        - posthog/celery.py
-        - posthog/celery_queues.py
-        - posthog/organization_caching.py
+        - 'posthog/*.py'
         - posthog/temporal/oauth.py
-        - posthog/query_creator_access.py
-        - posthog/permissions.py
         - posthog/api/__init__.py
-        - posthog/api/advanced_activity_logs/__init__.py
-        - posthog/api/advanced_activity_logs/viewset.py
+        - 'posthog/api/advanced_activity_logs/**'
         - posthog/api/shared.py
         - posthog/api/snuffle_proxy.py
-        - posthog/api_queries_budget.py
+        - posthog/api/utils.py
+        - posthog/api/person.py
         - posthog/helpers/full_text_search.py
-        - posthog/udf_versioner.py
-        - posthog/interval_specs.py
-        - posthog/property_columns.py
-        - posthog/week_start_day.py
-        - posthog/scheduling/jitter.py
+        - 'posthog/scheduling/**'
         - 'posthog/personhog_client/**'
         - 'packages/personhog-proto/**'
-        - posthog/event_usage.py
         - 'posthog/caching/**'
         - 'posthog/query_cache/**'
         - 'posthog/api/services/**'
         - 'posthog/schema_migrations/**'
-        - posthog/temporal/exports/__init__.py
-        - posthog/temporal/exports/workflows.py
+        - 'posthog/temporal/exports/**'
         - 'posthog/storage/**'
         - 'ee/billing/**'
-        - ee/models/__init__.py
-        - ee/models/license.py
-        - ee/models/explicit_team_membership.py
-        - posthog/cloud_utils.py
-        - posthog/redis.py
-        - posthog/errors.py
+        - 'ee/models/*'
+        - posthog/templates/email/alert_platform_notification.html
+        - posthog/templates/email/base.html
+        - posthog/templates/email/styles.html
+        - 'posthog/templatetags/**'
         - 'posthog/slack/**'
-        - 'posthog/egress/slack/**'
-        - 'posthog/egress/observability/**'
+        - 'posthog/egress/**'
         - 'posthog/integrations/**'
         - 'posthog/credentials_service/**'
         - 'posthog/security/**'
         - posthog/helpers/__init__.py
         - posthog/helpers/encrypted_fields.py
+        - posthog/helpers/email_utils.py
+        - posthog/helpers/markdown_safety.py
         - posthog/rbac/decorators.py
-        - posthog/jwt.py
         - 'posthog/kafka_client/**'
-        - posthog/metrics.py
-        - posthog/sync.py
-        - posthog/dataclasses.py
-        - posthog/enums.py
-        - posthog/uuidt.py
         - 'posthog/query_scan/**'
         - 'posthog/slo/**'
-        - posthog/date_util.py
-        - posthog/direct_query_cancellation.py
-        - posthog/psycopg_helpers.py
         - posthog/api/embedding_worker.py
         - posthog/llm/system_one.py
         - posthog/llm/system_one_client.py
         - posthog/llm/gateway_client.py
-        - posthog/egress/typesafe/__init__.py
-        - posthog/egress/typesafe/client.py
-        - posthog/egress/typesafe/transport.py
-        - posthog/synthetic_user.py
-        - posthog/shared_link_user.py
-        - posthog/otel_metrics.py
-        - posthog/raw_sessions_v3_ad_ids.py
-        - posthog/exchange_rate_constants.py
+        - posthog/llm/__init__.py
         - products/error_tracking/backend/indexed_embedding.py
+        - products/error_tracking/backend/models.py
         - posthog/taxonomy/taxonomy.py
+        - posthog/taxonomy/__init__.py
+        - posthog/session_recordings/__init__.py
+        - posthog/session_recordings/utils.py
+        - posthog/session_recordings/constants.py
+        - 'posthog/session_recordings/queries/**'
+        - posthog/session_recordings/models/__init__.py
+        - posthog/session_recordings/models/metadata.py
         - 'posthog/hogql*/**'
         - 'posthog/clickhouse/**'
         - ee/clickhouse/materialized_columns/columns.py
+        - ee/clickhouse/__init__.py
+        - ee/clickhouse/materialized_columns/__init__.py
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - posthog/management/commands/__init__.py
         - 'posthog/settings/**'
         - ee/settings.py
-        - posthog/__init__.py
-        - posthog/utils.py
-        - posthog/cache_utils.py
-        - posthog/constants.py
-        - posthog/scopes.py
-        - posthog/run_mode.py
-        - posthog/version_requirement.py
-        - posthog/logging/exceptions.py
-        - posthog/exceptions_capture.py
-        - posthog/git.py
-        - posthog/product_db_config.py
+        - ee/__init__.py
+        - 'posthog/logging/**'
         - products/db_routing.yaml
-        - posthog/dbrouter.py
-        - posthog/person_db_router.py
-        - posthog/product_db_router.py
-        - 'posthog/db_backends/postgresql/**'
-        - posthog/apps.py
+        - 'posthog/db_backends/**'
         - 'products/*/backend/apps.py'
         - ee/apps.py
-        - posthog/session/apps.py
-        - posthog/checks.py
+        - 'posthog/session/**'
         - products/canvas/backend/checks.py
         - products/canvas/backend/artifacts.py
-        - posthog/otel_instrumentation.py
-        - posthog/egress/transport/transport.py
         - posthog/openapi/enum_names.py
-        - posthog/utils_cors.py
         - posthog/helpers/orjson_jsonfield.py
-        - posthog/ph_client.py
         - posthog/admin/__init__.py
         - posthog/api/file_system/deletion.py
         - posthog/api/file_system/registrations.py
         - posthog/api/file_system/visibility.py
+        - posthog/api/file_system/__init__.py
         - 'products/feature_flags/backend/**'
         - 'products/cdp/backend/tasks/**'
-        - posthog/plugins/plugin_server_api.py
+        - 'posthog/plugins/**'
         - 'products/mcp_store/backend/tasks/**'
         - products/mcp_store/backend/models.py
         - products/mcp_store/backend/catalog_sync.py
         - products/mcp_store/backend/tools.py
         - products/conversations/backend/learning_provider.py
+        - products/business_knowledge/backend/constants.py
+        - products/business_knowledge/backend/learning/__init__.py
+        - products/business_knowledge/backend/learning/contracts.py
+        - products/business_knowledge/backend/learning/providers.py
+        - products/business_knowledge/backend/models/__init__.py
+        - products/business_knowledge/backend/models/constants.py
+        - products/replay_vision/backend/scout_source.py
         - products/signals/backend/facade/source_scouts.py
         - products/skills/backend/api/archive_guards.py
+        - products/skills/backend/api/__init__.py
         - products/warehouse_sources/backend/temporal/data_imports/external_product_hooks.py
         - products/workflows/backend/services/account_audience.py
+        - products/workflows/backend/facade/account_audience.py
+        - products/workflows/backend/services/__init__.py
         - 'products/*/backend/task_profiles.py'
+        - products/posthog_ai/backend/receivers.py
+        - products/review_hog/backend/receivers.py
+        - products/commands/backend/receivers.py
+        - products/tasks/backend/facade/task_run_signals.py
+        - products/stamphog/backend/facade/inbox_hooks.py
+        - products/stamphog/backend/facade/review_evidence.py
+        - products/stamphog/backend/facade/finished_review_hooks.py
+        - products/review_hog/backend/facade/finished_review_hooks.py
         - products/tasks/backend/facade/profiles.py
-        - posthog/schema.py
-        - posthog/schema_enums.py
-        - posthog/schema_discriminators.py
-        - posthog/schema_helpers.py
-        - posthog/migration_helpers/__init__.py
-        - posthog/migration_helpers/deprecate_field.py
+        - 'posthog/migration_helpers/**'
         - 'posthog/models/**'
+        - posthog/workload_identity/__init__.py
+        - posthog/workload_identity/providers.py
+        - posthog/workload_identity/resolvers.py
+        - posthog/workload_identity/subjects.py
         - 'posthog/migrations/**'
         - 'products/*/backend/migrations/**'
-        - posthog/exceptions.py
         - 'common/hogvm/**'
+        - common/__init__.py
         - pyproject.toml
         - uv.lock
         - bin/temporal-django-worker
@@ -412,20 +477,27 @@ filters:
         - 'products/notifications/backend/**'
         - 'products/access_control/backend/**'
         - products/actions/backend/facade/api.py
+        - products/actions/backend/logic/saved_handlers.py
         - products/cohorts/backend/models/__init__.py
         - products/cohorts/backend/models/cohort.py
         - products/cohorts/backend/models/team_access.py
         - products/experiments/backend/models/__init__.py
         - products/experiments/backend/models/experiment.py
+        - products/ai_observability/backend/logic/traces/trace_export.py
         - products/surveys/backend/models.py
         - 'products/signals/backend/**'
         - products/tasks/backend/facade/access.py
+        - 'products/*/backend/__init__.py'
+        - 'products/*/backend/facade/__init__.py'
+        - products/__init__.py
+        - 'products/*/__init__.py'
         - 'products/cdp/backend/models/**'
         - products/cdp/backend/facade/models.py
         - products/cdp/backend/internal_events.py
         - 'products/exports/backend/facade/**'
         - 'products/exports/backend/models/**'
         - posthog/tasks/__init__.py
+        - 'posthog/async_migrations/**'
         - 'posthog/tasks/alerts/**'
         - posthog/tasks/email.py
         - posthog/tasks/team_metadata.py
@@ -460,6 +532,7 @@ filters:
         - posthog/templates/email/base.html
         - posthog/templates/email/styles.html
         - posthog/templatetags/posthog_assets.py
+        - posthog/templatetags/posthog_filters.py
         - 'posthog/slack/**'
         - 'posthog/egress/slack/**'
         - 'posthog/egress/observability/**'
@@ -504,7 +577,8 @@ filters:
         - posthog/dbrouter.py
         - posthog/person_db_router.py
         - posthog/product_db_router.py
-        - 'posthog/db_backends/postgresql/**'
+        - 'posthog/db_backends/**'
+        - posthog/db_circuit_breaker.py
         - posthog/apps.py
         - 'products/*/backend/apps.py'
         - ee/apps.py
@@ -515,6 +589,9 @@ filters:
         - products/warehouse_sources/backend/facade/credential_auth_types.py
         - posthog/otel_instrumentation.py
         - posthog/egress/transport/transport.py
+        - 'posthog/egress/github/**'
+        - 'posthog/egress/gitlab/**'
+        - 'posthog/egress/limiter/**'
         - posthog/openapi/enum_names.py
         - posthog/utils_cors.py
         - posthog/helpers/orjson_jsonfield.py
@@ -535,16 +612,34 @@ filters:
         - 'products/feature_flags/backend/**'
         - 'products/cdp/backend/tasks/**'
         - posthog/plugins/plugin_server_api.py
+        - posthog/plugins/__init__.py
         - 'products/mcp_store/backend/tasks/**'
         - products/mcp_store/backend/models.py
         - products/mcp_store/backend/catalog_sync.py
         - products/mcp_store/backend/tools.py
         - products/conversations/backend/learning_provider.py
+        - products/business_knowledge/backend/constants.py
+        - products/business_knowledge/backend/learning/__init__.py
+        - products/business_knowledge/backend/learning/contracts.py
+        - products/business_knowledge/backend/learning/providers.py
+        - products/business_knowledge/backend/models/__init__.py
+        - products/business_knowledge/backend/models/constants.py
+        - products/replay_vision/backend/scout_source.py
         - products/data_modeling/backend/facade/managed_viewset_hooks.py
         - products/skills/backend/api/archive_guards.py
         - products/warehouse_sources/backend/temporal/data_imports/external_product_hooks.py
+        - products/warehouse_sources/backend/facade/hooks.py
         - products/workflows/backend/services/account_audience.py
+        - products/workflows/backend/facade/account_audience.py
         - 'products/*/backend/task_profiles.py'
+        - products/posthog_ai/backend/receivers.py
+        - products/review_hog/backend/receivers.py
+        - products/commands/backend/receivers.py
+        - products/tasks/backend/facade/task_run_signals.py
+        - products/stamphog/backend/facade/inbox_hooks.py
+        - products/stamphog/backend/facade/review_evidence.py
+        - products/stamphog/backend/facade/finished_review_hooks.py
+        - products/review_hog/backend/facade/finished_review_hooks.py
         - products/tasks/backend/facade/profiles.py
         - posthog/schema.py
         - posthog/schema_enums.py
@@ -552,6 +647,10 @@ filters:
         - posthog/migration_helpers/__init__.py
         - posthog/migration_helpers/deprecate_field.py
         - 'posthog/models/**'
+        - posthog/workload_identity/__init__.py
+        - posthog/workload_identity/providers.py
+        - posthog/workload_identity/resolvers.py
+        - posthog/workload_identity/subjects.py
         - 'posthog/migrations/**'
         - 'products/*/backend/migrations/**'
         - posthog/exceptions.py
@@ -580,12 +679,12 @@ images:
             alerts-platform-shared-orchestration:
                 repository: posthog-temporal-workers/alerts-platform-shared-orchestration
                 filter: alertsPlatformSharedOrchestration
-                bootstrapPolicyDigest: 1c78f2a7898a00f5a5b77264b1a48c5e1f34e35ca9fe14da83791804eb831369
+                bootstrapPolicyDigest: bf7bda0365a5b618a9b1dfcc72f61765a1ff2d1f9947d30edd8420f3647d78c8
             alerts-platform-evaluation:
                 repository: posthog-temporal-workers/alerts-platform-evaluation
                 filter: alertsPlatformEvaluation
-                bootstrapPolicyDigest: a7ff9bad421f71bc61feccc6d3d4bfacf21d878818cada29ff3fcf2bf7e65b87
+                bootstrapPolicyDigest: e8c287a143c84b9850caebb90f774602a14d0abff9b4e34f6fdc3ee21dbcb3cf
             alerts-platform-delivery:
                 repository: posthog-temporal-workers/alerts-platform-delivery
                 filter: alertsPlatformDelivery
-                bootstrapPolicyDigest: 60f08f90cca0d4b0a9dfe267e6ace53bfbbd5a5c9dfd3b4db4e8a36df0c7b13b
+                bootstrapPolicyDigest: ad81e1913c1b99e2d03bf3b4c3bcb1be196ae7a89ec052fd9bc0648877c164b1
