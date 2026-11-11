@@ -12416,10 +12416,10 @@ Today (11): `collections`, `coupons`, `course_reviews`, `courses`, `enrollments`
 
 Diffed against: <https://developers.thinkific.com/openapi/thinkific-admin-api-v1.yaml>
 
-- [ ] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course; the only path to sub-course granularity (high)
-- [ ] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the join target for lesson completion and drop-off analysis (high)
-- [ ] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium)
-- [ ] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium)
+- [x] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course; the only path to sub-course granularity (high) → `chapters` (full refresh, fan-out over `courses`)
+- [x] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the join target for lesson completion and drop-off analysis (high) → `contents` (full refresh, fan-out over each course's `chapter_ids`)
+- [x] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium) → `collection_products` (full refresh, fan-out over `collections`; `/collection_memberships/{id}` is POST/DELETE only)
+- [x] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium) → `custom_profile_field_definitions` (full refresh)
 - [ ] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium)
 - [ ] `GET /bundles/{id}/enrollments` — enrollments scoped to a bundle, distinguishing bundle-driven from direct enrollment (medium)
 - [ ] `GET /groups/{group_id}/analysts` — who administers each synced group, a small membership lookup (low)
