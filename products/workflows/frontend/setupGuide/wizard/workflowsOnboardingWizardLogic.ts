@@ -802,7 +802,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 }
             },
             setStepIndex: () => {
-                cache.finishAfterSave = false
+                cache.finishAfterSave = null
                 captureStepViewed()
             },
             positionAtFirstOpenStep: captureStepViewed,
@@ -833,31 +833,32 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                               values.canEditSendingRules
                           )
                         : null
-                if (rulesToSave) {
-                    actions.updateCurrentTeam({ workflows_config: rulesToSave })
+                const save: Partial<TeamType> | null = rulesToSave ? { workflows_config: rulesToSave } : null
+                if (save) {
+                    actions.updateCurrentTeam(save)
                 }
-                if (values.isLastStep && rulesToSave && values.journeyFirst) {
-                    cache.finishAfterSave = true
+                if (values.isLastStep && save && values.journeyFirst) {
+                    cache.finishAfterSave = save
                 } else if (values.isLastStep) {
                     actions.finish()
                 } else {
                     actions.setStepIndex(values.stepIndex + 1)
                 }
             },
-            updateCurrentTeamSuccess: () => {
-                if (cache.finishAfterSave) {
-                    cache.finishAfterSave = false
+            updateCurrentTeamSuccess: ({ payload }) => {
+                if (cache.finishAfterSave && payload === cache.finishAfterSave) {
+                    cache.finishAfterSave = null
                     actions.finish()
                 }
             },
             updateCurrentTeamFailure: () => {
-                cache.finishAfterSave = false
+                cache.finishAfterSave = null
             },
             back: () => {
                 actions.setStepIndex(Math.max(0, values.stepIndex - 1))
             },
             initWizard: ({ path, step }) => {
-                cache.finishAfterSave = false
+                cache.finishAfterSave = null
                 if (path !== 'automation') {
                     posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_WIZARD_JOURNEY_FIRST)
                 }

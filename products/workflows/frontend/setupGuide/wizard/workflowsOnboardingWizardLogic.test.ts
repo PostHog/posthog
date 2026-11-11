@@ -238,7 +238,9 @@ describe('workflowsOnboardingWizardLogic', () => {
             patch: {
                 '/api/environments/:team_id/': async ({ request }: MockResolverInfo) => {
                     const body = (await request.json()) as object
-                    await saveHeld
+                    if ('workflows_config' in body) {
+                        await saveHeld
+                    }
                     return [200, { ...MOCK_DEFAULT_TEAM, ...body }]
                 },
             },
@@ -289,6 +291,23 @@ describe('workflowsOnboardingWizardLogic', () => {
         expect(logic.values.sendingRulesDisabledReason).toBeNull()
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathnameAfterSave)
         expect(logic.values.currentStep).toBe(stepAfterSave)
+    })
+
+    it('stays on the sending rules when another team save returns during their save', async () => {
+        const { mocks, releaseSave } = heldTeamSave()
+        useMocks(mocks)
+        await reachSendingRules()
+
+        logic.actions.next()
+        await expectLogic(teamLogic, () =>
+            teamLogic.actions.updateCurrentTeam({ timezone: 'Europe/Berlin' })
+        ).toDispatchActions(['updateCurrentTeamSuccess'])
+        releaseSave()
+        await expectLogic(teamLogic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.currentStep).toBe('sending-rules')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.workflows('onboarding'))
     })
 
     it.each<[string, () => void, string]>([
