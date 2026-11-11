@@ -33,6 +33,18 @@ const intent: EventsQuery = {
     modifiers: { personsOnEventsMode: 'person_id_no_override_properties_on_events' },
 }
 
+const intentWithEventPropertyFilter: EventsQuery = {
+    ...intent,
+    properties: [
+        {
+            type: PropertyFilterType.Event,
+            key: '$browser',
+            operator: PropertyOperator.Exact,
+            value: 'Chrome',
+        },
+    ],
+}
+
 describe('performWideEventsQueryInTwoPhases', () => {
     beforeEach(() => {
         mockedPerformQuery.mockReset()
@@ -108,12 +120,13 @@ describe('performWideEventsQueryInTwoPhases', () => {
             emptyPreStage()
             mockedPerformQuery.mockResolvedValueOnce({ results: [] })
 
-            await performWideEventsQueryInTwoPhases(intent)
+            await performWideEventsQueryInTwoPhases(intentWithEventPropertyFilter)
 
             expect(mockedPerformQuery).toHaveBeenCalledTimes(2)
             const phaseOne = mockedPerformQuery.mock.calls[1][0] as EventsQuery
             expect(phaseOne.select).toEqual(['uuid', 'timestamp'])
             expect(phaseOne.fixedProperties).toEqual(intent.fixedProperties)
+            expect(phaseOne.properties).toEqual(intentWithEventPropertyFilter.properties)
             expect(phaseOne.after).toBe('-7d')
             expect(phaseOne.limit).toBe(10)
             expect(phaseOne.orderBy).toEqual(['timestamp DESC'])
@@ -142,7 +155,7 @@ describe('performWideEventsQueryInTwoPhases', () => {
 
             mockedPerformQuery.mockResolvedValueOnce({ results: phaseOneRows }).mockResolvedValueOnce(hydratedResponse)
 
-            const result = await performWideEventsQueryInTwoPhases(intent)
+            const result = await performWideEventsQueryInTwoPhases(intentWithEventPropertyFilter)
 
             expect(mockedPerformQuery).toHaveBeenCalledTimes(3)
             const phaseTwo = mockedPerformQuery.mock.calls[2][0] as EventsQuery
