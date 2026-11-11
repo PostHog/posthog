@@ -1897,6 +1897,19 @@ describe('sourceWizardLogic', () => {
                 expected: { sync_type: 'incremental', incremental_field: 'created_at' },
             },
             {
+                name: 'a pick after the confirmation opened is ignored',
+                source: postgresSource,
+                fields: [
+                    { ...createdAt, recommended: true },
+                    { ...modelPick, recommended: false, picked_by_model: undefined },
+                ],
+                before: (logic) => {
+                    logic.actions.setStep(3)
+                    logic.actions.onSubmit()
+                },
+                expected: { sync_type: 'incremental', incremental_field: 'created_at' },
+            },
+            {
                 name: 'an answer for an earlier discovery is ignored',
                 source: postgresSource,
                 fields: [

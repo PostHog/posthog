@@ -1867,7 +1867,7 @@ export interface IncrementalFieldTableApi {
     table: string
     /**
      * Candidate incremental fields of the table, as returned by database_schema.
-     * @maxItems 1000
+     * @maxItems 10000
      */
     incremental_fields: IncrementalFieldCandidateApi[]
 }

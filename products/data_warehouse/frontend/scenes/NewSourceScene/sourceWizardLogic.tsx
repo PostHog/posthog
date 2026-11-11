@@ -2024,6 +2024,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
             if (
                 cache.schemaDiscovery !== discovery ||
+                cache.recommendationsFrozenFor === discovery ||
                 values.connectorSelectionCount !== selection ||
                 picked.size === 0
             ) {
@@ -2290,6 +2291,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     sourcePayload.cdc_management_mode === 'self_managed' &&
                     cdcTables.length > 0
 
+                // The dialog shows counts from the settings as they are now, so a pick arriving later
+                // must not change what the person confirms.
+                cache.recommendationsFrozenFor = cache.schemaDiscovery
                 LemonDialog.open({
                     title: 'Confirm your table configurations',
                     content: confirmation,

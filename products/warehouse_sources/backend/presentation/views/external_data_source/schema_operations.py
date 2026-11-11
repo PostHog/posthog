@@ -95,7 +95,8 @@ class IncrementalFieldTableSerializer(serializers.Serializer):
     table = serializers.CharField(trim_whitespace=False, help_text="Name of the table, as returned by database_schema.")
     incremental_fields = serializers.ListField(
         child=IncrementalFieldCandidateSerializer(),
-        max_length=1000,
+        # Above any engine's column limit, so a wide table's full discovery result still fits.
+        max_length=10000,
         help_text="Candidate incremental fields of the table, as returned by database_schema.",
     )
 
