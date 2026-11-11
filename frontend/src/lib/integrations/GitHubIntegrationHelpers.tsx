@@ -22,7 +22,7 @@ import {
     IconRust,
     IconSwift,
 } from '@posthog/icons'
-import { LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -74,19 +74,25 @@ export const GitHubRepositoryPicker = ({
     className,
     valueKey,
 }: GitHubRepositoryPickerProps): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId, { valueKey })
+    const { options, loading, failed, retry } = useRepositories(integrationId, { valueKey })
 
     return (
-        <LemonInputSelect
-            onChange={(val) => onChange?.(val[0] ?? null)}
-            value={value ? [value] : []}
-            mode="single"
-            data-attr="select-github-repository"
-            placeholder="Select a repository..."
-            options={options}
-            loading={loading}
-            className={className}
-        />
+        <div className={className}>
+            {failed && (
+                <LemonBanner type="error" className="mb-2" action={{ children: 'Retry', onClick: retry }}>
+                    Could not load repositories. Try again.
+                </LemonBanner>
+            )}
+            <LemonInputSelect
+                onChange={(val) => onChange?.(val[0] ?? null)}
+                value={value ? [value] : []}
+                mode="single"
+                data-attr="select-github-repository"
+                placeholder="Select a repository..."
+                options={options}
+                loading={loading}
+            />
+        </div>
     )
 }
 
@@ -187,9 +193,9 @@ function RepoOptionLabel({ repo }: { repo: GitHubRepoApi }): JSX.Element {
 export function useRepositories(
     integrationId: number,
     { valueKey = 'name' }: { valueKey?: 'name' | 'full_name' } = {}
-): { options: LemonInputSelectOption[]; loading: boolean } {
+): { options: LemonInputSelectOption[]; loading: boolean; failed: boolean; retry: () => void } {
     const logic = githubIntegrationLogic({ id: integrationId })
-    const { repositories, repositoriesLoading } = useValues(logic)
+    const { repositories, repositoriesLoading, repositoriesFailed } = useValues(logic)
     const { loadRepositories } = useActions(logic)
 
     useEffect(() => {
@@ -213,5 +219,5 @@ export function useRepositories(
         [repositories, valueKey]
     )
 
-    return { options, loading: repositoriesLoading }
+    return { options, loading: repositoriesLoading, failed: repositoriesFailed, retry: loadRepositories }
 }

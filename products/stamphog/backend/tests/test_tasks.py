@@ -11,7 +11,9 @@ from django.test import override_settings
 from django.utils.dateparse import parse_datetime
 
 import requests
+from celery.exceptions import Retry
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import override_instance_config
@@ -80,6 +82,7 @@ def _pr_payload(
     head_branch: str = "feature-branch",
     head_repo: str | None = None,
     author_login: str = "member-dev",
+    author_id: int | None = None,
     user_type: str = "User",
     author_association: str = "MEMBER",
     draft: bool = False,
@@ -95,7 +98,7 @@ def _pr_payload(
         "base": {"sha": base_sha},
         "html_url": f"https://github.com/{repo}/pull/{pr_number}",
         "head": head,
-        "user": {"login": author_login, "type": user_type},
+        "user": {"login": author_login, "type": user_type, **({"id": author_id} if author_id is not None else {})},
         "author_association": author_association,
         "draft": draft,
         "labels": [{"name": name} for name in labels or []],
@@ -245,6 +248,118 @@ def test_review_path_skips_untrusted_bot_or_draft_prs(team, repo_config, pr_kwar
     else:
         assert count == 0
         mock_execute.assert_not_called()
+
+
+_RENOVATE_ID = 29139614
+_BOT_AUTHORS_POLICY = f"bot_authors:\n  - {{name: renovate, login: 'renovate[bot]', id: {_RENOVATE_ID}}}\n"
+
+
+def _renovate_pr(**overrides: Any) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "user_type": "Bot",
+        "author_login": "renovate[bot]",
+        "author_id": _RENOVATE_ID,
+        "author_association": "CONTRIBUTOR",
+        "head_repo": REPO,
+    }
+    return _pr_payload(**{**kwargs, **overrides})
+
+
+@pytest.mark.parametrize(
+    "payload, policy, review_mode, expect_run",
+    [
+        pytest.param(_renovate_pr(), _BOT_AUTHORS_POLICY, ReviewMode.ALL, True, id="named-bot"),
+        pytest.param(_renovate_pr(action="synchronize"), _BOT_AUTHORS_POLICY, ReviewMode.ALL, True, id="later-push"),
+        pytest.param(_renovate_pr(), _BOT_AUTHORS_POLICY, ReviewMode.LABEL, True, id="label-mode-without-the-label"),
+        pytest.param(_renovate_pr(), None, ReviewMode.ALL, False, id="policy-names-no-bot"),
+        pytest.param(
+            _renovate_pr(),
+            "bot_authors:\n  - {name: renovate, login: 'renovate[bot]'}\n",
+            ReviewMode.ALL,
+            False,
+            id="entry-without-an-id",
+        ),
+        pytest.param(
+            _renovate_pr(),
+            f"bot_authors:\n  - {{name: renovate, login: 'renovate[bot]', id: '{_RENOVATE_ID}'}}\n",
+            ReviewMode.ALL,
+            False,
+            id="entry-with-a-text-id",
+        ),
+        pytest.param(
+            _renovate_pr(),
+            f"bot_authors:\n  - {{name: renovate, login: 'renovate[bot]', id: {_RENOVATE_ID}, extra: 1}}\n",
+            ReviewMode.ALL,
+            False,
+            id="entry-with-a-key-the-engine-refuses",
+        ),
+        pytest.param(_renovate_pr(), "bot_authors: 'renovate[bot]'\n", ReviewMode.ALL, False, id="entries-not-a-list"),
+        pytest.param(_renovate_pr(), "bot_authors: [\n", ReviewMode.ALL, False, id="unreadable-policy"),
+        pytest.param(
+            _renovate_pr(author_id=1), _BOT_AUTHORS_POLICY, ReviewMode.ALL, False, id="same-login-other-account"
+        ),
+        pytest.param(
+            _renovate_pr(head_repo="fork/posthog"), _BOT_AUTHORS_POLICY, ReviewMode.ALL, False, id="fork-head"
+        ),
+        pytest.param(_renovate_pr(user_type="User"), _BOT_AUTHORS_POLICY, ReviewMode.ALL, False, id="not-an-app"),
+        pytest.param(_renovate_pr(draft=True), _BOT_AUTHORS_POLICY, ReviewMode.ALL, False, id="draft"),
+        pytest.param(
+            _renovate_pr(action="ready_for_review"), _BOT_AUTHORS_POLICY, ReviewMode.ALL, True, id="ready-flip"
+        ),
+        pytest.param(
+            {**_renovate_pr(action="edited"), "changes": {"base": {"ref": {"from": "release"}}}},
+            _BOT_AUTHORS_POLICY,
+            ReviewMode.ALL,
+            True,
+            id="base-retarget",
+        ),
+        pytest.param(_renovate_pr(action="labeled"), _BOT_AUTHORS_POLICY, ReviewMode.ALL, False, id="label-added"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_bot_the_policy_names_is_reviewed_on_its_own_identity(
+    team, repo_config, payload: dict[str, Any], policy: str | None, review_mode: ReviewMode, expect_run: bool
+):
+    # The harness answers "none" for the author's permission, so a run here skipped that gate.
+    with team_scope(team.id):
+        repo_config.review_mode = review_mode
+        repo_config.save(update_fields=["review_mode"])
+    cache.delete(f"stamphog:bot_authors:{repo_config.id}")
+    with patch("products.stamphog.backend.logic.bot_admission.StamphogGitHubClient") as policy_client:
+        policy_client.return_value.get_default_branch_file.return_value = policy
+        mock_execute = _run_task(payload, f"delivery-bot-{uuid.uuid4()}", team.id, author_permission="none")
+
+    with team_scope(team.id):
+        runs = list(ReviewRun.objects.all())
+    assert len(runs) == (1 if expect_run else 0)
+    assert mock_execute.call_count == (1 if expect_run else 0)
+    if expect_run:
+        assert runs[0].output["bot_admission"] == {"name": "renovate", "login": "renovate[bot]", "id": _RENOVATE_ID}
+        assert runs[0].output["review_trigger"] == "bot_admission"
+        mock_execute.github.get_collaborator_permission.assert_not_called()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_rate_limited_bot_policy_read_backs_off_before_it_answers_the_pr(team, repo_config):
+    with team_scope(team.id):
+        repo_config.review_mode = ReviewMode.LABEL
+        repo_config.save(update_fields=["review_mode"])
+    cache.delete(f"stamphog:bot_authors:{repo_config.id}")
+    payload = _renovate_pr(labels=[repo_config.trigger_label])
+    with (
+        team_scope(team.id),
+        patch("products.stamphog.backend.logic.bot_admission.StamphogGitHubClient") as policy_client,
+        patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as github,
+        pytest.raises(Retry) as retry,
+    ):
+        policy_client.return_value.get_default_branch_file.side_effect = GitHubRateLimitError(
+            "rate limited", retry_after=300
+        )
+        process_pull_request_event.apply(args=(payload, f"delivery-bot-{uuid.uuid4()}"))
+
+    assert retry.value.when == 300
+    github.return_value.upsert_sticky_comment.assert_not_called()
+    github.return_value.remove_pr_label.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -1000,7 +1115,10 @@ def test_inbox_carve_out_scope(team, repo_config, carve_kwargs, find_result_team
     with (
         patch(_FIND_RUN, return_value=dto),
         patch(_RESOLVER_SLOT, resolver_fn),
+        # A ready bot PR outside the carve-out asks the repo policy whether it names the bot.
+        patch("products.stamphog.backend.logic.bot_admission.StamphogGitHubClient") as policy_client,
     ):
+        policy_client.return_value.get_default_branch_file.return_value = None
         mock_execute = _run_task(_selfdriving_payload(**carve_kwargs), f"delivery-scope-{uuid.uuid4()}", team.id)
 
     with team_scope(team.id):
@@ -1533,25 +1651,32 @@ def test_retention_needs_a_usable_approved_base_sha(team, repo_config, output):
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-@pytest.mark.parametrize("action,expect_comment", [("labeled", True), ("synchronize", False)])
-def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, expect_comment):
-    # A labeled dependabot PR gets an explanation and loses the label again. Without that removal
+@pytest.mark.parametrize(
+    "action,policy,expect_removal,expect_comment",
+    [
+        ("labeled", None, True, True),
+        ("synchronize", None, True, False),
+        # Stamphog reviews this bot's PRs, so the explanation would be false.
+        ("labeled", _BOT_AUTHORS_POLICY, False, False),
+    ],
+)
+def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, policy, expect_removal, expect_comment):
+    # A labeled bot PR gets an explanation and loses the label again. Without that removal
     # the label stays on the PR while every later delivery silently takes the bot-author skip, so
     # the PR looks reviewed but never is. The explanation is posted only where a person just
     # acted.
     with team_scope(team.id):
         repo_config.review_mode = ReviewMode.LABEL
         repo_config.save()
-    payload = _pr_payload(
-        action=action,
-        author_login="dependabot[bot]",
-        user_type="Bot",
-        labels=["stamphog"],
-        added_label="stamphog",
-    )
+    cache.delete(f"stamphog:bot_authors:{repo_config.id}")
+    payload = _renovate_pr(action=action, labels=["stamphog"], added_label="stamphog")
 
-    client = _run_task(payload, f"delivery-bot-label-{action}", team.id).github
-    client.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
+    with patch("products.stamphog.backend.logic.bot_admission.StamphogGitHubClient") as policy_client:
+        policy_client.return_value.get_default_branch_file.return_value = policy
+        client = _run_task(payload, f"delivery-bot-label-{action}-{policy is None}", team.id).github
+    assert client.remove_pr_label.called is expect_removal
+    if expect_removal:
+        client.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
     assert client.upsert_sticky_comment.called is expect_comment
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0

@@ -24,7 +24,7 @@ The AI detector makes a charged model call on every check, so most of these rule
 
 - Every check asks the model one question: is the latest point anomalous, given its history? The verdict is the fire decision. There is no score, no confidence, and no threshold.
 - The lookback follows the insight interval (`llm_detector_lookback`). The config has no window.
-- The prompt marks the points that earlier AI checks of the alert fired on, with each check's rationale. Errored and statistical checks are left out. The verdict memo key covers these flags.
+- The prompt marks the points that earlier AI checks of the alert fired on, and lists the rationales of only the most recent ones. Errored and statistical checks are left out. The verdict memo key covers these flags.
 - Simulate makes one live check of the latest point. It never scans the history.
 
 ### Evaluation

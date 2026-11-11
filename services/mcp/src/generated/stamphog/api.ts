@@ -185,10 +185,10 @@ export const StamphogReviewRunsListQueryParams = () => zod.object({
     repository: zod.string().optional().describe("Filter by repository full name, e.g. 'PostHog\/posthog'."),
     status: zod.string().optional().describe('Filter by review run status.'),
     trigger: zod
-        .enum(['all', 'label', 'manual', 'reviewhog_clean', 'self_driving'])
+        .enum(['all', 'bot_admission', 'label', 'manual', 'reviewhog_clean', 'self_driving'])
         .optional()
         .describe(
-            "Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox)."
+            "Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), 'self_driving' (stamphog reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo policy names the bot that authored the PR)."
         ),
 })
 
