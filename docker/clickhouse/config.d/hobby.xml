@@ -17,10 +17,10 @@
     </query_log>
 
     <!-- An idle Kafka consumer asks the broker for data again every 500 ms by default, and ClickHouse
-         runs about 50 of them. The broker now holds an empty fetch for up to 5 s. It still answers as
-         soon as a message arrives, so ingestion is not delayed. A table created from a named
-         collection reads its Kafka client settings from that collection, so each collection in
-         default.xml needs the setting. -->
+         runs at least one consumer for each Kafka engine table. This setting lets the broker hold an
+         empty fetch for up to 5 s. The broker still answers as soon as a message arrives, so
+         ingestion is not delayed. A table created from a named collection reads its Kafka client
+         settings from that collection, so each collection in default.xml needs the setting. -->
     <named_collections>
         <msk_cluster>
             <kafka>
