@@ -7,7 +7,6 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { tagsModel } from '~/models/tagsModel'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -78,7 +77,6 @@ describe('replayScannersLogic', () => {
             get: {
                 '/api/projects/:team/vision/scanners/': { results: [], count: 0 },
                 '/api/projects/:team/vision/scanners/creators/': { creators: [] },
-                '/api/projects/:team/tags': [],
             },
             patch: {
                 '/api/projects/:team/vision/scanners/:id/': () => [200, {}],
@@ -227,20 +225,6 @@ describe('replayScannersLogic', () => {
             ).toMatchValues({
                 hasActiveFilters: true,
             })
-        })
-    })
-
-    describe('tagOptions', () => {
-        it('drops comma tags from the team-wide list and keeps selected tags visible', async () => {
-            // Let the mount-time loadTags settle first so its mocked empty response can't clobber the fixture.
-            await expectLogic(logic).toFinishAllListeners()
-            tagsModel.actions.loadTagsSuccess(['beta', 'insight,tag'])
-            logic.actions.setScannersFilters({ tagsFilter: ['from-url'] })
-            expect(logic.values.tagOptions).toEqual([
-                { value: 'beta', label: 'beta' },
-                { value: 'from-url', label: 'from-url' },
-            ])
-            await expectLogic(logic).toFinishAllListeners()
         })
     })
 

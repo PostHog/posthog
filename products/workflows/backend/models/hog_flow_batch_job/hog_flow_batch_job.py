@@ -39,6 +39,7 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
                 name="hogflowbatchjob_waiting_idx",
                 condition=models.Q(status="waiting"),
             ),
+            models.Index(fields=["hog_flow", "-created_at"], name="hogflowbatchjob_flow_recent"),
         ]
 
     State = HogFlowBatchJobState

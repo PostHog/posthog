@@ -69,6 +69,7 @@ rules:
                               |Action
                               |AEOBrand
                               |AEOCitationCheck
+                              |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
                               |AgentApplication
@@ -313,6 +314,7 @@ rules:
                               |MessageTemplate
                               |Metric
                               |MetricDailyQueryCount
+                              |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
@@ -490,6 +492,9 @@ rules:
                               |EmailChannel
                               |EvaluationReport
                               |EvaluationBackfill
+                              |EvalSuggestion
+                              |EvalSuggestionRun
+                              |EvalSuggestionTeamState
                               |Text
                               |Threshold
                               |ToleratedHash
@@ -1008,6 +1013,9 @@ rules:
                         |EmailChannel
                         |EvaluationReport
                         |EvaluationBackfill
+                        |EvalSuggestion
+                        |EvalSuggestionRun
+                        |EvalSuggestionTeamState
                         |Text
                         |Threshold
                         |ToleratedHash

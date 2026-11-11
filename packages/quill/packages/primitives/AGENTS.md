@@ -22,6 +22,10 @@ function App() {
 
 For RTL apps, wrap with `DirectionProvider` (re-exported from Base UI) — directional pieces (Collapsible chevrons, menu alignment) read it via `useDirection`.
 
+Every workspace package that imports a quill package lists that exact package in its own `package.json` `dependencies`, for example `"@posthog/quill": "workspace:*"` in `products/<name>/package.json`.
+pnpm links only the packages a workspace declares, so an undeclared import fails in Vite with `Failed to resolve import`, even when another quill package is declared there.
+Run `pnpm install` after you add one, and commit the `pnpm-lock.yaml` change with it.
+
 ---
 
 ## The `render` prop
