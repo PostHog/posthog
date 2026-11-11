@@ -376,6 +376,17 @@ share (enrolment kill switch, daily run budget, Signals quota, daily report limi
 single-flight) live in `backend/scout_harness/run_gates.py`; the workflow path adds a 30-minute
 per-`(team, skill)` cooldown, a backstop that does not have to trust the workflow's masking config.
 
+A workflow fire that the cooldown or the in-flight gate turns away is queued as a
+`SignalScoutPendingTrigger` row (`backend/scout_harness/workflow_trigger_queue.py`), unless the step
+asked to skip it. A lane keeps at most `MAX_PENDING_WORKFLOW_TRIGGERS` fires, drops an exact duplicate
+note, and drops its oldest fire when full. Every other rejection (pause, enrolment, budget, quota,
+missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
+hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
+allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
+per lane that passes the same gates a live fire does. Only ids travel through Temporal: the run claims
+(locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
+leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
+
 Findings emitted during the run go through the harness's `emit_signal_*` tools,
 which call `emit_signal()` with `source_product="signals_scout"` and
 `source_type="cross_source_issue"` — from there the signal flows through the same
@@ -680,7 +691,11 @@ Per-team configuration for which signal sources are enabled.
 - The product analytics source (`analytics` / `anomaly_investigation`) accepts `config.alert_scope`: `investigated_only` (the default when the key is absent) or `all_firing_alerts`. The serializer rejects any other value, and rejects the key on every other source (`contracts.ALERT_SCOPE_SOURCE`).
   Other products read the scope through `facade.source_configs.get_analytics_alert_scope(team_id=...)`, never the row. The read returns `investigated_only` unless the stored value is `all_firing_alerts` and the `signals-analytics-all-alerts` flag is on for the team's organization. The flag check fails closed.
   The read does not check `enabled`: the emitter still gates on `is_source_enabled`.
-  With `all_firing_alerts`, insight alert evaluation (`posthog/temporal/alerts/alert_firing_signal.py`) emits `analytics` / `alert_firing` when an alert that the investigation agent does not investigate starts a firing episode. It emits once per episode (source id and idempotency key `<alert id>:<first check id>`), and a failure never changes the check. The evaluation thread runs the gates after the check is committed. The activity awaits the emission on its event loop once that thread returns, because `emit_signal` needs the default executor that the thread runs on. A per-team token bucket caps it, and an unavailable bucket skips the signal. Each skip after a read logs `alert_firing.signal_skipped` with the team and a reason. Alerts the agent investigates keep the verdict gate in both scopes.
+  With `all_firing_alerts`, insight alert evaluation (`posthog/temporal/alerts/alert_firing_signal.py`) emits `analytics` / `alert_firing` when an alert that the investigation agent does not investigate starts a firing episode.
+  It emits once per episode (source id and idempotency key `<alert id>:<first check id>`), and a failure never changes the check.
+  Both insight alert stacks emit it through those gates, cap and payload. The insight stack emits for the alerts it owns. The alerts platform emits for the alerts it owns (`products/alerts/backend/platform_firing_signal.py`): its evaluation marks the firing that starts an episode, and its evaluate workflow sends the signal after the outcome is recorded.
+  The platform reads the alert from its configuration and its insight, so an alert with no insight stack row signals too. It decides whether the agent investigates from the alert the check evaluates: the row, or one built from the platform alert. The agent takes only a check with one group, so a breakdown alert signals for every value whose firing starts its own episode.
+  Its source id is `<alert id>:<configuration id>:<episode start>`, with a digest of the breakdown value before the episode start for a breakdown alert. The evaluation thread runs the gates after the check is committed. The activity awaits the emission on its event loop once that thread returns, because `emit_signal` needs the default executor that the thread runs on. A per-team token bucket caps it, and an unavailable bucket skips the signal. Each skip after a read logs `alert_firing.signal_skipped` with the team and a reason. Alerts the agent investigates keep the verdict gate in both scopes.
   The `posthog_insight_alerts_firing_signals_total` counter records one `outcome` per episode that passes the episode gates (`emitted`, `source_disabled`, `scope`, `filtered`, `filter_invalid`, `cap`, `cap_unavailable`, `not_dispatched`). It has no team label. A drop by the cap (`cap` or `cap_unavailable`) also captures `alert firing signal skipped` with `team_id`, `alert_id` and `reason`, which gives the per-team view for sizing the cap. A Redis key on the source id lets only the first attempt of an episode record, so an activity retry never counts it twice. A cancelled attempt records nothing. A failure to record never changes the check or the signal.
   `alert_firing` has no config row of its own: `is_source_enabled` checks the `anomaly_investigation` row for it, so the one product analytics toggle turns both off.
   Guidance written on that row filters both `anomaly_investigation` and `alert_firing`, through the direct steering gate.

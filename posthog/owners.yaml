@@ -14,7 +14,7 @@ rules:
     - match: '/egress/'
       owners: team-devex
     - match: '/email.py'
-      owners: team-platform-features
+      owners: team-workflows
     - match: '/heatmaps/'
       owners: team-web-analytics
     - match: '/hogql/'

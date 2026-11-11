@@ -371,6 +371,7 @@ def sync_execute(
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     external_tables: Optional[list[ClickHouseExternalTable]] = None,
+    send_receive_timeout: Optional[int] = None,
 ):
     """
     Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
@@ -575,7 +576,10 @@ def sync_execute(
         ).inc()
         with (
             _llm_analytics_concurrency_slot(ch_user, team_id),
-            sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
+            sync_client
+            or get_client_from_pool(
+                workload, team_id, readonly, ch_user, send_receive_timeout=send_receive_timeout
+            ) as client,
         ):
             query_info_before = getattr(client, "last_query", None)
             # Taken after the concurrency slot and the pool checkout, so the fallback does not count
