@@ -619,9 +619,7 @@ def _boxes_of_removed_worktrees(
     counts as removed when its admin directory is gone, or when `git worktree
     prune` would delete that directory. A record without a worktree ID cannot
     tell its admin directory from a reused one, so any directory at that path
-    counts as its own. Its registered folder keeps the box only while it holds a
-    live worktree: a sync mirror can write the files back without `.git` after
-    the worktree is removed.
+    counts as its own.
     """
     if repo_common is None:
         return []
@@ -643,7 +641,6 @@ def _boxes_of_removed_worktrees(
 
 
 def _holds_a_worktree(path: Path) -> bool:
-    """Any live worktree counts, whatever its ID, because one recreated at a registered path takes over that box."""
     admin_dir = _gitdir_for(path)
     return admin_dir is not None and admin_dir.is_dir() and not _git_would_prune(admin_dir)
 
