@@ -1,8 +1,8 @@
 // AUTO-GENERATED FILE - DO NOT EDIT DIRECTLY
 'use strict'
-export const WebAnalyticsPropertyFilters = validate148
-const schema134 = { items: { $ref: '#/definitions/WebAnalyticsPropertyFilter' }, type: 'array' }
-const schema135 = {
+export const WebAnalyticsPropertyFilters = validate154
+const schema136 = { items: { $ref: '#/definitions/WebAnalyticsPropertyFilter' }, type: 'array' }
+const schema137 = {
     anyOf: [
         { $ref: '#/definitions/EventPropertyFilter' },
         { $ref: '#/definitions/PersonPropertyFilter' },
@@ -1256,7 +1256,7 @@ function validate31(data, { instancePath = '', parentData, parentDataProperty, r
     validate31.errors = vErrors
     return errors === 0
 }
-function validate149(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate155(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     const _errs0 = errors
@@ -1309,7 +1309,7 @@ function validate149(data, { instancePath = '', parentData, parentDataProperty, 
             vErrors.push(err0)
         }
         errors++
-        validate149.errors = vErrors
+        validate155.errors = vErrors
         return false
     } else {
         errors = _errs0
@@ -1321,10 +1321,10 @@ function validate149(data, { instancePath = '', parentData, parentDataProperty, 
             }
         }
     }
-    validate149.errors = vErrors
+    validate155.errors = vErrors
     return errors === 0
 }
-function validate148(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate154(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -1334,14 +1334,14 @@ function validate148(data, { instancePath = '', parentData, parentDataProperty, 
             for (let i0 = 0; i0 < len0; i0++) {
                 const _errs1 = errors
                 if (
-                    !validate149(data[i0], {
+                    !validate155(data[i0], {
                         instancePath: instancePath + '/' + i0,
                         parentData: data,
                         parentDataProperty: i0,
                         rootData,
                     })
                 ) {
-                    vErrors = vErrors === null ? validate149.errors : vErrors.concat(validate149.errors)
+                    vErrors = vErrors === null ? validate155.errors : vErrors.concat(validate155.errors)
                     errors = vErrors.length
                 }
                 var valid0 = _errs1 === errors
@@ -1350,7 +1350,7 @@ function validate148(data, { instancePath = '', parentData, parentDataProperty, 
                 }
             }
         } else {
-            validate148.errors = [
+            validate154.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -1362,11 +1362,11 @@ function validate148(data, { instancePath = '', parentData, parentDataProperty, 
             return false
         }
     }
-    validate148.errors = vErrors
+    validate154.errors = vErrors
     return errors === 0
 }
-export const CompareFilter = validate155
-const schema136 = {
+export const CompareFilter = validate161
+const schema138 = {
     additionalProperties: false,
     properties: {
         compare: {
@@ -1382,7 +1382,7 @@ const schema136 = {
     },
     type: 'object',
 }
-function validate155(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate161(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -1390,7 +1390,7 @@ function validate155(data, { instancePath = '', parentData, parentDataProperty, 
             const _errs1 = errors
             for (const key0 in data) {
                 if (!(key0 === 'compare' || key0 === 'compare_to')) {
-                    validate155.errors = [
+                    validate161.errors = [
                         {
                             instancePath,
                             schemaPath: '#/additionalProperties',
@@ -1407,7 +1407,7 @@ function validate155(data, { instancePath = '', parentData, parentDataProperty, 
                 if (data.compare !== undefined) {
                     const _errs2 = errors
                     if (typeof data.compare !== 'boolean') {
-                        validate155.errors = [
+                        validate161.errors = [
                             {
                                 instancePath: instancePath + '/compare',
                                 schemaPath: '#/properties/compare/type',
@@ -1426,7 +1426,7 @@ function validate155(data, { instancePath = '', parentData, parentDataProperty, 
                     if (data.compare_to !== undefined) {
                         const _errs4 = errors
                         if (typeof data.compare_to !== 'string') {
-                            validate155.errors = [
+                            validate161.errors = [
                                 {
                                     instancePath: instancePath + '/compare_to',
                                     schemaPath: '#/properties/compare_to/type',
@@ -1444,7 +1444,7 @@ function validate155(data, { instancePath = '', parentData, parentDataProperty, 
                 }
             }
         } else {
-            validate155.errors = [
+            validate161.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -1456,6 +1456,6 @@ function validate155(data, { instancePath = '', parentData, parentDataProperty, 
             return false
         }
     }
-    validate155.errors = vErrors
+    validate161.errors = vErrors
     return errors === 0
 }

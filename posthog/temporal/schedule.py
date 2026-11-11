@@ -150,6 +150,7 @@ from products.signals.backend.facade.temporal import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
+from products.slack_app.backend.temporal.schedule import create_slack_app_daily_focus_sweep_schedule
 from products.subscriptions.backend.facade.temporal import create_schedule_all_subscriptions_schedule
 from products.today.backend.facade.temporal import delete_today_briefing_schedule
 from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
@@ -945,6 +946,7 @@ schedules = [
     create_run_quota_limiting_schedule,
     create_schedule_due_billing_alert_checks_schedule,
     create_context_layer_dream_schedule,
+    create_slack_app_daily_focus_sweep_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,
     create_error_tracking_recommendations_refresh_schedule,

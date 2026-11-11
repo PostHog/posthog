@@ -34,6 +34,29 @@ describe('API helper', () => {
         ApiConfig.setCurrentTeamId(2)
     })
 
+    describe('conversation queue', () => {
+        it.each([
+            { messages: [], max_queue_messages: 2 },
+            {
+                messages: [{ id: 'queue-2', content: 'Next message', created_at: '2026-01-01T00:00:00Z' }],
+                max_queue_messages: 2,
+            },
+        ])('parses the queue delete response with messages $messages', async (queue) => {
+            fakeFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify(queue), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            )
+
+            await expect(api.conversations.queue.delete('conversation-1', 'queue-1')).resolves.toEqual(queue)
+            expect(fakeFetch).toHaveBeenCalledWith(
+                '/api/projects/2/conversations/conversation-1/queue/queue-1/',
+                expect.objectContaining({ method: 'DELETE' })
+            )
+        })
+    })
+
     describe('events', () => {
         it('can build URL for events with properties', async () => {
             await api.events.list(

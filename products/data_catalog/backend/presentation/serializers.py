@@ -196,7 +196,6 @@ class MetricSerializer(serializers.ModelSerializer):
             "last_run_at",
             "created_source",
             "ai_model",
-            "confidence",
             "reasoning",
             "created_by",
             "created_at",
@@ -235,11 +234,6 @@ class MetricSerializer(serializers.ModelSerializer):
             },
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
             "ai_model": {"help_text": "Model that generated the metric, if AI-authored."},
-            "confidence": {
-                "help_text": "AI author's confidence in the proposal, 0-1.",
-                "min_value": 0.0,
-                "max_value": 1.0,
-            },
             "reasoning": {
                 "help_text": "Why the definition is shaped this way, in 1-3 short sentences. Name the main design "
                 "decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an "

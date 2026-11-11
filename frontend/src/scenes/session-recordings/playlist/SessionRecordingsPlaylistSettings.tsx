@@ -8,6 +8,7 @@ import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSet
 import { dayjs } from 'lib/dayjs'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
@@ -527,6 +528,7 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
+    const { isHobby } = useValues(preflightLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && recordings.every((r) => selectedRecordingsIds.includes(r.id))
@@ -568,11 +570,13 @@ export function SessionRecordingsPlaylistTopSettings({
         })
 
         // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
-        menuItems.push({
-            key: 'bulk-scan-recordings',
-            label: () => <BulkScanMenuItem />,
-            custom: true,
-        })
+        if (!isHobby) {
+            menuItems.push({
+                key: 'bulk-scan-recordings',
+                label: () => <BulkScanMenuItem />,
+                custom: true,
+            })
+        }
 
         menuItems.push({
             label: 'Delete',

@@ -44,6 +44,7 @@ class AvailableFeature(StrEnum):
     SURVEYS_RECURRING = "surveys_recurring"
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
+    HIPAA_BAA = "hipaa_baa"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
