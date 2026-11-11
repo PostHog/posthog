@@ -210,7 +210,7 @@ def test_the_daily_publish_auto_promotes_the_newest_passing_version_and_serves_i
         assert events == []
         return
     new_key = f"{XGBOOST_MODEL_NAME}@{newer_version}"
-    assert metadata["auto_promotion"].data == (
+    assert metadata["auto_promotion"].value == (
         {"result": f"promoted {new_key}", "interval_days": 1, "source": "flag"}
         if mode == "flag_interval"
         else {"result": f"promoted {new_key}", "interval_days": 3, "source": "setting"}
