@@ -11,6 +11,7 @@ export const MARKER = 'SCENARIO_RUNNER=1'
 
 const PROC_ROOT = '/proc'
 const HOLDER_READ_TIMEOUT_MS = 2000
+const KILL_SETTLES_MS = 2000
 const LISTENING = '00010000'
 
 export type ProcEntry = { pid: number; pgid: number; cmdline: string; cwd: string | null; environ: string[] | null }
@@ -214,4 +215,9 @@ export async function terminate(targets: Targets, graceMs: number): Promise<void
         alive = alive.filter((target) => signal(target, 0))
     }
     alive.forEach((target) => signal(target, 'SIGKILL'))
+    const killedBy = Date.now() + KILL_SETTLES_MS
+    while (alive.length > 0 && Date.now() < killedBy) {
+        await sleep(20)
+        alive = alive.filter((target) => signal(target, 0))
+    }
 }
