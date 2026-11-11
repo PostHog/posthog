@@ -5,12 +5,8 @@ import type {
 import {
     DEFAULT_SCOUT_WEEKLY_DAY,
     MAX_SCOUT_DISPLAY_NAME_LENGTH,
-    SCOUT_WEEKDAY_OPTIONS,
-    dailyCronToTime,
     dayTimeToWeeklyCron,
-    formatRunInterval,
     timeToDailyCron,
-    weeklyCronToDayTime,
 } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import dashboardScoutSkill from './dashboardScoutSkill.md?raw'
@@ -71,34 +67,6 @@ const NO_FOCUS_INSTRUCTIONS =
  */
 export function dashboardScoutTag(dashboardId: number): string {
     return `dashboard-${dashboardId}`
-}
-
-/** The dashboard a scout was set up from, read back from its `dashboard-<id>` tag. */
-export function dashboardIdFromScoutTags(tags: string[] | undefined): number | null {
-    for (const tag of tags ?? []) {
-        const match = tag.match(/^dashboard-(\d+)$/)
-        if (match) {
-            return Number(match[1])
-        }
-    }
-    return null
-}
-
-export function describeDashboardScoutSchedule(cron: string | null, intervalMinutes: number): string {
-    if (!cron) {
-        return formatRunInterval(intervalMinutes)
-    }
-    const dailyTime = dailyCronToTime(cron)
-    if (dailyTime) {
-        return `Every day at ${dailyTime}`
-    }
-    const weekdayTime = dailyCronToTime(cron.replace(/ 1-5$/, ' *'))
-    if (weekdayTime && cron.endsWith(' 1-5')) {
-        return `Every weekday at ${weekdayTime}`
-    }
-    const weekly = weeklyCronToDayTime(cron)
-    const day = weekly && SCOUT_WEEKDAY_OPTIONS.find((option) => option.value === weekly.day)
-    return weekly && day ? `Every ${day.label} at ${weekly.time}` : cron
 }
 
 export function dashboardScoutCron(cadence: DashboardScoutCadence, time: string): string {
