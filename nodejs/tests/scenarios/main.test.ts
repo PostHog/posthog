@@ -1,6 +1,8 @@
 import path from 'path'
 
 import { load } from './cards'
+import * as processes from './environment/processes'
+import * as stack from './environment/stack'
 import { main, runCards } from './main'
 import { RunResult, Runner } from './runner/runner'
 import { EXIT_CODE } from './runner/status'
@@ -85,6 +87,9 @@ describe('runCards', () => {
     })
 
     it('refuses partial scorecard credentials before it starts the stack', async () => {
+        jest.spyOn(processes, 'terminate').mockRejectedValue(new Error('The preflight test reached process cleanup.'))
+        jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
+
         const code = await main(['run', 'smoke'], {
             SCENARIO_RUNS_HOST: 'http://127.0.0.1:1',
             SCENARIO_RUNS_PROJECT_TOKEN: 'phc_fake_token',
