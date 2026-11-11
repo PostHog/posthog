@@ -294,12 +294,12 @@ export class HogExecutorAsyncService {
         error: Error,
         lookup: string,
         subject: string,
-        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
+        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries' | 'isTest'>
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
         const attempts = result.invocation.state.attempts + 1
         result.invocation.state.attempts = attempts
         const policy = this.transientRetryPolicy(options?.maxFetchRetries)
-        const retryAt = transientRetryAt(attempts, policy)
+        const retryAt = options?.isTest ? null : transientRetryAt(attempts, policy)
         const addLog = createAddLogFunction(result.logs)
 
         if (!retryAt) {
@@ -461,7 +461,7 @@ export class HogExecutorAsyncService {
     @instrumented('hog-executor.executeFetch')
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction,
-        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
+        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries' | 'isTest'>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const templateId = invocation.hogFunction.template_id ?? 'unknown'
         if (invocation.queueParameters?.type !== 'fetch') {

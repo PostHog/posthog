@@ -43,6 +43,7 @@ import {
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
+import { IntegrationSource } from './services/managers/integration-source'
 import { PostgresIntegrationSource } from './services/managers/postgres-integration-source'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
@@ -1156,23 +1157,36 @@ describe('CDP API', () => {
         )
     })
 
-    describe('hogflow test invocation of a step whose integration lookup fails', () => {
+    describe('test invocation whose integration lookup fails', () => {
         let integrationsDb: Awaited<ReturnType<typeof postgresThatDropsConnections>>
         let failingApp: express.Application
         let failingServer: Server
+        let lookupsBeforeFailing: number
 
         beforeAll(async () => {
-            integrationsDb = await postgresThatDropsConnections(hub.DATABASE_URL, (message) =>
-                message.toString('latin1').includes('fetchIntegrations')
-            )
+            integrationsDb = await postgresThatDropsConnections(hub.DATABASE_URL, (message) => {
+                if (!message.toString('latin1').includes('fetchIntegrations')) {
+                    return false
+                }
+                lookupsBeforeFailing--
+                return lookupsBeforeFailing < 0
+            })
+            const postgresSource = new PostgresIntegrationSource(integrationsDb.postgres, hub.encryptedFields)
+            const credentialsThatExpireAtOnce: IntegrationSource = {
+                name: 'expiring',
+                load: async (references) =>
+                    Object.fromEntries(
+                        Object.entries(await postgresSource.load(references)).map(([reference, record]) => [
+                            reference,
+                            { ...record, expiresAt: Date.now() },
+                        ])
+                    ),
+            }
             const failingApi = new CdpApi(
                 hub,
                 {
                     ...cdpDeps,
-                    integrationManager: new IntegrationManagerService(
-                        hub.pubSub,
-                        new PostgresIntegrationSource(integrationsDb.postgres, hub.encryptedFields)
-                    ),
+                    integrationManager: new IntegrationManagerService(hub.pubSub, credentialsThatExpireAtOnce),
                     idempotencyValkey: createIdempotencyValkeyPool(hub),
                 },
                 { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
@@ -1187,12 +1201,42 @@ describe('CDP API', () => {
             await integrationsDb.close()
         })
 
-        it('reports the step as an error, not a success', async () => {
-            const integration = await insertIntegration(hub.postgres, team.id, {
+        const insertOauthIntegration = (): Promise<{ id: number }> =>
+            insertIntegration(hub.postgres, team.id, {
                 kind: 'oauth',
                 config: {},
                 sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-access-token-value') },
             })
+
+        it('reports the access token lookup of a destination fetch as an error, not a success', async () => {
+            const integration = await insertOauthIntegration()
+            lookupsBeforeFailing = 1
+            const hog = `fetch('https://example.com/hook', {'headers': {'Authorization': f'Bearer {inputs.oauth.access_token}'}})`
+
+            const res = await supertest(failingApp)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({
+                    globals,
+                    mock_async_functions: false,
+                    configuration: {
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                        type: 'destination',
+                        hog,
+                        bytecode: await compileHog(hog),
+                        inputs: { oauth: { value: integration.id } },
+                        inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
+                    },
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('error')
+            expect(lookupsBeforeFailing).toBeLessThan(0)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('reports a hogflow step as an error, not a success', async () => {
+            lookupsBeforeFailing = 0
+            const integration = await insertOauthIntegration()
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-cdp-api-flow-integration-fetch',
                 name: 'Flow integration fetch',
