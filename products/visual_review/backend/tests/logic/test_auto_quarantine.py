@@ -132,7 +132,6 @@ class TestFlakeProof:
                 _DESCENDS,
                 None,
             ),
-            # A squash merge gives the default branch new commits, so it never descends from a queue run.
             (
                 "refuses_a_queue_run_as_ancestor_of_the_default_branch",
                 [_failing(_A), _clean(_QB), _failing(_C)],

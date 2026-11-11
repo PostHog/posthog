@@ -693,37 +693,30 @@ FLAKINESS_EXPIRY_SOON_DAYS = 7
 # none. A quarantine without an expiry never lifts itself, and no agent comes back to lift it.
 AGENT_QUARANTINE_MAX_DAYS = 30
 
-# Expiry of an automatic quarantine. Short enough that a story does not stay hidden for long, because
-# automatic release is planned to lift a story that renders clean again, and the weekly debt digest
-# reminds the owning team in the week before the expiry.
+# Short, so a story does not stay hidden for long. The weekly debt digest reminds the owning team
+# in the week before the expiry.
 AUTO_QUARANTINE_DAYS = 14
 
-# How far back an automatic quarantine looks for runs that complete a flake proof. The runs of a
-# proof must be close in time, because the further apart two trees are, the more code differs between
-# them that a proof does not account for.
+# The runs of a flake proof must be close in time, because the further apart two trees are, the more
+# code differs between them that the proof does not account for.
 AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
 
-# Automatic quarantines per repo in 24 hours, past which the next proof is logged and not applied.
-# Many new flakes at once mean the capture harness regressed, and quarantining them would hide that,
-# so the limit sits above a busy normal day and below a regression.
+# Past this many automatic quarantines per repo in 24 hours, a proof is only logged. Many new flakes
+# at once mean the capture harness regressed, so the limit sits above a busy day and below a regression.
 # As of November 2026, people opened at most 8 quarantines a day on 95 percent of days in this repo,
 # and a capture regression produced 12 proofs in 24 hours.
 AUTO_QUARANTINE_DAILY_LIMIT = 10
 
-# Stories evaluated per finishing run, so that a storm of failures cannot stall run completion on
-# GitHub requests.
+# Bounds GitHub requests, so a storm of failures cannot stall run completion.
 AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25
 
-# Proof candidates checked per story. Each candidate can cost GitHub requests, and the newest
-# candidates are the ones most likely to hold, so a few bound the work of a story that is no flake.
+# Each candidate can cost GitHub requests, and the newest ones are the most likely to hold.
 AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY = 5
 
-# Window runs read as possible ancestors of the finishing run, newest first. A proof needs runs close
-# to the finishing run, and the cap bounds the rows read for each story.
+# A proof needs runs close to the finishing run, so the newest few bound the rows read per story.
 AUTO_QUARANTINE_RUNS_READ = 80
 
-# Time one evaluation may spend, most of it on GitHub requests. It runs in the diff task, and a story
-# left over is checked again by a later run.
+# Runs inside the diff task. A story left over is checked again by a later run.
 AUTO_QUARANTINE_BUDGET_SECONDS = 20
 
 # Safety cap on rows returned by the flakiness endpoint. The population is

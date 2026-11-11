@@ -486,10 +486,9 @@ class _ApplyOutcome(StrEnum):
 
 
 def _apply(repo: Repo, run: Run, identifier: str, proof: ProofCandidate, now: datetime) -> _ApplyOutcome:
-    # The repo row lock makes the count and the create one step across runs, so two runs that finish
-    # together can neither pass the daily limit nor quarantine one story twice. The lock is no-key
-    # because a plain FOR UPDATE conflicts with the KEY SHARE lock that a child row insert takes on
-    # the repo, so a concurrent run creation that holds its run row could deadlock with it.
+    # The repo row lock keeps two runs from passing the daily limit or quarantining one story twice.
+    # No-key, because FOR UPDATE conflicts with the KEY SHARE lock of a child row insert and could
+    # deadlock with a run creation that holds its run row.
     with transaction.atomic(using=WRITER_DB):
         Repo.objects.using(WRITER_DB).select_for_update(no_key=True).filter(id=repo.id, team_id=repo.team_id).exists()
         if _recent_automatic_quarantines(repo, now) >= AUTO_QUARANTINE_DAILY_LIMIT:
