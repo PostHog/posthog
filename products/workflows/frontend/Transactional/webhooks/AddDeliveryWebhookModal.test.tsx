@@ -1,13 +1,14 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { ToastContainer } from 'react-toastify'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { AddDeliveryWebhookModal } from './AddDeliveryWebhookModal'
 import { deliveryWebhooksLogic } from './deliveryWebhooksLogic'
+
+const { ToastContainer } = jest.requireActual('react-toastify')
 
 type CreateResponse = [number, Record<string, any>]
 
