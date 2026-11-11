@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import { platformAlertsDestinationsList } from '../generated/api'
@@ -40,11 +41,36 @@ describe('platformAlertDestinationsLogic', () => {
         expect(logic.values.atDestinationLimit).toBe(true)
     })
 
+    it('queues a PagerDuty destination with its incident settings', async () => {
+        const logic = platformAlertDestinationsLogic({ alertId: null, sourceKind: 'traces' })
+        logic.mount()
+
+        logic.actions.setDestinationFormValues({
+            type: 'pagerduty',
+            pagerDutyRoutingKey: ' abcdefghijklmnopqrstuvwxyz012345 ',
+            pagerDutySeverity: 'warning',
+            pagerDutyRegion: 'eu',
+        })
+        logic.actions.submitDestinationForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.pendingDestinations).toEqual([
+            {
+                type: 'pagerduty',
+                pagerduty_routing_key: 'abcdefghijklmnopqrstuvwxyz012345',
+                pagerduty_severity: 'warning',
+                pagerduty_region: 'eu',
+            },
+        ])
+    })
+
     it('reports a failed load rather than an empty list', async () => {
+        silenceKeaLoadersErrors()
         mockList.mockRejectedValueOnce(new Error('boom'))
         const logic = platformAlertDestinationsLogic({ alertId: 'alert-1', sourceKind: 'traces' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+        resumeKeaLoadersErrors()
 
         expect(logic.values).toMatchObject({ destinations: null, destinationsLoadFailed: true })
     })

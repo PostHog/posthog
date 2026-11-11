@@ -5,6 +5,11 @@ import { LemonButton, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import {
+    ALERT_PAGERDUTY_REGION_OPTIONS,
+    ALERT_PAGERDUTY_SEVERITY_OPTIONS,
+} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+
 import { DESTINATION_TYPE_OPTIONS } from './platformAlertDestinationFormat'
 import { platformAlertDestinationsLogic } from './platformAlertDestinationsLogic'
 
@@ -24,7 +29,7 @@ export function PlatformAlertDestinationAddForm(): JSX.Element {
     return (
         <div
             className="space-y-2 border rounded p-2"
-            // Enter in the URL adds the destination. Without this it would submit or advance the alert's own
+            // Enter in the URL or key adds the destination. Without this it would submit or advance the alert's own
             // form, which drops what was typed here. The Slack picker keeps Enter for choosing a channel.
             onKeyDown={(event) => {
                 if (
@@ -81,6 +86,46 @@ export function PlatformAlertDestinationAddForm(): JSX.Element {
                 ) : (
                     <SlackNotConfiguredBanner />
                 )
+            ) : destinationForm.type === 'pagerduty' ? (
+                <>
+                    <LemonField.Pure
+                        label="Integration key"
+                        error={destinationFormErrors.pagerDutyRoutingKey}
+                        help='In PagerDuty, add an "Events API v2" integration to the service to page and paste its key. An incident opens when the alert fires and resolves when it stops.'
+                    >
+                        {/* Autocapture records copied text, which the password type does not stop. */}
+                        <LemonInput
+                            type="password"
+                            autoComplete="off"
+                            className="ph-no-capture"
+                            size="small"
+                            value={destinationForm.pagerDutyRoutingKey}
+                            onChange={(key) => setDestinationFormValue('pagerDutyRoutingKey', key)}
+                            placeholder="32-character Events API v2 integration key"
+                            data-attr="platform-alert-destination-pagerduty-key"
+                        />
+                    </LemonField.Pure>
+                    <div className="flex flex-wrap gap-2">
+                        <LemonField.Pure label="Severity">
+                            <LemonSelect
+                                size="small"
+                                value={destinationForm.pagerDutySeverity}
+                                onChange={(severity) => setDestinationFormValue('pagerDutySeverity', severity)}
+                                options={ALERT_PAGERDUTY_SEVERITY_OPTIONS}
+                                data-attr="platform-alert-destination-pagerduty-severity"
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Service region">
+                            <LemonSelect
+                                size="small"
+                                value={destinationForm.pagerDutyRegion}
+                                onChange={(region) => setDestinationFormValue('pagerDutyRegion', region)}
+                                options={ALERT_PAGERDUTY_REGION_OPTIONS}
+                                data-attr="platform-alert-destination-pagerduty-region"
+                            />
+                        </LemonField.Pure>
+                    </div>
+                </>
             ) : (
                 <LemonField.Pure label="URL" error={destinationFormErrors.webhookUrl}>
                     <LemonInput
