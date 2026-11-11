@@ -328,14 +328,13 @@ class TestRuleLinkedLaunch(RuleLinkedExperimentTestCase):
     def test_launch_refuses_variants_that_changed_after_its_checks(self) -> None:
         flag = self._flag()
         experiment = self._draft(flag)
-        # The launch checks the baseline against the flag it loaded, and snapshots the flag row it locks.
-        with_the_flag_loaded = Experiment.objects.select_related("feature_flag").get(pk=experiment.pk)
+        with_the_flag_as_checked = Experiment.objects.select_related("feature_flag").get(pk=experiment.pk)
         renamed_variant = _experiment_rule(RULE_A)
         renamed_variant["variants"][0]["key"] = "baseline"
         FeatureFlag.objects.filter(pk=flag.pk).update(filters=_v2_filters(renamed_variant))
 
         with pytest.raises(ValidationError, match="changed during the launch"):
-            ExperimentService(team=self.team, user=self.user).launch_experiment(with_the_flag_loaded)
+            ExperimentService(team=self.team, user=self.user).launch_experiment(with_the_flag_as_checked)
 
         experiment.refresh_from_db()
         assert experiment.start_date is None
@@ -353,7 +352,6 @@ class TestRuleLinkedLaunch(RuleLinkedExperimentTestCase):
 
         assert get_experiment_rule(started).flag_key == "flag-with-rules"
         assert ExperimentCalculationSettings.from_experiment(started).feature_flag_key == "flag-with-rules"
-        # A draft has no results yet, so it follows the flag.
         assert ExperimentCalculationSettings.from_experiment(draft).feature_flag_key == "another-renamed-flag"
 
     def test_a_started_experiment_reads_its_snapshot_after_the_rule_is_removed(self) -> None:
