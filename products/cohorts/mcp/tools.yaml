@@ -106,10 +106,9 @@ tools:
             destructive: true
             idempotent: true
         title: Delete cohort
-        description: >-
-            Soft-delete a cohort by ID. The cohort no longer appears in lists. The API refuses the delete while something
-            still relies on the cohort, such as a feature flag that is not archived, a workflow, or an insight; the error
-            names what to change first.
+        description: Soft-delete a cohort by ID. The cohort no longer appears in lists. The API refuses the delete while
+            something still relies on the cohort, such as a feature flag that is not archived, a workflow, or an
+            insight; the error names what to change first.
         soft_delete: true
     cohorts-list:
         operation: cohorts_list
