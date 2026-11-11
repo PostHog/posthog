@@ -371,7 +371,7 @@ def _flag_called_notices(
         read_from_both_tables = flag_called_spans_read_from_union(context)
         both_tables_message = (
             FLAG_CALLED_FROM_BOTH_TABLES_NOTICE
-            if context.database is not None and context.database.flag_calls_only_in_flag_evaluations
+            if context.flag_calls_only_in_flag_evaluations()
             else FLAG_CALLED_SPLIT_BY_AGE_NOTICE
         )
         for warning in warnings:
