@@ -59,6 +59,7 @@ import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES } from './_tests/examples'
+import { startFakeSes } from './_tests/fake-ses'
 import {
     createHogExecutionGlobals,
     insertCohortMembership,
@@ -3551,85 +3552,6 @@ describe('Workflows E2E (email queue)', () => {
             }, 15000)
         }
 
-        const SesContent = z.object({ Data: z.string(), Charset: z.string().optional() }).strict()
-        const SesSendEmailRequest = z
-            .object({
-                FromEmailAddress: z.string().optional(),
-                FromEmailAddressIdentityArn: z.string().optional(),
-                Destination: z
-                    .object({
-                        ToAddresses: z.array(z.string()).optional(),
-                        CcAddresses: z.array(z.string()).optional(),
-                        BccAddresses: z.array(z.string()).optional(),
-                    })
-                    .strict()
-                    .optional(),
-                ReplyToAddresses: z.array(z.string()).optional(),
-                FeedbackForwardingEmailAddress: z.string().optional(),
-                FeedbackForwardingEmailAddressIdentityArn: z.string().optional(),
-                Content: z
-                    .object({
-                        Simple: z
-                            .object({
-                                Subject: SesContent,
-                                Body: z.object({ Text: SesContent.optional(), Html: SesContent.optional() }).strict(),
-                                Headers: z.array(z.object({ Name: z.string(), Value: z.string() }).strict()).optional(),
-                                Attachments: z.array(z.record(z.string(), z.unknown())).optional(),
-                            })
-                            .strict(),
-                    })
-                    .strict(),
-                EmailTags: z.array(z.object({ Name: z.string(), Value: z.string() }).strict()).optional(),
-                ConfigurationSetName: z.string().optional(),
-                EndpointId: z.string().optional(),
-                TenantName: z.string().optional(),
-                ListManagementOptions: z
-                    .object({ ContactListName: z.string(), TopicName: z.string().optional() })
-                    .strict()
-                    .optional(),
-            })
-            .strict()
-
-        const startSesFake = async () => {
-            const received: { to: string[]; headers: Record<string, string>; text?: string; html?: string }[] = []
-            const ses = createServer((req, res) => {
-                let body = ''
-                req.on('data', (chunk) => (body += chunk))
-                req.on('end', () => {
-                    if (req.method !== 'POST' || req.url !== '/v2/email/outbound-emails') {
-                        res.writeHead(404).end()
-                        return
-                    }
-                    const request = SesSendEmailRequest.safeParse(parseJSON(body))
-                    if (!request.success) {
-                        res.writeHead(400, {
-                            'content-type': 'application/json',
-                            'x-amzn-errortype': 'BadRequestException',
-                        })
-                        res.end(JSON.stringify({ message: request.error.message }))
-                        return
-                    }
-                    const { Destination, Content } = request.data
-                    received.push({
-                        to: Destination?.ToAddresses ?? [],
-                        headers: Object.fromEntries(
-                            (Content.Simple.Headers ?? []).map(({ Name, Value }) => [Name.toLowerCase(), Value])
-                        ),
-                        text: Content.Simple.Body.Text?.Data,
-                        html: Content.Simple.Body.Html?.Data,
-                    })
-                    res.writeHead(200, { 'content-type': 'application/json' })
-                    res.end(JSON.stringify({ MessageId: `ses-${received.length}` }))
-                })
-            })
-            await new Promise<void>((resolve) => ses.listen(0, '127.0.0.1', resolve))
-            return {
-                endpoint: `http://127.0.0.1:${(ses.address() as AddressInfo).port}`,
-                received,
-                close: () => new Promise<void>((resolve) => ses.close(() => resolve())),
-            }
-        }
-
         const startPreferencesPageFake = async () => {
             const page = createServer((req, res) => {
                 let body = ''
@@ -3679,8 +3601,10 @@ describe('Workflows E2E (email queue)', () => {
             headers: Record<string, string>,
             preferencesPageUrl: string
         ): Promise<boolean> => {
-            const link = headers['list-unsubscribe']?.match(/<(https:[^>]+)>/)?.[1]
-            const postBody = headers['list-unsubscribe-post']
+            const header = (name: string): string | undefined =>
+                Object.entries(headers).find(([key]) => key.toLowerCase() === name)?.[1]
+            const link = header('list-unsubscribe')?.match(/<(https:[^>]+)>/)?.[1]
+            const postBody = header('list-unsubscribe-post')
             if (!link || postBody?.trim() !== 'List-Unsubscribe=One-Click') {
                 return false
             }
@@ -3780,14 +3704,13 @@ describe('Workflows E2E (email queue)', () => {
                 unsubscribes: false,
             },
         ] as const)('a code send through SES in $name', async ({ category, step, unsubscribes }) => {
-            const ses = await startSesFake()
+            const ses = await startFakeSes({
+                [hub.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
+                [hub.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
+            })
             const preferencesPage = await startPreferencesPageFake()
-            const env = { ...process.env }
-            process.env.AWS_ACCESS_KEY_ID = 'test'
-            process.env.AWS_SECRET_ACCESS_KEY = 'test'
             try {
                 hub.SES_ENDPOINT = ses.endpoint
-                hub.SES_UNTRACKED_CONFIGURATION_SET = 'untracked'
                 await insertIntegration(hub.postgres, team.id, {
                     id: 2,
                     kind: 'email',
@@ -3810,8 +3733,8 @@ describe('Workflows E2E (email queue)', () => {
                 expect(res.status).toEqual(202)
                 await deliver(createCdpConsumerDeps(hub, kafkaProducer))
 
-                expect(ses.received.map((email) => email.to)).toEqual([[to]])
-                expect(await oneClickUnsubscribe(ses.received[0].headers, preferencesPage.url)).toEqual(unsubscribes)
+                expect(ses.sent.map((email) => email.to)).toEqual([[to]])
+                expect(await oneClickUnsubscribe(ses.sent[0].headers, preferencesPage.url)).toEqual(unsubscribes)
 
                 await withOtherPod(async (otherApp) => {
                     const next = await post(
@@ -3823,7 +3746,6 @@ describe('Workflows E2E (email queue)', () => {
                     expect(next.status).toEqual(unsubscribes ? 422 : 202)
                 })
             } finally {
-                process.env = env
                 await ses.close()
                 await preferencesPage.close()
             }
