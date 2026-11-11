@@ -237,8 +237,17 @@ export const providerSpecSchema = z
         if (spec.token && !spec.tokenInfo) {
             issue('a code exchange needs `tokenInfo` to find the external id', ['tokenInfo'])
         }
-        if (spec.token?.tokenHost && !spec.identityConfigKeys.includes(spec.token.tokenHost.fromConfig)) {
-            issue('the config field behind `tokenHost` must be an identity config key', ['identityConfigKeys'])
+        for (const context of [{}, ...overrideContexts(spec)]) {
+            const tokenHost = applyOverrides(spec, context).token?.tokenHost
+            if (tokenHost && !spec.identityConfigKeys.includes(tokenHost.fromConfig)) {
+                const where = Object.keys(context).length ? `override ${JSON.stringify(context)}: ` : ''
+                issue(`${where}the config field behind \`tokenHost\` must be an identity config key`, [
+                    'identityConfigKeys',
+                ])
+            }
+        }
+        if (spec.mint && 'keyField' in spec.mint && spec.resolveExposes.includes(spec.mint.keyField)) {
+            issue('must not expose the key that the minter signs with', ['resolveExposes'])
         }
         if (spec.refresh && !spec.token && !spec.mint) {
             issue('refresh needs a token endpoint or a minter', ['refresh'])

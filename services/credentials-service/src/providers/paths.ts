@@ -81,7 +81,15 @@ export function regionAllowed(spec: ProviderSpec, region: string | undefined, en
     return !rule || rule.allowedIn.includes(environment)
 }
 
-/** The keys of a config `PATCH` that only create and exchange may set. The CRUD route refuses a non-empty result. */
+/**
+ * The keys of a config `PATCH` that only create and exchange may set. The CRUD route refuses a non-empty result.
+ * A dotted key counts too, because `dotGet` reads a literal `team.id` before the protected `team`.
+ */
 export function touchesIdentityConfig(spec: ProviderSpec, patch: Readonly<Record<string, unknown>>): string[] {
-    return Object.keys(patch).filter((key) => spec.identityConfigKeys.includes(key))
+    return Object.keys(patch).filter((key) =>
+        spec.identityConfigKeys.some(
+            (protectedKey) =>
+                key === protectedKey || key.startsWith(`${protectedKey}.`) || protectedKey.startsWith(`${key}.`)
+        )
+    )
 }

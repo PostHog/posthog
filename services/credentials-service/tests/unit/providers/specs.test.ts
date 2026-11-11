@@ -84,6 +84,50 @@ describe('provider specs', () => {
             },
             'identity config key',
         ],
+        [
+            'a token host from a non-identity config field in an override',
+            {
+                identityConfigKeys: ['host'],
+                token: {
+                    url: 'https://example.com/token',
+                    auth: 'client_secret_post',
+                    tokenHost: { fromConfig: 'host', allow: ['.example.com'], tokenPath: '/t', revokePath: '/r' },
+                },
+                overrides: {
+                    environment: {
+                        dev: {
+                            token: {
+                                tokenHost: {
+                                    fromConfig: 'note',
+                                    allow: ['.example.com'],
+                                    tokenPath: '/t',
+                                    revokePath: '/r',
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            'override {"environment":"dev"}: the config field behind `tokenHost` must be an identity config key',
+        ],
+        [
+            'the minter key field in resolve',
+            {
+                authorize: undefined,
+                authTypes: { default: 'credentials', others: [] },
+                token: undefined,
+                clientSecretKeys: undefined,
+                tokenInfo: undefined,
+                mint: {
+                    type: 'google_sa_jwt',
+                    scope: 'https://www.googleapis.com/auth/devstorage.read_write',
+                    keyField: 'key_info',
+                    tokenUriAllowlist: ['https://oauth2.googleapis.com/token'],
+                },
+                resolveExposes: ['access_token', 'key_info'],
+            },
+            'must not expose the key that the minter signs with',
+        ],
         ['a region rule with no environment', { regions: { dev: { allowedIn: [] } } }, ''],
         [
             'a backoff cap below its base',

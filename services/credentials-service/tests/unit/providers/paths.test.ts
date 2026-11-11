@@ -136,6 +136,8 @@ describe('touchesIdentityConfig', () => {
         ['salesforce', { note: 'x' }, []],
         ['github', { installation_id: '1', account: {} }, ['installation_id', 'account']],
         ['hubspot', {}, []],
+        ['slack', { 'team.id': 'T_OTHER', 'teams.id': 'x' }, ['team.id']],
+        ['linear', { 'data.viewer': {} }, ['data.viewer']],
     ])('%s patch %j', (kind, patch, expected) => {
         expect(touchesIdentityConfig(spec(kind), patch)).toEqual(expected)
     })
