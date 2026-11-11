@@ -49,7 +49,9 @@ export type SnsEnvelopeVerdict =
 
 type ParsedBody = { mode: 'raw'; records: SesEventRecord[] } | { mode: 'sns'; envelope: SnsEnvelope }
 
-export type SnsEnvelopeCheck = Exclude<SnsEnvelopeVerdict, { kind: 'records' }> | { kind: 'accepted'; parsed: ParsedBody }
+export type SnsEnvelopeCheck =
+    | Exclude<SnsEnvelopeVerdict, { kind: 'records' }>
+    | { kind: 'accepted'; parsed: ParsedBody }
 
 class SnsCertificateUnavailableError extends Error {}
 
