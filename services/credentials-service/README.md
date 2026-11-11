@@ -32,6 +32,7 @@ optional allowlist (see "Auth") shrinks what it is entitled to read.
 GET  /_liveness          200 always
 GET  /_readiness         200 once the pod holds credentials (and, with a database, once it has reached it)
 POST /v1/secrets/resolve
+     /v1/integrations/*  customer integrations, with a database, a KMS, and integration public keys (see "Integrations API")
 
 GET  /metrics            prometheus text, on its own port (CREDENTIALS_SERVICE_METRICS_PORT)
 ```
@@ -110,7 +111,7 @@ private key) that only the provider code inside the service reads.
 
 ### Integration tokens
 
-The future `/v1/integrations/*` routes use the audience `posthog:credentials_service:integrations` and a separate key registry.
+The `/v1/integrations/*` routes use the audience `posthog:credentials_service:integrations` and a separate key registry.
 Each caller deployment signs with its own **Ed25519** private key, mounted as a file on that deployment.
 The service holds only the public keys, so a leak of the service's secret does not let anyone sign as a caller.
 
@@ -153,8 +154,8 @@ openssl pkey -in posthog-web-django.key -pubout -out posthog-web-django.pub   # 
 - A rejected token gets a bare 401. A valid token that does not allow the request gets a 403 with `forbidden_op`, `forbidden_kind` or `forbidden_ref`.
 
 **Replay store.** `src/auth/replay.ts` defines `ReplayStore`.
-The in-memory store is per pod. The tests and the mode with no database use it.
-The database PR adds the Postgres store: a table `auth_jti (deployment, jti, expires_at)` with an insert that rejects a conflict, so a replay to another pod also fails.
+The in-memory store is per pod. Standalone verifiers, including unit tests, use it by default.
+The integration routes use the Postgres store. Its `auth_jti (deployment, jti, expires_at)` table rejects a repeated token id across pods.
 A store error refuses the token.
 
 Deployments match by exact name. There is no prefix, family match or default.
@@ -298,6 +299,8 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_integration_replay_evictions_total`                 | live token ids dropped because the replay cache was full      |
 | `credentials_service_http_requests_total{method,route,status}`           | request volume, with an unmatched path collapsed to `other`   |
 | `credentials_service_http_request_duration_seconds{method,route,status}` | request latency                                               |
+| `credentials_service_audit_dropped_total{reason}`                        | read audit rows lost: `queue_full` or `write_failed`          |
+| `credentials_service_audit_written_total`                                | read audit rows written by the async queue                    |
 | `credentials_service_shutting_down`                                      | 1 while draining                                              |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
@@ -375,6 +378,66 @@ Infra runs pg_partman for the daily partitions: `create_parent('public.audit_log
 Set pg_partman up before the service writes audit rows.
 Rows that land in the default partition stop pg_partman from making a partition for that day, until they are moved with `partition_data_proc`.
 
+## Integrations API
+
+The routes exist only when `CREDENTIALS_SERVICE_DATABASE_URL`, `CREDENTIALS_SERVICE_KMS_PROVIDER`, and `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` are set.
+If any value is missing, the service serves platform secrets only. With a database or KMS, it also logs `integrations:disabled`.
+The service loads integration public keys before it mounts these routes. An invalid key directory prevents startup.
+Every route needs an integrations token (see "Integration tokens") that holds the route's op.
+Every query binds the owner from the token.
+
+| Route                                     | Op                  | Does                                                                         |
+| ----------------------------------------- | ------------------- | ---------------------------------------------------------------------------- |
+| `GET /v1/integrations`                    | `read`              | Lists the owner's rows. Keyset pages                                         |
+| `GET /v1/integrations/:ref`               | `read`              | One row, by UUID or legacy id. Sends `ETag: "<version>"`                     |
+| `POST /v1/integrations/batch-get`         | `read`              | `{refs}` (1 to 200) to `{records: {ref: record}, missing}`                   |
+| `POST /v1/integrations`                   | `write`             | Creates a row. Takes `Idempotency-Key`                                       |
+| `PUT /v1/integrations/upsert`             | `write`             | Creates the row, or replaces the config and secrets of the row with that key |
+| `PATCH /v1/integrations/:ref`             | `write`             | An `IntegrationPatch` body. Takes `If-Match: <version>`                      |
+| `DELETE /v1/integrations/:ref`            | `delete`            | Soft-deletes the row and removes its secret. Takes `If-Match`                |
+| `POST /v1/integrations/resolve`           | `resolve`           | `{refs}` (1 to 200) to `{records: {ref: {record, credentials, expires_at}}}` |
+| `POST /v1/integrations/list-across-teams` | `list_across_teams` | Rows of every team that match a `CrossTeamFilter`-shaped body                |
+
+- A record mirrors the Python `IntegrationRecord`, plus `reference`, `version`, `legacy_id` and `is_source_row`. No read returns a secret.
+- `resolve` returns the decrypted secret blob without `refresh_token`, and without `client_secret` for an `oauth` row. `expires_at` is `refreshed_at + expires_in` from the config, or null.
+  A ref with no live row is in `missing`. A ref whose secret cannot be read (a legacy unreadable key, or a ciphertext that fails to decrypt) is in `errors` with `unreadable_secret`.
+- A write that changes secrets decrypts the blob, applies the change, and seals it again with a fresh data key, in the transaction of the row update.
+- `GET /v1/integrations` takes `kind` and `auth_type` (both repeat), `external_id`, `where.<config key>=<JSON value>`, `source_rows` (`exclude`, `only` or `include`, default `exclude`), `limit` (1 to 1000, default 100), `newest_first` and `after`.
+  Rows come oldest first by `created_at`. `next` in the response is the `after` of the next page.
+- `list-across-teams` takes `kinds` (required), `auth_types`, `source_rows`, `team_ids`, `exclude_team_ids`, `created_by_ids`, `external_id`, `where`, `where_in`, `where_iexact`, `has_config_key`, `newest_first`, `limit` (default and maximum 1000) and `after`.
+- A row of another team answers 404, the same as a row that does not exist, so a caller cannot probe ids.
+
+Errors are `{error: {code, message, details}}`:
+
+| Code                    | Status | When                                                          |
+| ----------------------- | ------ | ------------------------------------------------------------- |
+| `validation`            | 400    | The body, query or a header is not valid                      |
+| `unauthorized`          | 401    | The token is missing or not valid                             |
+| `forbidden_op`          | 403    | The token or the deployment policy does not allow the op      |
+| `forbidden_kind`        | 403    | The token does not allow the kind of the row                  |
+| `forbidden_ref`         | 403    | The token does not allow the ref, or the route lists rows     |
+| `not_found`             | 404    | No live row of the owner has the ref                          |
+| `conflict`              | 409    | The external id is taken, or an `Idempotency-Key` is reused   |
+| `version_mismatch`      | 412    | `If-Match` is not the current version                         |
+| `unsupported_auth_type` | 422    | The auth type is not `oauth`, `token` or `credentials`        |
+| `unreadable_secret`     | 422    | A write needs a stored secret that the service cannot decrypt |
+| `kms_unavailable`       | 503    | The KMS did not answer. Retry later                           |
+
+Audit: one `audit_log` row for each record that a request returns or changes.
+A write stores its rows in its own transaction.
+A read hands them to an in-process queue (10k rows) that writes batches every second.
+When the queue is full, the service drops the rows and counts them on `credentials_service_audit_dropped_total`, so a read never waits.
+Every audit row is also written to stdout as one JSON line (`integrations:audited`), before the response. It holds field names only, never values. The queue never drops this line.
+
+Idempotency keys are scoped by deployment, owner and operation.
+The request hash covers the secret key names but not their values, so a stored hash cannot be used to guess a weak secret offline.
+A retry with the same key and a different secret value replays the first create.
+The service deletes keys that passed their 24 hour window every 10 minutes.
+
+`PATCH /:ref` and the upsert of an existing row refuse changes to identity fields: `integration_id`, and the config keys `installation_id`, `instance_url` and `region`. They answer `validation`. Set these keys when you create the row. `identityConfigKeys(kind)` in `src/integrations/identity.ts` returns the list.
+
+`src/auth/replay-postgres.ts` holds the Postgres replay store for token ids on the `auth_jti` table.
+
 ## Isolation
 
 This package must not depend on the rest of the monorepo. It shares the pnpm workspace only for
@@ -435,7 +498,7 @@ mount.
 
 ## Envelope encryption
 
-`src/crypto/` encrypts one integration's secret blob for storage. No route uses it yet.
+`src/crypto/` encrypts one integration's secret blob for storage. The integration routes use it for every secret they store.
 
 - Each write gets a fresh 32-byte data key from the KMS, wrapped under one single-region key.
 - The blob is canonical JSON (sorted keys, no whitespace), encrypted with AES-256-GCM and a random 12-byte nonce.
@@ -452,7 +515,7 @@ It connects to KMS directly and ignores `HTTP_PROXY` and `HTTPS_PROXY`, unless `
 KMS traffic uses the AWS KMS VPC endpoint (`CREDENTIALS_SERVICE_KMS_ENDPOINT`) and does not use the HTTP proxy.
 This is the only direct egress of the service, besides the internal capture host.
 The `local` provider wraps data keys with AES-256-GCM under keys from config, for dev, CI and hobby.
-Its wrapped keys go into the same columns. The service refuses it when `CREDENTIALS_SERVICE_ENV` is `prod-us` or `prod-eu`, and when it starts with `prod`.
+Its wrapped keys go into the same columns. The service refuses it when `CREDENTIALS_SERVICE_ENV` contains `prod`, in any case.
 
 | Variable                             | Default | Notes                                                                      |
 | ------------------------------------ | ------- | -------------------------------------------------------------------------- |
