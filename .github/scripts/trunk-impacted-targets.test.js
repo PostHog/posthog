@@ -2458,7 +2458,8 @@ test('a shared package file claims the lanes of the servers that reach it', () =
             ['ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/costs/providers/llm-costs.json'],
             context
         ),
-        [INGESTION_AI_EVENTS]
+        // Combined mode in the general server runs the AI consumer too.
+        [INGESTION, INGESTION_AI_EVENTS]
     )
     assert.deepEqual(
         computeTargets(['ingestion/node/packages/ai-research/src/pipelines/ml-mirror/ml-mirror-pipeline.ts'], context),
