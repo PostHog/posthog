@@ -45,6 +45,11 @@ class TemplateNotSendable(TransactionalEmailError):
     code = "template_not_sendable"
 
 
+class SensitiveTemplate(TransactionalEmailError):
+    code = "sensitive_template"
+    attr = "sensitive"
+
+
 class MarketingTemplate(TransactionalEmailError):
     code = "marketing_template"
 
