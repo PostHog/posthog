@@ -17,6 +17,8 @@ RECONCILE_RETRY_OPTIONS = {
     "retry_backoff_max": 3600,
     "retry_jitter": True,
     "max_retries": 8,
+    "acks_late": True,
+    "reject_on_worker_lost": True,
 }
 PENDING_RECONCILE_RETRY_AFTER = timedelta(hours=4)  # past the at most three hours RECONCILE_RETRY_OPTIONS can take
 PENDING_RECONCILE_GIVE_UP_AFTER = timedelta(days=7)
