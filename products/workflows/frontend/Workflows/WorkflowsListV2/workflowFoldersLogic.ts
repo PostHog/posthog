@@ -272,11 +272,8 @@ export type workflowFoldersLogicType = MakeLogicType<
 >
 
 const WORKFLOW_FILE_TYPES = ['hog_flow', 'message_template']
-
 const MAX_INDEX_LOADS = 3
-
 const WORKFLOW_FOLDERS_TREE_KEY = 'workflow-files'
-
 // A stalled request would leave the folders loading with no way to retry, so each one fails after this long.
 export const FOLDER_REQUEST_TIMEOUT_MS = 10_000
 
@@ -386,10 +383,6 @@ function treeFolderId(folder: string | null): string {
 // A folder pill opens its folder instead of filtering rows; a negated one still filters.
 function withoutFolderScope(value: FacetSearchValue): FacetSearchValue {
     return { ...value, filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated) }
-}
-
-function displayedParent(path: string): string {
-    return displayedFolder(parentPath(path))
 }
 
 function isInScope(parent: string, folder: string | null, searching: boolean): boolean {
@@ -694,7 +687,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             (s) => [s.matchingTemplates, s.currentFolder, s.hasActiveQuery],
             (items: FileSystemEntry[], folder: string | null, searching: boolean): FileSystemEntry[] =>
                 items
-                    .filter((entry) => isInScope(displayedParent(entry.path), folder, searching))
+                    .filter((entry) => isInScope(displayedFolder(parentPath(entry.path)), folder, searching))
                     .sort((a, b) => a.path.localeCompare(b.path)),
         ],
         folderCounts: [
@@ -753,7 +746,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 return rows
                     .filter((row) => {
                         const entry = placements[`hog_flow::${row.id}`]
-                        const parent = entry && !entry.shortcut ? displayedParent(entry.path) : 'Unfiled'
+                        const parent = entry && !entry.shortcut ? displayedFolder(parentPath(entry.path)) : 'Unfiled'
                         return isInScope(parent, folder, searching)
                     })
                     .sort(
@@ -805,18 +798,14 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             ): FacetDefinition<WorkflowFolderFileRow>[] =>
                 facets.map((facet) => ({
                     ...facet,
-                    getValues: (item: WorkflowFolderFileRow): string[] => {
-                        if (item.kind === 'workflow') {
-                            return facet.getValues(item.row)
-                        }
-                        if (facet.key === 'kind') {
-                            return ['email-template']
-                        }
-                        if (facet.key !== 'in') {
-                            return []
-                        }
-                        return folderScopes(parentPath(item.path), searching)
-                    },
+                    getValues: (item: WorkflowFolderFileRow): string[] =>
+                        item.kind === 'workflow'
+                            ? facet.getValues(item.row)
+                            : facet.key === 'kind'
+                              ? ['email-template']
+                              : facet.key === 'in'
+                                ? folderScopes(parentPath(item.path), searching)
+                                : [],
                 })),
         ],
         folderMatchesText: [

@@ -720,6 +720,9 @@ export function appendResultsToFolders(
     // Track IDs we've already processed to avoid duplicates within the incoming results
     const processedIds = new Set<string>()
     const positions = new Map<string, Map<string, number>>()
+    const cachedFolders = new Map(
+        Object.entries(folders).flatMap(([folder, files]) => files.map((file) => [file.id, folder] as const))
+    )
 
     for (const result of newResults) {
         // Skip items without IDs or that we've already processed in this batch
@@ -732,6 +735,12 @@ export function appendResultsToFolders(
         processedIds.add(result.id)
 
         const folder = parentPath(result.path)
+        const staleFolder = cachedFolders.get(result.id)
+        // A file has one path, so the copy cached at its old path is stale once it arrives at another.
+        if (staleFolder !== undefined && staleFolder !== folder) {
+            newState[staleFolder] = newState[staleFolder].filter((file) => file.id !== result.id)
+            positions.delete(staleFolder)
+        }
         // Each folder is copied once and indexed by id, so merging thousands of files into one folder stays linear.
         if (!positions.has(folder)) {
             newState[folder] = [...(newState[folder] ?? [])]
