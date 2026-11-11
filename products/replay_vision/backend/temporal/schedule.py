@@ -57,7 +57,7 @@ from products.replay_vision.backend.temporal.constants import (
     backfill_schedule_id,
     scanner_schedule_id,
 )
-from products.replay_vision.backend.temporal.read_meter_types import sweep_throttle_factor
+from products.replay_vision.backend.temporal.read_meter_types import scheduled_sweep_throttle_factor
 from products.replay_vision.backend.temporal.sweep_cadence import SweepCadenceInputs, sweep_interval
 from products.replay_vision.backend.temporal.sweep_types import SweepScannerInputs
 
@@ -145,16 +145,15 @@ def _schedule_states(scanners: "QuerySet[ReplayScanner]") -> dict[UUID, ScannerS
     now = timezone.now()
     states: dict[UUID, ScannerScheduleState] = {}
     for row in rows:
-        override = row["sweep_throttle_factor_override"]
         interval = sweep_interval(
             SweepCadenceInputs(
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
                 last_found_candidates_at=row["last_found_candidates_at"],
                 sweep_paused_until=row["sweep_paused_until"],
-                throttle_factor=sweep_throttle_factor(0, override)
-                if override is not None
-                else row["sweep_throttle_factor"],
+                throttle_factor=scheduled_sweep_throttle_factor(
+                    row["sweep_throttle_factor"], row["sweep_throttle_factor_override"]
+                ),
                 has_enabled_alert=row["has_enabled_alert"],
             ),
             now,

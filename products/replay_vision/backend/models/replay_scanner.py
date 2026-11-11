@@ -1,6 +1,6 @@
 import hashlib
 import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
@@ -126,6 +126,21 @@ def initial_watermark() -> "datetime":
     recordings that have just cleared the settle window instead of a ~settle-interval cold start; it advances
     forward normally from there, so there's no re-scan."""
     return timezone.now() - SETTLE_INTERVAL
+
+
+def skipped_window_watermarks() -> dict[str, Any]:
+    """Watermark updates that move both sweep passes to now, so the window behind them is never swept or billed.
+
+    The deep pass walks from its own watermark up to the fast one, so it moves too, and both cursors are
+    cleared because they point partway into ground nobody swept.
+    """
+    watermark = initial_watermark()
+    return {
+        "last_swept_at": watermark,
+        "last_seen_session_id": "",
+        "deep_swept_through": watermark,
+        "deep_seen_session_id": "",
+    }
 
 
 class ReplayScannerManager(models.Manager["ReplayScanner"]):
@@ -515,7 +530,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         if update_fields is not None:
             update_fields = [*update_fields, "sweep_paused_until"]
             kwargs["update_fields"] = update_fields
-        if update_fields is not None:
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
             track_enabled = "enabled" in update_fields
         else:

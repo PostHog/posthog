@@ -893,47 +893,6 @@ class TestFindScannerCandidatesActivity:
         # The filtered rows still count as covered ground, so the walk moves past them.
         assert result.deep_swept_through is not None
 
-    @parameterized.expand(
-        [
-            # Default watermark sits one settle-interval back, i.e. the last sweep just ran.
-            ("over_budget_recent_sweep_skips", None, dt.timedelta(0), False),
-            # Enough watermark lag accumulated (>= 12 x 5 min at the factor cap): the sweep runs and batches it.
-            ("over_budget_stale_watermark_runs", None, dt.timedelta(minutes=61), True),
-            ("override_disables_throttle", 1, dt.timedelta(0), True),
-        ]
-    )
-    def test_read_budget_throttle(
-        self, _name: str, override: int | None, extra_watermark_lag: dt.timedelta, expect_query: bool
-    ) -> None:
-        hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0)
-        scanner = _make_scanner(
-            fast_read_bytes_by_hour={hour.isoformat(): 100 * SWEEP_READ_BUDGET_BYTES_24H},
-            sweep_throttle_factor_override=override,
-        )
-        if extra_watermark_lag:
-            scanner.last_swept_at = scanner.last_swept_at - extra_watermark_lag
-            scanner.save(update_fields=["last_swept_at"])
-
-        with patch(
-            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-        ) as MockQuery:
-            _wire_batch(MockQuery)
-            MockQuery.return_value.run.return_value = []
-            result = find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
-
-        assert MockQuery.called is expect_query
-        if not expect_query:
-            # No horizon means the workflow can't advance the watermark, so the skipped range stays covered.
-            assert result.swept_through is None
-            assert result.candidates == []
-
-    _NEGATIVE_QUERY = {
-        "kind": "RecordingsQuery",
-        "properties": [{"key": "$host", "value": ["internal.example.com"], "operator": "is_not", "type": "event"}],
-    }
-
     def test_fully_excluded_batch_still_advances_the_keyset(self) -> None:
         # Falling back to the last surviving candidate would leave the keyset where it was and refetch
         # the same excluded rows forever.

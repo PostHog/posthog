@@ -18,7 +18,6 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import (
-    SETTLE_INTERVAL,
     ReplayScanner,
     ScannerDisabledReason,
     ScannerType,
@@ -53,7 +52,6 @@ from products.replay_vision.backend.temporal.constants import (
     PRIMING_LOOKBACK,
     PRIMING_MAX_EXECUTION_SECONDS,
     PRIMING_SCAN_SESSIONS,
-    SCANNER_SCHEDULE_INTERVAL,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import (
@@ -64,7 +62,6 @@ from products.replay_vision.backend.temporal.metrics import (
 )
 from products.replay_vision.backend.temporal.read_meter_types import (
     buckets_or_pre_split,
-    current_sweep_throttle_factor,
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
 )
@@ -248,11 +245,6 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
         ) from exc
 
-    if _throttled(scanner):
-        record_sweep_outcome("throttled")
-        # No watermark advance, so the next executed sweep covers the skipped range in one query.
-        return FindScannerCandidatesOutput(candidates=[], saturated=False)
-
     started_at = time.monotonic()
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     variant_plan = variant_sampling_plan_for_scope(
@@ -404,25 +396,6 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
 # Ceiling on the ids inlined into the deep query; past it the walk re-fetches observed sessions,
 # which the post-query filter below then drops.
 _DEEP_SWEEP_MAX_EXCLUSIONS = 20_000
-
-
-def _throttled(scanner: ReplayScanner) -> bool:
-    """True when this tick should be skipped to keep the scanner inside its 24h read budget.
-
-    The factor stretches the effective cadence: factor N means one executed sweep per N schedule
-    intervals. Distance is measured watermark-to-settle-horizon, so a saturated keyset walk (watermark
-    lagging behind the horizon) is never throttled harder while it drains its backlog.
-    """
-    now = dt.datetime.now(dt.UTC)
-    factor = current_sweep_throttle_factor(
-        scanner.fast_read_bytes_by_hour,
-        scanner.sweep_read_bytes_by_hour,
-        scanner.sweep_throttle_factor_override,
-        now,
-    )
-    if factor <= 1:
-        return False
-    return (now - SETTLE_INTERVAL) - scanner.last_swept_at < SCANNER_SCHEDULE_INTERVAL * factor
 
 
 def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) -> list[CandidateSession]:

@@ -1,6 +1,10 @@
 import datetime as dt
 
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SweepPauseReason, initial_watermark
+from products.replay_vision.backend.models.replay_scanner import (
+    ReplayScanner,
+    SweepPauseReason,
+    skipped_window_watermarks,
+)
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 
 # Reasons whose sweeps used to move the watermark to now on every blocked tick, so that nothing the scanner
@@ -29,13 +33,7 @@ def resume_after_pause(scanner: ReplayScanner) -> None:
         return
     updates: dict[str, object] = {"sweep_pause_reason": ""}
     if scanner.sweep_pause_reason in _SKIPS_PAUSED_WINDOW:
-        watermark = initial_watermark()
-        updates |= {
-            "last_swept_at": watermark,
-            "last_seen_session_id": "",
-            "deep_swept_through": watermark,
-            "deep_seen_session_id": "",
-        }
+        updates |= skipped_window_watermarks()
     ReplayScanner.objects.filter(pk=scanner.pk).update(**updates)
     for field, value in updates.items():
         setattr(scanner, field, value)

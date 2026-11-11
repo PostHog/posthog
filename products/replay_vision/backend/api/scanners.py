@@ -196,7 +196,10 @@ from products.replay_vision.backend.search import parse_date_bound
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
-from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
+from products.replay_vision.backend.temporal.read_meter_types import (
+    current_sweep_throttle_factor,
+    scheduled_sweep_throttle_factor,
+)
 from products.replay_vision.backend.temporal.sweep_cadence import SweepCadenceInputs, sweep_interval
 from products.replay_vision.backend.watch_rank import (
     ISSUE_CATEGORIES,
@@ -890,7 +893,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 updated_at=scanner.updated_at,
                 last_found_candidates_at=scanner.last_found_candidates_at,
                 sweep_paused_until=scanner.sweep_paused_until,
-                throttle_factor=self.get_sweep_throttle_factor(scanner),
+                # The stored factor, not the live one, so the interval shown is the one the schedule runs at.
+                throttle_factor=scheduled_sweep_throttle_factor(
+                    scanner.sweep_throttle_factor, scanner.sweep_throttle_factor_override
+                ),
                 has_enabled_alert=scanner.id in self._page_alerting_scanner_ids(scanner),
             ),
             datetime.now(UTC),
@@ -901,11 +907,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # Shared across the list's children, so a page costs one query rather than one per scanner.
         alerting = self.context.get("_scanner_alerting_ids")
         if alerting is None:
-            page = self.root.instance if isinstance(self.root, serializers.ListSerializer) else None
-            scanner_ids = [s.id for s in page] if page is not None else [scanner.id]
             alerting = set(
                 VisionAlertConfiguration.objects.for_team(scanner.team_id)
-                .filter(scanner_id__in=scanner_ids, enabled=True)
+                .filter(scanner_id__in=self._page_scanner_ids(scanner), enabled=True)
                 .values_list("scanner_id", flat=True)
             )
             self.context["_scanner_alerting_ids"] = alerting
