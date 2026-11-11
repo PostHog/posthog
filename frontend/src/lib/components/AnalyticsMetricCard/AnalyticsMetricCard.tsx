@@ -110,9 +110,9 @@ export function AnalyticsMetricCard({
                         )}
                         {changeBesideValue ? (
                             <>
-                                {/* The pill drops below the value only when the card is too narrow for both. */}
-                                <div className={clsx('flex flex-wrap items-center gap-x-2 gap-y-1', label && 'mt-2')}>
-                                    <MetricValue />
+                                {/* The headline shrinks with the card, so it shares one row with the pill at any width. */}
+                                <div className={clsx('@container flex items-center gap-2', label && 'mt-2')}>
+                                    <MetricValue className="text-2xl @[11rem]:text-3xl @[15rem]:text-4xl" />
                                     <MetricDelta className="ml-auto shrink-0" />
                                 </div>
                                 <MetricSubtitle className="mt-1 flex-1 truncate" />
