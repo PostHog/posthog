@@ -975,6 +975,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 // Only a complete folder load is the truth: a folder cut short, loading its next page or failed may still hold the file.
                 if (!present.has(id) && folder in folders && values.folderStates[folder] === 'loaded') {
                     index.delete(id)
+                    cache.changes = changeCount(cache) + 1
                 }
             }
             for (const entry of present.values()) {
