@@ -1,4 +1,5 @@
 import { act, render, screen } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -23,22 +24,27 @@ describe('workflowNameLogic', () => {
         render(createElement(jest.requireActual('react-toastify').ToastContainer))
     })
 
-    const resolvedName = async (id: string): Promise<string | null> => {
+    const mounted = async (id: string): Promise<ReturnType<typeof workflowNameLogic.build>> => {
         const logic = workflowNameLogic({ id })
         logic.mount()
         await act(async () => {
-            await logic.asyncActions.loadWorkflow()
+            await expectLogic(logic).toFinishAllListeners()
         })
-        return logic.values.workflow?.name ?? null
+        return logic
     }
 
     it('resolves each cited workflow by its own id', async () => {
-        expect(await resolvedName('flow-a')).toBe('Workflow flow-a')
-        expect(await resolvedName('flow-b')).toBe('Workflow flow-b')
+        const first = await mounted('flow-a')
+        const second = await mounted('flow-b')
+
+        expect([first.values.workflow?.name, second.values.workflow?.name]).toEqual([
+            'Workflow flow-a',
+            'Workflow flow-b',
+        ])
     })
 
     it('resolves a deleted workflow to nothing, without an error toast', async () => {
-        expect(await resolvedName('deleted')).toBeNull()
+        expect((await mounted('deleted')).values.workflow).toBeNull()
 
         await act(async () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
