@@ -184,6 +184,7 @@ filters:
         - 'products/tracing/backend/**'
         - 'products/warehouse_sources/backend/facade/**'
         - products/warehouse_sources/backend/types.py
+        - products/warehouse_sources/backend/duckgres_naming.py
         - products/warehouse_sources/backend/temporal/sync_alert_evaluate.py
         - 'products/warehouse_sources/backend/sync_alerts/**'
         - 'products/warehouse_sources/backend/models/**'
@@ -194,23 +195,22 @@ filters:
         - 'products/warehouse_sources/backend/temporal/data_imports/sources/*/source.py'
         - 'products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**'
         - products/warehouse_sources/backend/temporal/data_imports/sources/snowflake/snowflake.py
+        - products/warehouse_sources/backend/temporal/data_imports/sources/bigquery/bigquery.py
+        - products/warehouse_sources/backend/temporal/data_imports/sources/clickhouse/clickhouse.py
+        - products/warehouse_sources/backend/temporal/data_imports/sources/motherduck/motherduck.py
+        - products/warehouse_sources/backend/temporal/data_imports/sources/postgres/postgres.py
+        - products/warehouse_sources/backend/temporal/data_imports/sources/trino/trino.py
         - products/warehouse_sources/backend/temporal/data_imports/pipelines/helpers.py
+        - products/warehouse_sources/backend/temporal/data_imports/naming_convention.py
         - 'products/warehouse_sources/sources/*/source.py'
         - 'products/warehouse_sources/sources/*/_config.py'
         - 'products/access_control/backend/**'
-        - products/actions/backend/facade/api.py
-        - products/actions/backend/facade/contracts.py
-        - products/actions/backend/logic/actions.py
-        - 'products/actions/backend/models/**'
-        - products/cohorts/backend/models/__init__.py
-        - products/cohorts/backend/models/cohort.py
-        - products/cohorts/backend/models/calculation_history.py
-        - products/cohorts/backend/models/team_access.py
+        - 'products/actions/backend/**'
+        - 'products/cohorts/backend/**'
         - products/experiments/backend/models/__init__.py
         - products/experiments/backend/models/experiment.py
         - products/surveys/backend/models.py
-        - 'products/event_definitions/backend/models/**'
-        - products/event_definitions/backend/property_type.py
+        - 'products/event_definitions/backend/**'
         - products/aeo/backend/facade/hogql.py
         - products/annotations/backend/facade/hogql.py
         - products/customer_analytics/backend/facade/hogql.py
@@ -218,43 +218,39 @@ filters:
         - products/signals/backend/facade/constants.py
         - products/endpoints/backend/facade/models.py
         - products/endpoints/backend/models.py
-        - products/data_modeling/backend/facade/api.py
-        - products/data_modeling/backend/facade/models.py
-        - 'products/data_modeling/backend/models/**'
-        - products/data_modeling/backend/logic/saved_query_reads.py
-        - products/data_quality/backend/facade/api.py
-        - products/data_quality/backend/logic/permissions.py
-        - products/data_quality/backend/logic/subject_access.py
-        - products/data_quality/backend/logic/compiler.py
+        - 'products/data_modeling/backend/**'
+        - 'products/data_quality/backend/**'
+        - 'products/data_catalog/backend/**'
         - 'products/data_tools/backend/models/**'
-        - products/mcp_analytics/backend/facade/api.py
-        - products/mcp_analytics/backend/facade/contracts.py
-        - products/mcp_analytics/backend/custom_harnesses.py
-        - products/mcp_analytics/backend/mcp_harness.py
-        - products/mcp_analytics/backend/models.py
-        - 'products/revenue_analytics/backend/views/**'
+        - 'products/mcp_analytics/backend/**'
+        - 'products/revenue_analytics/backend/**'
         - products/data_warehouse/backend/facade/hogql.py
         - products/data_warehouse/backend/sync_status.py
-        - products/managed_warehouse/backend/__init__.py
-        - products/managed_warehouse/backend/facade/__init__.py
-        - products/managed_warehouse/backend/facade/access.py
-        - products/managed_warehouse/backend/facade/sql_editor.py
-        - products/managed_warehouse/backend/logic/sql_editor.py
-        - products/managed_warehouse/backend/logic/sql_editor_credentials.py
-        - products/managed_warehouse/backend/service_credentials.py
+        - products/data_warehouse/backend/facade/direct_query.py
+        - products/data_warehouse/backend/direct_virtual_tables.py
+        - products/data_warehouse/backend/clickhouse_helpers.py
+        - products/data_warehouse/backend/motherduck_helpers.py
+        - products/data_warehouse/backend/mysql_helpers.py
+        - products/data_warehouse/backend/postgres_helpers.py
+        - products/data_warehouse/backend/redshift_helpers.py
+        - products/data_warehouse/backend/snowflake_helpers.py
+        - products/data_warehouse/backend/facade/sources.py
+        - products/data_warehouse/backend/direct_clickhouse.py
+        - products/data_warehouse/backend/direct_motherduck.py
+        - products/data_warehouse/backend/direct_mysql.py
+        - products/data_warehouse/backend/direct_postgres.py
+        - products/data_warehouse/backend/direct_redshift.py
+        - products/data_warehouse/backend/direct_snowflake.py
+        - products/data_warehouse/backend/direct_trino.py
+        - 'products/managed_warehouse/backend/**'
         - 'products/product_analytics/backend/facade/**'
         - products/product_analytics/backend/logic.py
         - 'products/product_analytics/backend/models/**'
         - 'products/product_analytics/backend/hogql_queries/trends/**'
         - 'products/product_analytics/backend/hogql_queries/funnels/**'
-        - 'products/web_analytics/backend/hogql_queries/**'
-        - products/web_analytics/backend/tasks/__init__.py
-        - products/web_analytics/backend/tasks/lazy_precompute_revalidation.py
-        - products/marketing_analytics/backend/facade/queries.py
-        - 'products/marketing_analytics/backend/hogql_queries/**'
-        - products/marketing_analytics/backend/services/native_integrations.py
-        - 'products/analytics_platform/backend/lazy_computation/**'
-        - 'products/analytics_platform/backend/models/**'
+        - 'products/web_analytics/backend/**'
+        - 'products/marketing_analytics/backend/**'
+        - 'products/analytics_platform/backend/**'
         - 'products/cdp/backend/models/**'
         - products/cdp/backend/facade/models.py
         - products/cdp/backend/internal_events.py
@@ -265,6 +261,7 @@ filters:
         - posthog/tasks/__init__.py
         - 'posthog/tasks/alerts/**'
         - posthog/tasks/utils.py
+        - posthog/tasks/query_scan.py
         - posthog/celery.py
         - posthog/celery_queues.py
         - posthog/organization_caching.py
@@ -285,6 +282,7 @@ filters:
         - posthog/scheduling/jitter.py
         - 'posthog/personhog_client/**'
         - 'packages/personhog-proto/**'
+        - posthog/event_usage.py
         - 'posthog/caching/**'
         - 'posthog/query_cache/**'
         - 'posthog/api/services/**'
@@ -315,6 +313,18 @@ filters:
         - posthog/dataclasses.py
         - posthog/enums.py
         - posthog/uuidt.py
+        - 'posthog/query_scan/**'
+        - 'posthog/slo/**'
+        - posthog/date_util.py
+        - posthog/direct_query_cancellation.py
+        - posthog/psycopg_helpers.py
+        - posthog/api/embedding_worker.py
+        - posthog/llm/system_one.py
+        - posthog/llm/system_one_client.py
+        - posthog/llm/gateway_client.py
+        - posthog/egress/typesafe/__init__.py
+        - posthog/egress/typesafe/client.py
+        - posthog/egress/typesafe/transport.py
         - posthog/synthetic_user.py
         - posthog/shared_link_user.py
         - posthog/otel_metrics.py
@@ -324,6 +334,7 @@ filters:
         - posthog/taxonomy/taxonomy.py
         - 'posthog/hogql*/**'
         - 'posthog/clickhouse/**'
+        - ee/clickhouse/materialized_columns/columns.py
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
         - 'posthog/settings/**'
@@ -369,7 +380,6 @@ filters:
         - products/mcp_store/backend/catalog_sync.py
         - products/mcp_store/backend/tools.py
         - products/conversations/backend/learning_provider.py
-        - products/data_modeling/backend/facade/managed_viewset_hooks.py
         - products/signals/backend/facade/source_scouts.py
         - products/skills/backend/api/archive_guards.py
         - products/warehouse_sources/backend/temporal/data_imports/external_product_hooks.py
@@ -379,6 +389,7 @@ filters:
         - posthog/schema.py
         - posthog/schema_enums.py
         - posthog/schema_discriminators.py
+        - posthog/schema_helpers.py
         - posthog/migration_helpers/__init__.py
         - posthog/migration_helpers/deprecate_field.py
         - 'posthog/models/**'
@@ -573,7 +584,7 @@ images:
             alerts-platform-evaluation:
                 repository: posthog-temporal-workers/alerts-platform-evaluation
                 filter: alertsPlatformEvaluation
-                bootstrapPolicyDigest: 9df843a76ce202def94b5ae2370b44cc73eee273affdf086b86ca5c468cc9515
+                bootstrapPolicyDigest: a7ff9bad421f71bc61feccc6d3d4bfacf21d878818cada29ff3fcf2bf7e65b87
             alerts-platform-delivery:
                 repository: posthog-temporal-workers/alerts-platform-delivery
                 filter: alertsPlatformDelivery
