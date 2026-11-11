@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import json
 import math
 import time
@@ -16,6 +17,7 @@ from unittest.mock import Mock, patch
 import click
 from click.testing import CliRunner
 from hogli import telemetry
+from hogli.cli import cli
 from hogli_commands import worktrees
 from hogli_commands.cargo_targets import (
     cargo_target_locked,
@@ -25,7 +27,11 @@ from hogli_commands.cargo_targets import (
     unused_legacy_cargo_target,
     worktrees_running_cargo,
 )
-from hogli_commands.devbox import config as devbox_config
+from hogli_commands.devbox import (
+    coder as devbox_coder,
+    config as devbox_config,
+    mutagen as devbox_mutagen,
+)
 from hogli_commands.worktrees import (
     Worktree,
     WorktreeBox,
@@ -73,6 +79,75 @@ def _git_stub(responses: dict[str, tuple[int, str]]):
         return subprocess.CompletedProcess(args=list(args), returncode=rc, stdout=out, stderr="")
 
     return _run
+
+
+_FAKE_CLI = """\
+import json, os, sys
+
+state_path = os.environ["HOGLI_TEST_BOUNDARY_STATE"]
+with open(state_path) as f:
+    state = json.load(f)
+tool, args = os.path.basename(sys.argv[0]), sys.argv[1:]
+
+def save(command):
+    state["commands"].append([tool, *command])
+    with open(state_path, "w") as f:
+        json.dump(state, f)
+
+def selected(sessions, selector):
+    key, _, value = selector.partition("=")
+    return [s for s in sessions if s["labels"].get(key) == value]
+
+if tool == "coder" and args == ["users", "show", "me", "--output", "json"]:
+    print(json.dumps({"username": "test-user"}))
+elif tool == "coder" and args == ["list", "--output", "json"]:
+    print(json.dumps(state["workspaces"]))
+elif tool == "coder" and args[:1] in (["stop"], ["delete"]) and args[2:] == ["--yes"]:
+    if not any(w["name"] == args[1] for w in state["workspaces"]):
+        sys.exit(1)
+    state["workspaces"] = [w for w in state["workspaces"] if args[0] == "stop" or w["name"] != args[1]]
+    save(args)
+elif tool == "mutagen" and args[:2] == ["sync", "list"] and "--label-selector" in args:
+    print(json.dumps(selected(state["sessions"], args[args.index("--label-selector") + 1])))
+elif tool == "mutagen" and args[:3] == ["sync", "terminate", "--label-selector"]:
+    matched = selected(state["sessions"], args[3])
+    state["sessions"] = [s for s in state["sessions"] if s not in matched]
+    save(args)
+else:
+    sys.exit(1)
+"""
+
+
+class _FakeCoderAndMutagen:
+    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        bin_dir = tmp_path / "fake-bin"
+        bin_dir.mkdir()
+        for tool in ("coder", "mutagen"):
+            executable = bin_dir / tool
+            executable.write_text(f"#!{sys.executable}\n{_FAKE_CLI}")
+            executable.chmod(0o755)
+        self._state_path = tmp_path / "boundary.json"
+        self._write({"workspaces": [], "sessions": [], "commands": []})
+        monkeypatch.setenv("HOGLI_TEST_BOUNDARY_STATE", str(self._state_path))
+        monkeypatch.setattr(devbox_coder, "_MANAGED_CODER_DIR", bin_dir)
+        monkeypatch.setattr(devbox_mutagen, "_MANAGED_MUTAGEN_DIR", bin_dir)
+        monkeypatch.setattr(worktrees, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_coder, "get_username", devbox_coder.get_username.__wrapped__)
+
+    def add_running_box(self, name: str, workspace_id: str) -> None:
+        state = self._read()
+        state["workspaces"].append({"name": name, "id": workspace_id, "latest_build": {"status": "running"}})
+        state["sessions"].append({"name": name, "labels": {"hogli-workspace": name}})
+        self._write(state)
+
+    def commands(self) -> list[list[str]]:
+        return self._read()["commands"]
+
+    def _read(self) -> dict:
+        return json.loads(self._state_path.read_text())
+
+    def _write(self, state: dict) -> None:
+        self._state_path.write_text(json.dumps(state))
 
 
 # Frozen reference clock (2023-11-14T22:13:20Z) for deterministic cutoff math.
@@ -973,6 +1048,66 @@ class TestWorktreeBoxes:
         )
 
         assert cleaned == [(expected_workspaces, "stop", True)]
+
+    @pytest.mark.parametrize(
+        ("change", "pruned"),
+        [
+            ("none", False),
+            ("worktree-removed", True),
+            ("mirror-wrote-the-folder-back", True),
+            ("git-dir-gone", True),
+            ("recreated-with-another-id", True),
+        ],
+    )
+    def test_prune_deletes_the_box_once_its_folder_no_longer_holds_the_worktree(
+        self, tmp_path, monkeypatch, git, change: str, pruned: bool
+    ) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "hogli.yaml").write_text("")
+        git(repo, "init", "-q", "-b", "master")
+        git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+        worktree = tmp_path / "worktrees" / "feature"
+        git(repo, "worktree", "add", "-q", "-b", "feature", str(worktree))
+        admin = repo / ".git" / "worktrees" / "feature"
+        record = _box(
+            "devbox-test-user-feature",
+            git_dir=admin,
+            workspace_id="ws-feature",
+            worktree_id=devbox_config.ensure_worktree_id(admin),
+        )
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        devbox_config.record_worktree_box(worktree, record)
+        boundary = _FakeCoderAndMutagen(tmp_path, monkeypatch)
+        boundary.add_running_box("devbox-test-user-feature", "ws-feature")
+
+        if change != "none":
+            git(repo, "worktree", "remove", "--force", str(worktree))
+        if change == "mirror-wrote-the-folder-back":
+            worktree.mkdir(parents=True)
+            (worktree / "README.md").write_text("synced back from the box\n")
+        if change == "git-dir-gone":
+            git(repo, "worktree", "add", "-q", str(worktree), "feature")
+            shutil.rmtree(admin)
+        if change == "recreated-with-another-id":
+            git(repo, "worktree", "add", "-q", str(worktree), "feature")
+            devbox_config.ensure_worktree_id(admin)
+        monkeypatch.chdir(repo)
+
+        result = CliRunner().invoke(cli, ["devbox:worktree:prune", "--delete"])
+
+        assert result.exit_code == 0, result.output
+        selector = worktrees.mutagen.workspace_label_selector("devbox-test-user-feature")
+        if pruned:
+            assert boundary.commands() == [
+                ["mutagen", "sync", "terminate", "--label-selector", selector],
+                ["coder", "delete", "devbox-test-user-feature", "--yes"],
+            ]
+            assert devbox_config.load_worktree_boxes() == {}
+        else:
+            assert boundary.commands() == []
+            assert devbox_config.load_worktree_boxes() == {str(worktree): record}
+        assert worktree.exists() is (change != "worktree-removed")
 
     @pytest.mark.parametrize(
         ("prune_already_running", "expected_prune_attempts", "box_still_tracked"),
