@@ -6,7 +6,11 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingSeverity
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
+    ExperimentHealthFindingSeverity,
+)
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
 from products.experiments.backend.health.condition_set_traffic import grades_by_pinned_share
@@ -54,6 +58,9 @@ NOT_IOS: dict[str, Any] = {
 }
 
 CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
+
+EDIT = ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS
+END = ExperimentHealthFindingActionKind.END_EXPERIMENT
 
 
 def _property_is(key: str, value: str, *, group_type_index: int | None = None) -> dict[str, Any]:
@@ -355,6 +362,47 @@ class TestForcedVariantReleaseCondition(TestCase):
         self.assertEqual("before launch" in finding.detail, not ctx.is_launched)
         self.assertEqual("of the users who got" in finding.detail, expected[4] is not None)
         self.assertEqual('Nobody gets "holdout" at random' in finding.detail, "holdout" in expected[3])
+
+    @parameterized.expand(
+        [
+            ("one_variant_for_everyone", _context([{**EVERYONE, "variant": "control"}]), (END, EDIT)),
+            ("draft_one_variant_for_everyone", _context([{**EVERYONE, "variant": "control"}], status=DRAFT), (EDIT,)),
+            (
+                "a_variant_for_each_segment",
+                _context([{**IOS, "variant": "test"}, {**NOT_IOS, "variant": "control"}]),
+                (EDIT,),
+            ),
+            (
+                "only_a_list_gets_a_variant",
+                _context([{**STAFF, "variant": "test"}, {**EVERYONE, "rollout_percentage": 0}]),
+                (EDIT, END),
+            ),
+            (
+                "draft_only_a_list_gets_a_variant",
+                _context([{**STAFF, "variant": "test"}, {**IOS, "variant": "test"}], status=DRAFT),
+                (EDIT,),
+            ),
+            ("some_users_pinned", _context([{**STAFF, "variant": "test"}, EVERYONE]), (EDIT,)),
+            (
+                "variants_mapped_from_a_property",
+                _context(
+                    [
+                        {**_property_is("arm", "control"), "variant": "control"},
+                        {**_property_is("arm", "test"), "variant": "test"},
+                    ]
+                ),
+                (EDIT,),
+            ),
+        ]
+    )
+    def test_offers_to_end_the_experiment_when_the_detail_does(
+        self, _name: str, ctx: HealthContext, expected: tuple[ExperimentHealthFindingActionKind, ...]
+    ) -> None:
+        finding = forced_variant_release_condition(ctx)
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual(finding.actions, expected)
+        self.assertEqual("end the experiment" in finding.detail, END in finding.actions)
 
     @parameterized.expand(
         [

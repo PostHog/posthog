@@ -89,7 +89,7 @@ export const FIXTURE_TREE: TraceNodeApi[] = [
                 kind: 'generation',
                 name: 'draft-answer',
                 label: 'draft-answer',
-                model: 'gpt-4.1-mini',
+                model: 'gpt-6-luna',
                 stats: {
                     costUsd: 0.0021,
                     inputTokens: 1822,
@@ -651,7 +651,7 @@ export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
         { text: 'The retrieval step returned three documents but the answer uses only one.', nodeId: 'span-retrieve' },
     ],
     flow: 'question → retrieve-context → search-billing → answer\n                      └─→ 3 documents found ✓',
-    model: 'gpt-4.1-mini',
+    model: 'gpt-6-luna',
     generatedAt: '2026-09-01T10:20:00Z',
 }
 
