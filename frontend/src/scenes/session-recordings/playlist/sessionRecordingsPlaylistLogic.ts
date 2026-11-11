@@ -29,7 +29,7 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { getCurrentTeamId, getCurrentUserId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
 import { localStorageSlot } from 'lib/utils/localStorageSlot'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
@@ -227,13 +227,15 @@ const memoizeListResponse = (memoKey: string, response: RecordingsQueryResponse,
 
 export const clearMemoizedListResponses = (): void => landedListResponses().clear()
 
-// Reducers call this, so it reads the browser copy: reading userLogic here calls store.getState(),
-// which Redux forbids while a reducer runs. The mount copies the account value into this key.
-const DEFAULT_FILTER_TEST_ACCOUNTS_KEY = 'default_filter_test_accounts'
+// Reducers call getDefaultFilters, so it reads this browser copy: reading userLogic there calls
+// store.getState(), which Redux forbids while a reducer runs. The mount and the toggle keep it current.
+export const accountFilterTestAccountsStorage = localStorageSlot(
+    () => `${getCurrentUserId()}__replay_filter_test_accounts`,
+    z.boolean()
+)
 
 const getDefaultFilterTestAccounts = (): boolean => {
-    const stored = localStorage.getItem(DEFAULT_FILTER_TEST_ACCOUNTS_KEY)
-    return stored === 'true'
+    return accountFilterTestAccountsStorage.get() ?? localStorage.getItem('default_filter_test_accounts') === 'true'
 }
 
 const getAccountFilterTestAccounts = (): boolean | undefined => {
@@ -2698,7 +2700,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         beforeMount: () => {
             const accountFilterTestAccounts = getAccountFilterTestAccounts()
             if (accountFilterTestAccounts !== undefined) {
-                localStorage.setItem(DEFAULT_FILTER_TEST_ACCOUNTS_KEY, String(accountFilterTestAccounts))
+                accountFilterTestAccountsStorage.set(accountFilterTestAccounts)
             }
         },
     })),

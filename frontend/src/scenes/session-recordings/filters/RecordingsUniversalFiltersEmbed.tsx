@@ -66,6 +66,7 @@ import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSa
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
+    accountFilterTestAccountsStorage,
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
     withSessionReplayListPatch,
@@ -774,9 +775,11 @@ export const ReplayFiltersTab = ({
                                 setFilters({
                                     filter_test_accounts: testFilters.filter_test_accounts,
                                 })
+                                const filterTestAccounts = !!testFilters.filter_test_accounts
+                                accountFilterTestAccountsStorage.set(filterTestAccounts)
                                 updateUiConfiguration(
                                     withSessionReplayListPatch(uiConfiguration, {
-                                        filter_test_accounts: !!testFilters.filter_test_accounts,
+                                        filter_test_accounts: filterTestAccounts,
                                     })
                                 )
                             }}

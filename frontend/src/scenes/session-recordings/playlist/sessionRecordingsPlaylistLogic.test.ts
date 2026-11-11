@@ -1502,12 +1502,26 @@ describe('sessionRecordingsPlaylistLogic', () => {
         }
 
         it.each([
-            { accountValue: true, expected: true },
-            { accountValue: 'false', expected: false },
+            { accountValue: true, storageFails: false, expected: true, expectedDefault: true },
+            { accountValue: 'false', storageFails: false, expected: false, expectedDefault: false },
+            { accountValue: true, storageFails: true, expected: true, expectedDefault: false },
         ])(
-            'opens with filter_test_accounts $expected when the account value is $accountValue',
-            async ({ accountValue, expected }) => {
+            'opens with filter_test_accounts $expected when the account value is $accountValue and storage fails: $storageFails',
+            async ({ accountValue, storageFails, expected, expectedDefault }) => {
                 persistFilters(props, { ...DEFAULT_RECORDING_FILTERS, date_from: '-7d', filter_test_accounts: false })
+                if (storageFails) {
+                    const setItem = Storage.prototype.setItem
+                    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+                        this: Storage,
+                        storageKey: string,
+                        value: string
+                    ) {
+                        if (storageKey.endsWith('__replay_filter_test_accounts')) {
+                            throw new DOMException('Storage is full', 'QuotaExceededError')
+                        }
+                        setItem.call(this, storageKey, value)
+                    })
+                }
                 userLogic.mount()
                 userLogic.actions.loadUserSuccess({
                     ...MOCK_DEFAULT_USER,
@@ -1522,7 +1536,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 expect(logic.values.filters).toMatchObject({ date_from: '-7d', filter_test_accounts: expected })
-                expect(getDefaultFilters().filter_test_accounts).toBe(expected)
+                expect(getDefaultFilters().filter_test_accounts).toBe(expectedDefault)
+                expect(localStorage.getItem('default_filter_test_accounts')).toBeNull()
             }
         )
 
