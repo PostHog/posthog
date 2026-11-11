@@ -207,6 +207,7 @@ class TestBookActivityQueryAccess(BookActivityTestCase):
         labels = get_query_runner(
             self._query("BookActivityPeopleQuery"), self.team, user=self.user
         ).query_status_labels()
+        assert labels is not None
         stored = QueryStatus(
             id="activity",
             team_id=self.team.id,
