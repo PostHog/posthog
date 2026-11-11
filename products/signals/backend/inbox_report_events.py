@@ -33,9 +33,11 @@ from products.cdp.backend.internal_events import (
     flush_internal_events_producer,
     produce_internal_event,
 )
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.priority import persisted_report_priority
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.typed_report_links import incoming_links
 
 logger = structlog.get_logger(__name__)
 
@@ -70,9 +72,12 @@ class _ReadyEventClaim:
 
 
 def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_products: list[str]) -> None:
-    """Send the report out once, the first time it settles as ready.
+    """Send the report out once, the first time it settles as ready, together with the layers of its plan.
 
-    Waits for the broker to accept the event. An event the broker rejects or never confirms keeps
+    A layer is born ready in the transaction that settles its plan and runs no workflow of its own,
+    so this is the only point that sends it.
+
+    Waits for the broker to accept the events. An event the broker rejects or never confirms keeps
     its claim unconfirmed, and `reconcile_stranded_ready_events` sends it again once the claim goes
     stale. Never raises: every producer calls this after the report is already committed, and a
     delivery problem must not fail the report that settled.
@@ -80,9 +85,13 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_produc
     try:
         if not inbox_report_destinations_enabled(team_id):
             return
-        if not _claim_ready_event(team_id, report_id, source_products):
-            return
-        _publish_ready_events([_ReadyEventClaim(team_id=team_id, report_id=report_id, source_products=source_products)])
+        _publish_ready_events(
+            [
+                _ReadyEventClaim(team_id=team_id, report_id=claimed_id, source_products=source_products)
+                for claimed_id in [report_id, *_plan_layer_ids(team_id, report_id)]
+                if _claim_ready_event(team_id, claimed_id, source_products)
+            ]
+        )
     except Exception:
         logger.exception("inbox_report_ready_event_failed", team_id=team_id, report_id=report_id)
 
@@ -201,6 +210,12 @@ def _claim_ready_event(team_id: int, report_id: str, source_products: list[str])
             id=report_id, team_id=team_id, status=SignalReport.Status.READY, ready_event_emitted_at__isnull=True
         ).update(ready_event_emitted_at=timezone.now(), ready_event_source_products=source_products)
     )
+
+
+def _plan_layer_ids(team_id: int, report_id: str) -> list[str]:
+    return [
+        edge.source_id for edge in incoming_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.PART_OF,))
+    ]
 
 
 def _renew_stale_claim(team_id: int, report_id: str, claimed_at: datetime) -> bool:

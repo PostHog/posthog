@@ -177,6 +177,7 @@ Defined in `backend/temporal/summary.py`.
 9. When a run completes without immediately looping, the workflow publishes a Kafka `signals report completed` message via `publish_report_completed_activity`
 10. When the report settles as `ready` after the implementation buffer, `emit_inbox_report_ready_activity` writes one `$inbox_report_ready` internal event, so the project's real-time destinations receive it (`backend/inbox_report_events.py`).
     The scout and custom-agent producers write the same event when they file a ready report.
+    The layers of a research plan are born ready with their plan and run no workflow of their own, so the plan's event carries one event per layer with it.
     A claim on the report (`ready_event_emitted_at`) keeps a re-settle from sending it again, and `reconcile_inbox_report_ready_events` re-sends every 10 minutes a claim the broker never confirmed, with the same event uuid.
     Delivery is at least once, so receivers dedupe on `report_id`.
     The `inbox-report-destinations` flag gates sending per project. A destination on this event needs viewer access to Tasks, plus `task:read` for an API key, to create, edit, test, rerun, or read its logs.

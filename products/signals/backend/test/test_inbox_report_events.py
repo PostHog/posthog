@@ -7,9 +7,15 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.inbox_report_events import emit_inbox_report_ready_event, reconcile_stranded_ready_events
 from products.signals.backend.models import SignalReport
-from products.signals.backend.test.inbox_report_events_recorder import recorded_internal_events
+from products.signals.backend.report_generation.research import ReportLayer
+from products.signals.backend.stack_plan import create_layer_reports
+from products.signals.backend.test.inbox_report_events_recorder import (
+    inbox_report_ready_events,
+    recorded_internal_events,
+)
 
 
 class TestInboxReportReadyEvent(BaseTest):
@@ -37,6 +43,27 @@ class TestInboxReportReadyEvent(BaseTest):
         }
         report.refresh_from_db()
         assert report.ready_event_delivered_at is not None
+
+    def test_a_settled_plan_sends_each_of_its_layers_once(self):
+        plan = self._report()
+        layer_ids = create_layer_reports(
+            parent=plan,
+            layers=[
+                ReportLayer(title="feat(x): schema", scope="Add the schema."),
+                ReportLayer(title="feat(x): api", scope="Add the API.", depends_on=0),
+            ],
+            attribution=ArtefactAttribution.system(),
+        )
+
+        with recorded_internal_events() as (sent, _):
+            emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(plan.id), source_products=["scout"])
+            emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(plan.id), source_products=["scout"])
+
+        assert [(event["report_id"], event["source_products"]) for event in inbox_report_ready_events(sent)] == [
+            (str(plan.id), ["scout"]),
+            (layer_ids[0], ["scout"]),
+            (layer_ids[1], ["scout"]),
+        ]
 
     @parameterized.expand(
         [
