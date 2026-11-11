@@ -1,7 +1,10 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -32,33 +35,29 @@ class TestGroupedHistory(ClickhouseTestMixin, APIBaseTest):
                 check_interval_minutes=1,
             )
         # One group of a grouped alert fires. Its row has a grouping key, as every grouped check does.
-        insert_events(
-            self.team.id,
-            [
-                PlatformAlertEventRow(
-                    team_id=self.team.id,
-                    source_kind="traces",
-                    configuration_id=self.configuration.id,
-                    alert_id=uuid4(),
-                    grouping_key='{"service_name":"checkout"}',
-                    evaluation_key="eval-1",
-                    kind=AlertEventKind.FIRING,
-                    alert_name="Errors per service",
-                    previous_state="not_firing",
-                    state="firing",
-                    episode_started_at=CHECKED,
-                    value=0.2,
-                    labels={"service_name": "checkout"},
-                    condition_snapshot={"measure": "error_rate"},
-                    source_config_snapshot={},
-                    query_duration_ms=12,
-                    error_message="",
-                    consecutive_failures=0,
-                    muted_notification="",
-                    occurred_at=CHECKED,
-                )
-            ],
+        self.fired = PlatformAlertEventRow(
+            team_id=self.team.id,
+            source_kind="traces",
+            configuration_id=self.configuration.id,
+            alert_id=uuid4(),
+            grouping_key='{"service_name":"checkout"}',
+            evaluation_key="eval-1",
+            kind=AlertEventKind.FIRING,
+            alert_name="Errors per service",
+            previous_state="not_firing",
+            state="firing",
+            episode_started_at=CHECKED,
+            value=0.2,
+            labels={"service_name": "checkout"},
+            condition_snapshot={"measure": "error_rate"},
+            source_config_snapshot={},
+            query_duration_ms=12,
+            error_message="",
+            consecutive_failures=0,
+            muted_notification="",
+            occurred_at=CHECKED,
         )
+        insert_events(self.team.id, [self.fired])
 
     @parameterized.expand([("every group", True, 1), ("the ungrouped instance only", False, 0)])
     def test_grouped_checks_are_read_only_when_asked_for(self, _name: str, all_groups: bool, expected: int) -> None:
@@ -76,3 +75,24 @@ class TestGroupedHistory(ClickhouseTestMixin, APIBaseTest):
             len(last),
             len(events.events),
         ) == (expected, expected, expected)
+
+    def test_a_history_read_past_its_row_ceiling_fails_rather_than_loading_it(self) -> None:
+        window = {"since": CHECKED - timedelta(hours=1), "until": CHECKED + timedelta(hours=1)}
+        module = "products.alerts_platform.backend.logic.platform_alert_events"
+
+        # A second change in the window makes two rows, one more than the ceiling allows.
+        insert_events(
+            self.team.id,
+            [
+                replace(
+                    self.fired,
+                    evaluation_key="eval-2",
+                    previous_state="firing",
+                    state="not_firing",
+                    occurred_at=CHECKED + timedelta(minutes=5),
+                )
+            ],
+        )
+        with patch(f"{module}._HISTORY_ROW_BUDGET", {"max_result_rows": 1, "result_overflow_mode": "throw"}):
+            with pytest.raises(Exception, match="Limit for result exceeded"):
+                history(self.team.id, [self.configuration.id], **window, all_groups=True)
