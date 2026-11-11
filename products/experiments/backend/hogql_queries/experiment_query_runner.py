@@ -575,10 +575,12 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
         self._refuse_warehouse_sources()
-        variant_results, overall_variant_results = self._prepare_variant_results()
+        sorted_results, columns = self._evaluate_experiment_query()
+        variant_results = self._add_missing_variants(get_variant_results(sorted_results, columns))
 
         if self._has_breakdown(variant_results):
             breakdown_results = self._process_breakdown_results(variant_results)
+            overall_variant_results = self._add_missing_variants(get_overall_variant_results(sorted_results, columns))
             variants = aggregate_variants_across_breakdowns(overall_variant_results)
         else:
             breakdown_results = None
@@ -594,19 +596,6 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         result.is_precomputed = self._is_precomputed
 
         return result
-
-    def _prepare_variant_results(
-        self,
-    ) -> tuple[
-        list[tuple[tuple[str, ...] | None, ExperimentStatsBase]],
-        list[tuple[tuple[str, ...] | None, ExperimentStatsBase]],
-    ]:
-        """The stats of each variant and breakdown, and the stats that add up to the overall stats of each variant."""
-        sorted_results, columns = self._evaluate_experiment_query()
-        return (
-            self._add_missing_variants(get_variant_results(sorted_results, columns)),
-            self._add_missing_variants(get_overall_variant_results(sorted_results, columns)),
-        )
 
     def _has_breakdown(self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]) -> bool:
         return any(bv is not None for bv, _ in variant_results)
