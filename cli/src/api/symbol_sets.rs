@@ -876,7 +876,7 @@ mod tests {
         cell::Cell,
         fmt::Debug,
         io::{Read, Write},
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
         sync::{mpsc, Arc, Mutex, MutexGuard},
     };
     use tracing::{field::Visit, Event, Subscriber};
@@ -1182,43 +1182,84 @@ mod tests {
 
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept upload connection");
-            let mut buffer = Vec::new();
-            let mut chunk = [0u8; 8192];
-
-            let head_end = loop {
-                if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
-                    break position + 4;
-                }
-                let read = stream.read(&mut chunk).expect("read request head");
-                assert_ne!(read, 0, "connection closed before the request head ended");
-                buffer.extend_from_slice(&chunk[..read]);
-            };
-
-            let head = String::from_utf8_lossy(&buffer[..head_end]).to_string();
-            let body_len: usize = head
-                .lines()
-                .find_map(|line| {
-                    let (name, value) = line.split_once(':')?;
-                    name.eq_ignore_ascii_case("content-length")
-                        .then(|| value.trim().parse().expect("numeric content-length"))
-                })
-                .expect("an upload request always declares its length");
-
-            while buffer.len() < head_end + body_len {
-                let read = stream.read(&mut chunk).expect("read request body");
-                assert_ne!(read, 0, "connection closed before the body ended");
-                buffer.extend_from_slice(&chunk[..read]);
-            }
-
+            let request = read_request(&mut stream);
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
                 .expect("write response");
             sender
-                .send((head, buffer[head_end..head_end + body_len].to_vec()))
+                .send(request)
                 .expect("hand the request back to the test");
         });
 
         (format!("http://{address}"), receiver)
+    }
+
+    fn read_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
+        let mut buffer = Vec::new();
+        let mut chunk = [0u8; 8192];
+
+        let head_end = loop {
+            if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+            let read = stream.read(&mut chunk).expect("read request head");
+            assert_ne!(read, 0, "connection closed before the request head ended");
+            buffer.extend_from_slice(&chunk[..read]);
+        };
+
+        let head = String::from_utf8_lossy(&buffer[..head_end]).to_string();
+        let body_len: usize = head
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse().expect("numeric content-length"))
+            })
+            .expect("an upload request always declares its length");
+
+        while buffer.len() < head_end + body_len {
+            let read = stream.read(&mut chunk).expect("read request body");
+            assert_ne!(read, 0, "connection closed before the body ended");
+            buffer.extend_from_slice(&chunk[..read]);
+        }
+
+        (head, buffer[head_end..head_end + body_len].to_vec())
+    }
+
+    const PRESIGNED_SECRETS: [&str; 3] = ["ASIAEXAMPLEKEYID", "SESSIONTOKEN", "SIGNATURE"];
+
+    fn presigned_put_url(origin: &str) -> String {
+        format!("{origin}/symbolsets/chunk?X-Amz-Credential=ASIAEXAMPLEKEYID%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Security-Token=SESSIONTOKEN&X-Amz-Signature=SIGNATURE")
+    }
+
+    fn serve_signature_mismatch(attempts: usize) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback port");
+        let address = listener.local_addr().expect("read bound address");
+
+        std::thread::spawn(move || {
+            let body = "<Error><Code>SignatureDoesNotMatch</Code><Message>The request signature we calculated does not match the signature you provided.</Message><AWSAccessKeyId>ASIAEXAMPLEKEYID</AWSAccessKeyId><CanonicalRequest>PUT\n/symbolsets/chunk\nX-Amz-Security-Token=SESSIONTOKEN&amp;X-Amz-Signature=SIGNATURE</CanonicalRequest><RequestId>REQ123</RequestId></Error>";
+            for _ in 0..attempts {
+                let (mut stream, _) = listener.accept().expect("accept upload connection");
+                read_request(&mut stream);
+                write!(
+                    stream,
+                    "HTTP/1.1 403 Forbidden\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .expect("write response");
+            }
+        });
+
+        format!("http://{address}")
+    }
+
+    fn refused_origin() -> String {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .expect("bind loopback port")
+            .local_addr()
+            .expect("read bound address")
+            .port();
+        format!("http://127.0.0.1:{port}")
     }
 
     fn test_transport() -> UploadTransport {
@@ -1283,6 +1324,42 @@ mod tests {
         // Go-based S3 implementations only treat a part as a file when it carries a filename.
         assert!(body.contains("filename=\"file\""), "{body}");
         assert!(body.contains("symbol set bytes"), "{body}");
+    }
+
+    #[test]
+    fn upload_to_s3_keeps_presigned_credentials_out_of_logs_and_errors() {
+        let _retry_tracing_lock = lock_retry_tracing();
+        let cases: Vec<(&str, String, Option<&str>)> = vec![
+            (
+                "storage answers with an error",
+                serve_signature_mismatch(3),
+                Some("Code=SignatureDoesNotMatch"),
+            ),
+            ("storage refuses the connection", refused_origin(), None),
+        ];
+
+        for (name, origin, expected) in cases {
+            let url = presigned_put_url(&origin);
+            let mut result = None;
+            let messages = capture_tracing_messages(|| {
+                result = Some(upload_to_s3(
+                    &test_transport(),
+                    UploadTarget::Put(&url),
+                    None,
+                    b"bytes",
+                ));
+            });
+
+            let err = result.expect("upload ran").expect_err(name);
+            let output = format!("{}\n{err:?}", messages.join("\n"));
+            assert!(output.contains("/symbolsets/chunk"), "{name}: {output}");
+            if let Some(expected) = expected {
+                assert!(output.contains(expected), "{name}: {output}");
+            }
+            for secret in PRESIGNED_SECRETS {
+                assert!(!output.contains(secret), "{name}: {output}");
+            }
+        }
     }
 
     #[test]
