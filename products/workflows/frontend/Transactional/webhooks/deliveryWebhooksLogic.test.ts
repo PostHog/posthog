@@ -1,10 +1,32 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { DELIVERY_WEBHOOK_LIST_FILTER_GROUPS } from './deliveryWebhookPayload'
-import { deliveryWebhooksLogic } from './deliveryWebhooksLogic'
+import { DELIVERY_WEBHOOK_LIST_PROPS, deliveryWebhooksLogic } from './deliveryWebhooksLogic'
+
+const jsonbContains = (value: any, part: any): boolean => {
+    if (Array.isArray(part)) {
+        return Array.isArray(value) && part.every((item) => value.some((candidate) => jsonbContains(candidate, item)))
+    }
+    if (part !== null && typeof part === 'object') {
+        return (
+            value !== null &&
+            typeof value === 'object' &&
+            Object.entries(part).every(([key, item]) => jsonbContains(value[key], item))
+        )
+    }
+    return value === part
+}
+
+const HAND_BUILT_WEBHOOK = {
+    id: 'hand-built',
+    name: 'Every pageview',
+    type: 'destination',
+    filters: { events: [{ id: '$pageview', type: 'events' }] },
+}
 
 describe('deliveryWebhooksLogic', () => {
     let logic: ReturnType<typeof deliveryWebhooksLogic.build>
@@ -13,10 +35,21 @@ describe('deliveryWebhooksLogic', () => {
     beforeEach(() => {
         created = []
         useMocks({
+            get: {
+                '/api/environments/:team_id/hog_functions/': ({ request }) => {
+                    const groups = JSON.parse(new URL(request.url).searchParams.get('filter_groups') ?? '[]')
+                    const results = [HAND_BUILT_WEBHOOK, ...created].filter(
+                        (destination) =>
+                            groups.length === 0 ||
+                            groups.some((group: Record<string, any>) => jsonbContains(destination.filters, group))
+                    )
+                    return [200, { count: results.length, next: null, results }]
+                },
+            },
             post: {
                 '/api/projects/:team_id/hog_functions/': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
-                    created.push(body)
+                    created.push({ id: 'new-webhook', ...body })
                     return [201, { id: 'new-webhook', ...body }]
                 },
             },
@@ -31,6 +64,8 @@ describe('deliveryWebhooksLogic', () => {
     })
 
     it('creates a signed webhook that the webhooks list finds, and shows its secret once', async () => {
+        const list = hogFunctionsListLogic(DELIVERY_WEBHOOK_LIST_PROPS)
+        list.mount()
         logic.actions.openAddModal()
         logic.actions.setWebhookFormValues({
             url: ' https://example.com/hooks/prod ',
@@ -48,10 +83,8 @@ describe('deliveryWebhooksLogic', () => {
             '$workflows_email_delivered',
             '$workflows_email_bounced',
         ])
-        // The list asks the API for destinations whose filters contain this group.
-        expect(webhook.filters.properties).toEqual(
-            expect.arrayContaining(DELIVERY_WEBHOOK_LIST_FILTER_GROUPS[0].properties!)
-        )
+        await expectLogic(list).toFinishAllListeners()
+        expect(list.values.hogFunctions.map(({ id }) => id)).toEqual(['new-webhook'])
 
         const secret = logic.values.createdSecret
         expect(webhook.inputs.signing_secret.value).toEqual(secret)
@@ -60,6 +93,7 @@ describe('deliveryWebhooksLogic', () => {
 
         logic.actions.closeAddModal()
         expect(logic.values.createdSecret).toBeNull()
+        list.unmount()
     })
 
     it('names a webhook with a long path by its host and the start of the path', async () => {
