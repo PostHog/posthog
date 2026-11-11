@@ -1563,6 +1563,8 @@ export interface InboxOnboardingDraftApi {
 export interface InboxOnboardingStateApi {
     /** Whether this project can activate Self-driving without connecting GitHub. */
     github_optional_available?: boolean
+    /** Canonical scout skill names that quick setup enables for this project, with the general scout first. */
+    setup_default_skills?: string[]
     /** Whether the current user can receive an in-app notification when this investigation finishes. */
     first_report_completion_notification?: boolean
     /**

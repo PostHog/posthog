@@ -87,6 +87,8 @@ import type {
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowEmailSandboxProvisionApi,
+    WorkflowEmailSandboxStatusApi,
     WorkflowImportRecordApi,
     WorkflowImportRequestApi,
     WorkflowImportResponseApi,
@@ -1732,6 +1734,40 @@ export const workflowEmailDraftsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailDraftRequestApi),
+    })
+}
+
+export const getWorkflowEmailSandboxProvisionUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/provision/`
+}
+
+/**
+ * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxProvision = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxProvisionApi> => {
+    return apiMutator<WorkflowEmailSandboxProvisionApi>(getWorkflowEmailSandboxProvisionUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWorkflowEmailSandboxStatusUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_email_sandbox/status/`
+}
+
+/**
+ * The sandbox sender, which sends workflow email to organization members before a domain is verified.
+ */
+export const workflowEmailSandboxStatus = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkflowEmailSandboxStatusApi> => {
+    return apiMutator<WorkflowEmailSandboxStatusApi>(getWorkflowEmailSandboxStatusUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
