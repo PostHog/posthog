@@ -6,9 +6,12 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import get_logs_api_team_rate_limiter
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 
@@ -187,6 +190,14 @@ class TestServiceUsageAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             data["totals"], {"log_records": 0, "log_bytes": 0, "spans": 0, "metric_points": 0, "metric_series": 0}
         )
+
+    def test_each_signal_runs_on_the_cluster_that_stores_it(self) -> None:
+        with patch("products.apm.backend.logic.usage.execute_hogql_query", wraps=execute_hogql_query) as run:
+            data = self._get()
+
+        workloads = [call.kwargs["workload"] for call in run.call_args_list]
+        self.assertEqual(workloads, [Workload.LOGS, Workload.LOGS, Workload.METRICS])
+        self.assertEqual(data["totals"]["metric_points"], 7)
 
     def test_a_failing_signal_is_reported_and_the_others_still_load(self) -> None:
         with patch("products.apm.backend.logic.usage.LOGS_USAGE_QUERY", "SELECT throwIf(1, 'timeout') FROM logs"):

@@ -116,7 +116,7 @@ class _SignalRows:
     totals: tuple[int, ...]
 
 
-def _run(team: Team, sql: str, date_from: datetime, date_to: datetime) -> _SignalRows:
+def _run(team: Team, sql: str, workload: Workload, date_from: datetime, date_to: datetime) -> _SignalRows:
     query = parse_select(
         sql,
         placeholders={
@@ -130,7 +130,7 @@ def _run(team: Team, sql: str, date_from: datetime, date_to: datetime) -> _Signa
         query_type="ApmServiceUsageQuery",
         query=query,
         team=team,
-        workload=Workload.LOGS,
+        workload=workload,
         settings=HogQLGlobalSettings(max_execution_time=30),
     ).results
     if not results:
@@ -147,14 +147,15 @@ def list_service_usage(*, team: Team, date_from: datetime, date_to: datetime) ->
     totals: dict[str, int] = {}
     unavailable: list[UsageSignal] = []
 
-    plan: list[tuple[UsageSignal, str, tuple[str, ...]]] = [
-        (UsageSignal.LOGS, LOGS_USAGE_QUERY, ("log_records", "log_bytes")),
-        (UsageSignal.TRACES, SPANS_USAGE_QUERY, ("spans",)),
-        (UsageSignal.METRICS, METRICS_USAGE_QUERY, ("metric_points", "metric_series")),
+    # Logs and spans live on the logs cluster. Metrics live on the metrics cluster in cloud deployments that split them.
+    plan: list[tuple[UsageSignal, str, Workload, tuple[str, ...]]] = [
+        (UsageSignal.LOGS, LOGS_USAGE_QUERY, Workload.LOGS, ("log_records", "log_bytes")),
+        (UsageSignal.TRACES, SPANS_USAGE_QUERY, Workload.LOGS, ("spans",)),
+        (UsageSignal.METRICS, METRICS_USAGE_QUERY, Workload.METRICS, ("metric_points", "metric_series")),
     ]
-    for signal, sql, fields in plan:
+    for signal, sql, workload, fields in plan:
         try:
-            result = _run(team, sql, date_from, date_to)
+            result = _run(team, sql, workload, date_from, date_to)
         except Exception as error:
             logger.warning("apm_usage_signal_failed", team_id=team.pk, signal=signal.value, exc_info=True)
             capture_exception(error, {"team_id": team.pk, "signal": signal.value})
