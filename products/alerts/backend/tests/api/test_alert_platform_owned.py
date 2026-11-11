@@ -542,9 +542,24 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert copied(self.alert.id) == {self.alert.id: (self.user.id,)}
         assert copied(handed_over.id) == {}
         assert copied(native.id) == {native.id: (self.user.id,)}
-        # A cleanup that runs after the user is a member again, such as a retry, leaves them subscribed.
-        remove_departed_subscriber(organization_id=str(self.organization.id), user_id=self.user.id)
-        assert copied(native.id) == {native.id: (self.user.id,)}
+        # A cleanup that runs after the user joined again, such as a retry, follows the subscriptions
+        # where the alert has them, and leaves an alert with no insight row alone.
+        with team_scope(self.team.id):
+            for public_id in (self.alert.id, native.id):
+                set_subscriber_destinations(
+                    team_id=self.team.id,
+                    public_id=public_id,
+                    user_ids=[self.user.id, other.id],
+                    event_kinds=SUBSCRIBER_EVENT_KINDS,
+                    in_app_resource_type="insight",
+                    in_app_resource_id=self.alert.insight.short_id,
+                )
+        self.organization.memberships.create(user=other)
+        remove_departed_subscriber(
+            organization_id=str(self.organization.id), user_id=other.id, alert_ids=[str(self.alert.id)]
+        )
+        assert copied(self.alert.id) == {self.alert.id: (self.user.id,)}
+        assert copied(native.id) == {native.id: tuple(sorted([self.user.id, other.id]))}
 
         cleared = self.client.patch(f"{self.url}/{self.alert.id}/", {"subscribed_users": []}, format="json")
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()

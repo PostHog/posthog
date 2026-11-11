@@ -56,12 +56,15 @@ def remove_member_subscriptions(*, user_id: int, organization_id: UUID) -> int:
     subscriptions = AlertSubscription.objects.filter(
         user_id=user_id, alert_configuration__team__organization_id=organization_id
     )
+    alert_ids = [str(alert_id) for alert_id in subscriptions.values_list("alert_configuration_id", flat=True)]
     deleted, _ = subscriptions.delete()
     # A background task with retries, after the removal commits: the scan reads every subscriber
     # destination of the organization's alerts, including alerts with no insight row, which have no
     # subscription to delete here.
     transaction.on_commit(
-        lambda: remove_departed_subscriber.delay(organization_id=str(organization_id), user_id=user_id)
+        lambda: remove_departed_subscriber.delay(
+            organization_id=str(organization_id), user_id=user_id, alert_ids=alert_ids
+        )
     )
     return deleted
 
