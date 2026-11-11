@@ -14,7 +14,7 @@ jest.mock('@posthog/hogql-parser', () => ({
     },
 }))
 
-describe('hogqlParserSingleton', () => {
+describe('hogqlParser', () => {
     let parseSelect: (input: string, isInternal?: boolean) => Promise<string>
     let captureException: jest.SpyInstance
 
@@ -26,7 +26,7 @@ describe('hogqlParserSingleton', () => {
         // Imported after the reset, so the spy sits on the posthog-js instance the singleton loads.
         const { default: posthog } = await import('posthog-js')
         captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
-        ;({ parseSelect } = await import('./hogqlParserSingleton'))
+        ;({ parseSelect } = await import('./hogqlParser'))
     })
 
     it('parses identical text once, however many times it is asked', async () => {

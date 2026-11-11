@@ -1,4 +1,5 @@
-import { parseSelect } from './hogqlParserSingleton'
+import { parseSelect } from 'lib/monaco/hogqlParser'
+
 import { SELECTION_LABEL, SaveCandidates } from './SaveTargetCycler'
 
 export const SELECTION_NOT_A_QUERY =

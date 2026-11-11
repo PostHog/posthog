@@ -153,6 +153,7 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
         featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SQL_QUERY_TILE,
         Component: (props) => (
             <AccountSqlQueryTile
+                accountId={props.accountId}
                 externalId={props.externalId}
                 instanceId={props.instanceId}
                 initialConfig={props.initialConfig}

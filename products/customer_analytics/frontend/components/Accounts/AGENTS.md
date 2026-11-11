@@ -203,7 +203,11 @@ Account views store a reusable Markdown document, not an account ID. `accountVie
 The view-only Properties component stores ordered custom-property, relationship, and supported account JSONB references under each tile's `config.properties`.
 `AccountViewTileEditorModal` renders the entry's `ConfigEditor`, which uses the shared property selector to edit that configuration through the existing queued view save.
 The view-only SQL query component (`CUSTOMER_ANALYTICS_ACCOUNT_SQL_QUERY_TILE`) stores one HogQL string under `config.query`.
-The query must contain `{account_external_id}`: `accountSqlQuery.ts` passes the viewed account's external ID through `HogQLQuery.values`, and `validate_sql_query_widget_config` in `backend/logic/account_views.py` rejects a query without it.
+Every SELECT, including subqueries and UNION branches, must have a WHERE predicate equating a column directly to `{account_external_id}`.
+AND needs one scoped operand. OR needs every operand scoped. SELECT and WITH aliases cannot stand in for the column.
+`validate_sql_query_widget_config` parses the SQL before saving, and `accountSqlQuery.ts` checks the browser parser's AST before building a query.
+Both validators use the same JSON test cases. `accountSqlQueryLogic` keys parsing state by account, external ID, and tile instance, and cancels stale parsing results.
+The widget passes the viewed account's external ID through `HogQLQuery.values`.
 The placeholder is a flat name because `values` wraps each top-level value as a constant, so a dotted `{account.external_id}` does not resolve.
 Scoping keeps each account to its own rows.
 It is not an access boundary, because the query runs with the viewer's normal SQL access.

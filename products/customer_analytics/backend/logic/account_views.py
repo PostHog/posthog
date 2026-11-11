@@ -8,6 +8,11 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
+
 from products.customer_analytics.backend.facade.enums import AccountViewVisibility
 from products.customer_analytics.backend.models.account_view import AccountView
 from products.notebooks.backend.facade import content as notebook_content
@@ -57,8 +62,48 @@ ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS = {
     "known_emails",
 }
 ACCOUNT_VIEW_MAX_PROPERTIES = 50
-# Matches the placeholder name the frontend passes in HogQLQuery.values.
-ACCOUNT_VIEW_SQL_QUERY_PLACEHOLDER = "{account_external_id}"
+
+
+def is_account_sql_query_filter(expression: ast.Expr | None, aliases: set[str]) -> bool:
+    if isinstance(expression, ast.And):
+        return any(is_account_sql_query_filter(item, aliases) for item in expression.exprs)
+    if isinstance(expression, ast.Or):
+        return bool(expression.exprs) and all(is_account_sql_query_filter(item, aliases) for item in expression.exprs)
+    if isinstance(expression, ast.CompareOperation) and expression.op == ast.CompareOperationOp.Eq:
+        for field, placeholder in [(expression.left, expression.right), (expression.right, expression.left)]:
+            if (
+                isinstance(field, ast.Field)
+                and ".".join(str(part) for part in field.chain) not in aliases
+                and isinstance(placeholder, ast.Placeholder)
+                and placeholder.chain == ["account_external_id"]
+            ):
+                return True
+    return False
+
+
+class AccountSqlQueryAliasCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.aliases: set[str] = set()
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        self.aliases.add(node.alias)
+        super().visit_alias(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.aliases.update(node.ctes or {})
+        super().visit_select_query(node)
+
+
+class AccountSqlQueryScopeValidator(TraversingVisitor):
+    def __init__(self, aliases: set[str]) -> None:
+        super().__init__()
+        self.aliases = aliases
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if not node.select_from or not is_account_sql_query_filter(node.where, self.aliases):
+            raise InvalidAccountViewContent(["SQL query must filter by {account_external_id} in every SELECT's WHERE."])
+        super().visit_select_query(node)
 
 
 class InvalidAccountViewContent(ValueError):
@@ -200,8 +245,16 @@ def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
     query = config["query"]
     if not isinstance(query, str) or not query.strip():
         return ["SQL query config needs a query."]
-    if ACCOUNT_VIEW_SQL_QUERY_PLACEHOLDER not in query:
-        return [f"SQL query must filter by {ACCOUNT_VIEW_SQL_QUERY_PLACEHOLDER}."]
+    try:
+        select = parse_select(query)
+    except ExposedHogQLError:
+        return ["Enter a valid SQL query."]
+    try:
+        aliases = AccountSqlQueryAliasCollector()
+        aliases.visit(select)
+        AccountSqlQueryScopeValidator(aliases.aliases).visit(select)
+    except InvalidAccountViewContent as error:
+        return error.errors
     return []
 
 
