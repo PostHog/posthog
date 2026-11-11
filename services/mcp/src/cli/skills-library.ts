@@ -607,7 +607,15 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
                 search === undefined || skill === undefined || skill.includes(':') || loaded.catalog.has(skill)
             const query = scoped ? request : { ...request, search: [search, skill, ...paths].join(' ') }
             const named = scoped ? qualified(skill, loaded.catalog) : undefined
-            const words = !scoped ? [] : describe ? paths.map((path) => qualified(path, loaded.catalog) ?? path) : paths
+            // Words after a skill are files in it, unless every one names a skill. Then the call reads them
+            // all as a batch, so `instrument-integration tracing-nodejs` reads two skills.
+            const namedPaths = paths.map((path) => qualified(path, loaded.catalog) ?? path)
+            const batch =
+                named?.startsWith(SKILL_NAMESPACE) === true &&
+                search === undefined &&
+                lines === undefined &&
+                namedPaths.every((path) => path.startsWith(SKILL_NAMESPACE))
+            const words = !scoped ? [] : describe || batch ? namedPaths : paths
 
             const posthog = describe
                 ? { ok: true as const, value: loaded.catalog }

@@ -387,8 +387,8 @@ describe('CLI skills library', () => {
             '## posthog:funnels',
         ],
         [
-            'every resource skill in a batch',
-            { skill: 'posthog:instrument-integration', paths: ['posthog:audit'] },
+            'every resource skill in a batch of bare names',
+            { skill: 'instrument-integration', paths: ['audit'] },
             'Check every event.',
         ],
         [
