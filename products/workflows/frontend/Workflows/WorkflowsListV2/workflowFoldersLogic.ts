@@ -1356,7 +1356,13 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
             actions.setMovingWorkflowId(id)
             try {
-                await projectTreeDataLogic.asyncActions.syncTypeAndRef('hog_flow', id)
+                const files = await listAllFiles(String(values.currentTeamId), `type:hog_flow ref:${id}`)
+                projectTreeDataLogic.actions.addLoadedResults({
+                    searchTerm: '',
+                    results: files,
+                    hasMore: false,
+                    lastCount: files.length,
+                })
                 const entry = workflowFilesByRef([...fileIndex(cache).values()])[`hog_flow::${id}`]
                 if (entry && !entry.shortcut) {
                     moveToLogic.actions.openMoveToModal([entry])

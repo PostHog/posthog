@@ -1195,6 +1195,40 @@ describe('workflowFoldersLogic', () => {
         expect(await screen.findByText(toast)).toBeInTheDocument()
     })
 
+    it('allows Move to… again after the workflow lookup stalls', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const unmountMoveTo = moveToLogic.mount()
+        const workflowId = FIXTURE_WORKFLOWS[2].id
+        let stalled = true
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    if (!params.get('ref') && !params.get('search')?.includes(`ref:${workflowId}`)) {
+                        return projectFiles({ request })
+                    }
+                    const file = { id: 'sync', path: 'Ops/Sync accounts to CRM', type: 'hog_flow', ref: workflowId }
+                    return stalled ? new Promise(() => {}) : [200, paginated([file])]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        try {
+            logic.actions.moveWorkflowToFolder(workflowId)
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.movingWorkflowId).toBe(workflowId)
+            await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
+            expect(logic.values.movingWorkflowId).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
+
+        stalled = false
+        await logic.asyncActions.moveWorkflowToFolder(workflowId)
+        expect(moveToLogic.values.movingItems.map((entry) => entry.path)).toEqual(['Ops/Sync accounts to CRM'])
+        unmountMoveTo()
+    })
+
     it('closes the folders the person leaves, so only the open path shows as open', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.selectTreeFolder('Billing/Cards', false)
