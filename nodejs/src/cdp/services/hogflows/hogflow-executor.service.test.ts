@@ -3172,7 +3172,6 @@ describe('Hogflow Executor', () => {
                             recipientPreferences: recipientPreferencesService,
                             events: { capture: () => Promise.resolve() },
                             teamWorkflowsConfig: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-                            emailStatus: null,
                         }),
                     },
                 }

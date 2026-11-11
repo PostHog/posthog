@@ -26,6 +26,7 @@ import { CdpCyclotronWorkerEmail } from '../../../consumers/cdp-cyclotron-worker
 import { CdpCyclotronWorkerHogFlow } from '../../../consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, MinimalAppMetric } from '../../../types'
 import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
+import { SES_REJECTED, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
 import { SandboxEmailEvents } from './sandbox-email-events'
 
@@ -182,7 +183,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         } as Record<string, { processBatch: CdpCyclotronWorkerEmail['processBatch'] }>
         const results: CyclotronJobInvocationResult[] = []
         let next: CyclotronJobInvocation | null = job
-        while (next && results.length < 6) {
+        while (next && results.length < 30) {
             const batch: Awaited<ReturnType<CdpCyclotronWorkerEmail['processBatch']>> = await workers[
                 next.queue
             ].processBatch([roundTrip(next)])
@@ -297,6 +298,45 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(metricNames(results)).toContain('email_sandbox_blocked')
         expect(runLogs(results)).toContainEqual(expect.stringContaining(`not sent (skipped): ${reason}`))
         expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason }])
+    })
+
+    it('records a send as failed and sends nothing when the sandbox sender is switched off after the send was queued', async () => {
+        const res = await sendFromCode(request(sandboxSend()))
+        expect(res.status).toEqual(202)
+        hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = false
+
+        const results = await deliver(queued[0])
+
+        expect(world.ses.delivered).toEqual([])
+        expect(results.at(-1)).toMatchObject({ finished: true })
+        expect(runLogs(results)).toContainEqual(expect.stringContaining('not sent (skipped): sending_disabled'))
+        expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason: 'sending_disabled' }])
+    })
+
+    it.each<[string, () => void, number, { status: string; reason: string }]>([
+        [
+            'SES rejects the send',
+            () => world.ses.replyNext(SES_REJECTED),
+            0,
+            { status: 'failed', reason: 'ses_rejected' },
+        ],
+        ['SES throttles the first attempt', () => world.ses.replyNext(SES_THROTTLE), 1, { status: 'sent', reason: '' }],
+        [
+            'SES throttles every attempt',
+            () => world.ses.replyAlways(SES_THROTTLE),
+            0,
+            { status: 'failed', reason: 'retries_exhausted' },
+        ],
+    ])('records only the final status when %s', async (_desc, arrange, delivered, final) => {
+        const res = await sendFromCode(request(sandboxSend()))
+        expect(res.status).toEqual(202)
+        arrange()
+
+        const results = await deliver(queued[0])
+
+        expect(world.ses.delivered).toHaveLength(delivered)
+        expect(results.at(-1)).toMatchObject({ finished: true })
+        expect(deliveryStatuses(queued[0].id)).toEqual([final])
     })
 
     it.each([

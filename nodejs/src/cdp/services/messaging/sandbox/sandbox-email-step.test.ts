@@ -118,7 +118,6 @@ describe('SandboxEmailSendStep', () => {
                 },
             },
             teamWorkflowsConfig: new TeamWorkflowsConfigService(world.postgres, pubSub),
-            emailStatus: null,
         })
         return new HogFlowExecutorService(
             {} as any,

@@ -603,7 +603,6 @@ export function createCdpCoreServices(
                           siteUrl: config.SITE_URL,
                           recipientPreferences: recipientPreferencesService,
                           teamWorkflowsConfig: teamWorkflowsConfigService,
-                          emailStatus: emailStatusService,
                       })
                     : null,
                 testClient: new SandboxEmailTester({

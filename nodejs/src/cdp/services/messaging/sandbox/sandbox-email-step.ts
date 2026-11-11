@@ -6,7 +6,6 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailSendDecision, SandboxEmailStep, SandboxSenderAction } from '../../hogflows/actions/email_sandbox'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
-import { EmailStatusService, isTransactionalEmailRun } from '../email-status.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { SandboxEmailEvents, sandboxAppMetric } from './sandbox-email-events'
 import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
@@ -29,7 +28,6 @@ export type SandboxEmailSendStepDeps = {
     recipientPreferences: Pick<RecipientPreferencesService, 'checkMarketingFrequencyCap'>
     events: Pick<SandboxEmailEvents, 'capture'>
     teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'getEmailSendingSuspension'>
-    emailStatus: Pick<EmailStatusService, 'queue'> | null
 }
 
 export class SandboxEmailSendStep implements SandboxEmailStep {
@@ -124,14 +122,6 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             is_test: false,
             ...(outcome.reason ? { reason: outcome.reason } : {}),
         })
-        if (action.type === 'function_email' && isTransactionalEmailRun(invocation)) {
-            this.deps.emailStatus?.queue({
-                teamId: invocation.teamId,
-                messageId: invocation.id,
-                status: outcome.outcome === 'accepted' ? 'sent' : 'failed',
-                reason: outcome.reason,
-            })
-        }
         return outcome
     }
 }

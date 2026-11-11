@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, SandboxEmailOutcome } from '../../../types'
+import { EmailStatusService, isTransactionalEmailRun } from '../../messaging/email-status.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
@@ -40,7 +41,8 @@ export class SandboxEmailActionHandler implements ActionHandler {
     constructor(
         private readonly config: { enabled: boolean },
         private readonly sendStep: SandboxEmailStep | null,
-        private readonly testClient: SandboxEmailTestClient | null
+        private readonly testClient: SandboxEmailTestClient | null,
+        private readonly emailStatus: Pick<EmailStatusService, 'queue'> | null
     ) {}
 
     async execute(options: ActionHandlerOptions<SandboxSenderAction>): Promise<ActionHandlerResult> {
@@ -120,6 +122,7 @@ export class SandboxEmailActionHandler implements ActionHandler {
         options: ActionHandlerOptions<SandboxSenderAction>,
         stepResult: SandboxEmailStepResult
     ): ActionHandlerResult {
+        this.recordCodeSendStatus(options, stepResult)
         if (stepResult.status === 'failed') {
             return { result: stepResult, error: new Error(failureMessage(stepResult.reason)) }
         }
@@ -130,6 +133,26 @@ export class SandboxEmailActionHandler implements ActionHandler {
                 : `Sandbox email was not sent (${stepResult.status}): ${stepResult.reason}`
         )
         return { result: stepResult, nextAction: findContinueAction(options.invocation) }
+    }
+
+    private recordCodeSendStatus(
+        { invocation, action, hogExecutorOptions }: ActionHandlerOptions<SandboxSenderAction>,
+        stepResult: SandboxEmailStepResult
+    ): void {
+        if (
+            hogExecutorOptions?.isTest ||
+            action.type !== 'function_email' ||
+            stepResult.status === 'pending' ||
+            !isTransactionalEmailRun(invocation)
+        ) {
+            return
+        }
+        this.emailStatus?.queue({
+            teamId: invocation.teamId,
+            messageId: invocation.id,
+            status: stepResult.status === 'accepted' ? 'sent' : 'failed',
+            reason: stepResult.reason,
+        })
     }
 
     private log({ action, result }: ActionHandlerOptions<SandboxSenderAction>, message: string): void {

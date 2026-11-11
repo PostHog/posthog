@@ -227,7 +227,8 @@ export class HogFlowExecutorService {
             email_sandbox: new SandboxEmailActionHandler(
                 { enabled: options.sandboxEmail?.enabled ?? false },
                 options.sandboxEmail?.send ?? null,
-                options.sandboxEmail?.testClient ?? null
+                options.sandboxEmail?.testClient ?? null,
+                emailStatusService
             ),
             exit: new ExitHandler(),
         }
