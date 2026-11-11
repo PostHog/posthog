@@ -466,7 +466,7 @@ class Command(BaseCommand):
             # PostHog created the insight. Pass 1 owns every dashboard a flag row still references, so this
             # pass exists for dashboards with no flag row at all (hard-deleted rows, see
             # _free_key_held_by_soft_deleted_flags in products/feature_flags/backend/api/feature_flag.py);
-            # ones whose dashboard was deleted outright stay out of scope.
+            # ones whose dashboard was deleted, soft or hard, stay out of scope.
             on_generated_dashboards = dashboards_api.insight_ids_on_template_dashboards(
                 insight_ids=[c.id for c in batch],
                 name_prefix=USAGE_DASHBOARD_NAME_PREFIX,
