@@ -97,10 +97,7 @@ export async function missingTemplates(): Promise<string[]> {
 
 export function membersOf(rpkDescribe: string): number | null {
     const members = /^MEMBERS\s+(\d+)\s*$/m.exec(rpkDescribe)
-    if (members) {
-        return Number(members[1])
-    }
-    return /GROUP_ID_NOT_FOUND/.test(rpkDescribe) ? 0 : null
+    return members ? Number(members[1]) : null
 }
 
 async function rpk(args: string[]): Promise<string> {

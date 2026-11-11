@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process'
+import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
 import { mkdirSync, mkdtempSync, readFileSync, rmdirSync } from 'fs'
 import net from 'net'
@@ -9,13 +9,14 @@ import { setTimeout as nextTimers } from 'timers/promises'
 import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { CdpRole } from '../cards'
-import { createEnvironment } from './environment'
+import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
-import { ROLE_PORTS, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
+import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import * as stack from './stack'
 import { forgetSesBucket, membersOf, pingRedis, seekFailures } from './stack'
 import { createSupervisor } from './supervisor'
@@ -180,25 +181,14 @@ describe('scenario environment', () => {
             expect(ports['cdp-api']).toBe('6738')
         })
 
-        it.each(CdpRole.options)('gives %s the full role environment without AWS_PROFILE', (role) => {
+        it.each(CdpRole.options)('runs %s as itself, marked, against the edge, without AWS_PROFILE', (role) => {
             const { env } = specs.find((spec) => spec.role === role)!
 
-            expect(env).toEqual({
+            expect(env).not.toHaveProperty('AWS_PROFILE')
+            expect(env).toMatchObject({
                 PATH: '/usr/bin',
-                NODE_ENV: 'dev',
                 PLUGIN_SERVER_MODE: role,
-                HTTP_SERVER_PORT: env.HTTP_SERVER_PORT,
-                PGAPPNAME: `scenario-${role}`,
                 SES_ENDPOINT: 'http://127.0.0.1:4566',
-                SES_REGION: 'us-east-1',
-                AWS_ACCESS_KEY_ID: 'scenario',
-                AWS_SECRET_ACCESS_KEY: 'scenario',
-                PERSONHOG_ENABLED: 'true',
-                PERSONHOG_ADDR: '127.0.0.1:50052',
-                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
-                SES_RATE_LIMITER_VALKEY_PORT: '6390',
-                ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
-                WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'local-dev-workflows-transactional-email-jwt',
                 SCENARIO_RUNNER: '1',
             })
         })
@@ -217,9 +207,11 @@ describe('scenario environment', () => {
                 HTTP_SERVER_PORT: '1',
                 PGAPPNAME: 'other',
                 SCENARIO_RUNNER: '0',
+                KAFKA_CONSUMER_GROUP_ID: 'scenario-events',
             }
             const [spec] = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), settings)
 
+            expect(spec.env).not.toHaveProperty('KAFKA_CONSUMER_GROUP_ID')
             expect(spec.env).toMatchObject({
                 SES_REGION: 'eu-west-1',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
@@ -267,7 +259,11 @@ describe('scenario environment', () => {
             'GROUP        cdp-processed-events-consumer\nSTATE        Empty\nMEMBERS      0\nTOTAL-LAG    0\n',
             0,
         ],
-        ['a group that never existed', 'GROUP  cdp-processed-events-consumer\nERROR  GROUP_ID_NOT_FOUND\n', 0],
+        [
+            'a group that never existed',
+            'GROUP        cdp-processed-events-consumer\nCOORDINATOR  0\nSTATE        Dead\nBALANCER     \nMEMBERS      0\nTOTAL-LAG    0\n',
+            0,
+        ],
         ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null],
     ])('reads the members of %s from rpk', (_name, output, members) => {
         expect(membersOf(output)).toBe(members)
@@ -538,6 +534,26 @@ describe('scenario environment', () => {
             expect({ exits: supervisor.exits(), running: tagged() }).toEqual({ exits: [], running: [] })
         }, 15_000)
 
+        it('records a role whose first start fails and retries it, instead of failing the start', async () => {
+            const missing = createSupervisor({
+                command: path.join(os.tmpdir(), `scenario-missing-${process.pid}`),
+                args: [],
+                cwd: os.tmpdir(),
+                logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+                graceMs: 1000,
+                restartBackoffMs: 20,
+            })
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}))
+            try {
+                await missing.start([spec])
+
+                await waitForExpect(() => expect(missing.exits().length).toBeGreaterThanOrEqual(2), 5000, 20)
+                expect(missing.exits()[0]).toMatchObject({ role: spec.role, error: expect.stringContaining('ENOENT') })
+            } finally {
+                await missing.stop()
+            }
+        }, 15_000)
+
         it('records a role it cannot start again and keeps retrying until it starts', async () => {
             const cwd = mkdtempSync(path.join(os.tmpdir(), 'scenario-role-cwd-'))
             const exiting = createSupervisor({
@@ -582,19 +598,58 @@ describe('scenario environment', () => {
 
     describe('up', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
+        const realSpawn = childProcess.spawn
+        const stubRolePids = new Set<number>()
+        const stubRole =
+            "require('http').createServer((_request, response) => response.end()).listen(Number(process.env.HTTP_SERVER_PORT))"
         let stranger: ChildProcess | undefined
+        let environment: Environment | undefined
+        let portHolder: net.Server | undefined
+        let unspawnable: Role | undefined
+
+        const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
+        const healthOf = async (role: Role): Promise<number> =>
+            (await internalFetch(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`)).status
+        const stubTheStack = (consumerGroupMembers: number[]): void => {
+            jest.spyOn(stack, 'startStack').mockResolvedValue()
+            jest.spyOn(stack, 'missingTemplates').mockResolvedValue([])
+            const members = jest.spyOn(stack, 'groupMembers').mockResolvedValue(0)
+            consumerGroupMembers.forEach((count) => members.mockResolvedValueOnce(count))
+        }
 
         beforeEach(() => {
             const realTerminate = processes.terminate
-            jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) =>
-                plan.groups.length + plan.pids.length > 0
-                    ? Promise.reject(new Error(`The up test would kill ${[...plan.groups, ...plan.pids].join(', ')}.`))
+            jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) => {
+                const foreign = [...plan.groups, ...plan.pids].filter((pid) => !stubRolePids.has(pid))
+                return foreign.length > 0
+                    ? Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
                     : realTerminate(plan, graceMs)
-            )
+            })
             jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The up test reached the dev stack.'))
+            jest.spyOn(childProcess, 'spawn').mockImplementation(((
+                command: string,
+                args: string[],
+                options: SpawnOptions
+            ) => {
+                if (!command.endsWith(path.join('node_modules', '.bin', 'tsx'))) {
+                    return realSpawn(command, args, options)
+                }
+                if (options.env?.PLUGIN_SERVER_MODE === unspawnable) {
+                    return realSpawn(path.join(NODEJS_DIR, 'no-such-tsx'), args, options)
+                }
+                const role = realSpawn(process.execPath, ['-e', stubRole], options)
+                stubRolePids.add(role.pid!)
+                return role
+            }) as unknown as typeof childProcess.spawn)
+            process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
         })
 
-        afterEach(() => {
+        afterEach(async () => {
+            await environment?.down()
+            environment = undefined
+            portHolder?.close()
+            portHolder = undefined
+            unspawnable = undefined
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             if (cacheHome === undefined) {
@@ -604,8 +659,53 @@ describe('scenario environment', () => {
             }
         })
 
+        it('waits for a dead consumer to leave the events group, then brings every role up healthy', async () => {
+            stubTheStack([1, 1])
+            environment = createEnvironment()
+
+            await environment.up()
+
+            const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
+            expect(Object.fromEntries(health)).toEqual(Object.fromEntries(CdpRole.options.map((role) => [role, 200])))
+        }, 30_000)
+
+        it.each<[string, Role, () => Promise<void> | void]>([
+            [
+                'cannot bind its port',
+                'cdp-processed-events',
+                async () => {
+                    portHolder = net.createServer((socket) => socket.destroy())
+                    await new Promise<void>((resolve) =>
+                        portHolder!.listen(ROLE_PORTS['cdp-processed-events'], resolve)
+                    )
+                },
+            ],
+            [
+                'cannot be spawned',
+                'cdp-cyclotron-worker-email',
+                () => {
+                    unspawnable = 'cdp-cyclotron-worker-email'
+                },
+            ],
+        ])(
+            'fails naming a role that %s and its log',
+            async (_name, role, arrange) => {
+                stubTheStack([])
+                await arrange()
+                environment = createEnvironment()
+
+                const failure = await environment.up().then(
+                    () => null,
+                    (error: Error) => error.message
+                )
+
+                expect(failure).toMatch(new RegExp(`^${role} `))
+                expect(failure).toContain(logOf(role))
+            },
+            30_000
+        )
+
         it('refuses a stranger again when retried after a refused up, instead of reporting itself as the holder', async () => {
-            process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
             const {
                 SCENARIO_RUNNER: _marker,
                 PLUGIN_SERVER_MODE: _mode,
