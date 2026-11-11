@@ -167,6 +167,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import (
+    LegacyOAuthGrant,
+    LegacyOAuthGrantUnusable,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     CredentialAccountsMixin,
@@ -189,7 +193,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStoreProvider,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
-    FEATURE_FLAG,
     KEYWORDS,
     discovery_options_from,
     file_option_fields,
@@ -362,6 +365,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     SelectQueryBuilder,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
@@ -390,6 +394,7 @@ __all__ = [
     "BearerTokenAuthConfig",
     "BoundaryCheckpoint",
     "BoundedRetry",
+    "CERTIFICATE_ERRORS",
     "CHUNK_SIZE",
     "CLOUDFLARE_TRANSIENT_STATUSES",
     "CanonicalDescriptions",
@@ -418,7 +423,6 @@ __all__ = [
     "ExternalDataSource",
     "ExternalDataSourceType",
     "ExternalWebhookInfo",
-    "FEATURE_FLAG",
     "FILE_MODIFIED_AT_COLUMN",
     "FILE_PATH_COLUMN",
     "FORMAT_ERROR",
@@ -453,6 +457,8 @@ __all__ = [
     "JSONResponseCursorPaginatorConfig",
     "JSONResponsePaginator",
     "KEYWORDS",
+    "LegacyOAuthGrant",
+    "LegacyOAuthGrantUnusable",
     "MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP",
     "MAX_EXCEL_FILE_BYTES",
     "MetaAdsIntegration",

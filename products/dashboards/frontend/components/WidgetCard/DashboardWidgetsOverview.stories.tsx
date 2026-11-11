@@ -11,7 +11,7 @@ import {
 } from '../../widget_types/catalog'
 import { getDashboardWidgetDefinition } from '../../widgets/registry'
 import { WidgetCard } from './WidgetCard'
-import { WidgetCardBody } from './WidgetCardBody'
+import { WidgetCardBody, WidgetLoadingState } from './WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from './WidgetCardHeader'
 import { mockMoreOverlay, widgetStorybookParameters, withErrorTrackingProjectState } from './widgetCardStoryFixtures'
 import { getWidgetOverviewDemoState } from './widgetOverviewStoryFixtures'
@@ -65,7 +65,7 @@ function DashboardWidgetOverviewTile({
                     moreButtonOverlay={mockMoreOverlay}
                 />
                 <WidgetCardBody error={demoState.cardError}>
-                    <React.Suspense fallback={null}>
+                    <React.Suspense fallback={<WidgetLoadingState />}>
                         <WidgetComponent
                             tileId={tileId}
                             config={demoState.config}

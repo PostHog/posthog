@@ -42,6 +42,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.exports.backend.asset_access import can_user_view_exported_asset
 from products.exports.backend.facade.exporters import get_export_content_path, is_product_export
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,
@@ -257,15 +258,17 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 )
 
         if export_context and export_context.get("heatmap_url"):
-            ok, err = is_heatmap_url_allowed(
-                export_context["heatmap_url"],
-                export_context.get("heatmap_type"),
-            )
-            if not ok:
-                raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
+            self._validate_heatmap_url(export_context)
 
         data["team_id"] = self.context["team_id"]
         return data
+
+    def _validate_heatmap_url(self, export_context: dict) -> None:
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team is not None else Team.objects.get(pk=self.context["team_id"])
+        ok, err = is_heatmap_url_allowed(export_context["heatmap_url"], export_context.get("heatmap_type"), team)
+        if not ok:
+            raise ValidationError({"export_context": [f"heatmap_url not allowed: {err}"]})
 
     def synthetic_create(self, reason: str, *args: Any, **kwargs: Any) -> ExportedAsset:
         # force_async here to avoid blocking patches to the /sharing endpoint
@@ -623,7 +626,6 @@ class ExportedAssetViewSet(
 
     def safely_get_object(self, queryset):
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
-        export_context = instance.export_context or {}
 
         # The owning product authorizes these on its own endpoints, so this API only lists them and
         # redirects their content.
@@ -633,48 +635,10 @@ class ExportedAssetViewSet(
         ):
             raise NotFound()
 
-        if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
+        if not can_user_view_exported_asset(
+            instance, user_id=self.request.user.id, user_access_control=self.user_access_control
+        ):
             raise NotFound()
-
-        if export_context.get("observation_id"):
-            # Media a product owns and authorizes on its own endpoint. This endpoint checks the recording,
-            # which is a weaker gate than the one the owner applies, and asset ids are guessable integers.
-            raise NotFound()
-
-        session_recording_id = export_context.get("session_recording_id")
-
-        # Both can be set on one asset, and the renderer prefers the insight, so checking only the
-        # first non-null one would let an accessible dashboard authorize an inaccessible insight.
-        for related in (instance.dashboard, instance.insight):
-            if related is not None and not self.user_access_control.check_access_level_for_object(
-                related, required_level="viewer"
-            ):
-                raise NotFound()
-
-        if not session_recording_id:
-            return instance
-
-        # Reached even when a dashboard or insight authorized above: an asset carrying both renders
-        # the recording too, so a viewable dashboard must not stand in for access to it.
-        from posthog.session_recordings.models.session_recording import SessionRecording
-
-        recording = SessionRecording.objects.filter(team_id=instance.team_id, session_id=session_recording_id).first()
-        if recording is not None:
-            if not self.user_access_control.check_access_level_for_object(recording, required_level="viewer"):
-                raise NotFound()
-        elif instance.created_by_id != self.request.user.id:
-            # No SessionRecording row — cannot run object-level RBAC; still enforce the team's
-            # session_recording resource default for other users so detail/content are not fail-open.
-            # The creator is exempt from this fallback only, because _assert_may_export_session_recording
-            # ran the same check when they created the export, so retrieval must not be stricter than
-            # creation — otherwise a session_recording default below viewer 404s the very user who just
-            # took the screenshot, surfacing as an "Export complete!" toast followed by a blank error
-            # page. Explicit object-level denies (the branch above) still apply to the creator once a
-            # SessionRecording row exists.
-            if not self.user_access_control.check_access_level_for_resource(
-                "session_recording", required_level="viewer"
-            ):
-                raise NotFound()
 
         return instance
 

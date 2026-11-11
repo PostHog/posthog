@@ -22,7 +22,7 @@ from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication, WorkloadAccessTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
@@ -36,11 +36,13 @@ from products.canvas.backend.facade import api as canvas_api
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
     apply_source_edits,
+    blocks_session_action,
     canvas_actions_disabled,
     canvas_connectors_enabled,
     connector_listings,
     create_canvas_sandbox_document_url,
     has_errors,
+    in_canvas_experiment,
     native_connector_listings,
     render_canvas_artifact,
     render_canvas_sandbox_document,
@@ -416,6 +418,18 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "patch_layout",
         "home",
     ]
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if (
+            isinstance(request.successful_authenticator, SessionAuthentication)
+            and isinstance(request.user, User)
+            and blocks_session_action(
+                self.action, request.data if self.action in ("partial_update", "build_action") else None
+            )
+            and in_canvas_experiment(request.user, self.team)
+        ):
+            raise PermissionDenied("In the canvas experiment, create and edit canvases through the PostHog MCP server.")
 
     def get_throttles(self) -> list[BaseThrottle]:
         # On top of the defaults, not instead of them: the per-canvas key must
@@ -1791,8 +1805,11 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
 
     def _connector_actor(self, request: Request) -> User | None:
         """The viewer whose third-party connections a connector call may use.
-        A sandbox token acts for an agent, not a viewer, so it gets none."""
-        if self._is_sandbox_authenticated(request):
+        A sandbox token acts for an agent, not a viewer, so it gets none. A workload token acts as the
+        organization owner without the owner minting it, so it gets none either."""
+        if self._is_sandbox_authenticated(request) or isinstance(
+            request.successful_authenticator, WorkloadAccessTokenAuthentication
+        ):
             return None
         return self._request_user()
 
@@ -1995,7 +2012,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         user = self._connector_actor(request)
         if user is None:
             return Response(
-                {"detail": "Connector calls are made by viewers; sandbox tokens cannot use them."},
+                {"detail": "Connector calls are made by viewers; sandbox and workload tokens cannot use them."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         if not canvas_connectors_enabled(self.team.uuid):

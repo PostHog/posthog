@@ -14,6 +14,7 @@ import sys
 import json
 import time
 import fcntl
+import shutil
 import socket
 import hashlib
 import secrets
@@ -185,6 +186,27 @@ def _repo_commit() -> tuple[str, str] | None:
         return sha, commit_date
     except Exception:
         return None
+
+
+# bin/devbox-worktree-hook writes this file into a worktree's git directory when an app
+# such as t3code or Superset creates the worktree. Keep the name in sync with that script.
+_WORKTREE_TOOL_FILE = "hogli-worktree-source"
+_WORKTREE_TOOL_RE = re.compile(r"^[a-z0-9-]{1,32}$")
+
+
+def _worktree_tool(repo_root: Path) -> str | None:
+    """The app that created this linked worktree, as its create hook recorded it."""
+    try:
+        pointer = (repo_root / ".git").read_text().strip()
+        if not pointer.startswith("gitdir:"):
+            return None
+        git_dir = Path(pointer.removeprefix("gitdir:").strip())
+        if not git_dir.is_absolute():
+            git_dir = repo_root / git_dir
+        tool = (git_dir / _WORKTREE_TOOL_FILE).read_text().strip()
+    except (OSError, ValueError):
+        return None
+    return tool if _WORKTREE_TOOL_RE.match(tool) else None
 
 
 def _repo_commit_properties() -> dict[str, str]:
@@ -490,6 +512,33 @@ def _pr_number() -> int | None:
     return None
 
 
+@functools.cache
+def _worktree_count() -> int | None:
+    """Linked worktrees of this repo, read from the shared gitdir so no git process runs."""
+    git = REPO_ROOT / ".git"
+    try:
+        if git.is_file():
+            # "gitdir: <common>/worktrees/<name>" for a linked worktree.
+            pointer = git.read_text().strip().removeprefix("gitdir:").strip()
+            common = (REPO_ROOT / pointer).parent.parent
+        else:
+            common = git
+        worktrees = common / "worktrees"
+        if not worktrees.is_dir():
+            return 0
+        with os.scandir(worktrees) as entries:
+            return sum(1 for entry in entries if entry.is_dir())
+    except OSError:
+        return None
+
+
+def _disk_free_gb() -> float | None:
+    try:
+        return round(shutil.disk_usage(REPO_ROOT).free / 1e9, 1)
+    except OSError:
+        return None
+
+
 def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
     # Agent-driven traffic (e.g. skills running metabase:query) otherwise
     # swamps human usage stats.
@@ -503,6 +552,9 @@ def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
         "in_flox": os.environ.get("FLOX_ENV") is not None,
         "is_agent": agent is not None,
         "is_worktree": (REPO_ROOT / ".git").is_file(),
+        "worktree_tool": _worktree_tool(REPO_ROOT),
+        "worktree_count": _worktree_count(),
+        "disk_free_gb": _disk_free_gb(),
         "is_posthog_dev": _is_posthog_dev(),
         "process_manager": _infer_process_manager(command),
         "git_branch": _git_branch(),

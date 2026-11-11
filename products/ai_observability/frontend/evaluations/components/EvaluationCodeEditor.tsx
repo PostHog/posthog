@@ -1,12 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 
-import { IconCheck, IconExternal, IconMinus, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconExternal, IconMinus, IconSparkles, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { urls } from '~/scenes/urls'
+import { SidePanelTab } from '~/types'
+
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { EvaluationResultTag } from '../../components/EvaluationResultTag'
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
@@ -17,7 +23,7 @@ import {
     numericOutputConfigError,
     numericScorePasses,
 } from '../constants'
-import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
+import { HOG_ADAPT_PROMPT, HogSnippet, hogAdaptContext, hogSnippetsFor } from '../evaluationSnippets'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { EvaluationTarget } from '../types'
 
@@ -393,7 +399,11 @@ export function HogTestResultsPanel(): JSX.Element | null {
 
 export function EvaluationCodeEditor(): JSX.Element {
     const { evaluation, hogTestResultsLoading } = useValues(llmEvaluationLogic)
-    const { setHogSource, setAllowsNA, testHogOnSample } = useActions(llmEvaluationLogic)
+    const { setHogSource, setAllowsNA, setTrueIsFailure, testHogOnSample } = useActions(llmEvaluationLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    useAttachedContext(
+        evaluation?.evaluation_type === 'hog' ? hogAdaptContext(evaluation, evaluation.evaluation_config.source) : null
+    )
 
     if (!evaluation || evaluation.evaluation_type !== 'hog') {
         return <div>Loading...</div>
@@ -402,6 +412,21 @@ export function EvaluationCodeEditor(): JSX.Element {
     const source = evaluation.evaluation_config.source
     const isSessionTarget = evaluation.target === 'session'
     const trueIsFailure = evaluationIsDetector(evaluation)
+    const { starters, templates } = hogSnippetsFor(evaluation)
+    const snippetItem = (snippet: HogSnippet): LemonMenuItem => ({
+        label: snippet.label,
+        tooltip: snippet.allowsNA ? 'Also accepts a "doesn\'t apply" answer, for runs with no value.' : undefined,
+        onClick: () => {
+            if (snippet.allowsNA) {
+                setAllowsNA(true)
+            }
+            // A detector template returns true for the problem, so its polarity comes with its code.
+            if (snippet.trueIsFailure !== undefined && evaluation.output_type === 'boolean') {
+                setTrueIsFailure(snippet.trueIsFailure)
+            }
+            setHogSource(snippet.source)
+        },
+    })
 
     return (
         <div className="space-y-4">
@@ -428,10 +453,10 @@ export function EvaluationCodeEditor(): JSX.Element {
                         <Tooltip
                             title={
                                 isSessionTarget
-                                    ? 'Compile and run your code against up to 3 sessions that have gone quiet, the same way it runs online'
+                                    ? 'Runs your code on up to 3 sessions that have gone quiet, the same way it runs live'
                                     : evaluation.target === 'trace'
-                                      ? 'Compile and run your code against up to 5 recent traces, the same way it runs online'
-                                      : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
+                                      ? 'Runs your code on up to 5 recent traces, the same way it runs live'
+                                      : 'Runs your code on up to 5 recent generations that match your filters'
                             }
                         >
                             <LemonButton
@@ -452,6 +477,37 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 Test on sample
                             </LemonButton>
                         </Tooltip>
+                        <LemonMenu
+                            items={[
+                                { title: 'Starters', items: starters.map(snippetItem) },
+                                ...(templates.length > 0
+                                    ? [{ title: 'From templates', items: templates.map(snippetItem) }]
+                                    : []),
+                            ]}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                sideIcon={<IconChevronDown />}
+                                disabledReason={
+                                    starters.length + templates.length === 0
+                                        ? 'Add a category first, then insert an example that returns it.'
+                                        : undefined
+                                }
+                                data-attr="llma-evaluation-hog-insert-example"
+                            >
+                                Insert an example
+                            </LemonButton>
+                        </LemonMenu>
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconSparkles />}
+                            onClick={() => openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(HOG_ADAPT_PROMPT))}
+                            data-attr="llma-evaluation-hog-adapt-with-ai"
+                        >
+                            Adapt with PostHog AI
+                        </LemonButton>
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Expected output:</span>
@@ -480,52 +536,16 @@ export function EvaluationCodeEditor(): JSX.Element {
                 panels={[
                     {
                         key: 'reference',
-                        header: 'Examples and reference',
+                        header: 'Hog reference',
                         dataAttr: 'llma-evaluation-hog-reference',
                         content: (
                             <div>
                                 <div className="flex items-center justify-between mb-2">
-                                    <div>
-                                        <h4 className="text-sm font-semibold m-0">Examples</h4>
-                                        <p className="text-xs text-muted m-0">Starter examples to play with</p>
-                                    </div>
+                                    <h4 className="text-sm font-semibold m-0">Available globals</h4>
                                     <Link to="https://posthog.com/docs/hog" target="_blank" className="text-sm">
                                         Hog language reference <IconExternal className="inline text-xs" />
                                     </Link>
                                 </div>
-                                <div className="flex flex-wrap gap-1.5 mb-3">
-                                    {(evaluation.output_type === 'categorical'
-                                        ? (evaluation.output_config.options ?? [])
-                                              .slice(0, 2)
-                                              .map(({ key, label }) => ({ label, source: `return ['${key}'];` }))
-                                        : evaluation.output_type === 'numeric'
-                                          ? [
-                                                { label: 'Latency', source: 'return target.total_latency_seconds;' },
-                                                { label: 'Cost', source: 'return target.total_cost_usd;' },
-                                            ]
-                                          : HOG_EVAL_EXAMPLES
-                                    ).map((example) => (
-                                        <LemonButton
-                                            key={example.label}
-                                            type="secondary"
-                                            size="xsmall"
-                                            onClick={() => {
-                                                if (evaluation.output_type === 'numeric') {
-                                                    setAllowsNA(true)
-                                                }
-                                                setHogSource(example.source)
-                                            }}
-                                        >
-                                            {example.label}
-                                        </LemonButton>
-                                    ))}
-                                </div>
-                                {evaluation.output_type === 'numeric' && (
-                                    <p className="text-xs text-muted mb-3">
-                                        These examples enable N/A for missing cost or latency measurements.
-                                    </p>
-                                )}
-                                <h4 className="text-sm font-semibold mb-2">Available globals</h4>
                                 <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-2 text-sm text-muted">
                                     {HOG_EVAL_COMMON_GLOBAL_DEFINITIONS.map((globalDefinition) => (
                                         <Fragment key={globalDefinition.name}>
@@ -569,7 +589,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                                                 multiple selection; null means N/A when allowed.
                                             </span>
                                         ) : evaluation.output_type === 'numeric' ? (
-                                            <span>Return a number within the configured bounds.</span>
+                                            <span>Return a number in the range you set.</span>
                                         ) : (
                                             <>
                                                 Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or{' '}
@@ -585,7 +605,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                                     </li>
                                     {evaluation.output_config.allows_na && (
                                         <li>
-                                            Return <code>null</code> when the evaluation criteria doesn't apply
+                                            Return <code>null</code> when the check doesn't apply
                                         </li>
                                     )}
                                     <li>

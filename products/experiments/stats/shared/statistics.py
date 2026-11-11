@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from posthog.dataclasses import frozen
+
 
 class StatisticError(ValueError):
     """Base exception for statistic-related errors."""
@@ -14,6 +16,17 @@ class InvalidStatisticError(StatisticError):
     """Raised when statistic inputs are invalid."""
 
     pass
+
+
+@frozen
+class RelativeEffectBaseline:
+    """The mean that relative effects divide by, with its variance and its covariance with the treatment-control
+    difference. Moments are on the scale of sample means, not individual observations."""
+
+    mean: float
+    variance: float
+    # The adjusted difference contains control observations, so it covaries with the raw baseline.
+    difference_covariance: float
 
 
 @dataclass
@@ -160,6 +173,10 @@ Z_975 = 1.959963984540054
 # every grid size and choose_quantile_bounds picks one afterwards.
 QUANTILE_N_STAR_GRID = [100 * 2**k for k in range(20)]
 
+# The clustered variance estimates the spread between users. When the events come from fewer effective users
+# than this, that estimate is often too small, and a test rejects a true null hypothesis too often.
+QUANTILE_MIN_EFFECTIVE_CLUSTERS = 50
+
 
 @dataclass(frozen=True, kw_only=True)
 class QuantileGridLevel:
@@ -303,6 +320,26 @@ class QuantileStatistic:
             return True
         # The floor in variance turns collapsed bounds (Y_L == Y_U) into 1e-5, so read the value before it.
         return self.unfloored_variance <= 0
+
+    @property
+    def has_tied_bound(self) -> bool:
+        """
+        True when the quantile equals Y_L or Y_U.
+
+        Events tied at the quantile value then fill one side of the outer interval, so Y_U - Y_L
+        measures the gap between tied values instead of the sampling spread of the quantile.
+        """
+        return self.quantile in (self.quantile_lower, self.quantile_upper)
+
+    @property
+    def effective_clusters(self) -> float:
+        """Effective number of users when each user counts with its events: (Σ N_i)² / Σ N_i²"""
+        return self.n_sum**2 / self.n_sum_squares if self.n_sum_squares > 0 else 0.0
+
+    @property
+    def has_few_effective_clusters(self) -> bool:
+        """True when a few users produce so many of the events that the clustered variance is unreliable"""
+        return self.effective_clusters < QUANTILE_MIN_EFFECTIVE_CLUSTERS
 
     @property
     def standard_error(self) -> float:

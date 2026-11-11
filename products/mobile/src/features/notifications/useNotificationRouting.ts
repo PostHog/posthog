@@ -1,9 +1,16 @@
 import * as Notifications from 'expo-notifications'
-import { router, useNavigationContainerRef, usePathname, useRootNavigationState } from 'expo-router'
+import {
+    router,
+    useGlobalSearchParams,
+    useNavigationContainerRef,
+    usePathname,
+    useRootNavigationState,
+} from 'expo-router'
 import { useEffect } from 'react'
 
 import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
+import { reportLinkFromParams, useReportLinkScope } from '@/features/report/reportLinkScope'
 import { track } from '@/lib/analytics'
 import { withAppReloadBlocked } from '@/lib/appReload'
 
@@ -115,16 +122,20 @@ export function useNotificationRouting(): void {
     const userUuid = useAuthStore((state) => state.user?.uuid)
     const projectId = useAuthStore((state) => state.projectId)
     const pathname = usePathname()
+    const params = useGlobalSearchParams()
+    const linkScope = useReportLinkScope(reportLinkFromParams(params))
+    // A link can open a report in another project, and a push for it names that project, not the session's.
+    const viewedProjectId = linkScope.kind === 'scope' ? (linkScope.override?.projectId ?? projectId) : null
 
     useEffect(() => {
         const reportId = /^\/report\/([^/]+)$/.exec(pathname)?.[1]
         setViewedNotificationReport(
-            signedIn && host && userUuid && projectId !== null && reportId
-                ? { accountKey: `${host.replace(/\/$/, '')}|${userUuid}`, projectId, reportId }
+            signedIn && host && userUuid && viewedProjectId !== null && reportId
+                ? { accountKey: `${host.replace(/\/$/, '')}|${userUuid}`, projectId: viewedProjectId, reportId }
                 : null
         )
         return () => setViewedNotificationReport(null)
-    }, [signedIn, host, userUuid, projectId, pathname])
+    }, [signedIn, host, userUuid, viewedProjectId, pathname])
 
     useEffect(() => {
         if (!navigationReady || !signedIn || !notificationsSupported()) {

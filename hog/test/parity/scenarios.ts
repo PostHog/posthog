@@ -1,4 +1,4 @@
-import { readFileSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Scenario, StoredObject } from './fake-server'
@@ -6,7 +6,7 @@ import { GIT_REPO, mappingOfSize, readTree, SMALL_MAPPING, write } from './fixtu
 import { EXPO_BUILD, HERMES_BUILD, HERMES_BUNDLES } from './hermes-fixtures'
 import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEET_LOOKUP, STYLESHEETS } from './js-fixtures'
 import { INFO_PLIST_BINARY, INFO_PLIST_SETTINGS, INFO_PLIST_XML, XCODE_SETTINGS } from './plist-fixtures'
-import { decodeFile, type ParityResult } from './run'
+import { decodeFile, readGolden } from './run'
 import { SYMBOL_SETS } from './symbol-set-fixtures'
 
 type Files = Record<string, string | Uint8Array>
@@ -39,9 +39,7 @@ export interface ParityScenario {
 function filesFrom(name: string): () => Files {
     return () => {
         const scenario = SCENARIOS.find((candidate) => candidate.name === name)!
-        const golden = JSON.parse(
-            readFileSync(join(import.meta.dir, 'golden', 'e2e', `${name}.json`), 'utf8')
-        ) as ParityResult
+        const golden = readGolden(name)
         const files: Files = { ...scenario.files() }
         for (const [path, text] of Object.entries(golden.files ?? {})) {
             if (text === null) {
@@ -134,6 +132,7 @@ SCENARIOS.push(
     js('inject-malformed-map-debug-id', 'inject', () => MALFORMED_MAP_DEBUG_ID),
     js('inject-release', 'inject', bundles, { args: jsRelease }),
     js('inject-release-from-git', 'inject', () => ({ ...GIT_REPO, ...bundles() })),
+    js('inject-incomplete-release', 'inject', bundles, { args: ['--release-version', '1.0'] }),
     js('inject-release-change', 'inject', bundles, {
         args: ['--release-name', 'web', '--release-version', '2.2.0'],
         before: [['inject', jsRelease]],
@@ -145,6 +144,7 @@ SCENARIOS.push(
     js('inject-file-root', 'inject', bundles, { path: 'esbuild-cjs/index.cjs' }),
     js('process-bundles', 'process', bundles, { args: jsRelease }),
     js('process-no-release', 'process', bundles),
+    js('process-incomplete-release', 'process', bundles, { args: ['--release-version', '1.0'] }),
     js('process-edge-cases', 'process', () => EDGE_CASES, { args: jsRelease }),
     js('process-already-present', 'process', bundles, { args: jsRelease, runs: 2 }),
     js('process-hash-mismatch', 'process', bundles, {
@@ -162,6 +162,10 @@ SCENARIOS.push(
     js('upload-native-debug-ids', 'upload', bundles),
     js('upload-after-inject', 'upload', bundles, { before: [['inject', jsRelease]] }),
     js('upload-not-injected', 'upload', () => EDGE_CASES),
+    js('upload-incomplete-release-symbol-set', 'upload', bundles, {
+        args: ['--release-version', '1.0', ...symbolSet],
+        before: [['inject', []]],
+    }),
     js('inject-symbol-set', 'inject', bundles, {
         args: [...jsRelease, ...symbolSet],
         randomIds: true,
@@ -222,6 +226,12 @@ SCENARIOS.push(
         }
     ),
     hermes(
+        'clone-incomplete-release',
+        hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED, ['--release-version', '1.0', ...symbolSet]),
+        () => HERMES_BUILD,
+        { before: [hermesArgs.inject('android')] }
+    ),
+    hermes(
         'clone-symbol-set-keeps-release',
         hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED, symbolSet),
         () => HERMES_BUILD,
@@ -247,6 +257,14 @@ SCENARIOS.push(
             hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED, [...appRelease, ...symbolSet]),
         ],
     }),
+    hermes(
+        'upload-incomplete-release',
+        hermesArgs.upload('android/hbc', ['--release-version', '1.0', ...symbolSet]),
+        () => HERMES_BUILD,
+        {
+            before: [hermesArgs.inject('android'), hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED)],
+        }
+    ),
     hermes('upload-already-present', hermesArgs.upload('android/hbc', appRelease), () => HERMES_BUILD, {
         before: [hermesArgs.inject('android'), hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED)],
         runs: 2,

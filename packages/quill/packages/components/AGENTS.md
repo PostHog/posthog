@@ -87,6 +87,8 @@ Rules:
 
 - One choice → `FilterRadioSubMenu`. Several from a short list → `FilterCheckboxSubMenu`. Several from a long list → `FilterSearchSubMenu`.
 - An empty selection means all of them. Pass `defaultValue` on a radio filter so that a change takes the primary color. Leave it out on a row that isn't a filter, such as a sort.
+- To measure a long list, pass `onOpened` to `FilterSearchSubMenu`. It reports how long the submenu took to paint and how many options it listed, because every row stays mounted.
+- A list too long to load whole, such as a project's tags, searches on the server. Pass `onSearchChange` to get the search text, `onScrollEnd` to load the next page, and `onClose` to drop the pages, and give `options` only the page loaded so far.
 - `active` covers filters only. A sort, a display choice or the search text never lights the dot.
 
 ## DateTimePicker
@@ -147,7 +149,7 @@ Headless month-grid state for building custom calendar UIs: returns `calendar` (
 
 ## Metric
 
-A composable stat tile: a headline number, a `Badge` change pill, and an optional `Sparkline`. `Metric` is **content, not a surface** — wrap it in `<Card flush>` for the border. It's the one component here that depends on `@posthog/quill-charts` (for `Sparkline` + the headless metric math), which pulls d3 — so it lives behind its own `@posthog/quill-components/metric` entry point, **not** the main barrel (and not the `@posthog/quill` umbrella). That keeps charts/d3 out of the always-eager app-shell graph: only code that imports the metric subpath pays for it. The `MetricCard` in `@posthog/quill-charts` is the older, self-contained (prop-driven, primitives-free) tile; use `Metric` when you want to compose the layout or lean on quill's `Card`/`Badge`.
+A composable stat tile: a headline number, a `Badge` change pill, and an optional `Sparkline`. `Metric` is **content, not a surface** — wrap it in `<Card flush>` for the border. It's the one component here that depends on `@posthog/quill-charts` (for `Sparkline` + the headless metric math), which pulls d3 — so it lives behind its own `@posthog/quill-components/metric` entry point, **not** the main barrel. That keeps charts/d3 out of the always-eager app-shell graph: only code that imports the metric subpath pays for it.
 
 ```tsx
 import {
@@ -184,8 +186,8 @@ Rules:
 - The root owns the data/hover behavior and feeds the parts via context — a part used outside `<Metric>` throws. Pass `value` for a number-only tile; pass `data`+`labels`+`theme` for a sparkline.
 - `labels` doubles as the sparkline's x-scale keys, so entries must be **unique** — a duplicate collapses two points onto one position and draws the series backwards (see the charts guide's `labels` rule). Pass raw keys (ISO dates) and render them for display with `formatLabel`, instead of pre-formatting text like `'June 16'`, which repeats once a range spans a year. `formatLabel` covers the subtitle; a `sparklineTooltip` formats the same keys through the charts' own `labelFormatter`.
 - `MetricDelta` renders a `Badge`; `goodDirection` (default `up`) decides success vs destructive. It carries its own `TooltipProvider`, so `changeTooltip` needs no app-root setup. resize via `className` (the metric insight passes its own larger-pill classes and puts it inline next to the headline via `MetricHeader`; there is no `changeInline` or size prop, compose and style at the call site).
-- Color the headline at the call site: `<MetricValue style={{ color }} />` for a dynamic color (a threshold status), or a `text-*` class for a token. The root `color` tints only the sparkline.
-- Reproduces `MetricCard`'s behavior (`restingSubtitle`, `hoverChangeFromPreviousPoint`, `changeTooltip`, `positiveColor`/`negativeColor` for user-configured pill colors); omit the color props to keep the semantic `Badge` variants.
+- Color the headline with `valueColor`, a function of the shown value, so a hovered point gets its own color (a threshold status). For a fixed color use a `text-*` class on `MetricValue`. The root `color` tints only the sparkline.
+- Supports `restingSubtitle`, `hoverChangeFromPreviousPoint`, `changeTooltip`, and `positiveColor`/`negativeColor` for user-configured pill colors; omit the color props to keep the semantic `Badge` variants.
 - `series` draws a multi-series sparkline (one line per series, the charts' `Series[]` shape) instead of the single `data` line. It's purely visual — the headline, hover and change pill still read `data`, so pass the numbers the tile should read (e.g. the per-index totals) as `data` alongside it; the types reject `series` without `data`. The single-line conveniences (`color`, `sparklineDashedFromIndex`) don't apply — set them per series.
 - `sparklineTooltip` is a render prop passed straight to the sparkline (off by default, since hover already scrubs the headline) — supply `(ctx) => <DefaultTooltip {...ctx} />` to also show a hover tooltip, e.g. the per-series breakdown behind a multi-series total.
 - Things `Metric` deliberately doesn't have props for — compose them yourself around it: a clickable tile (put the handler on the wrapping `Card`), a footer (a sibling node after `MetricSparkline`), an info icon next to the title (a `Tooltip` inside `MetricTitle`), and a loading state (render `Skeleton`s instead of the `Metric`).

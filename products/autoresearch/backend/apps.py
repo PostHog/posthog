@@ -14,3 +14,7 @@ class AutoresearchConfig(AppConfig):
 
         # Lazy "app_label.Model" sender keeps the tasks model off autoresearch's import path.
         post_save.connect(on_task_run_saved, sender="tasks.TaskRun", dispatch_uid="autoresearch.on_task_run_saved")
+
+        from products.autoresearch.backend import task_profiles  # noqa: PLC0415
+
+        task_profiles.register()

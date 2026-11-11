@@ -191,6 +191,12 @@ Three env files come into play when `hogli start` runs:
 
 Precedence (highest wins): `shell env > .env.local > .env.development > .env.services`.
 
+Outside tests, `DEBUG=1` defaults `TRUSTED_PROXIES` to `127.0.0.1,::1` so the backend can extract client IPs forwarded by the local Docker proxy on macOS. An explicit `TRUSTED_PROXIES` value overrides this default. Production has no default trusted proxies.
+
+Livestream uses the same proxy modes as Django, with a `LIVESTREAM_` prefix. Set `LIVESTREAM_IS_BEHIND_PROXY=1` to use forwarded client IPs. Set `LIVESTREAM_TRUST_ALL_PROXIES=True` when ingress controls the `X-Forwarded-For` header; this uses its first client address, matching Django's trust-all mode. Otherwise, list the actual reverse proxy CIDRs in `LIVESTREAM_TRUSTED_PROXIES`. Both boolean settings default to false. Direct mode ignores forwarded headers, and the explicit allowlist mode does not automatically trust private, loopback, or link-local peers.
+
+Streaming for IP-restricted organizations also requires matching dedicated signing keys in `LIVESTREAM_AUTHORIZATION_SIGNING_KEYS` for both Django and livestream. Both accept comma-separated keys, newest first. Use independently generated keys per environment; neither setting falls back to another secret. Configure both services before testing restricted streams. The service signs short-lived policy requests bound to the viewer token and team; a viewer token alone cannot read allowlists. Staff impersonation uses a separately cached viewer token bounded by the originating session or OAuth credential. Livestream authorization rechecks that source and the staff account; expired or revoked sources cannot authorize streams. Session-backed tokens also stop working after a password change or removal of the session’s authentication backend. Session auth hashes accept the configured fallback signing keys.
+
 To run AI features locally, you'll need API keys for OpenAI, Anthropic, and others. PostHog employees can pull them from 1Password without ever pasting raw values:
 
 ```bash

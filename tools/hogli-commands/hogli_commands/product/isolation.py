@@ -24,7 +24,7 @@ import ast
 import json
 import tomllib
 import functools
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -54,7 +54,8 @@ from .import_resolution import (
     resolve_absolute_module,
     source_file,
 )
-from .paths import REPO_ROOT, TACH_TOML, get_tach_block
+from .paths import REPO_ROOT, TACH_TOML
+from .watched_channels import ChannelModule, find_channel_modules
 from .wiring_interfaces import WiringInterfaceResolver, WiringVerdict
 
 # ---------------------------------------------------------------------------
@@ -168,21 +169,17 @@ def has_routes_module(backend_dir: Path) -> bool:
 
 
 def has_tach_interface(name: str, tach_content: str | None = None) -> bool:
-    """True if the product is named in a tach [[interfaces]] block (inline or global).
+    """True if the product is named in the `from` list of a tach [[interfaces]] table.
 
-    Names are matched structurally against each block's `from` list. A loose regex
-    over the whole file false-positives on any product whose name appears later (e.g.
-    in its own [[modules]] block), which made nearly every product read as sealed.
+    Names are matched against the parsed TOML, so a comment that mentions `[[interfaces]]`
+    or a neighbouring block's table cannot count. A loose match over the file text
+    false-positives on any product whose name or block text happens to contain the word.
+    [[interfaces]] is the only form tach reads: it rejects an `interfaces` key on a
+    [[modules]] table.
     """
-    block = get_tach_block(f"products.{name}")
-    if block and "interfaces" in block and "interfaces = []" not in block:
-        return True
     content = tach_content if tach_content is not None else (TACH_TOML.read_text() if TACH_TOML.exists() else "")
-    return any(
-        name in names_from_pattern(pattern)
-        for _expose, from_patterns in iter_interface_blocks(content)
-        for pattern in from_patterns
-    )
+    interface_tables = tomllib.loads(content).get("interfaces", [])
+    return any(name in names_from_pattern(pattern) for table in interface_tables for pattern in table.get("from", []))
 
 
 def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
@@ -417,17 +414,18 @@ def has_narrowed_turbo_inputs(
     permanent_modules: frozenset[str] = frozenset(),
     carveout_modules: frozenset[str] = frozenset(),
     model_surface: tuple[str, ...] = (),
+    channel_modules: frozenset[str] = frozenset(),
 ) -> bool:
     """True only when contract-check inputs are confined to the public surface AND at least one
     targets facade/presentation. A broad glob like backend/** alongside a facade entry keeps the
     skip inert, and a routes-only narrowing isn't a real contract surface — both are rejected.
     Negated globs ('!...') are excluded from the surface test.
 
-    Permanently-exposed modules, wiring locations, carve-out modules, and the model surface
-    all count as extended surface: a product may list them without forfeiting the narrowing, since
-    core depends on each outside the plain facade->contracts channel and they must re-run the suite
-    on change (see uncovered_permanent_modules, unwatched_garages, and the carve-out/model coverage
-    checks).
+    Permanently-exposed modules, wiring locations, carve-out modules, the model surface, and the
+    modules outside suites run without an import edge (watched_channels.py) all count as extended
+    surface: a product may list them without forfeiting the narrowing, since core depends on each
+    outside the plain facade->contracts channel and they must re-run the suite on change (see
+    uncovered_permanent_modules, unwatched_garages, and the carve-out/model coverage checks).
 
     A webhook_consumers.py module is the one extended surface that is also required once it exists:
     listing it is optional for a product that has none, mandatory for a product that has one, and
@@ -447,6 +445,7 @@ def has_narrowed_turbo_inputs(
         + permanent_prefixes
         + tuple(carveout_modules)
         + model_surface
+        + tuple(channel_modules)
     )
     return all(_glob_targets(i, accepted) for i in inputs) and any(
         _glob_targets(i, _FACADE_PRESENTATION_PREFIXES) for i in inputs
@@ -997,6 +996,25 @@ def uncovered_carveout_modules(product_dir: Path, carveout_modules: frozenset[st
     A carve-out class crosses the boundary for a class-identity registry, so a change to its
     defining module is a coupling change core must re-test — exactly like a permanent exposure."""
     return _uncovered_locations(product_dir, {m: (m,) for m in carveout_modules})
+
+
+def unwatched_modules(product_dir: Path, modules: Iterable[str]) -> set[str]:
+    """Module files, relative to the product, that the narrowed contract-check inputs do not watch.
+
+    Empty when the product has no narrowing override, because the inputs then watch everything.
+    Negations are read conservatively, like _webhook_consumers_unwatched reads them: a negation that
+    may reach the file leaves it unwatched, because the safe failure is a suite that runs."""
+    raw = contract_check_inputs(product_dir)
+    positive = [i.removeprefix("./") for i in raw if not i.startswith("!")]
+    if not positive:
+        return set()
+    negations = [i.removeprefix("!").removeprefix("./") for i in raw if i.startswith("!")]
+    return {
+        module
+        for module in modules
+        if any(_input_covers(n, module) or _literal_prefix_overlaps(n, module) for n in negations)
+        or not any(_input_covers(i, module) for i in positive)
+    }
 
 
 def unwatched_model_surface(product_dir: Path) -> set[str]:
@@ -1794,6 +1812,8 @@ class IsolationStatus:
     # Classes from wiring locations without an approved interface (see facade_unapproved_wiring).
     # Information below the Isolated rung; on an Isolated product each one needs a ledger row.
     unapproved_wiring: tuple[UnapprovedWiringClass, ...] = ()
+    # Read only for a product with 'backend:contract-check', the one kind that skips the suite.
+    channel_modules: tuple[ChannelModule, ...] = ()
 
     @property
     def deferred_count(self) -> int:
@@ -1861,6 +1881,8 @@ def compute_isolation_status(
     permanent_modules = frozenset(permanent_interface_modules(tach_content, module_path))
     reexports = _split_facade_reexports(backend_dir, name)
     carveout_modules = reexports.carveout_modules
+    has_script = has_contract_check_script(product_dir)
+    channel_modules = find_channel_modules(product_dir, repo_root) if has_script else ()
     return IsolationStatus(
         name=name,
         has_facade_contracts=has_facade_contracts,
@@ -1868,9 +1890,13 @@ def compute_isolation_status(
         has_tach_interface=has_tach_interface(name, tach_content),
         has_legacy_leaks=has_legacy_interface_leaks(tach_content, module_path),
         bypass_entries=tuple(presentation_bypass_entries(name, pyproject_text)),
-        has_contract_check_script=has_contract_check_script(product_dir),
+        has_contract_check_script=has_script,
         has_narrowed_turbo=has_narrowed_turbo_inputs(
-            product_dir, permanent_modules, carveout_modules, MODEL_SURFACE_PREFIXES
+            product_dir,
+            permanent_modules,
+            carveout_modules,
+            MODEL_SURFACE_PREFIXES,
+            frozenset(c.path for c in channel_modules),
         ),
         permanent_exposures=tuple(sorted(permanent_modules)),
         uncovered_permanent_exposures=tuple(sorted(uncovered_permanent_modules(product_dir, permanent_modules))),
@@ -1884,4 +1910,5 @@ def compute_isolation_status(
         model_crossings=reexports.model_crossings,
         uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),
         unapproved_wiring=tuple(facade_unapproved_wiring(backend_dir, name)),
+        channel_modules=channel_modules,
     )

@@ -84,6 +84,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Virtualize rows in an embedded SQL result table with a bounded height. */
     dataVisualizationTableVirtualized?: boolean
     dataVisualizationTableVirtualizationCellThreshold?: number
+    /** Sort a Data Table column with one header click, besides the column menu. */
+    dataTableSortOnHeaderClick?: boolean
     /** Keep the Data Table header row visible while the page scrolls. See `LemonTable`'s `stickyHeader`. */
     dataTableStickyHeader?: boolean
     /** Override the nouns used by Data Table counts and pagination. */
@@ -93,6 +95,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     compactDataTableToolbar?: boolean
     dataTableToolbarClassName?: string
     dataTableExportIconOnly?: boolean
+    dataTableHideLoadNextWhenComplete?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>

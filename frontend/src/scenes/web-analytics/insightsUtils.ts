@@ -4,14 +4,20 @@ import { InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-g
 import { isWebAnalyticsInsightQuery } from '~/queries/utils'
 
 import { TileId, WebAnalyticsTile } from './common'
+import { withoutWebQueryModifiers } from './webQueryModifiers'
 
 export const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: boolean): `new-${string}` => {
     return `new-AdHoc.web-analytics.${section}.${tab || 'default'}.${isModal ? 'modal' : 'default'}`
 }
 
+// A saved insight runs for every viewer, so it must not keep this browser's web query modifiers.
+export const getNewInsightUrlForQuery = (query: QuerySchema): string =>
+    urls.insightNew({ query: withoutWebQueryModifiers(query), sceneSource: 'web-analytics' })
+
 export const getNewInsightUrlFactory = (tiles: WebAnalyticsTile[]) => {
     return function getNewInsightUrl(tileId: TileId, tabId?: string): string | undefined {
-        const formatQueryForNewInsight = (query: QuerySchema): QuerySchema => {
+        const formatQueryForNewInsight = (tileQuery: QuerySchema): QuerySchema => {
+            const query = withoutWebQueryModifiers(tileQuery)
             if (query.kind === NodeKind.InsightVizNode) {
                 const source = query.source
                 const editableSource =

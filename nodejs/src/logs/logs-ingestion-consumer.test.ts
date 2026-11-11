@@ -564,9 +564,6 @@ describe('LogsIngestionConsumer', () => {
                 'updateTeamLogsSettings'
             )
 
-            // Clear team cache to ensure fresh data
-            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
-
             const logData = createLogMessage()
             const messages = await createKafkaMessages([logData], {
                 token: team.api_token,
@@ -2024,7 +2021,6 @@ describe('LogsIngestionConsumer', () => {
                 [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: false }), team.id],
                 'updateTeamLogsPiiScrub'
             )
-            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
 
             const logData = createLogMessage({ message: 'email me at foo@bar.com' })
             const messages = await createKafkaMessages([logData], {
@@ -2870,7 +2866,10 @@ describe('LogsIngestionConsumer', () => {
     describe('hog log transformations', () => {
         let transformerConsumer: LogsIngestionConsumer
 
-        const buildTransformer = async (hog: string): Promise<LogsTransformerService> => {
+        const buildTransformer = async (
+            hog: string,
+            monitoring = { queueAppMetric: jest.fn(), queueLogs: jest.fn(), flush: jest.fn() }
+        ): Promise<LogsTransformerService> => {
             const fn = {
                 id: '00000000-0000-0000-0000-000000000001',
                 team_id: team.id,
@@ -2887,7 +2886,6 @@ describe('LogsIngestionConsumer', () => {
                 getHogFunctionsForTeams: jest.fn().mockResolvedValue({ [team.id]: [fn] }),
                 getHogFunctionIdsForTeams: jest.fn().mockResolvedValue({ [team.id]: [fn.id] }),
             }
-            const monitoring = { queueAppMetric: jest.fn(), queueLogs: jest.fn(), flush: jest.fn() }
             return new LogsTransformerService(manager as any, monitoring as any, {
                 siteUrl: 'http://localhost:8010',
                 hogTimeoutMs: 10,
@@ -2986,31 +2984,53 @@ describe('LogsIngestionConsumer', () => {
             )
         })
 
-        it('does not run transformations when the team is not in the allowlist', async () => {
-            const logsTransformer = await buildTransformer(`return null`)
+        const internalLogsConfig = {
+            LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '*',
+            LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'internal-logs-test-key',
+        }
+
+        it('runs transformations on a batch whose internal logs header fails to verify, and keeps its logs out of the producer', async () => {
+            const monitoring = { queueAppMetric: jest.fn(), queueLogs: jest.fn(), flush: jest.fn() }
+            const logsTransformer = await buildTransformer(`throw Error('boom')`, monitoring)
             transformerConsumer = await createLogsIngestionConsumer(
                 hub,
-                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '' },
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', ...internalLogsConfig },
                 { logsTransformer }
             )
 
-            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
-            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+            const [message] = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            message.headers!.push(
+                internalLogsHeaders(signInternalLogs('rotated-away-key', 'hog_function', team.id, new Date(Date.now())))
+            )
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch([message]))
 
-            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
-            expect(logsMessages).toHaveLength(1)
+            expect(monitoring.queueLogs).toHaveBeenCalledWith(expect.any(Array), 'hog_function', {
+                aboutInternalLogs: true,
+            })
         })
 
-        it('does not run transformations when the killswitch is on', async () => {
+        it.each([
+            { name: 'the team is not in the allowlist', config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '' } },
+            {
+                name: 'the killswitch is on',
+                config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', LOGS_TRANSFORMATIONS_KILLSWITCH: true },
+            },
+            {
+                name: 'the internal logs header verifies',
+                config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', ...internalLogsConfig },
+                signingKey: 'internal-logs-test-key',
+            },
+        ])('does not run transformations when $name', async ({ config, signingKey }) => {
             const logsTransformer = await buildTransformer(`return null`)
-            transformerConsumer = await createLogsIngestionConsumer(
-                hub,
-                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', LOGS_TRANSFORMATIONS_KILLSWITCH: true },
-                { logsTransformer }
-            )
+            transformerConsumer = await createLogsIngestionConsumer(hub, config, { logsTransformer })
 
-            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
-            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+            const [message] = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            if (signingKey) {
+                message.headers!.push(
+                    internalLogsHeaders(signInternalLogs(signingKey, 'hog_function', team.id, new Date(Date.now())))
+                )
+            }
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch([message]))
 
             const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
             expect(logsMessages).toHaveLength(1)

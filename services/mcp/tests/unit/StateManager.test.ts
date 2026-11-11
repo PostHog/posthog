@@ -998,6 +998,27 @@ describe('StateManager', () => {
             [true, true],
             [false, false],
             [null, false],
+        ])('reads consent from the project when the org is unreachable (flag %s)', async (flag, expected) => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: { id: 'org-other', name: 'Other Org', is_ai_data_processing_approved: !expected },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+                is_ai_data_processing_approved: flag,
+            } as any)
+
+            const result = await stateManager.getAiConsentGiven()
+
+            expect(result).toBe(expected)
+        })
+
+        it.each([
+            [true, true],
+            [false, false],
+            [null, false],
         ])('returns consent from the fetched org when the org is resolvable (flag %s)', async (flag, expected) => {
             vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue({
                 id: 'org-1',

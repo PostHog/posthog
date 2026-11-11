@@ -26,6 +26,7 @@ from products.tasks.backend.constants import (
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
+    STORE_SKILLS_BRIDGE_STATE_KEY,
     STORE_SKILLS_STATE_KEY,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
@@ -484,6 +485,12 @@ class TestGetTaskProcessingContextActivity:
             (None, False, False),
             ("business_knowledge", True, False),
             ("business_knowledge", False, False),
+            ("posthog_ai", True, True),
+            ("posthog_ai", False, False),
+            ("posthog_ai.internal", True, True),
+            ("posthog_ai.internal", False, False),
+            ("space_setup", True, True),
+            ("space_setup", False, False),
             ("test.unregistered", True, True),
         ],
     )
@@ -894,7 +901,10 @@ class TestGetTaskProcessingContextActivity:
         assert environment.get("POSTHOG_CONTEXT_LAYER_PATH") == (
             "/tmp/workspace/context" if include_live_context is not False else None
         )
-        stored = TaskRun.objects.get(id=task_run.id).state[STORE_SKILLS_STATE_KEY]
+        stored_state = TaskRun.objects.get(id=task_run.id).state
+        stored = stored_state[STORE_SKILLS_STATE_KEY]
+        expected_bridge = None if expected_state == "untouched" else expected_state == "resolved"
+        assert stored_state.get(STORE_SKILLS_BRIDGE_STATE_KEY) == expected_bridge
         if expected_state == "untouched":
             assert stored == [{"name": "from-last-session"}]
         elif expected_state == "resolved":

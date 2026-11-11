@@ -268,7 +268,6 @@ mod tests {
             font_urls: Vec::new(),
             url_limit: None,
             edits: Vec::new(),
-            declined: Vec::new(),
             unplaced: false,
             visited_urls: Vec::new(),
             captured_at_ms: None,

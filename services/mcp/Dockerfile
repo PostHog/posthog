@@ -9,7 +9,7 @@
 # proxy distribution, not the server — different artifact, don't confuse them.
 
 # Pin the same Node version as the rest of the monorepo (.nvmrc).
-ARG NODE_VERSION=24.22.1
+ARG NODE_VERSION=26.13.0
 ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 
 #
@@ -22,7 +22,7 @@ WORKDIR /code
 
 # `corepack enable` reads the `packageManager` field in package.json to pick the
 # pnpm version — no `corepack prepare pnpm@latest` (non-deterministic).
-RUN corepack enable
+RUN npm install -g corepack@0.36.0 && corepack enable
 
 # Copy lockfile + workspace manifests first so the install layer caches across
 # unrelated source changes. `patches/` is required because pnpm-lock.yaml

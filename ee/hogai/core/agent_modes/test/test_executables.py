@@ -373,10 +373,6 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 "ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count",
                 return_value=1000,
             ),
-            patch(
-                "ee.hogai.core.agent_modes.executables.get_llm_gateway_variant",
-                return_value="control",
-            ),
         ):
             node = _create_agent_node(self.team, self.user)
 
@@ -1247,11 +1243,8 @@ class TestAgentNodeModelRouting(BaseTest):
     @override_settings(
         AI_GATEWAY_URL="https://ai-gateway.test/v1",
         AI_GATEWAY_API_KEY="phs_gateway",
-        LLM_GATEWAY_URL="http://llm-gateway.test",
-        LLM_GATEWAY_API_KEY="legacy-key",
     )
-    @patch("ee.hogai.core.agent_modes.executables.get_llm_gateway_variant", return_value="gateway-bedrock")
-    def test_root_model_routes_through_the_ai_gateway_when_configured(self, mock_variant):
+    def test_root_model_routes_through_the_ai_gateway_when_configured(self):
         root_model = self._root_model()
 
         self.assertEqual(root_model.anthropic_api_url, "https://ai-gateway.test")
@@ -1259,20 +1252,15 @@ class TestAgentNodeModelRouting(BaseTest):
         assert isinstance(root_model.ai_gateway_fallback, MaxChatAnthropic)
         self.assertEqual(root_model.ai_gateway_fallback.model, "claude-sonnet-4-6")
         self.assertTrue(root_model.billable)
-        mock_variant.assert_not_called()
 
     @override_settings(
         AI_GATEWAY_URL="",
         AI_GATEWAY_API_KEY="",
-        LLM_GATEWAY_URL="http://llm-gateway.test",
-        LLM_GATEWAY_API_KEY="legacy-key",
     )
-    @patch("ee.hogai.core.agent_modes.executables.get_llm_gateway_variant", return_value="gateway-bedrock")
-    def test_root_model_keeps_the_legacy_gateway_arm_without_ai_gateway_config(self, _mock_variant):
+    def test_root_model_goes_direct_to_anthropic_without_ai_gateway_config(self):
         root_model = self._root_model()
 
         self.assertIsNone(root_model.ai_gateway_fallback)
-        self.assertEqual(root_model.anthropic_api_url, "http://llm-gateway.test/django")
-        assert root_model.default_headers is not None
-        self.assertEqual(root_model.default_headers["X-PostHog-Provider"], "bedrock")
-        self.assertTrue(root_model.bypass_proxy)
+        self.assertEqual(root_model.anthropic_api_url, "https://api.anthropic.com")
+        self.assertIsNone(root_model.default_headers)
+        self.assertFalse(root_model.bypass_proxy)

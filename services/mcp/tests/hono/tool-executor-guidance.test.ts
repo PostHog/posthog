@@ -18,7 +18,7 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { GuidanceEngine } from '@/hono/guidance/engine'
-import { MCP_GUIDANCE_REPLAY_VISION_FLAG, MCP_GUIDANCE_SQL_SCHEMA_FLAG } from '@/hono/guidance/rules'
+import { MCP_GUIDANCE_REPLAY_VISION_FLAG, MCP_GUIDANCE_SQL_SCHEMA_FLAG, type GuidanceRule } from '@/hono/guidance/rules'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
@@ -160,5 +160,44 @@ describe('ToolExecutor guidance notices', () => {
             undefined,
             'sql-failures-to-schema',
         ])
+    })
+
+    it.each(['direct', 'exec'])('passes an empty list result to guidance in %s mode', async (mode) => {
+        const issuesList = makeTool('query-error-tracking-issues-list', () => ({ results: [] }))
+        vi.spyOn(catalog, 'getToolByName').mockImplementation((name) =>
+            name === issuesList.name
+                ? { build: () => issuesList, meta: undefined, rawInputSchema: undefined, definition: undefined }
+                : undefined
+        )
+        const emptyRule: GuidanceRule = {
+            id: 'empty-result-rule',
+            flag: 'mcp-guidance-empty-result',
+            trigger: { tool: issuesList.name, resultEmpty: true, outcome: 'success', presets: ['user'] },
+            threshold: 1,
+            maxPerSession: 1,
+            suppressIfCalled: [],
+            requiresTool: [issuesList.name],
+            text: 'The result is empty.',
+        }
+        const executor = new ToolExecutor(
+            catalog,
+            new InstructionsBuilder(''),
+            undefined,
+            new GuidanceEngine(makeGuidanceRedis(), [emptyRule])
+        )
+        const state = makeToolExecutorState([issuesList], {
+            useSingleExec: mode === 'exec',
+            suppressAnalytics: false,
+            toolFeatureFlags: { [emptyRule.flag]: true },
+        })
+
+        const result = (await executor.handleToolCall(
+            mode === 'exec'
+                ? { name: 'exec', arguments: { command: `call ${issuesList.name} {}` } }
+                : { name: issuesList.name, arguments: {} },
+            state
+        )) as SqlResult
+
+        expect(result.content[0]?.text).toContain('The result is empty.')
     })
 })

@@ -22,6 +22,7 @@ export const BEHIND_MULTIPLIER = 2
 
 export interface BehindScheduleModel {
     node: DataModelingNode
+    syncInterval: DataModelingSyncInterval
     intervalSeconds: number
     /** Seconds since the last successful run, or since creation when it has never finished one. */
     ageSeconds: number
@@ -37,10 +38,12 @@ export function modelsBehindSchedule(nodes: DataModelingNode[], now: number): Be
     const behind: BehindScheduleModel[] = []
 
     for (const node of nodes) {
-        if (!node.sync_interval || !MATERIALIZING_TYPES.has(node.type)) {
+        // A downstream view can make a model run more often than its own setting.
+        const runsAt = node.sync_interval ? (node.effective_sync_interval ?? node.sync_interval) : undefined
+        if (!runsAt || !MATERIALIZING_TYPES.has(node.type)) {
             continue
         }
-        const intervalSeconds = SYNC_INTERVAL_SECONDS[node.sync_interval]
+        const intervalSeconds = SYNC_INTERVAL_SECONDS[runsAt]
         if (!intervalSeconds) {
             continue
         }
@@ -51,7 +54,13 @@ export function modelsBehindSchedule(nodes: DataModelingNode[], now: number): Be
         if (ageSeconds <= intervalSeconds * BEHIND_MULTIPLIER) {
             continue
         }
-        behind.push({ node, intervalSeconds, ageSeconds, overdueSeconds: ageSeconds - intervalSeconds })
+        behind.push({
+            node,
+            syncInterval: runsAt,
+            intervalSeconds,
+            ageSeconds,
+            overdueSeconds: ageSeconds - intervalSeconds,
+        })
     }
 
     return behind.sort((a, b) => b.overdueSeconds - a.overdueSeconds)

@@ -1,13 +1,10 @@
 //! Everything the recorder learns about one session, block by block.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
-use super::dom::{
-    DeclinedUrl, DomInspector, FlushBudgets, RemoteKind, UrlLimit, MAX_BLOCK_DECLINED_URL_BYTES,
-};
+use super::dom::{DomInspector, FlushBudgets, UrlLimit};
 use super::edits::EventEdits;
 use super::events::{href_from, number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
@@ -16,7 +13,6 @@ use super::rrweb::{
 };
 use super::stats::{BlockStats, MAX_WINDOW_IDS};
 use crate::scan::message::{Event, Message};
-use crate::url_policy::Decline;
 
 /// Moments kept per block, so a long block cannot grow its index row without bound.
 pub const MAX_MOMENTS_PER_BLOCK: usize = 256;
@@ -60,8 +56,6 @@ pub struct BlockInspection {
     url_limit: Option<UrlLimit>,
     edits: Vec<EventEdits>,
     unplaced: bool,
-    declined: HashMap<String, (RemoteKind, Decline)>,
-    declined_bytes: usize,
     events: u32,
     resolve_budget: Option<Arc<AtomicUsize>>,
     edit_budget: Option<Arc<AtomicUsize>>,
@@ -77,14 +71,12 @@ pub struct Inspected {
     /// Remote image URLs the block's DOM referenced, for the image fetcher.
     pub image_urls: Vec<String>,
     pub font_urls: Vec<String>,
-    /// Set when the inspector could not read the block in full, so that the block must not be stored.
+    /// Set when the inspector could not read the block in full, so that a URL in the unread part stays as it arrived.
     pub url_limit: Option<UrlLimit>,
     /// Where the writer changes the block's events, in event order.
     pub edits: Vec<EventEdits>,
-    /// The inspector read a slot that the writer could not find again, so the block must not be stored.
+    /// The inspector read a slot that the writer could not find again, so that slot stays as it arrived.
     pub unplaced: bool,
-    /// Spellings of named URLs that the policy refuses, by the largest kind each was named as.
-    pub declined: Vec<DeclinedUrl>,
 }
 
 impl BlockInspection {
@@ -123,11 +115,6 @@ impl BlockInspection {
             url_limit: self.url_limit,
             edits: self.edits,
             unplaced: self.unplaced,
-            declined: self
-                .declined
-                .into_iter()
-                .map(|(url, (kind, decline))| DeclinedUrl { url, kind, decline })
-                .collect(),
         }
     }
 }
@@ -223,27 +210,20 @@ impl SessionInspector {
         );
         block.image_urls.extend(self.dom.take_image_urls());
         block.font_urls.extend(self.dom.take_font_urls());
-        block.url_limit = block.url_limit.or(self.dom.take_url_limit());
+        // The edit budget outranks a limit from earlier in the block, because only this limit leaves the block no edits.
+        let limit = self.dom.take_url_limit();
+        block.url_limit = if limit == Some(UrlLimit::Edits) {
+            limit
+        } else {
+            block.url_limit.or(limit)
+        };
         let (edits, unplaced, edit_bytes) = self.dom.take_edits();
         block.edit_bytes_taken += edit_bytes;
         block.unplaced |= unplaced;
-        for declined in self.dom.take_declined() {
-            if let Some((kind, _)) = block.declined.get_mut(&declined.url) {
-                *kind = (*kind).max(declined.kind);
-            } else if block.declined_bytes + declined.url.len() > MAX_BLOCK_DECLINED_URL_BYTES {
-                block.url_limit = block.url_limit.or(Some(UrlLimit::DeclinedUrls));
-            } else {
-                block.declined_bytes += declined.url.len();
-                block
-                    .declined
-                    .insert(declined.url, (declined.kind, declined.decline));
-            }
-        }
-        if block.url_limit.is_none() && !edits.is_empty() {
-            block.edits.push(EventEdits::new(index, edits));
-        }
-        if block.url_limit.is_some() {
+        if block.url_limit == Some(UrlLimit::Edits) {
             block.release_edits();
+        } else if !edits.is_empty() {
+            block.edits.push(EventEdits::new(index, edits));
         }
         if observed.full_snapshot {
             self.cold = false;
@@ -436,35 +416,66 @@ mod tests {
     }
 
     #[test]
-    fn drops_a_block_whose_edits_the_flush_cannot_hold() {
-        let sheet: String = (0..100)
-            .map(|i| format!(".a{i}{{background:url(https://cdn.example.com/{i}.png)}}"))
-            .collect();
-        let styled = message(
-            json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [
-                {"type": 2, "tagName": "style", "attributes": {"_cssText": sheet}, "childNodes": [], "id": 2},
-            ]}}}]),
-        );
-        let inspect_within = |edit_budget: &Arc<AtomicUsize>| {
+    fn clears_the_edits_of_a_block_the_flush_cannot_hold() {
+        let styled = |sheet: String| {
+            message(
+                json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [
+                    {"type": 2, "tagName": "style", "attributes": {"_cssText": sheet}, "childNodes": [], "id": 2},
+                ]}}}]),
+            )
+        };
+        let inspect_within = |message: &Message, edit_budget: &Arc<AtomicUsize>| {
             let mut block = BlockInspection::with_flush_budgets(
                 Arc::new(AtomicUsize::new(usize::MAX)),
                 edit_budget.clone(),
             );
-            SessionInspector::default().observe_message(&mut block, &styled);
+            SessionInspector::default().observe_message(&mut block, message);
             block.finish()
         };
+        let remote = styled(
+            (0..100)
+                .map(|i| format!(".a{i}{{background:url(https://cdn.example.com/{i}.png)}}"))
+                .collect(),
+        );
         let unbounded = Arc::new(AtomicUsize::new(usize::MAX));
-        inspect_within(&unbounded);
+        inspect_within(&remote, &unbounded);
         let held = usize::MAX - unbounded.load(Ordering::Relaxed);
         let edit_budget = Arc::new(AtomicUsize::new(held + held / 2));
-        let blocks = [inspect_within(&edit_budget), inspect_within(&edit_budget)];
+        let blocks = [
+            inspect_within(&remote, &edit_budget),
+            inspect_within(&remote, &edit_budget),
+        ];
         assert_eq!((blocks[0].url_limit, blocks[0].edits.len()), (None, 1));
         assert_eq!(
             (blocks[1].url_limit, blocks[1].edits.len()),
             (Some(UrlLimit::Edits), 0)
         );
-        // The dropped block stopped part way through its style sheet and gave back what it took.
+        // The second block stopped part way through its style sheet and gave back what it took.
         assert_eq!(edit_budget.load(Ordering::Relaxed), held / 2);
+        // The edit budget replaces a limit that an earlier message of the block set.
+        let deep = styled(format!(
+            "{}.a{{color:red}}{}",
+            "@media all{".repeat(80),
+            "}".repeat(80)
+        ));
+        let mut block = BlockInspection::with_flush_budgets(
+            Arc::new(AtomicUsize::new(usize::MAX)),
+            Arc::new(AtomicUsize::new(0)),
+        );
+        let mut session = SessionInspector::default();
+        session.observe_message(&mut block, &deep);
+        assert_eq!(block.url_limit, Some(UrlLimit::NestedBlocks));
+        session.observe_message(&mut block, &remote);
+        assert_eq!(block.finish().url_limit, Some(UrlLimit::Edits));
+        // The writer leaves relative URLs as they are, so a sheet of them takes nothing.
+        let relative = styled(
+            (0..100)
+                .map(|i| format!(".r{i}{{background:url(img/{i}.png)}}"))
+                .collect(),
+        );
+        let untouched = Arc::new(AtomicUsize::new(usize::MAX));
+        inspect_within(&relative, &untouched);
+        assert_eq!(untouched.load(Ordering::Relaxed), usize::MAX);
     }
 
     #[test]
