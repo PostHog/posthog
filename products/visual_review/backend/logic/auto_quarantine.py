@@ -316,21 +316,27 @@ def _rows(queryset: QuerySet[RunSnapshot]) -> list[_SnapshotRow]:
     ]
 
 
-def _finishing_failures(run: Run) -> list[str]:
-    """The stories the finishing run fails and nobody quarantined, in one query."""
-    return sorted(
-        set(
-            RunSnapshot.objects.using(WRITER_DB)
-            .filter(run_id=run.id, team_id=run.team_id, result=SnapshotResult.CHANGED)
-            .exclude(review_state__in=(ReviewState.APPROVED, ReviewState.TOLERATED))
-            .exclude(
-                identifier__in=quarantine.active_quarantined_identifiers(
-                    run.repo_id, run.team_id, run.run_type, using=WRITER_DB
-                )
+def _finishing_failures(run: Run, now: datetime) -> list[str]:
+    """The stories the finishing run fails and no quarantine covers for the run's commit.
+
+    A run without failing rows leaves after one query. Only a run with failing rows asks GitHub
+    about lifted quarantines, because a lift scoped to a commit the run does not contain still
+    covers the story there.
+    """
+    failing = set(
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run_id=run.id, team_id=run.team_id, result=SnapshotResult.CHANGED)
+        .exclude(review_state__in=(ReviewState.APPROVED, ReviewState.TOLERATED))
+        .exclude(
+            identifier__in=quarantine.active_quarantined_identifiers(
+                run.repo_id, run.team_id, run.run_type, using=WRITER_DB
             )
-            .values_list("identifier", flat=True)
         )
+        .values_list("identifier", flat=True)
     )
+    if not failing:
+        return []
+    return sorted(failing - quarantine.identifiers_lifted_after_commit(run, now=now))
 
 
 def _possible_ancestors(run: Run, current: TrustedRun, default_branch: str, now: datetime) -> list[TrustedRun]:
@@ -481,9 +487,11 @@ class _ApplyOutcome(StrEnum):
 
 def _apply(repo: Repo, run: Run, identifier: str, proof: ProofCandidate, now: datetime) -> _ApplyOutcome:
     # The repo row lock makes the count and the create one step across runs, so two runs that finish
-    # together can neither pass the daily limit nor quarantine one story twice.
+    # together can neither pass the daily limit nor quarantine one story twice. The lock is no-key
+    # because a plain FOR UPDATE conflicts with the KEY SHARE lock that a child row insert takes on
+    # the repo, so a concurrent run creation that holds its run row could deadlock with it.
     with transaction.atomic(using=WRITER_DB):
-        Repo.objects.using(WRITER_DB).select_for_update().filter(id=repo.id, team_id=repo.team_id).exists()
+        Repo.objects.using(WRITER_DB).select_for_update(no_key=True).filter(id=repo.id, team_id=repo.team_id).exists()
         if _recent_automatic_quarantines(repo, now) >= AUTO_QUARANTINE_DAILY_LIMIT:
             return _ApplyOutcome.CAPPED
         if (
@@ -610,7 +618,8 @@ def quarantine_proven_flakes(run: Run, budget_seconds: float = AUTO_QUARANTINE_B
     """
     if not _may_be_trusted(run):
         return
-    failing = _finishing_failures(run)
+    now = timezone.now()
+    failing = _finishing_failures(run, now)
     if not failing:
         return
     repo = run.repo
@@ -626,7 +635,6 @@ def quarantine_proven_flakes(run: Run, budget_seconds: float = AUTO_QUARANTINE_B
         return
 
     deadline = time.monotonic() + budget_seconds
-    now = timezone.now()
     identifiers = failing[:AUTO_QUARANTINE_MAX_STORIES_PER_RUN]
     ancestors = _possible_ancestors(run, current, default_branch, now)
     defaults = _default_baselines(run, _default_baseline_run_id(run, current, ancestors, default_branch), identifiers)

@@ -376,10 +376,20 @@ class TestQuarantineProvenFlakes:
         assert not _auto_rows(repo).exists()
         assert capture.call_args.kwargs["properties"]["capped"] is True
 
-    def test_an_identifier_already_quarantined_is_left_alone(self, repo, github, capture):
+    @pytest.mark.parametrize("lifted", [False, True])
+    def test_an_identifier_already_quarantined_is_left_alone(self, repo, github, capture, lifted):
+        # A lift at a commit the finishing run does not contain still quarantines the story for that run.
+        lift_sha = "l" * 40
         QuarantinedIdentifier.objects.create(
-            team_id=repo.team_id, repo=repo, identifier=_IDENTIFIER, run_type=RunType.STORYBOOK, reason="by hand"
+            team_id=repo.team_id,
+            repo=repo,
+            identifier=_IDENTIFIER,
+            run_type=RunType.STORYBOOK,
+            reason="by hand",
+            lifted_at_sha=lift_sha if lifted else None,
+            expires_at=timezone.now() - timedelta(hours=1) if lifted else None,
         )
+        github.commit_contains.side_effect = lambda _repo, ancestor, _head: ancestor != lift_sha
         finishing = _chain(repo)
 
         auto_quarantine.quarantine_proven_flakes(finishing)
