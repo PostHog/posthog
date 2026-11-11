@@ -50,18 +50,22 @@ function transferTimeout(bytes: number): number {
 const RATE_LIMIT_PER_MINUTE = 480
 
 const ErrorBody = z.object({ code: z.string() })
+const ErrorDetail = z.object({ detail: z.string() })
 
 export function errorCode(body: string): string | undefined {
     return parseJsonOrUndefined(body, ErrorBody)?.code
 }
 
+// The message keeps only the path and PostHog's own `detail`. The raw body can be a proxy's error
+// page or any other text that the person never asked to see in a CI log.
 class ApiFailure extends Error {
     constructor(
         readonly status: number,
         readonly body: string,
         readonly url: string
     ) {
-        super(`PostHog answered ${status} for ${url}: ${body}`)
+        const detail = parseJsonOrUndefined(body, ErrorDetail)?.detail
+        super(`PostHog answered ${status} for ${new URL(url).pathname}${detail ? `: ${detail}` : '.'}`)
     }
 
     // posthog-cli matches error codes in the parsed body, or anywhere in the raw text as a fallback.
