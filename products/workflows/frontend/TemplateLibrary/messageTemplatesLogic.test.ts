@@ -153,12 +153,23 @@ describe('messageTemplatesLogic', () => {
         projectTreeDataLogic.unmount()
     })
 
-    it('keeps a template when the lookup of its folder fails, so an undo cannot lose its placement', async () => {
+    it('keeps a template when the lookup of its folder fails, and deletes it on retry once the lookup works', async () => {
         await expectLogic(logic).toFinishAllListeners()
+        let lookupFails = true
         let deleted = false
         useMocks({
             get: {
-                '/api/environments/:team_id/file_system/': () => [500, { detail: 'Server error' }],
+                '/api/environments/:team_id/file_system/': () =>
+                    lookupFails
+                        ? [500, { detail: 'Server error' }]
+                        : [
+                              200,
+                              {
+                                  results: [
+                                      { id: 'row-a', path: 'Campaigns/Welcome', type: 'message_template', ref: 'a' },
+                                  ],
+                              },
+                          ],
             },
             patch: {
                 '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
@@ -175,7 +186,16 @@ describe('messageTemplatesLogic', () => {
 
         expect(deleted).toBe(false)
         expect(logic.values.templates.map((t) => t.id)).toEqual(['a', 'b', 'c'])
-        expect(error).toHaveBeenCalled()
+        const retry = error.mock.calls[0][1]?.button
+        expect(retry?.label).toBe('Retry')
+
+        lookupFails = false
+        await expectLogic(logic, () => {
+            void retry?.action()
+        }).toFinishAllListeners()
+
+        expect(deleted).toBe(true)
+        expect(logic.values.templates.map((t) => t.id)).toEqual(['b', 'c'])
         error.mockRestore()
     })
 })

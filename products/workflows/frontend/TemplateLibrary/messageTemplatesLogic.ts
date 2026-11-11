@@ -204,6 +204,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                                 deleteFromTree('message_template', template.id)
                             }
                         },
+                        retry: () => actions.deleteTemplate(template),
                     })
                     return deleted
                         ? values.templates.filter((t: MessageTemplate) => t.id !== template.id)

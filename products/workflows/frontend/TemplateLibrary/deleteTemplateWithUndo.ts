@@ -9,21 +9,26 @@ import type { MessageTemplate } from './types'
 // A soft delete removes the template's file entry, and the template keeps no record of its folder. The
 // undo therefore restores through the project tree with the path read before the delete, so that the
 // template returns to its folder and not to the default folder. When the path cannot be read, the template
-// stays, because a delete then would make the undo lose its folder. Returns whether the delete went ahead.
+// stays, because a delete then would make the undo lose its folder, and the error offers `retry`. Returns
+// whether the delete went ahead.
 export async function deleteTemplateWithUndo({
     teamId,
     template,
     callback,
+    retry,
 }: {
     teamId: number | string
     template: Pick<MessageTemplate, 'id' | 'name'>
     callback: (undo: boolean) => void
+    retry: () => void
 }): Promise<boolean> {
     let path: string | undefined
     try {
         path = await filePathOf(template.id)
     } catch {
-        lemonToast.error("Couldn't delete the template. Try again, and if it keeps happening contact support.")
+        lemonToast.error("Couldn't delete the template. Retry, and if it keeps happening contact support.", {
+            button: { label: 'Retry', action: retry },
+        })
         return false
     }
     await deleteWithUndo({
