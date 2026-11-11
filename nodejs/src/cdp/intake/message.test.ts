@@ -1,4 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
 
 import { CyclotronV2JobInit } from '../services/cyclotron-v2/types'
 import { INTAKE_MESSAGE_MAX_BYTES, decodeIntakeMessage, encodeIntakeMessage, intakeJobInit } from './message'
@@ -86,10 +87,10 @@ describe('intake message', () => {
         expect(parseJSON(state!.toString())).toEqual(parseJSON(originalState!.toString()))
     })
 
-    it('decodes a keyless webhook run without a fingerprint', () => {
+    it('decodes a keyless webhook run, whose run id is the invocation id and carries no fingerprint', () => {
         const encoded = encodeIntakeMessage({
             kind: 'workflow-webhook',
-            job: job({ queueName: 'hogflow', distinctId: null }),
+            job: job({ id: new UUIDT().toString(), queueName: 'hogflow', distinctId: null }),
         })
         if (encoded.status !== 'encoded') {
             throw new Error('expected an encoded message')
@@ -129,6 +130,23 @@ describe('intake message', () => {
                 ...validWireMessage,
                 job: { ...validWireMessage.job, state: { state: { ...jobState.state, sendBy: 'soon' } } },
             }),
+            'schema_invalid',
+        ],
+        // The cyclotron row refuses these, which would fail the whole insert batch instead of this message.
+        [
+            'a function id that is not a UUID',
+            wireValue({ ...validWireMessage, job: { ...validWireMessage.job, functionId: 'flow-1' } }),
+            'schema_invalid',
+        ],
+        [
+            'a priority past the SMALLINT column',
+            wireValue({ ...validWireMessage, job: { ...validWireMessage.job, priority: 32768 } }),
+            'schema_invalid',
+        ],
+        ['a team id past the INT column', wireValue({ ...validWireMessage, teamId: 2 ** 31 }), 'schema_invalid'],
+        [
+            'a text column holding a NUL character',
+            wireValue({ ...validWireMessage, job: { ...validWireMessage.job, distinctId: 'person\u0000-1' } }),
             'schema_invalid',
         ],
     ])('dead-letters %s', (_case, value, reason) => {
