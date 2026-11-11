@@ -1110,6 +1110,8 @@ class PlatformAlertConfigurationEdit:
     cooldown_minutes: int
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
+    # Only a native create reads it, because an edit never moves the schedule. None takes the kind's default.
+    check_interval_minutes: int | None = None
 
 
 class InvalidPlatformAlertEdit(ValueError):
@@ -1222,6 +1224,9 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
+    # Each cadence a create may choose, with the calendar unit it repeats on, since a month is not a fixed
+    # number of minutes. None for a kind with one fixed cadence.
+    check_intervals: Mapping[int, str | None] | None = None
     # The most alerts of the kind a team can have, or None for no cap.
     max_per_team: int | None = None
     # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
@@ -1666,6 +1671,26 @@ class SourceRecipients(Protocol):
     """
 
     def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
+
+
+class SourceAlertCreator(Protocol):
+    """The id of the user who created an alert, read from the source's own row.
+
+    `alert_id` is the alert's public id, the source row's id. Returns None for an alert with no
+    such row or no recorded creator.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID) -> int | None: ...
+
+
+class SourceAlertViewer(Protocol):
+    """Whether a user may still see an alert, by the access rules the source applies to its alerts.
+
+    `alert_id` is the alert's public id, the source row's id. Returns False for an alert with no
+    such row. The caller has already checked that the user can access the project.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID, user_id: int) -> bool: ...
 
 
 @frozen
