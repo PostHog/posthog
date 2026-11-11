@@ -230,6 +230,23 @@ def _schedule_net_after_partial_pins(repo_config: StamphogRepoConfig, pr_number:
         review_path.schedule_safety_net(repo_config, pr_number)
 
 
+def _full_step_on_live_head(
+    pr: dict[str, Any], state: _State, *, trigger: str, review_path: ReviewPath
+) -> _Step | None:
+    """Route the live head in full, for a waiting head that the author pushed past or that gets no silent review.
+
+    A push to a pull request is not a ready event, so nothing starts a silent review of the newer head, and it
+    would otherwise wait for the safety net. A review of the live head, or a visible one that comes for it such
+    as for the trigger label, routes it by its verdict instead.
+    """
+    live_head_sha = _head_sha(pr)
+    if review_path.has_review(state.repo_config, state.pr_number, live_head_sha):
+        return None
+    if review_path.will_review(state.repo_config, pr, count_silent=False):
+        return None
+    return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.FALLBACK, trigger=trigger)
+
+
 def _external_review_step(
     client: StamphogGitHubClient, state: _State, *, head_sha: str, review_path: ReviewPath
 ) -> _Step | None:
@@ -243,16 +260,7 @@ def _external_review_step(
     pr = _live_head(client, state.repo_config, state.pr_number)
     if pr is None:
         return None
-    # The live head, which can differ from the reported one. A push is not a ready event, so nothing starts a
-    # silent review of a newer head, and that head would otherwise wait for the safety net.
-    live_head_sha = _head_sha(pr)
-    if review_path.has_review(state.repo_config, state.pr_number, live_head_sha):
-        # Stamphog reviews this head after all, and its verdict routes it.
-        return None
-    if review_path.will_review(state.repo_config, pr, count_silent=False):
-        # A visible review of this head comes anyway, such as for the trigger label, and its verdict routes it.
-        return None
-    return _Step(pr=pr, head_sha=live_head_sha, mode=RoutingMode.FALLBACK, trigger=TRIGGER_EXTERNAL_REVIEW)
+    return _full_step_on_live_head(pr, state, trigger=TRIGGER_EXTERNAL_REVIEW, review_path=review_path)
 
 
 def route_after_external_review(
@@ -318,7 +326,13 @@ def _upgrades_pinned(at_head: dict[str, Any], outcome: str) -> bool:
 
 
 def _verdict_step(
-    client: StamphogGitHubClient, state: _State, *, head_sha: str, outcome: str, silent: bool
+    client: StamphogGitHubClient,
+    state: _State,
+    *,
+    head_sha: str,
+    outcome: str,
+    silent: bool,
+    review_path: ReviewPath,
 ) -> _Step | None:
     if state.stored is None:
         # No routing event ran for this PR, so it opened before routing was on and got its reviewers elsewhere.
@@ -338,8 +352,14 @@ def _verdict_step(
         # The safety net already covers this head.
         return None
     pr = _live_head(client, state.repo_config, state.pr_number)
-    if pr is None or _head_sha(pr) != head_sha:
+    if pr is None:
         return None
+    if _head_sha(pr) != head_sha:
+        # In label mode a push to an unlabeled pull request supersedes no run, so a run of the old head can
+        # still end here. Its verdict, an approval too, says nothing about the live head.
+        if at_head is None or at_head.get("status") != STATUS_WAITING:
+            return None
+        return _full_step_on_live_head(pr, state, trigger=verdict_trigger(outcome), review_path=review_path)
     return _Step(
         pr=pr,
         head_sha=head_sha,
@@ -375,7 +395,7 @@ def route_after_verdict(
         if is_foreign_claim(state.stored, task_id):
             # The claim can end in a pinned-only routing that this verdict still upgrades, so decide after it ends.
             raise RoutingBusy(f"another task holds the routing claim of PR {pr_number}")
-        step = _verdict_step(client, state, head_sha=head_sha, outcome=outcome, silent=silent)
+        step = _verdict_step(client, state, head_sha=head_sha, outcome=outcome, silent=silent, review_path=review_path)
         _execute(client, state, step, review_path, retry_when_busy=True)
     _schedule_net_after_partial_pins(repo_config, pr_number, review_path)
 

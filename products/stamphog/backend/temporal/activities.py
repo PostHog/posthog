@@ -2178,9 +2178,24 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # ask the author to push again for a review that is already queued.
     if (run.output or {}).get(_HEAD_MOVED_OUTPUT_KEY):
         now = timezone.now()
-        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-            status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now
+        superseded = (
+            ReviewRun.objects.for_team(input.team_id)
+            .filter(id=run.id)
+            .exclude(status__in=TERMINAL_STATUSES)
+            .update(status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now)
         )
+        if superseded:
+            # In label mode a push to an unlabeled PR queues no review of the new head, so a FALLBACK head
+            # that waits for this run would wait for the safety net. Routing decides on the live head.
+            pull_request = run.pull_request
+            queue_routing_after_verdict(
+                pull_request.repo_config,
+                pr_number=pull_request.pr_number,
+                head_sha=run.head_sha,
+                status=ReviewRunStatus.FAILED,
+                verdict=ReviewVerdict.NONE,
+                silent=run.is_silent,
+            )
         _remove_own_eyes_reaction(client, run)
         _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
         return

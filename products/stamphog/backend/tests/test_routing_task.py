@@ -603,6 +603,52 @@ def test_the_clean_review_switch_waits_for_reviewhog(
 
 
 @pytest.mark.parametrize(
+    "name,status,verdict,live_labels,expect_routed",
+    [
+        # A run that fails on a moved head, such as a silent run that a push to an unlabeled PR did not supersede.
+        ("failure_on_a_moved_head", ReviewRunStatus.FAILED, ReviewVerdict.NONE, [], True),
+        # An approval of the old head says nothing about the live head, so it routes in full, not pinned only.
+        ("approval_of_a_stale_head", ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, [], True),
+        # The trigger label starts a visible review of the live head, and its verdict routes it.
+        ("labeled_live_pull_request", ReviewRunStatus.FAILED, ReviewVerdict.NONE, [{"name": "stamphog"}], False),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_verdict_for_a_head_the_author_pushed_past_routes_the_live_head(
+    name: str,
+    status: ReviewRunStatus,
+    verdict: ReviewVerdict,
+    live_labels: list[dict[str, str]],
+    expect_routed: bool,
+    team,
+    user,
+    routing_chain,
+    safety_net,
+) -> None:
+    # Label mode without the label and the switch on, so the head waits for a silent review.
+    repo_config = _setup(routing_chain, team, user, routing_mode="fallback", review_mode=ReviewMode.LABEL)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(
+            review_on_clean_external_review=True
+        )
+        repo_config.refresh_from_db()
+    _route()
+    assert _stored(team.id)["status"] == "waiting"
+    _push(routing_chain, _HEAD_2)
+    routing_chain.recorder.prs[(REPO, PR_NUMBER)]["labels"] = live_labels
+
+    _finish_review(repo_config, status, verdict, silent=True)
+
+    record = _stored(team.id)
+    if expect_routed:
+        assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
+        assert (record["head_sha"], record["scope"], record["status"]) == (_HEAD_2, "full", "done")
+    else:
+        assert routing_chain.recorder.github_writes == []
+        assert (record["head_sha"], record["status"]) == (HEAD_SHA, "waiting")
+
+
+@pytest.mark.parametrize(
     "name,verdict,changed_files,expected_trigger,expected_requests,expected_nets",
     [
         ("approval", ReviewVerdict.APPROVED, None, "verdict:approved", (set(), {"team-alpha"}), 0),
