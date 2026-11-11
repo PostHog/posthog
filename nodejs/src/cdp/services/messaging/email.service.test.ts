@@ -1756,6 +1756,27 @@ describe('EmailService', () => {
             const sent = { finished: true, error: undefined, retryLater: false }
             const retriedLoad = { finished: false, error: undefined, retryLater: true }
 
+            it.each([
+                ['fails', () => Promise.reject(new Error('Connection terminated unexpectedly'))],
+                ['does not answer before the send deadline', () => new Promise<boolean>(() => undefined)],
+            ])(
+                'when the check that this worker still holds the job %s, it sends nothing and keeps the send for a retry',
+                async (_name, stillOwnsJob) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
+                    emailService.checkJobOwnershipBeforeSend(stillOwnsJob)
+                    send([pdf])
+
+                    const result = await emailService.executeSendEmail(invocation)
+
+                    expect({ finished: result.finished, error: result.error }).toEqual({
+                        finished: false,
+                        error: undefined,
+                    })
+                    expect(result.invocation.queueParameters).toMatchObject({ attachments: [pdf.metadata] })
+                    expect(deliveredTo(ses, recipient)).toEqual([])
+                }
+            )
+
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
                 bucket.answer = 'stallFileBodies'

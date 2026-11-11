@@ -60,6 +60,10 @@ const staleCommitsCounter = new Counter({
     labelNames: ['queue', 'operation'] as const,
 })
 
+export function countStaleCommit(queue: string, operation: string): void {
+    staleCommitsCounter.labels({ queue, operation }).inc()
+}
+
 export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -422,7 +426,7 @@ export class CyclotronV2Worker {
         let ownershipLost = false
         const noteOwnershipLost = (operation: string): void => {
             ownershipLost = true
-            staleCommitsCounter.labels({ queue: row.queue_name, operation }).inc()
+            countStaleCommit(row.queue_name, operation)
             logger.warn('CyclotronV2Worker lost ownership of a job', { id: row.id, operation })
         }
         const ownsJobNow = async (): Promise<boolean> => {
@@ -599,7 +603,7 @@ export class CyclotronV2Worker {
                      )`,
                     [row.id, lockId]
                 )
-                if (result.rowCount === 0 && !(await ownsJobNow())) {
+                if (result.rowCount === 0 && !(await ownsJobNow()) && releaseStartedAt === null) {
                     noteOwnershipLost('heartbeat')
                 }
             },

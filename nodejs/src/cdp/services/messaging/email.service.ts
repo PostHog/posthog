@@ -47,7 +47,7 @@ import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
-import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
+import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import {
     PreferencesTokenSource,
@@ -122,9 +122,10 @@ const sesSendResultsTotal = new Counter({
     labelNames: ['result'],
 })
 
-const emailSendsStoppedForLostJobTotal = new Counter({
-    name: 'cdp_email_sends_stopped_lost_job_total',
-    help: 'Emails a worker did not send because it lost its job right before the send, usually to a janitor reset after late heartbeats. The worker that now holds the job sends it.',
+const emailSendsStoppedForJobOwnershipTotal = new Counter({
+    name: 'cdp_email_sends_stopped_for_job_ownership_total',
+    help: 'Emails a worker did not send right before the send, by reason: lost_job (a janitor reset gave the job to another worker, which sends it) or check_failed (the ownership read failed or outlived the send deadline, so the send waits for a retry).',
+    labelNames: ['reason'],
 })
 
 const sesSendDurationMs = new Histogram({
@@ -561,15 +562,20 @@ export class EmailService {
         this.stillOwnsJob = stillOwnsJob
     }
 
-    private async sendsAsJobOwner(invocation: CyclotronJobInvocation): Promise<boolean> {
+    private async jobOwnershipBeforeSend(
+        invocation: CyclotronJobInvocation,
+        deadline: AbortSignal | undefined
+    ): Promise<'owner' | 'lost_job' | 'check_failed'> {
         try {
-            return await this.stillOwnsJob(invocation)
+            const check = this.stillOwnsJob(invocation)
+            const owns = await (deadline ? settledBeforeAbort(deadline, check) : check)
+            return owns ? 'owner' : 'lost_job'
         } catch (error) {
-            logger.warn('Could not check job ownership before an email send, so the email is sent', {
+            logger.warn('Could not check job ownership before an email send, so the send waits for a retry', {
                 invocationId: invocation.id,
                 error: String(error),
             })
-            return true
+            return 'check_failed'
         }
     }
 
@@ -907,11 +913,13 @@ export class EmailService {
                 ? AbortSignal.timeout(this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS)
                 : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
-            if (!isTest && !(await this.sendsAsJobOwner(invocation))) {
-                emailSendsStoppedForLostJobTotal.inc()
-                logger.warn('Stopped an email send because this worker lost its job', {
+            const ownership = isTest ? 'owner' : await this.jobOwnershipBeforeSend(invocation, deadline)
+            if (ownership !== 'owner') {
+                emailSendsStoppedForJobOwnershipTotal.inc({ reason: ownership })
+                logger.warn('Stopped an email send right before it because this worker may not hold its job', {
                     invocationId: invocation.id,
                     teamId: invocation.teamId,
+                    reason: ownership,
                 })
                 result.finished = false
                 result.invocation.queueParameters = params

@@ -1994,6 +1994,46 @@ describe('Cyclotron V2', () => {
             await expect(job.stillOwned()).resolves.toBe(true)
         }, 10_000)
 
+        it('heartbeat() that overlaps the worker releasing its own job counts no stale commit', async () => {
+            const { id, job } = await seedAndDequeue()
+            const staleHeartbeatsBefore = await staleCommitCount('heartbeat')
+            let ownershipReadStarted!: () => void
+            const ownershipRead = new Promise<void>((resolve) => (ownershipReadStarted = resolve))
+            let answerOwnershipRead!: () => void
+            const ownershipReadAnswered = new Promise<void>((resolve) => (answerOwnershipRead = resolve))
+            const realQuery = Pool.prototype.query
+            const queries = jest.spyOn(Pool.prototype, 'query').mockImplementation(function (
+                this: Pool,
+                ...args: unknown[]
+            ) {
+                const run = (): unknown => (realQuery as (...a: unknown[]) => unknown).apply(this, args)
+                if (String(args[0]).startsWith('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')) {
+                    ownershipReadStarted()
+                    return ownershipReadAnswered.then(run)
+                }
+                return run()
+            } as typeof Pool.prototype.query)
+
+            const rowHolder = await assertPool.connect()
+            try {
+                await rowHolder.query('BEGIN')
+                await rowHolder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+                const heartbeat = job.heartbeat()
+                await ownershipRead
+                await rowHolder.query('COMMIT')
+                await job.ack()
+                answerOwnershipRead()
+                await heartbeat
+            } finally {
+                queries.mockRestore()
+                await rowHolder.query('ROLLBACK')
+                rowHolder.release()
+            }
+
+            expect((await queryJob(id)).status).toBe('completed')
+            expect(await staleCommitCount('heartbeat')).toBe(staleHeartbeatsBefore)
+        }, 10_000)
+
         it.each([
             ['ack', (job: CyclotronV2DequeuedJob) => job.ack()],
             ['fail', (job: CyclotronV2DequeuedJob) => job.fail()],
