@@ -477,6 +477,74 @@ describe('EmailService', () => {
                     )
                 }
             )
+            it.each([
+                ['unsupported', 'Email delivery mode not supported'],
+                [
+                    'mailjet',
+                    "The sender's email provider is not recognized. Select a different sender in the workflow's email step.",
+                ],
+            ])('fails the send and reports email_failed when the provider is %s', async (provider, error) => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: getIntegrationId(4),
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider,
+                    },
+                })
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBe(error)
+                expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
+                expect(ses.sent).toEqual([])
+            })
+            it.each([
+                { budget: 'workflow', workflowLimit: true, teamCap: false },
+                { budget: 'team', workflowLimit: false, teamCap: true },
+            ])(
+                'fails an unrecognized provider without spending the $budget sending budget',
+                async ({ workflowLimit, teamCap }) => {
+                    await insertIntegration(hub.postgres, team.id, {
+                        id: getIntegrationId(4),
+                        kind: 'email',
+                        config: {
+                            email: 'test@posthog.com',
+                            name: 'Test User',
+                            domain: 'posthog.com',
+                            verified: true,
+                            provider: 'mailjet',
+                        },
+                    })
+                    const limitedService = createService(
+                        { teamEmailCapMode: teamCap ? 'enforce' : 'off', teamEmailTierDailyCaps: [1] },
+                        {
+                            workflowEmailRateLimiter: createRateLimiter('unknown-provider-workflow-budget-test'),
+                            teamEmailRateLimiter: createRateLimiter('unknown-provider-team-budget-test'),
+                        }
+                    )
+                    if (workflowLimit) {
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    }
+
+                    invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
+                    const failed = await limitedService.executeSendEmail(invocation)
+                    invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+                    const sent = await limitedService.executeSendEmail(invocation)
+
+                    expect(failed.error).toBe(
+                        "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+                    )
+                    expect(sent.finished).toBe(true)
+                    expect(sent.error).toBeUndefined()
+                    expect(sent.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
+                    expect(ses.sent.map((message) => message.from)).toEqual(['"Test User" <test@posthog.com>'])
+                }
+            )
             it('should send identical from and feedback forwarding args', async () => {
                 // This test is important for spam classification - feedback forwarding email MUST match from email
                 invocation.queueParameters = createEmailParams({

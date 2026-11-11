@@ -1,11 +1,12 @@
+import asyncio
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.ai_observability.backend.facade import api as ai_observability_api
 from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH
 
 from ee.hogai.tool import MaxTool
@@ -112,8 +113,7 @@ class CreateParserRecipeTool(MaxTool):
     async def _arun_impl(
         self, name: str, yaml_source: str, event_uuid: str
     ) -> tuple[str, dict[str, str | None] | None]:
-        # Tool args bypass the serializer's length cap, so bound the source before the sync parse
-        # to keep an oversized payload from blocking the event loop.
+        # Tool args bypass the serializer's length cap, so bound the source before compiling it.
         if len(yaml_source) > MAX_SOURCE_LENGTH:
             return (
                 f"The recipe YAML is too large ({len(yaml_source)} characters; the limit is {MAX_SOURCE_LENGTH}). "
@@ -122,13 +122,12 @@ class CreateParserRecipeTool(MaxTool):
             )
 
         try:
-            # PyYAML raises RecursionError (not YAMLError) on deeply nested input.
-            yaml.safe_load(yaml_source)
-        except (yaml.YAMLError, RecursionError) as e:
-            return (f"The recipe is not valid YAML: {e}. Fix the syntax and call this tool again.", None)
+            await asyncio.to_thread(ai_observability_api.validate_parser_recipe_source, yaml_source)
+        except ai_observability_api.RecipeCompileError as e:
+            return (f"The recipe does not compile: {e}. Fix the recipe and call this tool again.", None)
 
-        # The DSL compiler only exists in the frontend: the browser compiles the recipe, runs it
-        # against the sample event, saves it when it works, and resumes us with the verdict
+        # Only the browser holds the sample event: it runs the recipe against it, saves it when it
+        # works, and resumes us with the verdict
         response = self.request_client_execution()
         if "client_execution_error" in response:
             return (
