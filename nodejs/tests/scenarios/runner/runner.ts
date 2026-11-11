@@ -124,8 +124,7 @@ function withEvidenceError(result: RunResult, error: string | undefined): RunRes
 
 export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
     const stateDir = defaultStateDir(env)
-    let stuckProducer: string | undefined
-    let failedReset: { runId: string; message: string } | undefined
+    let restartRequired: Error | undefined
 
     return {
         async up() {
@@ -133,15 +132,8 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
         },
 
         async run(loaded, signal) {
-            if (stuckProducer !== undefined) {
-                throw new Error(
-                    `The load producer of run ${stuckProducer} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
-                )
-            }
-            if (failedReset !== undefined) {
-                throw new Error(
-                    `The reset before run ${failedReset.runId} failed and stopped the environment: ${failedReset.message}. Restart the runner, then run the card again.`
-                )
+            if (restartRequired !== undefined) {
+                throw restartRequired
             }
             const { card, profile } = loaded
             const runId = randomUUID()
@@ -169,7 +161,9 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
                 await environment.reset(profile.settings).catch((error: unknown) => {
-                    failedReset = { runId, message: (error as Error).message }
+                    restartRequired = new Error(
+                        `The reset before run ${runId} failed and stopped the environment: ${(error as Error).message}. Restart the runner, then run the card again.`
+                    )
                     throw error
                 })
                 const seeded = await seed(loaded, postgres)
@@ -195,7 +189,9 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 try {
                     await producer?.disconnect()
                 } catch (error) {
-                    stuckProducer = runId
+                    restartRequired = new Error(
+                        `The load producer of run ${runId} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
+                    )
                     const failed = `the load producer did not disconnect: ${(error as Error).message}`
                     outcome = {
                         ...outcome,
