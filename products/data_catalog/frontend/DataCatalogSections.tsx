@@ -29,10 +29,10 @@ import { CatalogOverview } from './CatalogOverview'
 import { CatalogUsageSection } from './CatalogUsageSection'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
 import { CatalogDataQualitySection } from './dataQuality/CatalogDataQualitySection'
+import { CatalogMetricsSection } from './metrics/CatalogMetricsSection'
+import { CatalogRelationshipsSection } from './relationships/CatalogRelationshipsSection'
 import { relationshipsLogic } from './relationshipsLogic'
 import { CatalogTablesSection } from './tables/CatalogTablesSection'
-import { MetricsTab } from './tabs/MetricsTab'
-import { RelationshipsTab } from './tabs/RelationshipsTab'
 import { WarehouseAccessGate } from './WarehouseAccessGate'
 
 const VISIBLE_SECTIONS: DataCatalogTab[] = ['overview', 'tables', 'lineage', 'metrics']
@@ -54,8 +54,8 @@ const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     overview: CatalogOverview,
     tables: CatalogTablesSection,
     lineage: ModelsLineageTab,
-    metrics: MetricsTab,
-    relationships: RelationshipsTab,
+    metrics: CatalogMetricsSection,
+    relationships: CatalogRelationshipsSection,
     'data-quality': CatalogDataQualitySection,
     usage: CatalogUsageSection,
 }
