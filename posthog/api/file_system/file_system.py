@@ -61,6 +61,7 @@ from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
+    assure_parent_folders,
     create_or_update_file,
     join_path,
     split_path,
@@ -1551,20 +1552,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         For example, if the path is "a/b/c/d", this will ensure that "a", "a/b", and "a/b/c"
         all exist as folder type FileSystem entries.
         """
-        segments = split_path(path)
-        for depth_index in range(1, len(segments)):
-            parent_path = join_path(segments[:depth_index])
-            parent_q = FileSystem.objects.filter(path=parent_path)
-            parent_q = self._scope_by_project(parent_q)
-            if not parent_q.exists():
-                FileSystem.objects.create(
-                    team=team or self.team,
-                    path=parent_path,
-                    depth=depth_index,
-                    type="folder",
-                    created_by=created_by,
-                    surface=self.file_system_surface,
-                )
+        assure_parent_folders(
+            team or self.team, path, created_by.id if created_by else None, surface=self.file_system_surface
+        )
 
     def _restore_file_system_path(self, instance: Any, payload: dict[str, Any]) -> None:
         restore_path = payload.get("path")

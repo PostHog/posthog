@@ -1,10 +1,11 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from django.contrib.postgres.indexes import GinIndex, OpClass
-from django.db import models
-from django.db.models import Func, Q, TextField, Value
+from django.db import models, transaction
+from django.db.models import Func, OuterRef, Q, Subquery, TextField, Value
 from django.db.models.expressions import F
 from django.db.models.functions import Concat, Lower
 from django.utils import timezone
@@ -69,6 +70,7 @@ def create_or_update_file(
     created_at: Optional[datetime] = None,
     created_by_id: Optional[int] = None,
     surface: str = DEFAULT_SURFACE,
+    create_parent_folders: bool = False,
 ):
     has_existing = False
     all_existing = (
@@ -104,6 +106,8 @@ def create_or_update_file(
             shortcut.save()
     else:
         full_path = f"{base_folder}/{escape_path(name)}"
+        if create_parent_folders:
+            assure_parent_folders(team, full_path, created_by_id, surface)
         FileSystem.objects.create(
             team=team,
             path=full_path,
@@ -117,6 +121,80 @@ def create_or_update_file(
             created_by_id=created_by_id,
             created_at=created_at or timezone.now(),
         )
+
+
+@dataclass(frozen=True)
+class FolderMove:
+    before: Optional[str]
+    after: str
+    path: str
+
+
+def move_file_to_folder(
+    *,
+    team: Team,
+    file_type: str,
+    ref: str,
+    folder: str,
+    created_by_id: Optional[int] = None,
+    surface: str = DEFAULT_SURFACE,
+) -> Optional[FolderMove]:
+    """Re-parent an item's entries under `folder`, keeping each entry's own name. None when it has no entry.
+
+    An item can hold more than one non-shortcut entry (the default surface matches both NULL and "web" rows),
+    so every one moves; otherwise the tree would show the item in two folders.
+    """
+    existing_files = list(
+        FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref)
+        .exclude(shortcut=True)
+        .order_by("id")
+    )
+    if not existing_files:
+        return None
+    before = folder_of(existing_files[0].path)
+    folder_segments = split_path(folder)
+    with transaction.atomic():
+        for index, existing in enumerate(existing_files):
+            segments = [*folder_segments, split_path(existing.path)[-1]]
+            if index == 0:
+                assure_parent_folders(team, join_path(segments), created_by_id, surface)
+            existing.path = join_path(segments)
+            existing.depth = len(segments)
+            existing.save()
+    return FolderMove(before=before, after=folder, path=existing_files[0].path)
+
+
+def assure_parent_folders(team: Team, path: str, created_by_id: Optional[int], surface: str = DEFAULT_SURFACE):
+    """Create a folder entry for every ancestor of `path` that the project does not have yet."""
+    segments = split_path(path)
+    for depth in range(1, len(segments)):
+        parent_path = join_path(segments[:depth])
+        if not FileSystem.objects.filter(
+            surface_q(surface), team__project_id=team.project_id, path=parent_path
+        ).exists():
+            FileSystem.objects.create(
+                team=team,
+                path=parent_path,
+                depth=depth,
+                type="folder",
+                created_by_id=created_by_id,
+                surface=surface,
+            )
+
+
+def folder_of(path: Optional[str]) -> Optional[str]:
+    """The folder part of an entry path: everything above the item's own name."""
+    return join_path(split_path(path)[:-1]) if path else None
+
+
+def file_system_path_subquery(file_type: str, ref: Any) -> Subquery:
+    """Path of an item's oldest default-surface entry, for annotating `_folder_path` on a list queryset."""
+    entries = (
+        FileSystem.objects.filter(surface_q(DEFAULT_SURFACE), team_id=OuterRef("team_id"), type=file_type, ref=ref)
+        .exclude(shortcut=True)
+        .order_by("id")
+    )
+    return Subquery(entries.values("path")[:1], output_field=TextField())
 
 
 def delete_file(*, team: Team, file_type: str, ref: str, surface: str = DEFAULT_SURFACE):

@@ -9,6 +9,7 @@ from django.dispatch import receiver
 from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
+    from posthog.models.file_system.file_system import FolderMove
     from posthog.models.team import Team
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -24,6 +25,9 @@ class FileSystemSyncMixin(Model):
 
     class Meta:
         abstract = True
+
+    # Set by `move_file_system_entry`, or annotated on a queryset with `file_system_path_subquery`.
+    _folder_path: Optional[str]
 
     def __init__(self, *args, _create_in_folder: Optional[str] = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -73,10 +77,63 @@ class FileSystemSyncMixin(Model):
                     created_at=fs_data.meta.get("created_at") or getattr(self, "created_at", None),
                     created_by_id=fs_data.meta.get("created_by") or getattr(self, "created_by_id", None),
                     surface=fs_data.surface,
+                    create_parent_folders=bool(self._create_in_folder),
                 )
         except Exception as e:
             # Don't raise exceptions in signals
             capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
+
+    def move_file_system_entry(self, folder: str, created_by_id: Optional[int] = None) -> Optional["FolderMove"]:
+        """File this item under `folder`. None when the item does not belong in the project tree."""
+        from posthog.models.file_system.file_system import FolderMove, create_or_update_file, move_file_to_folder
+
+        fs_data = self.get_file_system_representation()
+        if fs_data.should_delete:
+            return None
+        team = self.team  # type: ignore
+        move = move_file_to_folder(
+            team=team,
+            file_type=fs_data.type,
+            ref=fs_data.ref,
+            folder=folder,
+            created_by_id=created_by_id,
+            surface=fs_data.surface,
+        )
+        if move is None:
+            # Filed items whose entry the unfiled sweep has not written yet.
+            create_or_update_file(
+                team=team,
+                base_folder=folder,
+                name=fs_data.name,
+                file_type=fs_data.type,
+                ref=fs_data.ref,
+                href=fs_data.href,
+                meta=fs_data.meta,
+                created_by_id=created_by_id,
+                surface=fs_data.surface,
+                create_parent_folders=True,
+            )
+            move = FolderMove(before=None, after=folder, path=self.file_system_path() or "")
+        self._folder_path = move.path
+        return move
+
+    def file_system_path(self) -> Optional[str]:
+        """Path of this item's oldest entry, or None when it has none."""
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_data = self.get_file_system_representation()
+        return (
+            FileSystem.objects.filter(
+                surface_q(fs_data.surface),
+                team=self.team,
+                type=fs_data.type,
+                ref=fs_data.ref,  # type: ignore
+            )
+            .exclude(shortcut=True)
+            .order_by("id")
+            .values_list("path", flat=True)
+            .first()
+        )
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet[Any]:
