@@ -1,6 +1,8 @@
 """Transactional email: a template made sendable over the API, backed by a workflow that runs once per send."""
 
 from products.messaging.backend.facade.contracts import (
+    AttachmentNotUploaded,
+    AttachmentsRefused,
     AttachmentUploadRequest,
     AttachmentUploadSlot,
     AttachmentUploadStatus,
@@ -42,6 +44,8 @@ __all__ = [
     "PIPELINE_ADDRESS_PATTERN",
     "SENDER_ADDRESS_MAX_LENGTH",
     "SENDER_ADDRESS_PATTERN",
+    "AttachmentNotUploaded",
+    "AttachmentsRefused",
     "AttachmentUploadRequest",
     "AttachmentUploadSlot",
     "AttachmentUploadStatus",
