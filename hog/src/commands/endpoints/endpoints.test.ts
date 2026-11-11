@@ -376,6 +376,32 @@ describe('hog endpoints', () => {
         expect(result.json()).toMatchObject({ outcomes: [{ name: 'new', status: 'failed', error }] })
     })
 
+    test.each([{}, { CI: 'true' }])('push omits response values when decoding fails with env %j', async (env) => {
+        const result = await runHog(['endpoints', 'push', 'new.yaml', '--yes'], {
+            env: { ...AGENT, ...env },
+            files: { '/work/new.yaml': 'name: new\nquery: SELECT 1\n' },
+            respond: server([], (url, body) =>
+                url === `${BASE}endpoints/` && body
+                    ? {
+                          status: 201,
+                          body: endpoint(
+                              'new',
+                              { kind: 'HogQLQuery', query: 'SELECT 1' },
+                              { is_active: 'SYNTHETIC_RESPONSE_VALUE' }
+                          ),
+                      }
+                    : undefined
+            ),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.json()).toMatchObject({
+            outcomes: [{ status: 'failed', error: expect.stringContaining('is_active') }],
+        })
+        expect(result.stdout).not.toContain('SYNTHETIC_RESPONSE_VALUE')
+        expect(result.stderr).not.toContain('SYNTHETIC_RESPONSE_VALUE')
+    })
+
     test('push creates the variables a file needs, then the endpoint, and skips files PostHog would reject', async () => {
         const result = await runHog(['endpoints', 'push', 'endpoints', '--yes'], {
             env: AGENT,
