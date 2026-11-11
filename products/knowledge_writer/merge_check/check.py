@@ -6,7 +6,7 @@ from anthropic import Anthropic, APIError
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
 from ..backend.facade.enums import CriterionEffect
 from ..backend.settings import DocsSource
-from .facts import extract_facts, verify_quotes
+from .facts import MergeFacts, extract_facts, verify_quotes
 from .gates import decide_with_rules, fact_gates, release_line_text, rule_gates, with_existing_docs_pull_requests
 from .gather import DocsPage, MergeEvidence, gather_merge
 from .judge import Decision, Variant, decide_with_judge
@@ -147,6 +147,7 @@ def merge_reports_by_variant(
         gate_rows=gate_rows,
         low_confidence=low_confidence,
         page_by_key=page_by_key,
+        facts=facts,
     )
     report_by_variant: dict[Variant, MergeCheckReport] = {}
     for variant in variants:
@@ -175,6 +176,7 @@ class GatedMerge:
     gate_rows: tuple[CriterionResult, ...]
     low_confidence: bool
     page_by_key: dict[str, DocsPage]
+    facts: MergeFacts | None
 
 
 def decided_report(gated: GatedMerge, decision: Decision) -> MergeCheckReport:
@@ -197,9 +199,24 @@ def decided_report(gated: GatedMerge, decision: Decision) -> MergeCheckReport:
         criteria=criteria,
         change_kind=decision.change_kind,
         page_urls=tuple(gated.page_by_key[key].url for key in decision.page_keys if key in gated.page_by_key),
-        evidence=f"{gated.pull_request.url}\n{decision.reason}",
+        evidence="\n".join([gated.pull_request.url, *finding_lines(gated, decision)]),
     )
     return with_existing_docs_pull_requests(report, gated.evidence)
+
+
+def finding_lines(gated: GatedMerge, decision: Decision) -> list[str]:
+    changed_pages = gated.facts.changed_pages if gated.facts is not None else []
+    page_lines = [
+        f'- {gated.page_by_key[page.page_path].url} ({page.change_kind}): "{single_line(page.quote)}"'
+        for page in changed_pages
+        if page.page_path in decision.page_keys and page.page_path in gated.page_by_key
+    ]
+    sentence_lines = [f'- outdated: "{single_line(sentence)}"' for sentence in decision.verified_sentences]
+    return [*page_lines, *sentence_lines]
+
+
+def single_line(text: str) -> str:
+    return " ".join(text.split())
 
 
 def commit_url_for(change: LandedChange) -> str:

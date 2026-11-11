@@ -53,6 +53,7 @@ class Decision:
     low_confidence: bool
     reason: str
     rows: tuple[CriterionResult, ...]
+    verified_sentences: tuple[str, ...] = ()
 
 
 def judge_client(commit_sha: str) -> Anthropic:
@@ -112,6 +113,7 @@ def decide_with_judge(
         page_keys=page_keys,
         low_confidence=has_unverified_update,
         reason="judge",
+        verified_sentences=tuple(verified_sentences),
         rows=(
             judge_row,
             CriterionResult(
