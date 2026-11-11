@@ -71,12 +71,13 @@ class Command(BaseCommand):
                 continue
 
             org_membership = (
-                OrganizationMembership.objects.filter(
+                OrganizationMembership.objects.with_effective_level()
+                .filter(
                     organization=organization,
-                    level__gte=OrganizationMembership.Level.ADMIN,
+                    resolved_level__gte=OrganizationMembership.Level.ADMIN,
                 )
                 .select_related("user")
-                .order_by("-level")
+                .order_by("-resolved_level")
                 .first()
             )
             if not org_membership:

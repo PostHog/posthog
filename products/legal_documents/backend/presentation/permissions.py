@@ -47,4 +47,4 @@ class IsOrganizationAdminOrOwner(BasePermission):
             membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
         except OrganizationMembership.DoesNotExist:
             raise exceptions.NotFound("Organization not found.")
-        return membership.level >= OrganizationMembership.Level.ADMIN
+        return membership.effective_level >= OrganizationMembership.Level.ADMIN

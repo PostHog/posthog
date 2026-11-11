@@ -205,7 +205,7 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
             )
         )
     for membership in memberships:
-        if membership.level >= OrganizationMembership.Level.ADMIN:
+        if membership.effective_level >= OrganizationMembership.Level.ADMIN:
             continue
         user = membership.user
         name = f"{user.first_name} {user.last_name}".strip() or user.email

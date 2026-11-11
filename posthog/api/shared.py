@@ -311,9 +311,9 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
     @cached_property
     def _membership_levels_by_org(self) -> dict[UUID, int]:
         return dict(
-            OrganizationMembership.objects.filter(user=self.context["request"].user).values_list(
-                "organization_id", "level"
-            )
+            OrganizationMembership.objects.with_effective_level()
+            .filter(user=self.context["request"].user)
+            .values_list("organization_id", "resolved_level")
         )
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")
