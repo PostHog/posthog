@@ -61,6 +61,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
     get_teams_with_business_knowledge_usage_in_period,
+    get_teams_with_dashboard_count,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
@@ -97,7 +98,7 @@ from posthog.tasks.usage_report import (
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService
 
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.enums import DashboardUsageCount
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -113,36 +114,19 @@ def _group_types_total() -> list[dict[str, int]]:
 
 
 def _dashboard_count() -> list[dict[str, int]]:
-    return cast(
-        list[dict[str, int]], list(Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
-    )
+    return get_teams_with_dashboard_count(DashboardUsageCount.ALL)
 
 
 def _dashboard_template_count() -> list[dict[str, int]]:
-    return list(
-        Dashboard.objects.filter(creation_mode="template")
-        .values("team_id")
-        .annotate(total=Count("id"))
-        .order_by("team_id")
-    )
+    return get_teams_with_dashboard_count(DashboardUsageCount.FROM_TEMPLATE)
 
 
 def _dashboard_shared_count() -> list[dict[str, int]]:
-    return list(
-        Dashboard.objects.filter(sharingconfiguration__enabled=True)
-        .values("team_id")
-        .annotate(total=Count("id"))
-        .order_by("team_id")
-    )
+    return get_teams_with_dashboard_count(DashboardUsageCount.SHARED)
 
 
 def _dashboard_tagged_count() -> list[dict[str, int]]:
-    return list(
-        Dashboard.objects.filter(tagged_items__isnull=False)
-        .values("team_id")
-        .annotate(total=Count("id"))
-        .order_by("team_id")
-    )
+    return get_teams_with_dashboard_count(DashboardUsageCount.TAGGED)
 
 
 def _ff_count() -> list[dict[str, int]]:
