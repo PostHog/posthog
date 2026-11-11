@@ -97,6 +97,9 @@ def resolved_group_key_expr(
     """`$group_N IN (keys)` for this filter, or None when the caller should keep the join."""
     if prop.operator not in _RESOLVABLE_OPERATORS or prop.group_type_index is None:
         return None
+    # An empty value matches every event through the join, groupless ones included, which a key list cannot.
+    if prop.operator != PropertyOperator.IS_SET and prop.value in (None, "", []):
+        return None
 
     return _resolved_key_in(
         team,

@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -24,8 +26,12 @@ _RESOLVER = "posthog.session_recordings.queries.sub_queries.group_key_resolver._
 _CH_USER = ClickHouseUser.DEFAULT
 
 
-def _filter(operator: PropertyOperator = PropertyOperator.EXACT) -> GroupPropertyFilter:
-    return GroupPropertyFilter(key="owner", value=["a@example.com"], operator=operator, group_type_index=0)
+def _filter(
+    operator: PropertyOperator = PropertyOperator.EXACT, value: Any = ("a@example.com",)
+) -> GroupPropertyFilter:
+    return GroupPropertyFilter(
+        key="owner", value=list(value) if isinstance(value, tuple) else value, operator=operator, group_type_index=0
+    )
 
 
 class TestGroupKeyResolver(BaseTest):
@@ -67,13 +73,16 @@ class TestGroupKeyResolver(BaseTest):
             # negated filter resolved this way would silently change which sessions match.
             ("negated", PropertyOperator.IS_NOT),
             ("not_contains", PropertyOperator.NOT_ICONTAINS),
+            # A half-filled filter matches every event through the join, groupless ones included.
+            ("empty_list_value", PropertyOperator.ICONTAINS, []),
+            ("no_value", PropertyOperator.EXACT, None),
         ]
     )
     def test_an_operator_the_key_list_cannot_express_keeps_the_join(
-        self, _name: str, operator: PropertyOperator
+        self, _name: str, operator: PropertyOperator, value: Any = ("a@example.com",)
     ) -> None:
         with patch(_RESOLVER, return_value=["org-1"]):
-            assert resolved_group_key_expr(self.team, _filter(operator), _CH_USER) is None
+            assert resolved_group_key_expr(self.team, _filter(operator, value), _CH_USER) is None
 
     def test_an_over_broad_filter_keeps_the_join(self) -> None:
         keys = [f"org-{i}" for i in range(MAX_RESOLVED_GROUP_KEYS + 1)]
