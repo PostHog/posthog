@@ -83,7 +83,7 @@ Copy the closest reference domain for the file layout:
 
 Invoke `/writing-tests` first. In this package, these tests earn their place:
 
-- **Transport wiring.** Call the real `<domain>_request` against a fake vendor: `responses.RequestsMock` (or `aioresponses`) answering with the documented response, rate-limit headers included. Assert what the fake received, the domain's counter and gauges, and that a secret never reaches a label. To prove the gate, set a per-minute budget of 1 and use a unique scope: the second sheddable call raises `<Domain>EgressBudgetExhausted`, and the fake records one request.
+- **Transport wiring.** Call the real `<domain>_request` against a fake vendor: `responses.RequestsMock` (or `aioresponses`) answering with the documented response, and its rate-limit headers if the domain declares gauges. Assert what the fake received, the domain's counter, any gauges, and that a secret never reaches a label. When the helper takes its scope from the caller, prove the gate: set a per-minute budget of 1 and pass a unique scope, so the second sheddable call raises `<Domain>EgressBudgetExhausted` and the fake records one request. A helper with a constant scope, such as Firecrawl's, shares one budget key across tests, so skip the gate case there.
 - **Settings names.** Assert `resolve_policy(key).limits` under `override_settings`. The `getattr` defaults silently swallow a misspelled setting.
 - **Header parsing.** One parser case per documented header, plus garbage values.
 - **Lanes, only for a domain that overrides the reserve.** Use the real policy through `OutboundRateLimiter(LimitsBackend())` and a unique key.

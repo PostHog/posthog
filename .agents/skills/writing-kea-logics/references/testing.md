@@ -39,7 +39,8 @@ describe('fooLogic', () => {
   `organizationLogic`). Pass `mountCommonLogic = false` only if your test needs to
   control those manually.
 - `useMocks(...)` (in `frontend/src/mocks/jest.ts`) is the MSW handler registration. The
-  matcher supports path parameters and HTTP methods. Unhandled requests log a warning.
+  matcher supports path parameters and HTTP methods. Unhandled requests are silent and
+  get an empty paginated `{ results: [] }`, so count requests in a handler you register.
 - `ReturnType<typeof fooLogic.build>` is the conventional way to type the local variable
   for both keyed and unkeyed logics.
 
@@ -73,13 +74,18 @@ useMocks({
     },
   },
 })
+// A real change first, so the counter is proven to watch the path the logic calls
+await expectLogic(logic, () => {
+  logic.actions.setQuery('hello')
+}).toFinishAllListeners()
+expect(requests).toBe(1)
 const { results } = logic.values
 await expectLogic(logic, () => {
-  logic.actions.setQuery(logic.values.query) // same value, should be a no-op
+  logic.actions.setQuery('hello') // same value, should be a no-op
 })
   .toFinishAllListeners()
   .toMatchValues({ results })
-expect(requests).toBe(0)
+expect(requests).toBe(1)
 
 // Router-driven action
 import { router } from 'kea-router'
@@ -146,7 +152,7 @@ Don't `jest.mock` the helper: the test then skips the request the logic builds, 
 ```ts
 useMocks({
   post: {
-    '/api/environments/:team_id/query/:kind': () => [200, { results: [['2026-01-01', 3]], columns: ['day', 'count'] }],
+    '/api/projects/:team_id/query/:kind': () => [200, { results: [['2026-01-01', 3]], columns: ['day', 'count'] }],
   },
 })
 ```
