@@ -841,7 +841,7 @@ class TestBackfillThrottleBuckets(APIBaseTest):
 
 def test_a_stalled_temporal_connect_gives_up_at_the_deadline() -> None:
     async def stall() -> None:
-        await asyncio.sleep(60)
+        await asyncio.Event().wait()
 
     with (
         patch(f"{API_MODULE}.async_connect", new=stall),
