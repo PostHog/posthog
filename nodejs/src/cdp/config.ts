@@ -174,7 +174,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: string
     CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
     CDP_INTAKE_DLQ_TOPIC: string
-    // Produces to all three intake topics, which share one cluster.
     CDP_INTAKE_PRODUCER: CdpProducerName
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string

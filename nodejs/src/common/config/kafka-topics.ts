@@ -99,7 +99,6 @@ export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 // records. It carries full event payloads, so retention is bounded the way the source topic is.
 export const KAFKA_CDP_EVENTS_DLQ = `${prefix}cdp_events_dlq${suffix}`
 export const KAFKA_CDP_SES_WEBHOOKS = `${prefix}cdp_ses_webhooks${suffix}`
-// Accepted transactional email sends and workflow webhook runs, waiting for the intake consumer to insert them as jobs.
 export const KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL = `${prefix}cdp_intake_transactional_email${suffix}`
 export const KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK = `${prefix}cdp_intake_workflow_webhook${suffix}`
 // One dead-letter topic for both intake topics. A record holds the original message bytes and a fixed reason code.
