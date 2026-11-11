@@ -40,7 +40,10 @@ function build(
 ): { app: ReturnType<typeof createApp>; lifecycle: Lifecycle } {
     const lifecycle: Lifecycle = { shuttingDown: false, ready: true, ...overrides.lifecycle }
     const app = createApp({
-        verifier: new JwtVerifier({ entries: () => Object.entries(KEYS) } as SigningKeyLoader),
+        verifier: new JwtVerifier({
+            entries: () => Object.entries(KEYS),
+            allowedSecrets: () => null,
+        } as unknown as SigningKeyLoader),
         lifecycle,
         secrets: overrides.secrets ?? ((): MountedSecrets | null => MOUNTED),
     })

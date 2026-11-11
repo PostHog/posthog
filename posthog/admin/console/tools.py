@@ -1,4 +1,5 @@
 import re
+import dataclasses
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from django import forms
@@ -166,7 +167,21 @@ class Live:
             raise ValueError(f"Live block key {self.key!r} must be lowercase and dash-separated, like a URL slug")
 
 
-Block = Notice | Table | Paging | Output | Stats | Links | Filters | Live
+@frozen
+class Secret:
+    """A credential that staff must copy now, for example a password the control plane returns only once.
+
+    Only an operation's result page may show one. The console keeps the result for one read and then
+    forgets it, so the value is never in the audit log, a confirm token, a URL or a message.
+    """
+
+    kind: ClassVar[str] = "secret"
+    label: str
+    value: str = dataclasses.field(repr=False)
+    note: str = "Copy it now. It is not shown again."
+
+
+Block = Notice | Table | Paging | Output | Stats | Links | Filters | Live | Secret
 INNER_BLOCKS = Notice | Table | Output | Stats
 
 
@@ -193,12 +208,17 @@ class Page:
             if isinstance(inner, Table):
                 _check_table(inner)
 
+    def refuse_secrets(self, where: str) -> "Page":
+        if any(isinstance(block, Secret) for block in self.blocks):
+            raise ValueError(f"A {where} shows a Secret block. Return secrets only from an operation's result page.")
+        return self
+
 
 class ToolOperationHandler(Protocol):
     """Returns None when done, and the console sends staff back to the tool with the messages the handler added.
 
-    It may return a `Page` instead, which the console shows as the result. Do that only when running the
-    operation again is harmless, for example a dry run, because reloading a result page submits the form again.
+    It may return a `Page` instead, which the console shows once as the result. A reload does not run the
+    operation again. A `Secret` block may appear only on such a result page.
     To report a failure, add an error message and return a 4xx or 5xx response.
     """
 

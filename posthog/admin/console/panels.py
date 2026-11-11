@@ -112,9 +112,15 @@ def check_danger(key: str, danger: bool, form_class: type[forms.Form] | None, un
 
 
 class OperationHandler(Protocol):
-    """Returns None when done. To report a failure, add an error message and return a 4xx or 5xx response."""
+    """Returns None when done. To report a failure, add an error message and return a 4xx or 5xx response.
 
-    def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form | None) -> "HttpResponse | None": ...
+    It may return a `Page` instead, which the console shows once as the result, for example a password that
+    staff must copy now in a `Secret` block.
+    """
+
+    def __call__(
+        self, request: "HttpRequest", obj: "Model", form: forms.Form | None
+    ) -> "HttpResponse | Page | None": ...
 
 
 class RecordPreviewHandler(Protocol):

@@ -26,6 +26,16 @@ SUBJECT_SCOPE_OBJECTS = {
 
 
 @frozen
+class WarehouseSuggestionNote:
+    id: UUID
+    kind: WarehouseSuggestionKind
+    view_name: str
+    message: str
+    url: str
+    can_act: bool
+
+
+@frozen
 class SubjectKinds:
     readable: frozenset[WarehouseSuggestionSubjectKind]
     actionable: frozenset[WarehouseSuggestionSubjectKind]
