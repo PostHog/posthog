@@ -25,8 +25,8 @@ Every service that uses the store reads these. The leader refuses `PROPERTY_STOR
 | `PROPERTY_STORE_COMPRESSION` | `zstd` | SST compression: `none`, `lz4` or `zstd` |
 | `PROPERTY_STORE_MIN_FILTER_KEYS` | `1` | Smallest SST that gets a bloom filter |
 | `PROPERTY_STORE_FILTER_BITS_PER_KEY` | `10` | Bloom filter size |
-| `PROPERTY_STORE_BLOCK_CACHE_BYTES` | `0` | In-memory block cache, shared by a process's shards. Off by default; the leader's person cache already holds what it would |
-| `PROPERTY_STORE_META_CACHE_BYTES` | `67108864` | In-memory cache of SST indexes and filters |
+| `PROPERTY_STORE_BLOCK_CACHE_BYTES` | `0` | In-memory block cache, shared by a process's shards. Off by default; the leader's person cache already holds what it would. Readers only |
+| `PROPERTY_STORE_META_CACHE_BYTES` | `67108864` | In-memory cache of SST indexes and filters. Readers only |
 | `PROPERTY_STORE_READER_POLL_MS` | `5000` | How often a reader checks for new data, and how far it can lag |
 | `PROPERTY_STORE_READER_SKIP_WAL` | `false` | Readers skip WAL files and see a write only after the next memtable flush. Replicas only |
 | `PROPERTY_STORE_READER_MEMTABLE_BYTES` | `8388608` | Largest in-memory table a reader buffers replayed WAL in |
