@@ -173,6 +173,7 @@ class OrganizationDeletionPanel(Panel):
     key = "deletion"
     title = "Deletion"
     owner = DEV_EXPERIENCE
+    order = 10
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -231,3 +232,13 @@ class OrganizationDataTool(ConsoleTool):
                 *data_counts(organization),
             )
         )
+
+
+console.register_moved_action(
+    old_path="admin/posthog/organization/<uuid:pk>/trigger-deletion/", record="organization", target="#panel-deletion"
+)
+console.register_moved_page(
+    old_path="admin/posthog/organization/<uuid:pk>/model-counts/",
+    title="Child model counts",
+    url="/admin/console/tools/organization-data/?organization={pk}",
+)
