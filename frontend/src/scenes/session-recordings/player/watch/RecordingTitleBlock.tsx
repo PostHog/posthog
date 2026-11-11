@@ -1,8 +1,9 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
-import { Button, Heading, Skeleton } from '@posthog/quill'
+import { Button, Heading, Skeleton, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -21,7 +22,15 @@ import { asDisplay, asLink } from 'products/persons/frontend/person-utils'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { QuillPinToPlaylistButton } from './QuillPinToPlaylistButton'
 
-export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.Element {
+export function RecordingTitleBlock({
+    actions,
+    trailingActions,
+    compact = false,
+}: {
+    actions?: ReactNode
+    trailingActions?: ReactNode
+    compact?: boolean
+}): JSX.Element {
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { sessionPerson, loading, startTime } = useValues(playerMetaLogic(logicProps))
     const { recordingPropertiesById } = useValues(sessionRecordingsListPropertiesLogic)
@@ -30,14 +39,24 @@ export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.E
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
     const actionBar = (
-        <div className="ml-auto flex items-center gap-2 flex-wrap" data-attr="watch-panel-title-actions">
+        <div
+            className={clsx('ml-auto flex items-center gap-2', compact ? 'shrink-0' : 'flex-wrap')}
+            data-attr="watch-panel-title-actions"
+        >
             {actions}
             <QuillPinToPlaylistButton />
+            {trailingActions}
         </div>
     )
 
     if (loading) {
-        return (
+        return compact ? (
+            <div data-quill className="flex items-center gap-2 h-full px-2">
+                <Skeleton className="w-6 h-6 rounded-full" />
+                <Skeleton className="w-1/3 h-4" />
+                {actionBar}
+            </div>
+        ) : (
             <div data-quill className="flex items-center gap-3">
                 <Skeleton className="w-10 h-10 rounded-full" />
                 <div className="flex flex-col gap-1 flex-1">
@@ -63,6 +82,45 @@ export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.E
             setPlaylistCollapsed(false)
         }
     }
+    const personLink = personHref ? (
+        <Button
+            variant="link-muted"
+            size="inline"
+            render={<LinkPrimitive to={personHref} />}
+            className="truncate max-w-full"
+            data-attr="watch-panel-title-person"
+        >
+            {personName}
+        </Button>
+    ) : (
+        personName
+    )
+
+    if (compact) {
+        return (
+            <div
+                data-quill
+                className="@container/title-bar flex items-center gap-2 h-full min-w-0 px-2 text-foreground"
+                data-attr="watch-panel-collapsed"
+            >
+                {sessionPerson && <PersonIcon person={sessionPerson} size="sm" className="mr-0 shrink-0" />}
+                <span className="text-sm font-medium truncate min-w-0 ph-no-capture">{personLink}</span>
+                <span className="hidden @min-[28rem]/title-bar:flex items-center gap-1.5 min-w-0 overflow-hidden whitespace-nowrap text-xs text-muted-foreground ph-no-capture">
+                    {startTime && <TZLabel time={startTime} showPopover={false} />}
+                    {iconProperties.map(({ property, value, label }) => (
+                        <Tooltip key={property}>
+                            <TooltipTrigger render={<span className="flex items-center gap-x-1 shrink-0" />}>
+                                <PropertyIcon property={property} value={value} />
+                                <span className="hidden @min-[56rem]/title-bar:inline">{label}</span>
+                            </TooltipTrigger>
+                            <TooltipContent>{label}</TooltipContent>
+                        </Tooltip>
+                    ))}
+                </span>
+                {actionBar}
+            </div>
+        )
+    }
 
     return (
         <div
@@ -73,18 +131,7 @@ export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.E
             {sessionPerson && <PersonIcon person={sessionPerson} size="lg" className="mr-0 shrink-0" />}
             <div className="flex flex-col min-w-0 flex-1 basis-72">
                 <Heading size="base" render={<h2 />} className="truncate m-0 ph-no-capture">
-                    {personHref ? (
-                        <Button
-                            variant="link-muted"
-                            size="inline"
-                            render={<LinkPrimitive to={personHref} />}
-                            data-attr="watch-panel-title-person"
-                        >
-                            {personName}
-                        </Button>
-                    ) : (
-                        personName
-                    )}
+                    {personLink}
                 </Heading>
                 <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap text-xs text-muted-foreground ph-no-capture">
                     {personUUID && (

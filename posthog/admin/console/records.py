@@ -6,7 +6,12 @@ from django.urls import reverse
 from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import DataDeletionRequest
 from posthog.models.organization import Organization
+from posthog.models.project import Project
 from posthog.models.team.team import Team
+from posthog.models.user import User
+
+# Support tools link to staff pages with `?ticket=<ticket url>`, and Log in as user prefills its reason from it.
+SUPPORT_TICKET_PARAM = "ticket"
 
 
 @frozen
@@ -14,6 +19,8 @@ class RecordLink:
     label: str
     href: str
     title: str = ""
+    # Query parameters of the current page that the link passes on, for example a support ticket.
+    keep_query: tuple[str, ...] = ()
 
 
 class RecordType:
@@ -114,6 +121,68 @@ class OrganizationRecord(RecordType):
         ]
 
 
+class ProjectRecord(RecordType):
+    key = "project"
+    plural = "projects"
+    label = "Project"
+    pk_converter = "int"
+
+    def queryset(self) -> QuerySet:
+        return Project.objects.select_related("organization")
+
+    def title(self, obj: Model) -> str:
+        assert isinstance(obj, Project)
+        return obj.name
+
+    def subtitle(self, obj: Model) -> str:
+        assert isinstance(obj, Project)
+        return obj.organization.name
+
+    def parents(self, obj: Model) -> list[RecordLink]:
+        assert isinstance(obj, Project)
+        return [RecordLink(label=obj.organization.name, href=RECORD_TYPES["organization"].url(obj.organization))]
+
+    def links(self, obj: Model) -> list[RecordLink]:
+        return [
+            RecordLink(
+                label="Raw record in Django admin",
+                href=reverse("admin:posthog_project_change", args=[obj.pk]),
+                title="The raw Project row, with every field",
+            ),
+            RecordLink(label="Open in app ↗", href=f"/project/{obj.pk}"),
+        ]
+
+
+class UserRecord(RecordType):
+    key = "user"
+    plural = "users"
+    label = "User"
+    pk_converter = "int"
+
+    def queryset(self) -> QuerySet:
+        return User.objects.select_related("current_organization", "current_team")
+
+    def title(self, obj: Model) -> str:
+        assert isinstance(obj, User)
+        return obj.email
+
+    def subtitle(self, obj: Model) -> str:
+        assert isinstance(obj, User)
+        return f"{obj.first_name} {obj.last_name}".strip()
+
+    def links(self, obj: Model) -> list[RecordLink]:
+        # No "Log in as user" here: impersonation stays in Django admin, which asks for the reason it logs and
+        # prefills it from the support ticket.
+        return [
+            RecordLink(
+                label="Raw record in Django admin",
+                href=reverse("admin:posthog_user_change", args=[obj.pk]),
+                title="The raw User row, with every field, and Log in as user",
+                keep_query=(SUPPORT_TICKET_PARAM,),
+            ),
+        ]
+
+
 def request_type_label(obj: DataDeletionRequest) -> str:
     """The request type in sentence case. The model's choice labels are title case, such as "Event Removal"."""
     label = obj.get_request_type_display()
@@ -156,5 +225,15 @@ class DeletionRequestRecord(RecordType):
 
 
 RECORD_TYPES: dict[str, RecordType] = {
-    record.key: record for record in (TeamRecord(), OrganizationRecord(), DeletionRequestRecord())
+    record.key: record
+    for record in (TeamRecord(), OrganizationRecord(), ProjectRecord(), UserRecord(), DeletionRequestRecord())
 }
+
+
+def console_url_for(obj: Model) -> str | None:
+    """The console page of a record, for the Django admin change form of the same row. None when the console has
+    no page for its model."""
+    for record_type in RECORD_TYPES.values():
+        if isinstance(obj, record_type.queryset().model) and obj.pk is not None:
+            return record_type.url(obj)
+    return None
