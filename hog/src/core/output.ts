@@ -44,8 +44,8 @@ export interface Notes {
 export interface Report extends Notes {
     // One line that says whether the command worked, such as "Added 2 skills".
     result: string
-    // `unchanged`: there was nothing to do. `partial`: only some of the work happened.
-    status?: 'done' | 'unchanged' | 'partial'
+    // `unchanged`: there was nothing to do. `partial`: only some of the work happened. `failed`: none of it did.
+    status?: 'done' | 'unchanged' | 'partial' | 'failed'
     // What changed on disk, in PostHog or in an agent's settings, one line each.
     effects?: readonly string[]
 }
@@ -54,6 +54,7 @@ const STATUS_MARKS: Record<NonNullable<Report['status']>, { mark: string; styles
     done: { mark: '✓', styles: ['green', 'bold'] },
     unchanged: { mark: '•', styles: ['dim'] },
     partial: { mark: '!', styles: ['yellow', 'bold'] },
+    failed: { mark: '✗', styles: ['red', 'bold'] },
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/

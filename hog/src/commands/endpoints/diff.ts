@@ -5,7 +5,7 @@ import type { Endpoint } from '@/endpoints/model'
 import { planPush } from '@/endpoints/plan'
 
 import { pushPlanLines } from './push'
-import { endpointPaths, problemLines, SCOPES_READ, type Styler } from './shared'
+import { endpointPaths, problemWarnings, SCOPES_READ, type Styler } from './shared'
 
 const inSync = (item: { action: string; reason?: string }): boolean =>
     item.action === 'skip' && item.reason === 'No changes'
@@ -37,7 +37,6 @@ export default defineCommand({
 
     human({ result, out, options }) {
         const style: Styler = (text, ...styles) => out.style(text, ...styles)
-        problemLines(result.problems, style).forEach((line) => out.line(line))
         const shown = options.verbose ? result.plan : result.plan.filter((item) => !inSync(item))
         pushPlanLines(shown, style).forEach((line) => out.line(line))
         const count = (test: (item: (typeof result.plan)[number]) => boolean): number => result.plan.filter(test).length
@@ -48,6 +47,7 @@ export default defineCommand({
             `${count((item) => item.action === 'skip' && !inSync(item)) + result.problems.length} invalid`,
         ]
         out.line(out.style(parts.join(', '), 'dim'))
+        out.notes({ warnings: problemWarnings(result.problems) })
     },
 
     agent({ result, out }) {

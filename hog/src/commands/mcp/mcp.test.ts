@@ -486,7 +486,9 @@ describe('hog mcp add', () => {
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toBe(
             [
-                'Added the PostHog MCP server to Claude Code in /work/.mcp.json.',
+                '✓ Added the PostHog MCP server to Claude Code',
+                '  Saved in /work/.mcp.json',
+                '',
                 'Claude Code asks you to approve the server in this repository. Then run `claude mcp login posthog` to log in to PostHog.',
                 '',
             ].join('\n')
