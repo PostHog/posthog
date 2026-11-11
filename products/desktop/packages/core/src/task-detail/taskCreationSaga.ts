@@ -29,8 +29,10 @@ import type {
 } from "./taskCreationHost";
 import { buildTaskNamingSource } from "./taskDescription";
 import { resolveTaskRepository } from "./taskRepository";
+import type { WarmTaskSubmission } from "./warmTaskService";
 
 export interface TaskCreationDeps {
+  warmSubmission?: WarmTaskSubmission;
   posthogClient: TaskCreationApiClient;
   host: ITaskCreationHost;
   sessionService: SessionService;
@@ -820,31 +822,29 @@ export class TaskCreationSaga extends Saga<
       suppressWarmReuse: false,
     };
 
-    const lease =
-      (input.repository || input.allowNoRepo) && input.runtime !== "pi"
-        ? this.deps.host.takeWarmTaskLease({
-            repository: input.repository ?? null,
-            repositories: input.repositories,
-            branch: input.branch ?? null,
-            runtimeAdapter: input.adapter ?? "claude",
-            model: input.model ?? null,
-            reasoningEffort: input.reasoningLevel ?? null,
-            permissionMode: input.executionMode ?? null,
-            sandboxEnvironmentId: input.sandboxEnvironmentId ?? null,
-            customImageId: input.customImageId ?? null,
-          })
-        : null;
+    if (input.contextWindow === "1m" || input.fastMode === true) {
+      return { ...base, suppressWarmReuse: true };
+    }
 
-    const requiresConfiguredWarm = Boolean(
-      input.sandboxEnvironmentId || input.customImageId,
-    );
+    const lease = this.deps.warmSubmission?.take({
+      repository: input.repository ?? null,
+      repositories: input.repositories,
+      github_integration: input.githubIntegrationId,
+      branch: input.branch ?? null,
+      runtime_adapter: input.adapter ?? "claude",
+      model: input.model ?? null,
+      reasoning_effort: input.reasoningLevel ?? null,
+      initial_permission_mode: input.executionMode ?? null,
+      sandbox_environment_id: input.sandboxEnvironmentId ?? null,
+      custom_image_id: input.customImageId ?? null,
+    });
 
     const needsAttachments =
       transport.filePaths.length > 0 || transport.skillBundles.length > 0;
     if (!needsAttachments) {
       return {
         ...base,
-        suppressWarmReuse: requiresConfiguredWarm && !lease,
+        suppressWarmReuse: !lease,
       };
     }
     if (!lease) {

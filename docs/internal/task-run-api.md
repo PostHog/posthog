@@ -18,6 +18,11 @@ The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
 PostHog Code's per-user gateway caps are disabled by default and apply only to configured users when enabled.
 Repository-backed report discussions also require Desktop access.
+PostHog Desktop makes at most one speculative warm request per composer draft, scoped to the account and project.
+Selection changes before provisioning starts debounce into that request. Once provisioning starts, an incompatible selection change or abandoning the composer releases the unused run; the draft submits cold instead of warming again.
+Submission takes ownership before navigation and only enables warm activation when it holds a matching lease. A late warm response is released, and releasing an unused run cannot cancel a run whose activation has already started.
+A successful submission gives the next draft a fresh warm-up budget. Remounting or retrying a failed submission does not.
+
 Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 
 The response has status `201` and contains the task and its `latest_run`.
