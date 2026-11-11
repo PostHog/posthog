@@ -6,6 +6,8 @@ import { Duration, durationMs } from '../duration'
 const RecipientMatch = z.object({ recipient: z.string().optional() }).strict()
 const HostMatch = z.object({ host: z.string().optional() }).strict()
 
+export const SesThrottleParams = z.object({ rate: z.number().int().min(1) }).strict()
+
 const Dose = z.union([
     z.object({ count: z.number().int().min(1) }).strict(),
     z.object({ share: z.number().gt(0).max(1) }).strict(),
@@ -24,9 +26,8 @@ export const CardFault = z.discriminatedUnion('name', [
     z
         .object({
             name: z.literal('ses.throttle'),
-            params: z.object({ rate: z.number().int().min(1) }).strict(),
+            params: SesThrottleParams,
             match: RecipientMatch.optional(),
-            dose: Dose.default({ share: 1 }),
             for: Duration.optional(),
         })
         .strict(),
@@ -57,8 +58,7 @@ export type FaultRule = {
     name: string
     answer: SesAnswer | WebhookAnswer
     match?: { recipient?: string; host?: string }
-    ratePerSecond?: number
-    dose: z.infer<typeof Dose>
+    dose: z.infer<typeof Dose> | { perSecond: number }
     for?: string
 }
 
@@ -80,7 +80,7 @@ export function ruleOf(fault: CardFault): FaultRule {
                 answer: fault.params.type === 'bounce' ? { kind: 'bounce' } : { kind: 'status', answer: REJECTED },
             }
         case 'ses.throttle':
-            return { ...fault, ratePerSecond: fault.params.rate, answer: { kind: 'status', answer: THROTTLED } }
+            return { ...fault, dose: { perSecond: fault.params.rate }, answer: { kind: 'status', answer: THROTTLED } }
         case 'dest.status':
             return { ...fault, answer: { kind: 'webhook-status', status: fault.params.code } }
     }
@@ -107,19 +107,16 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
     )
 }
 
-function withinRate(fault: ActiveFault, now: number): boolean {
-    if (fault.rule.ratePerSecond === undefined) {
-        return false
+function doseTakes(fault: ActiveFault, now: number): boolean {
+    const {
+        rule: { dose },
+        matched,
+        applied,
+    } = fault
+    if ('perSecond' in dose) {
+        fault.passedAt = fault.passedAt.filter((at) => at > now - RATE_WINDOW_MS)
+        return fault.passedAt.length >= dose.perSecond
     }
-    fault.passedAt = fault.passedAt.filter((at) => at > now - RATE_WINDOW_MS)
-    if (fault.passedAt.length >= fault.rule.ratePerSecond) {
-        return false
-    }
-    fault.passedAt.push(now)
-    return true
-}
-
-function doseTakes({ rule: { dose }, matched, applied }: ActiveFault): boolean {
     if ('count' in dose) {
         return applied < dose.count
     }
@@ -164,15 +161,21 @@ export class FaultList {
     private take(request: FaultedRequest): FaultRule | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
+        const passed: ActiveFault[] = []
         for (const fault of this.faults) {
-            if (!matches(fault.rule, request) || withinRate(fault, now)) {
+            if (!matches(fault.rule, request)) {
                 continue
             }
             fault.matched += 1
-            if (doseTakes(fault)) {
+            if (doseTakes(fault, now)) {
                 fault.applied += 1
                 return fault.rule
             }
+            passed.push(fault)
+        }
+        // A throttle counts a send against its rate only once no fault answered it, because only then does it go out.
+        for (const fault of passed) {
+            fault.passedAt.push(now)
         }
         return undefined
     }

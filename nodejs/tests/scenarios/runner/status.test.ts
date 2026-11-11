@@ -97,6 +97,17 @@ describe('statusOf', () => {
             `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
         ],
         [
+            'a valve was observed but not released',
+            {
+                timeline: [
+                    { ...killed(EMAIL_WORKER, 10), valve: 'ses.throttle', target: 'ses', error: 'edge answered 500' },
+                ],
+                invariants: [BROKEN],
+            },
+            'invalid',
+            'ses.throttle on ses was not released: edge answered 500',
+        ],
+        [
             'a dependency went away',
             { down: ['provider-edge'], invariants: [BROKEN] },
             'invalid',

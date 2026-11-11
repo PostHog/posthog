@@ -5,11 +5,11 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import type { Actuation } from '../environment/environment'
-import type { CardFault } from '../provider-edge'
+import { CardFault, SesThrottleParams } from '../provider-edge'
 import type { ApplyContext, ValveDefinition } from './valves'
 
 async function edgeFault(
-    { edgeUrl, pollMs, faultObservedWithinMs }: ApplyContext,
+    { edgeUrl, pollMs, faultObservedWithinMs, signal }: ApplyContext,
     fault: CardFault
 ): Promise<Actuation> {
     const added = await internalFetch(`${edgeUrl}/_faults`, {
@@ -25,18 +25,24 @@ async function edgeFault(
     const applied = async (): Promise<number> => {
         const response = await internalFetch(`${edgeUrl}/_faults/${id}`)
         const text = await response.text()
-        return response.status === 200 ? (parseJSON(text) as { applied: number }).applied : 0
+        if (response.status !== 200) {
+            throw new Error(`The edge answered ${response.status} for the ${fault.name} fault: ${text}`)
+        }
+        return (parseJSON(text) as { applied: number }).applied
     }
     return {
         observed: async () => {
             const deadline = Date.now() + faultObservedWithinMs
-            while ((await applied()) === 0) {
+            while (!signal.aborted) {
+                if ((await applied()) > 0) {
+                    return true
+                }
                 if (Date.now() >= deadline) {
                     return false
                 }
-                await sleep(pollMs)
+                await sleep(pollMs, undefined, { signal }).catch(() => undefined)
             }
-            return true
+            return false
         },
         release: async () => {
             const removed = await internalFetch(`${edgeUrl}/_faults/${id}`, { method: 'DELETE' })
@@ -48,12 +54,10 @@ async function edgeFault(
     }
 }
 
-const SesThrottleDose = z.object({ rate: z.number().int().min(1) }).strict()
-
 export const sesThrottle: ValveDefinition = {
     name: 'ses.throttle',
-    params: SesThrottleDose,
+    params: SesThrottleParams,
     target: z.literal('ses'),
     apply: (context, _target, dose) =>
-        edgeFault(context, { name: 'ses.throttle', params: SesThrottleDose.parse(dose), dose: { share: 1 } }),
+        edgeFault(context, { name: 'ses.throttle', params: SesThrottleParams.parse(dose) }),
 }

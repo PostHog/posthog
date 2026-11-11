@@ -281,6 +281,22 @@ describe('provider edge', () => {
         }
     })
 
+    it('counts only the sends that go out against the throttle rate', async () => {
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
+        try {
+            await addFault({ name: 'ses.throttle', params: { rate: 1 } })
+            await addFault({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } })
+
+            expect(await sendEach([ALICE, ALICE, ALICE])).toEqual([
+                'MessageRejected',
+                'sent',
+                'TooManyRequestsException',
+            ])
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
     const rejectFor = (recipient: string): CardFault => ({
         name: 'ses.reject',
         params: { type: 'rejected' },

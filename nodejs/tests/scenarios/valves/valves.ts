@@ -15,7 +15,7 @@ export type ValveContext = {
     edgeUrl: string
 }
 
-export type ApplyContext = ValveContext & { pollMs: number; faultObservedWithinMs: number }
+export type ApplyContext = ValveContext & { pollMs: number; faultObservedWithinMs: number; signal: AbortSignal }
 
 export type ValveDefinition = Definition & {
     target: z.ZodType<string>
@@ -98,10 +98,16 @@ export function createValves({ pollMs = POLL_MS, faultObservedWithinMs = FAULT_O
             return
         }
         const definition = VALVES.find(({ name }) => name === entry.valve)!
+        const holdEndsAt = Date.now() + durationMs(entry.for)
+        const held = AbortSignal.any([released.signal, AbortSignal.timeout(durationMs(entry.for))])
         let actuation: Actuation | undefined
         try {
+            actuation = await definition.apply(
+                { ...context, pollMs, faultObservedWithinMs, signal: held },
+                entry.target,
+                entry.dose
+            )
             record.appliedAt = now()
-            actuation = await definition.apply({ ...context, pollMs, faultObservedWithinMs }, entry.target, entry.dose)
             if (!(await actuation.observed())) {
                 record.error = 'applied but not observed'
             } else if (entry.when && (await runningJobs(entry.when.params.queue)) < entry.when.params.atLeast) {
@@ -111,13 +117,19 @@ export function createValves({ pollMs = POLL_MS, faultObservedWithinMs = FAULT_O
             } else {
                 record.observedAt = now()
             }
-            await sleep(durationMs(entry.for), undefined, { signal: released.signal }).catch(() => undefined)
+            await sleep(Math.max(0, holdEndsAt - Date.now()), undefined, { signal: released.signal }).catch(
+                () => undefined
+            )
         } catch (error) {
             record.error = (error as Error).message
         } finally {
             if (actuation) {
-                await actuation.release()
-                record.releasedAt = now()
+                try {
+                    await actuation.release()
+                    record.releasedAt = now()
+                } catch (error) {
+                    record.error = (error as Error).message
+                }
             }
         }
     }
