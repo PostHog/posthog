@@ -383,6 +383,16 @@ class TestForcedVariantReleaseCondition(TestCase):
                 (EDIT,),
             ),
             ("some_users_pinned", _context([{**STAFF, "variant": "test"}, EVERYONE]), (EDIT,)),
+            (
+                "variants_mapped_from_a_property",
+                _context(
+                    [
+                        {**_property_is("arm", "control"), "variant": "control"},
+                        {**_property_is("arm", "test"), "variant": "test"},
+                    ]
+                ),
+                (EDIT,),
+            ),
         ]
     )
     def test_offers_to_end_the_experiment_when_the_detail_does(
