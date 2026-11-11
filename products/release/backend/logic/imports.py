@@ -67,12 +67,16 @@ def _insert_unlinked(team_id: int, releases: list[tuple[str, list[int]]]) -> lis
 
 def run_initial_import(team_id: int, load_flags: Callable[[], list[ImportFlag]]) -> int:
     team_id = root_team_id(team_id)
-    with team_scope(team_id), transaction.atomic():
-        _lock_team(team_id)
-        if ReleaseImportState.objects.filter(team_id=team_id).exists():
-            return 0
-        created = _insert_unlinked(team_id, [(humanize(flag.key), [flag.id]) for flag in load_flags()])
-        ReleaseImportState.objects.create(team_id=team_id)
+    with team_scope(team_id):
+        ReleaseImportState.objects.get_or_create(team_id=team_id)
+        with transaction.atomic():
+            _lock_team(team_id)
+            state = ReleaseImportState.objects.select_for_update().get(team_id=team_id)
+            if state.completed:
+                return 0
+            created = _insert_unlinked(team_id, [(humanize(flag.key), [flag.id]) for flag in load_flags()])
+            state.completed = True
+            state.save(update_fields=["completed"])
     return len(created)
 
 

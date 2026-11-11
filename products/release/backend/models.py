@@ -39,6 +39,7 @@ class ReleaseImportState(TeamScopedRootMixin):
         "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, primary_key=True
     )
     imported_at = models.DateTimeField(auto_now_add=True)
+    completed = models.BooleanField(default=False, db_default=False)
 
 
 class ReleaseAutoLinkedFlag(TeamScopedRootMixin):

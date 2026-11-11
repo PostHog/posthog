@@ -10,7 +10,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.release.backend.facade import api
 from products.release.backend.facade.contracts import ImportFlag
-from products.release.backend.models import Release
+from products.release.backend.models import Release, ReleaseImportState
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
 FLAG_PATCH = "products.release.backend.facade.api.releases_enabled"
@@ -307,6 +307,14 @@ class TestReleaseAPI(APIBaseTest):
         assert [release["name"] for release in self.client.get(self._url()).json()["results"]] == [
             "Release of a restricted flag"
         ]
+
+    def test_import_all_retries_an_import_that_never_completed(self) -> None:
+        self._flag("quiet-theme")
+        ReleaseImportState.objects.unscoped().create(team_id=self.team.id)
+
+        created = self.client.post(self._url("import_all/")).json()["created_count"]
+
+        assert created == 1
 
     def test_import_all_runs_once_per_project_and_writes_to_the_root_team(self) -> None:
         flag_id = self._flag("quiet-theme")
