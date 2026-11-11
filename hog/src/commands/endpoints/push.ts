@@ -89,7 +89,7 @@ export default defineCommand({
             return { status: 'cancelled', plan, outcomes: [], problems }
         }
         await ctx.ensureScopes(pushScopes(items, variables))
-        return { status: 'applied', plan, outcomes: await applyPush(api, items, variables), problems }
+        return { status: 'applied', plan, outcomes: await applyPush(api, items, variables, ctx.mode.isCI), problems }
     },
 
     human({ result, out }) {

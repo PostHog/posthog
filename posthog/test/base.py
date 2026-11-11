@@ -962,15 +962,22 @@ def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
         )
         # Re-list tables on every flush: tests can create or drop tables (schema
         # migration tests, warehouse DDL), so a cached list goes stale in both
-        # dangerous directions. The catalog query costs ~1ms.
+        # dangerous directions. A table that holds a row has at least one page on
+        # disk, so tables with a zero-length main fork are skipped without probing:
+        # most of the schema is never written in a given test process, and probing
+        # every table dominated the cost of the flush. Partitioned parents have no
+        # storage of their own; their rows are found through their partitions.
         cursor.execute(
             """
-            SELECT tablename
-            FROM pg_tables
-            WHERE schemaname = 'public'
-              AND tablename NOT LIKE 'pg\\_%'
-              AND tablename NOT LIKE '\\_sqlx\\_%'
-              AND tablename NOT LIKE '\\_persons\\_migrations%'
+            SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind = 'r'
+              AND c.relname NOT LIKE 'pg\\_%'
+              AND c.relname NOT LIKE '\\_sqlx\\_%'
+              AND c.relname NOT LIKE '\\_persons\\_migrations%'
+              AND pg_relation_size(c.oid) > 0
             """
         )
         tables = [name for (name,) in cursor.fetchall() if name not in _SELECTIVE_FLUSH_PRESERVED_TABLES]
