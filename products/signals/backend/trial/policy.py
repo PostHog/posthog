@@ -205,12 +205,11 @@ class TrialPolicy:
         from products.signals.backend.scout_harness.lifecycle_lock import (
             user_holds_scout_lifecycle_claims,  # noqa: PLC0415 -- lifecycle permissions depend on Signals models
         )
-
-        configs = list(
-            SignalScoutConfig.objects.for_team(self.team_id, canonical=True)
-            .filter(enabled=True)
-            .order_by("created_at", "id")
+        from products.signals.backend.trial.scouts import (
+            trial_counted_scouts,  # noqa: PLC0415 -- the scout rules import this module
         )
+
+        configs = list(trial_counted_scouts(self.team_id).order_by("created_at", "id"))
         excess = configs[grant.scout_limit :]
         if excess and api_scopes is not None and not {"*", "signal_scout:write"}.intersection(api_scopes):
             raise PermissionDenied("Starting this trial would pause scouts and requires signal_scout:write access.")

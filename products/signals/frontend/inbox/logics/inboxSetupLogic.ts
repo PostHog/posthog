@@ -47,6 +47,7 @@ import type {
     InboxOnboardingDraftApi,
     InboxOnboardingStateApi,
     ScoutSuggestionItemApi,
+    SelfDrivingTrialStatusApi,
     SignalScoutConfigApi,
 } from '../../generated/api.schemas'
 import type { InboxOnboardingStepEnumApi } from '../../generated/api.schemas'
@@ -58,13 +59,15 @@ import { INBOX_REPORT_SECTION_KEYS } from '../types'
 import type { SignalSourceConfig } from '../types'
 import { newInboxSetupDraft, reconcileInboxSetupDraft, selectedSourceCount, setupSources } from '../utils/inboxSetup'
 import type { InboxSetupSource } from '../utils/inboxSetup'
-import { inboxSetupDefaultScouts, inboxSetupScoutChoices } from '../utils/inboxSetupScouts'
+import { inboxSetupDefaultScouts, inboxSetupScoutChoices, inboxSetupScoutLimit } from '../utils/inboxSetupScouts'
+import type { InboxSetupScoutLimit } from '../utils/inboxSetupScouts'
 import { quickInboxSetupDraft } from '../utils/quickInboxSetup'
 import { DEFAULT_SUGGESTION_INTERVAL_MINUTES } from '../utils/scoutSuggestions'
 import { reportListLogic, sectionListLogicProps } from './reportListLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 import type { SignalScoutConfig } from './scoutFleetLogic'
 import { scoutSuggestionsLogic } from './scoutSuggestionsLogic'
+import { selfDrivingTrialLogic } from './selfDrivingTrialLogic'
 
 // pinned: browser storage key - a rename drops the marker mid-redirect, so the return shows the button instead.
 const GITHUB_CONNECT_STORAGE_KEY_PREFIX = 'inbox-quick-setup-github-connect'
@@ -117,6 +120,7 @@ export interface inboxSetupLogicValues {
     isRefreshing: boolean // scoutSuggestionsLogic
     suggestionSetLoading: boolean // scoutSuggestionsLogic
     suggestions: ScoutSuggestionItemApi[] // scoutSuggestionsLogic
+    trial: SelfDrivingTrialStatusApi | null // selfDrivingTrialLogic
     productDataEvents: Set<string> | null // signalSourcesLogic
     productDataEventsLoading: boolean // signalSourcesLogic
     productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>> // signalSourcesLogic
@@ -151,6 +155,7 @@ export interface inboxSetupLogicValues {
     savedStateLoading: boolean
     saving: boolean
     scoutChoices: ScoutSuggestionItemApi[]
+    scoutLimit: InboxSetupScoutLimit
     scoutsLoading: boolean
     shouldResumeQuickSetup: boolean
     sourceCount: number
@@ -351,6 +356,11 @@ export interface inboxSetupLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
         ) => ScoutSuggestionItemApi[]
+        scoutLimit: (
+            trial: SelfDrivingTrialStatusApi | null,
+            scoutConfigs: SignalScoutConfigApi[] | null,
+            draft: InboxOnboardingDraftApi
+        ) => InboxSetupScoutLimit
         scoutChoices: (
             suggestions: ScoutSuggestionItemApi[],
             defaultScouts: ScoutSuggestionItemApi[],
@@ -403,6 +413,8 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             ['scoutConfigs', 'scoutConfigsLoading', 'scoutFleetSynced'],
             scoutSuggestionsLogic,
             ['suggestions', 'suggestionSetLoading', 'isRefreshing'],
+            selfDrivingTrialLogic({ teamId: teamLogic.values.currentTeamId! }),
+            ['trial'],
         ],
         actions: [
             signalSourcesLogic,
@@ -659,6 +671,14 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 statuses: Partial<Record<AgentRosterSource, SourceProductStatus>>
             ): ScoutSuggestionItemApi[] =>
                 inboxSetupDefaultScouts(configs ?? [], sources, !!team?.ingested_event, statuses),
+        ],
+        scoutLimit: [
+            (s) => [s.trial, s.scoutConfigs, s.draft],
+            (
+                trial: SelfDrivingTrialStatusApi | null,
+                configs: SignalScoutConfigApi[] | null,
+                draft: InboxOnboardingDraftApi
+            ): InboxSetupScoutLimit => inboxSetupScoutLimit(trial, configs ?? [], draft),
         ],
         scoutChoices: [
             (s) => [s.suggestions, s.defaultScouts, s.draft],
@@ -970,7 +990,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             },
             toggleSuggestion: ({ suggestion }) => {
                 if (
-                    values.draft.suggestions.length >= 5 &&
+                    values.draft.suggestions.length >= values.scoutLimit.limit &&
                     !values.draft.suggestions.some((item) => item.id === suggestion.id)
                 ) {
                     return

@@ -241,6 +241,30 @@ class TestTrialPolicy(BaseTest):
         assert scouts[-1].pause_reason == SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
         assert paused.status == SignalScoutConfig.Status.PAUSED_BY_USER
 
+    @parameterized.expand([("enabled_before_claim", 3), ("enabled_after_claim", 2)])
+    def test_operational_scout_takes_no_trial_slot(self, _name: str, enabled_before_claim: int) -> None:
+        operational = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-inbox-validation")
+        chosen = [
+            SignalScoutConfig.objects.create(
+                team=self.team, skill_name=f"scout-{index}", enabled=index < enabled_before_claim
+            )
+            for index in range(3)
+        ]
+        extra = SignalScoutConfig.objects.create(team=self.team, skill_name="scout-extra", enabled=False)
+        self.claim()
+        for scout in chosen[enabled_before_claim:]:
+            scout.enabled = True
+            scout.save()
+
+        for scout in [operational, *chosen]:
+            scout.refresh_from_db()
+        assert [scout.enabled for scout in [operational, *chosen]] == [True, True, True, True]
+        extra.enabled = True
+        with self.assertRaisesMessage(ValidationError, "The free trial allows three enabled scouts"):
+            extra.save()
+        with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value={}):
+            assert max_enabled_scouts_for_team(self.team.id) == 4
+
     @parameterized.expand([(None, 3), (2, 2), (10, 3)])
     def test_scout_metadata_matches_the_enforced_trial_limit(self, configured_limit: int | None, expected: int) -> None:
         self.claim()

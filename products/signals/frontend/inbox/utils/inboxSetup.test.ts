@@ -1,10 +1,10 @@
-import type { InboxOnboardingDraftApi } from '../../generated/api.schemas'
+import type { InboxOnboardingDraftApi, SelfDrivingTrialStatusApi } from '../../generated/api.schemas'
 import { mockScoutConfigs, mockScoutSuggestionSet } from '../__mocks__/scoutConfigs'
 import type { AgentRosterSource } from '../components/config/agentRosterMeta'
 import type { SourceProductStatus } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
 import { ONBOARDING_SOURCE_PRODUCTS, newInboxSetupDraft, reconcileInboxSetupDraft, setupSources } from './inboxSetup'
-import { inboxSetupDefaultScouts, inboxSetupScoutChoices } from './inboxSetupScouts'
+import { inboxSetupDefaultScouts, inboxSetupScoutChoices, inboxSetupScoutLimit } from './inboxSetupScouts'
 
 describe('Inbox setup defaults', () => {
     it.each(['none', 'loading', 'error'] as const)(
@@ -170,5 +170,29 @@ describe('Inbox setup defaults', () => {
             ...overrides,
         }
         expect(inboxSetupDefaultScouts([config], [], true)).toEqual([])
+    })
+
+    const operational = {
+        enabled: true,
+        scout_role: 'operational' as const,
+        skill_name: 'signals-scout-inbox-validation',
+    }
+    const specialist = { enabled: true, scout_role: 'specialist' as const, skill_name: 'signals-scout-general' }
+    it.each([
+        ['no trial', null, [operational], 5],
+        ['eligible trial ignores the operational scout', { eligible: true }, [operational], 3],
+        ['active trial counts a scout that is already on', { grant_status: 'active' }, [operational, specialist], 2],
+        ['exhausted trial', { grant_status: 'exhausted' }, [operational, specialist], 5],
+    ])('limits scout selection to the free trial slots: %s', (_name, trialOverrides, configs, limit) => {
+        const trial =
+            trialOverrides &&
+            ({
+                enabled: true,
+                eligible: false,
+                grant_status: 'not_claimed',
+                scout_limit: 3,
+                ...trialOverrides,
+            } as SelfDrivingTrialStatusApi)
+        expect(inboxSetupScoutLimit(trial, configs, { suggestions: [] }).limit).toBe(limit)
     })
 })
