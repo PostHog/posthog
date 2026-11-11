@@ -46,6 +46,7 @@ const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
 const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
 const EDGE_PORT = 4566
+const EDGE = { port: EDGE_PORT, owner: 'provider edge' }
 const TEMPLATES_WITHIN_MS = 120_000
 const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
@@ -64,7 +65,7 @@ export function createEnvironment({
     postgresUrl = STACK.postgresUrl,
 }: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
-    const stateDir = defaultStateDir(env)
+    let stateDir = defaultStateDir(env)
     const secrets = secretsOf(env)
     const children = new Map<Role, ChildProcess>()
     const restarts = new Set<NodeJS.Timeout>()
@@ -117,12 +118,13 @@ export function createEnvironment({
                 throw new Error(`No tsx at ${TSX}; install the nodejs package first.`)
             }
             mkdirSync(stateDir, { recursive: true })
+            stateDir = realpathSync(stateDir)
             releaseLock = await holdRunLock(stateDir)
             stopping = false
             try {
                 await bringUp()
             } catch (error) {
-                await stop()
+                await stop().catch(() => undefined)
                 throw error
             }
         },
@@ -162,14 +164,15 @@ export function createEnvironment({
     }
 
     async function refuseHeldPorts(roles: Role[]): Promise<void> {
+        const wanted = [...roles.map((role) => ({ port: ROLE_PORTS[role], owner: role })), EDGE]
         const held = (
-            await Promise.all(roles.map(async (role) => ((await isPortFree(ROLE_PORTS[role])) ? [] : [role])))
+            await Promise.all(wanted.map(async (want) => ((await isPortFree(want.port)) ? [] : [want])))
         ).flat()
         if (held.length > 0) {
-            const inspect = `ss -ltnp '${held.map((role) => `sport = :${ROLE_PORTS[role]}`).join(' or ')}'`
-            const ports = held.map((role) => `${ROLE_PORTS[role]} (${role})`).join(', ')
+            const inspect = `ss -ltnp '${held.map(({ port }) => `sport = :${port}`).join(' or ')}'`
+            const ports = held.map(({ port, owner }) => `${port} (${owner})`).join(', ')
             throw new StackConflictError(
-                `Role ports are already held by processes the runner did not start: ${ports}. Find the processes that hold them with \`${inspect}\`, stop them, then run the scenario again.`
+                `Ports the runner needs are already held by processes it did not start: ${ports}. Find the processes that hold them with \`${inspect}\`, stop them, then run the scenario again.`
             )
         }
     }
