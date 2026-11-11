@@ -554,6 +554,12 @@ def set_subscriber_destinations(
     )
 
 
+def remove_subscriber(*, team_ids: Collection[int], user_id: int) -> int:
+    """Takes a user who left an organization out of every subscriber destination of its teams' alerts,
+    and returns how many alerts named them."""
+    return alert_destinations.remove_subscriber(team_ids=team_ids, user_id=user_id)
+
+
 def subscriber_user_ids_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, tuple[int, ...]]:
     """The subscribers each alert's destinations name, by public id. An alert with no subscriber
     destination is left out, which is not the same as one whose subscribers all left."""

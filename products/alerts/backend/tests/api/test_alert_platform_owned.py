@@ -38,11 +38,13 @@ from products.alerts.backend.models.alert import (
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
+from products.alerts.backend.platform_subscribers import SUBSCRIBER_EVENT_KINDS
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     get_configuration,
     record_verdict_change,
+    set_subscriber_destinations,
     subscriber_user_ids_by_public_id,
     update_configuration,
 )
@@ -491,9 +493,30 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert edit.status_code == status.HTTP_200_OK, edit.json()
         assert copied(self.alert.id) == {self.alert.id: tuple(sorted([self.user.id, other.id]))}
 
-        OrganizationMembership.objects.get(user=other, organization=self.organization).delete()
+        with team_scope(self.team.id):
+            native = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="native",
+                source_kind="insight",
+                source_config={"insight_id": self.alert.insight_id},
+                check_interval_minutes=1440,
+                owner="platform",
+                legacy_configuration_id=None,
+            )
+            set_subscriber_destinations(
+                team_id=self.team.id,
+                public_id=native.id,
+                user_ids=[self.user.id, other.id],
+                event_kinds=SUBSCRIBER_EVENT_KINDS,
+                in_app_resource_type="insight",
+                in_app_resource_id=self.alert.insight.short_id,
+            )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationMembership.objects.get(user=other, organization=self.organization).delete()
         assert copied(self.alert.id) == {self.alert.id: (self.user.id,)}
         assert copied(handed_over.id) == {}
+        assert copied(native.id) == {native.id: (self.user.id,)}
 
         cleared = self.client.patch(f"{self.url}/{self.alert.id}/", {"subscribed_users": []}, format="json")
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
