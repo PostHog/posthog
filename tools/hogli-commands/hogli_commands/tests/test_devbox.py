@@ -7,6 +7,7 @@ import csv
 import sys
 import json
 import errno
+import shlex
 import signal
 import hashlib
 import subprocess
@@ -1677,6 +1678,138 @@ class TestDevboxWorktreeCommand:
         expected_record = "devbox-test-user-feat" if switched else "wt-feat"
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_record
         assert terminated == ([devbox_worktree.mutagen.workspace_label_selector("wt-feat")] if switched else [])
+
+    @pytest.mark.parametrize(
+        "args, devboxes, clone_reply, marker_on_box, expected_exit, expected_hogland, app_started, output_has",
+        [
+            pytest.param(
+                ["--clone-from", "base", "-y"],
+                [{"name": "wt-base", "current_box_id": "box-base"}],
+                (0, '{"action": "cloned"}', ""),
+                False,
+                0,
+                [["devbox", "clone", "wt-base", "wt-feat"], ["devbox", "up", "wt-feat", "--no-connect"]],
+                False,
+                "Cloning Hogland devbox 'wt-base' into 'wt-feat'",
+                id="clone-from-running-box",
+            ),
+            pytest.param(
+                ["--clone-from", "base", "-y"],
+                [{"name": "wt-base", "latest_snapshot_id": "snap-1"}],
+                None,
+                False,
+                1,
+                [],
+                False,
+                "'wt-base' is hibernated",
+                id="clone-from-hibernated-box-refused",
+            ),
+            pytest.param(
+                ["--clone-from", "base", "-y"],
+                [{"name": "wt-base", "current_box_id": "box-base"}],
+                (1, "", 'Error: unknown command "clone" for "hogland devbox"'),
+                False,
+                1,
+                [["devbox", "clone", "wt-base", "wt-feat"]],
+                False,
+                "brew upgrade",
+                id="outdated-hogland-cli-asks-for-upgrade",
+            ),
+            pytest.param(
+                ["--start-app"],
+                [],
+                None,
+                False,
+                0,
+                [["devbox", "up", "wt-feat", "--no-connect"]],
+                True,
+                "App    started",
+                id="start-app-on-new-box",
+            ),
+            pytest.param(
+                ["--no-start-app"],
+                [{"name": "wt-feat", "current_box_id": "box-feat"}],
+                None,
+                True,
+                0,
+                [["devbox", "up", "wt-feat", "--no-connect"]],
+                True,
+                "App    started",
+                id="saved-start-app-survives-flag-on-existing-box",
+            ),
+        ],
+    )
+    def test_hogland_clone_and_start_app(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        worktree_root: Path,
+        tmp_path: Path,
+        args: list[str],
+        devboxes: list[dict[str, str]],
+        clone_reply: tuple[int, str, str] | None,
+        marker_on_box: bool,
+        expected_exit: int,
+        expected_hogland: list[list[str]],
+        app_started: bool,
+        output_has: str,
+    ) -> None:
+        box_home = tmp_path / "box"
+        box_repo = box_home / "posthog"
+        (box_repo / "bin").mkdir(parents=True)
+        hogli_stub = box_repo / "bin" / "hogli"
+        hogli_stub.write_text('#!/bin/sh\necho "$@ (flox: ${FLOX_ENV:-off})" >> "$HOME/hogli-calls"\n')
+        hogli_stub.chmod(0o755)
+        flox_stub = box_home / "tools" / "flox"
+        flox_stub.parent.mkdir()
+        flox_stub.write_text(
+            '#!/bin/sh\n[ "$1" = activate ] && [ "$2" = -- ] || exit 2\nshift 2\nFLOX_ENV=on exec "$@"\n'
+        )
+        flox_stub.chmod(0o755)
+        if marker_on_box:
+            (box_home / ".config" / "hogli").mkdir(parents=True)
+            (box_home / ".config" / "hogli" / "start-app").touch()
+        monkeypatch.setattr(devbox_hogland, "REMOTE_REPO_PATH", str(box_repo))
+        monkeypatch.setattr(devbox_hogland.shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(devbox_hogland, "_SSH_DIR", tmp_path / "hogland-ssh")
+        monkeypatch.setattr(devbox_worktree, "ensure_hogland_sync_session", lambda *a, **kw: None)
+        box_events = box_home / "hogli-calls"
+
+        def flush_sync(selector: str) -> None:
+            with box_events.open("a") as events_file:
+                events_file.write("sync flushed\n")
+
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", flush_sync)
+        hogland_calls: list[list[str]] = []
+        up_reply = '{"box": {"id": "box-new", "status": "running", "public_ip": "10.0.0.1", "guest_ssh_port": 22}}'
+        real_run = subprocess.run
+
+        def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if argv[0] == "hogland" and argv[1:3] == ["devbox", "list"]:
+                return subprocess.CompletedProcess(argv, 0, json.dumps(devboxes), "")
+            if argv[0] == "hogland":
+                hogland_calls.append(argv[1:])
+                code, out, err = clone_reply if argv[2] == "clone" and clone_reply else (0, up_reply, "")
+                return subprocess.CompletedProcess(argv, code, out, err)
+            if argv[0] == "ssh":
+                shell, login_flag, script = shlex.split(argv[-1])
+                assert (shell, login_flag) == ("bash", "-lc")
+                return real_run(
+                    ["bash", "--noprofile", "--norc", "-c", script],
+                    capture_output=True,
+                    text=True,
+                    env={"HOME": str(box_home), "PATH": f"{flox_stub.parent}:{os.environ['PATH']}"},
+                )
+            return subprocess.CompletedProcess(argv, 1, "", "")
+
+        monkeypatch.setattr(devbox_hogland.subprocess, "run", fake_run)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--provider", "hogland", "--label", "feat", *args])
+
+        assert result.exit_code == expected_exit, result.output
+        assert output_has in result.output
+        assert hogland_calls == expected_hogland
+        events = box_events.read_text() if box_events.exists() else ""
+        assert events == ("sync flushed\nup -d -y (flox: on)\n" if app_started else "")
 
 
 class TestWorkspaceRegion:

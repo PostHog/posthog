@@ -53,6 +53,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from attestations import pending_check_names
 from familiarity import (
     AuthorFamiliarity,
     _band,
@@ -82,8 +83,7 @@ from github import (
     pr_provenance,
     provenance_from_messages,
 )
-from migration_risk import migration_check_pending
-from policy import FamiliarityPolicy
+from policy import Attestation, FamiliarityPolicy
 from review_pr import REPO_ROOT, GateResult, Pipeline, flush_analytics
 from version import STAMPHOG_VERSION
 
@@ -417,27 +417,25 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
     pipeline.classification["familiarity"] = fam
 
 
-def _blocked_only_by_pending_migration_check(pipeline: Pipeline) -> bool:
-    """True when only the unfinished migration analyzer keeps this PR from a review.
+def _blocked_only_by_pending_attestations(pipeline: Pipeline) -> list[Attestation]:
+    """The unfinished checks that alone keep this PR from a review, or nothing.
 
-    `Pipeline._only_pending_migration_check` cannot answer this. It disqualifies the PR on any
-    failing gate other than the deny-list, and a migrations deny always pulls the tier gate down to
-    T2-never as well. That method therefore returns False for every migration PR that it exists to
-    catch.
+    `Pipeline._only_pending_attestations` cannot answer this. It disqualifies the PR on any
+    failing gate other than the deny-list, and a deny always sets the tier gate to T2-never as
+    well. That method returns nothing for every PR that it exists to catch.
 
-    This function derives the tier again with the migrations deny removed, rather than special-casing
-    the gate. A PR that is T2 for another reason (breadth, size, a second deny) therefore stays
-    refused, and does not wait for a check that cannot change the outcome.
+    This function derives the tier again with the denies removed. A PR that is T2 for another
+    reason (breadth, size) stays refused, and does not wait for a check that cannot change the
+    outcome.
     """
     pr = pipeline.pr
     cl = pipeline.classification
-    if cl.get("deny_categories") != ["migrations"]:
-        return False
-    if not migration_check_pending(pr.check_runs, pr.file_paths):
-        return False
+    pending = pipeline.pending_lifting_attestations()
+    if not pending:
+        return []
     if any(not gate.passed and gate.gate not in ("deny-list", "tier") for gate in pipeline.gate_results):
-        return False
-    tier_without_migrations = assign_tier(
+        return []
+    tier_without_denies = assign_tier(
         deny_categories=[],
         allow_listed_only=bool(cl.get("allow_listed_only")),
         is_test_only=bool(cl.get("is_test_only")),
@@ -447,7 +445,7 @@ def _blocked_only_by_pending_migration_check(pipeline: Pipeline) -> bool:
         breadth=cl.get("breadth", ""),
         commit_type=cl.get("commit_type"),
     )
-    return tier_without_migrations != "T2-never"
+    return pending if tier_without_denies != "T2-never" else []
 
 
 # Gates the pre-check evaluates from the same inputs the sandbox uses, so a failure here is a
@@ -477,8 +475,8 @@ def _size_denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bo
     return lines > line_ceiling or files > file_ceiling
 
 
-def _pending_migration_outcome_is_known(pipeline: Pipeline, folder_policies_known: bool) -> bool:
-    """True when the pre-check reaches the same pending-migration decision as the sandbox.
+def _pending_attestation_outcome_is_known(pipeline: Pipeline, folder_policies_known: bool) -> bool:
+    """True when the pre-check reaches the same pending-attestation decision as the sandbox.
 
     That decision reads the whole gate set. Only two inputs of it need a checkout: the folder size
     grants, which ``folder_policies_known`` supplies, and the manifest scripts scan, which reads git
@@ -490,16 +488,15 @@ def _pending_migration_outcome_is_known(pipeline: Pipeline, folder_policies_know
 def _denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
     """True when the full sandbox review of this PR must also end REFUSED.
 
-    A migrations-only deny with a pending `Migration risk` check ends as WAIT in the sandbox (see
-    _blocked_only_by_pending_migration_check). Unless the pre-check can settle that decision, only a
+    A deny that a pending check may lift ends as WAIT in the sandbox (see
+    _blocked_only_by_pending_attestations). Unless the pre-check can settle that decision, only a
     failing prerequisite, which both runs see identically, keeps that case final.
     """
     failed = {gate.gate for gate in pipeline.gate_results if not gate.passed}
     if (
-        pipeline.classification.get("deny_categories") == ["migrations"]
-        and migration_check_pending(pipeline.pr.check_runs, pipeline.pr.file_paths)
+        pipeline.pending_lifting_attestations()
         and "prerequisites" not in failed
-        and not _pending_migration_outcome_is_known(pipeline, folder_policies_known)
+        and not _pending_attestation_outcome_is_known(pipeline, folder_policies_known)
     ):
         return False
     return bool(failed & _CHECKOUT_FREE_GATES) or (
@@ -507,13 +504,13 @@ def _denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
     )
 
 
-def _pending_migration_wait() -> dict:
-    """The WAIT the full review returns while the `Migration risk` check has not reported."""
+def _pending_attestation_wait(pending: list[Attestation]) -> dict:
+    """The WAIT the full review returns while a check that may lift the deny has not reported."""
     return {
         "verdict": "WAIT",
         "reasoning": (
-            "The `Migration risk` check has not finished for this commit, so stamphog cannot "
-            "tell a safe migration from a risky one yet. The review runs again on the next "
+            f"The {pending_check_names(pending)} check has not finished for this commit, so stamphog "
+            "cannot tell yet whether the change it covers is safe. The review runs again on the next "
             "push, or you can re-request it once the check reports."
         ),
         "risk": "unknown",
@@ -544,12 +541,12 @@ def pregate(context: dict) -> dict:
 
     It drives the same Pipeline steps as run(), on the same context, with no checkout and no LLM.
     ``final`` is True only when the sandbox review would end with the same verdict as ``result``,
-    which is a gate refusal or a pending-migration WAIT. The server then posts ``result`` as the
+    which is a gate refusal or a pending-attestation WAIT. The server then posts ``result`` as the
     verdict and skips the sandbox. Any other outcome falls through to the full
     review, which runs every gate again.
 
-    A pending `Migration risk` check that alone blocks the review is final too, as the same WAIT the
-    sandbox would return, when the pre-check can settle it (see _pending_migration_outcome_is_known).
+    A pending check that alone blocks the review is final too, as the same WAIT the sandbox would
+    return, when the pre-check can settle it (see _pending_attestation_outcome_is_known).
 
     A gate refusal takes its reasoning from ``refusal_reasoning`` in the context, which the server
     fills with a short LLM summary, or else from the gate messages. ``needs_summary`` tells the server
@@ -581,12 +578,12 @@ def pregate(context: dict) -> dict:
     pipeline.author_team_slugs = _author_team_slugs(context)
     pipeline._classify()
     _run_gates_offline(pipeline)
-    if _blocked_only_by_pending_migration_check(pipeline):
-        if not _pending_migration_outcome_is_known(pipeline, folder_policies_known):
+    if pending := _blocked_only_by_pending_attestations(pipeline):
+        if not _pending_attestation_outcome_is_known(pipeline, folder_policies_known):
             return {**outcome, "not_final_reason": "pending_migration_check"}
         pipeline.final_verdict = "WAIT"
-        pipeline.reviewer_output = _pending_migration_wait()
-        pipeline._capture_review_completed(pipeline._gate_verdict(), "PENDING-MIGRATION-CHECK")
+        pipeline.reviewer_output = _pending_attestation_wait(pending)
+        pipeline._capture_review_completed(pipeline._gate_verdict(), "PENDING-ATTESTATION")
         return {**outcome, "final": True, "result": pipeline.to_dict()}
     if not _denial_is_final(pipeline, folder_policies_known):
         return {**outcome, "not_final_reason": _not_final_reason(pipeline)}
@@ -629,7 +626,9 @@ def attest(context: dict) -> dict:
 
     def outcome(reason: str) -> dict:
         gates = [{"gate": g.gate, "passed": g.passed, "message": g.message} for g in pipeline.gate_results]
-        return {"attested": not reason, "reason": reason, "gates": gates}
+        # The server gives an approval that a lift made possible no approval retention.
+        lifted = bool(pipeline.classification.get("lifted_files"))
+        return {"attested": not reason, "reason": reason, "gates": gates, "lifted": lifted}
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
         return outcome("bot_author")
@@ -687,10 +686,10 @@ def run(context: dict) -> dict:
         # every refusal to a ReviewHog handoff and strips the trigger label. A refusal would
         # therefore escalate a transient check to a second review agent, and force the author to
         # re-request the review that it displaced.
-        if _blocked_only_by_pending_migration_check(pipeline):
+        if pending := _blocked_only_by_pending_attestations(pipeline):
             pipeline.final_verdict = "WAIT"
-            pipeline.reviewer_output = _pending_migration_wait()
-            pipeline._capture_review_completed(gate_verdict, "PENDING-MIGRATION-CHECK")
+            pipeline.reviewer_output = _pending_attestation_wait(pending)
+            pipeline._capture_review_completed(gate_verdict, "PENDING-ATTESTATION")
             return pipeline.to_dict()
 
         # Mirror review_pr.py's in-flight reviewer-bot handling, minus the wait: there is no token in
