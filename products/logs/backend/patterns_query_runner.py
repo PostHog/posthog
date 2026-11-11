@@ -28,7 +28,9 @@ from products.logs.backend.log_patterns import (
     _env,
     encoded_pattern_member_size,
     group_stored_patterns,
+    is_json_key_set_pattern,
     mine_patterns,
+    split_json_key_set_group,
 )
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
 
@@ -287,6 +289,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             )
         ).results
         patterns = group_stored_patterns([_stamped_pattern(row, version) for row in rows], total_count=total)
+        patterns, split_sampled = self._split_json_key_sets(patterns, version, buckets, total)
         patterns = self._stored_examples(patterns, version)
         represented = sum(pattern.count for pattern in patterns)
         return LogsQueryResponse(
@@ -294,7 +297,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 "patterns": [_serialize(pattern, total_count=total, scanned_count=total) for pattern in patterns],
                 "total_count": total,
                 "scanned_count": total,
-                "sampled": False,
+                "sampled": split_sampled,
                 "sample_coverage_pct": 100.0,
                 "sparkline_buckets": [{"start": start.isoformat(), "end": end.isoformat()} for start, end in buckets],
                 "source": "stored_patterns",
@@ -306,6 +309,71 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             }
         )
 
+    def _split_json_key_sets(
+        self, patterns: list[MinedPattern], version: int, buckets: list[_TimeSlice], total: int
+    ) -> tuple[list[MinedPattern], bool]:
+        """Split the largest JSON key-set groups by the message their rows carry.
+
+        A key-set group says only which keys the body had, so a stream of Rust `tracing` lines
+        comes back as one pattern at 100% of the volume. Reading a hash-sampled share of each
+        group's bodies, the same way body mining samples, recovers the messages without reading
+        the bodies of the exact groups. Returns the patterns and whether any split count is a
+        sampled estimate.
+        """
+        candidates = [
+            pattern
+            for pattern in patterns
+            if pattern.match_patterns and all(is_json_key_set_pattern(member) for member in pattern.match_patterns)
+        ][: _env("LOGS_PATTERNS_MAX_JSON_SPLITS", 5, int)]
+        if not candidates:
+            return patterns, False
+        per_group = max(1, self._sample_limit // len(candidates))
+        divisors = [_sample_divisor(pattern.count, per_group) for pattern in candidates]
+        members, group_ids, member_divisors = [], [], []
+        for group_id, (pattern, divisor) in enumerate(zip(candidates, divisors), start=1):
+            for member in pattern.match_patterns:
+                members.append(member)
+                group_ids.append(group_id)
+                member_divisors.append(divisor)
+        rows = self._execute(
+            parse_select(
+                "SELECT transform(pattern, {members}, {group_ids}, 0) AS pattern_group, "
+                "body, severity_text, service_name, timestamp "
+                "FROM logs WHERE {where} AND pattern IN {members} "
+                "AND cityHash64(uuid) % transform(pattern, {members}, {divisors}, 1) = 0 "
+                "LIMIT {per_group} BY pattern_group LIMIT {limit}",
+                placeholders={
+                    "where": self._stored_where(version),
+                    "members": ast.Constant(value=members),
+                    "group_ids": ast.Constant(value=group_ids),
+                    "divisors": ast.Constant(value=member_divisors),
+                    "per_group": ast.Constant(value=per_group),
+                    "limit": ast.Constant(value=per_group * len(candidates)),
+                },
+            )
+        ).results
+        samples: dict[int, list[LogSample]] = {}
+        for row in rows:
+            samples.setdefault(row[0], []).append(
+                LogSample(
+                    body=row[1], severity_text=row[2], service_name=row[3], timestamp=row[4].replace(tzinfo=dt.UTC)
+                )
+            )
+        replacements = {
+            id(pattern): split_json_key_set_group(pattern, group_samples, buckets=buckets)
+            for group_id, pattern in enumerate(candidates, start=1)
+            if (group_samples := samples.get(group_id))
+        }
+        if not replacements:
+            return patterns, False
+        split = [part for pattern in patterns for part in replacements.get(id(pattern), [pattern])]
+        split.sort(key=lambda pattern: (-pattern.count, pattern.pattern))
+        sampled = any(divisor > 1 for pattern, divisor in zip(candidates, divisors) if id(pattern) in replacements)
+        return [
+            replace(pattern, volume_share_pct=round(pattern.count / total * 100, 2) if total else 0)
+            for pattern in split[: _env("LOGS_PATTERNS_MAX_PATTERNS", 200, int)]
+        ], sampled
+
     def _stored_examples(self, patterns: list[MinedPattern], version: int) -> list[MinedPattern]:
         if not patterns:
             return []
@@ -315,6 +383,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         member_groups = {
             member: group_id for group_id, pattern in enumerate(patterns, start=1) for member in pattern.match_patterns
         }
+        if not member_groups:
+            return patterns
         # `LIMIT n BY` caps rows, not distinct bodies, and the table's sort order puts the rows of a
         # repeated line next to each other, so one body can fill a group's whole quota. Read a
         # bounded multiple of the quota and keep the distinct bodies here. Grouping on `body` in the
@@ -347,7 +417,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 )
             )
         return [
-            replace(pattern, examples=examples.get(group_id, [])) for group_id, pattern in enumerate(patterns, start=1)
+            replace(pattern, examples=examples.get(group_id, [])) if pattern.match_patterns else pattern
+            for group_id, pattern in enumerate(patterns, start=1)
         ]
 
     def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:

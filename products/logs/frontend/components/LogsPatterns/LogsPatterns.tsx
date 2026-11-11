@@ -221,9 +221,19 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
     // Estimated counts are rounded (not exact-comma-formatted) and prefixed with "~" so a
     // reader never mistakes an extrapolation for a measurement; the tooltip carries the raw
     // sample fact the estimate was derived from.
-    const renderEstimate = (estimated: number, sampleCount: number): JSX.Element | string => {
+    const renderEstimate = (row: _LogPatternApi, estimated: number, sampleCount: number): JSX.Element | string => {
         if (!sampled) {
             return humanFriendlyNumber(estimated)
+        }
+        if (patternsResponse.source === 'stored_patterns') {
+            if (row.match_patterns?.length) {
+                return humanFriendlyNumber(estimated)
+            }
+            return (
+                <Tooltip title="Estimated from a sample of this JSON pattern's lines">
+                    <span>~{humanFriendlyLargeNumber(estimated)}</span>
+                </Tooltip>
+            )
         }
         return (
             <Tooltip
@@ -263,7 +273,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         {
             title: 'Count',
             dataIndex: 'estimated_count',
-            render: (_, row) => renderEstimate(row.estimated_count, row.count),
+            render: (_, row) => renderEstimate(row, row.estimated_count, row.count),
             sorter: (a, b) => a.estimated_count - b.estimated_count,
             align: 'right',
         },
@@ -279,7 +289,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             dataIndex: 'estimated_error_count',
             render: (_, row) =>
                 row.estimated_error_count > 0 ? (
-                    <LemonTag type="danger">{renderEstimate(row.estimated_error_count, row.error_count)}</LemonTag>
+                    <LemonTag type="danger">{renderEstimate(row, row.estimated_error_count, row.error_count)}</LemonTag>
                 ) : (
                     <span className="text-muted">0</span>
                 ),
@@ -365,25 +375,32 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                 !patternsResponseLoading &&
                 !patternsError && (
                     <LemonBanner type="info" className="m-2" data-attr="logs-patterns-source-info">
-                        Using stored patterns v{patternsResponse.pattern_version}, grouped with Drain3. Counts are
-                        exact. {humanFriendlyLargeNumber(patternsResponse.represented_count ?? 0)} of{' '}
+                        Using stored patterns v{patternsResponse.pattern_version}, grouped with Drain3.{' '}
+                        {sampled
+                            ? 'JSON patterns split by their message field have estimated counts; the rest are exact.'
+                            : 'Counts are exact.'}{' '}
+                        {humanFriendlyLargeNumber(patternsResponse.represented_count ?? 0)} of{' '}
                         {humanFriendlyLargeNumber(total_count)} matching lines appear in these groups;{' '}
                         {humanFriendlyLargeNumber(patternsResponse.remainder_count ?? 0)} remain outside them.
                     </LemonBanner>
                 )}
-            {!compareEnabled && sampled && !patternsResponseLoading && !patternsError && (
-                <LemonBanner type="info" className="m-2" data-attr="logs-patterns-sample-info">
-                    Patterns are mined from a representative sample of {humanFriendlyNumber(scanned_count)} lines out of
-                    the {humanFriendlyLargeNumber(total_count)} matching your filters
-                    {sample_coverage_pct < 100
-                        ? `, drawn from evenly-spaced time slices covering ${sample_coverage_pct.toFixed(
-                              1
-                          )}% of the window`
-                        : ''}
-                    . Counts are estimates for the full window — hover a count for the underlying sample figure. Narrow
-                    your filters (a service, a severity, or a shorter time range) to sharpen the sample.
-                </LemonBanner>
-            )}
+            {!compareEnabled &&
+                sampled &&
+                patternsResponse.source !== 'stored_patterns' &&
+                !patternsResponseLoading &&
+                !patternsError && (
+                    <LemonBanner type="info" className="m-2" data-attr="logs-patterns-sample-info">
+                        Patterns are mined from a representative sample of {humanFriendlyNumber(scanned_count)} lines
+                        out of the {humanFriendlyLargeNumber(total_count)} matching your filters
+                        {sample_coverage_pct < 100
+                            ? `, drawn from evenly-spaced time slices covering ${sample_coverage_pct.toFixed(
+                                  1
+                              )}% of the window`
+                            : ''}
+                        . Counts are estimates for the full window — hover a count for the underlying sample figure.
+                        Narrow your filters (a service, a severity, or a shorter time range) to sharpen the sample.
+                    </LemonBanner>
+                )}
             {compareEnabled &&
                 diffResponse &&
                 !diffResponseLoading &&

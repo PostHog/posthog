@@ -622,6 +622,25 @@ class TestPrepareJsonBody(TestCase):
             ("empty_message_is_not_a_message", '{"message": "", "a": 1}', None),
             ("non_string_message_is_not_a_message", '{"message": 42}', None),
             ("no_message_key", '{"user_id": 1, "ok": true}', None),
+            (
+                "tracing_fields_message",
+                '{"level": "ERROR", "fields": {"message": "upstream refused"}, "target": "svc::auth"}',
+                "upstream refused",
+            ),
+            ("error_key", '{"error": "connection refused", "code": 7}', "connection refused"),
+            ("fields_error_key", '{"fields": {"error": "frame too large"}, "level": "WARN"}', "frame too large"),
+            (
+                "fields_message_wins_over_error",
+                '{"error": "eof", "fields": {"message": "read failed", "error": "eof"}}',
+                "read failed",
+            ),
+            (
+                "top_level_message_wins_over_fields_message",
+                '{"fields": {"message": "nested"}, "message": "top level"}',
+                "top level",
+            ),
+            ("fields_not_an_object", '{"fields": "message", "level": "INFO"}', None),
+            ("empty_fields_message_falls_through", '{"fields": {"message": " "}, "error": "boom"}', "boom"),
             # A producer controls the body, and an integer past sys.get_int_max_str_digits()
             # raises a bare ValueError from the number parser rather than a JSONDecodeError.
             ("integer_past_the_digit_limit", '{"message": "hi", "n": ' + "9" * 5000 + "}", None),
@@ -662,6 +681,30 @@ class TestJsonBodyMining(TestCase):
 
         assert len(patterns) == 1
         assert patterns[0].match_regex is None
+
+    def test_tracing_bodies_cluster_by_fields_message_and_regex_matches_the_raw_line(self) -> None:
+        raws = [
+            json.dumps(
+                {
+                    "timestamp": f"2026-06-23T12:00:0{i}.000000Z",
+                    "level": "ERROR",
+                    "fields": {"message": message},
+                    "target": "svc::decode",
+                    "span": {"content_length": str(100 + i), "name": "export"},
+                }
+            )
+            for i, message in enumerate(
+                ["upstream refused", "upstream refused", "frame 12 too large", "frame 345 too large"]
+            )
+        ]
+        patterns = {p.pattern: p for p in mine_patterns([_sample(raw) for raw in raws])}
+
+        assert set(patterns) == {"upstream refused", "frame <num> too large"}
+        assert patterns["upstream refused"].count == 2
+        for template, own_rows in (("upstream refused", raws[:2]), ("frame <num> too large", raws[2:])):
+            regex = patterns[template].match_regex
+            assert regex is not None
+            assert [raw for raw in raws if re.search(regex, raw)] == own_rows
 
     def test_message_less_json_keeps_a_predicate_that_matches_the_raw_row(self) -> None:
         # Rewriting these bodies into a canonical shape collapses them into one template, but

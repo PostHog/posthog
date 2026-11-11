@@ -304,6 +304,24 @@ class TestStoredPatternKeys(TestCase):
 
         assert [e["classification"] for e in entries] == ["rate_shift"]
 
+    def test_split_json_patterns_without_stored_members_match_by_fingerprint(self) -> None:
+        current = [
+            {**_pattern("upstream refused", count=100), "match_patterns": []},
+            {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},
+        ]
+        baseline = [
+            {**_pattern("upstream refused", count=10), "match_patterns": []},
+            {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},
+        ]
+
+        keys = stored_pattern_keys(current, baseline)
+        entries = diff_patterns(current, baseline, current_window=_HOUR, baseline_window=_BASELINE_HOUR, key=keys)
+
+        assert {e["pattern"]["pattern"]: e["classification"] for e in entries} == {
+            "upstream refused": "rate_shift",
+            "Retry <*> timed out": "unchanged",
+        }
+
     def test_a_baseline_group_spanning_two_current_groups_matches_both(self) -> None:
         current = [
             {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},

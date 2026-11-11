@@ -2,6 +2,7 @@ import os
 import re
 import json
 import datetime as dt
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -104,6 +105,94 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert pattern["count"] == 14
         assert len(bodies) == len(set(bodies))
         assert set(bodies) == {"Retry 7 timed out", "Retry 8 timed out", "Retry 9 timed out"}
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_json_key_set_groups_split_by_their_message_field(self) -> None:
+        key_set = "<JSON:fields,level,span,target,timestamp>"
+
+        def tracing(message: str | None, index: int) -> dict:
+            fields = {"message": message} if message is not None else {"count": index}
+            body = json.dumps(
+                {
+                    "timestamp": f"2026-06-23T12:00:{index % 60:02d}.000000Z",
+                    "level": "ERROR",
+                    "fields": fields,
+                    "target": "svc::auth",
+                    "span": {"content_length": str(index), "name": "export"},
+                }
+            )
+            return {**self._log(body, severity="error"), "pattern": key_set, "pattern_version": 6}
+
+        self._insert(
+            [tracing("upstream refused", i) for i in range(30)]
+            + [tracing(f"frame {i} too large", i) for i in range(20)]
+            + [tracing(None, i) for i in range(5)]
+            + [{**self._log("Archived 9 files"), "pattern": "Archived <N> files", "pattern_version": 6}] * 10
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            results = self._run()
+        patterns = {pattern["pattern"]: pattern for pattern in results["patterns"]}
+
+        assert results["source"] == "stored_patterns"
+        assert set(patterns) == {"upstream refused", "frame <num> too large", "Archived <N> files", key_set}
+        assert patterns["upstream refused"]["count"] == 30
+        assert patterns["upstream refused"]["error_count"] == 30
+        assert patterns["frame <num> too large"]["count"] == 20
+        assert patterns[key_set]["count"] == 5
+        assert patterns[key_set]["match_patterns"] == [key_set]
+        assert patterns["Archived <N> files"]["match_patterns"] == ["Archived <N> files"]
+        assert results["represented_count"] == 65
+        assert results["remainder_count"] == 0
+        assert [pattern["pattern"] for pattern in results["patterns"]][:2] == [
+            "upstream refused",
+            "frame <num> too large",
+        ]
+        refined = patterns["upstream refused"]
+        assert refined["match_patterns"] == []
+        assert refined["pattern_version"] is None
+        assert refined["examples"]
+        pivot = self._run(
+            filterGroup={
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "message", "value": refined["match_regex"], "operator": "regex", "type": "log"}
+                        ],
+                    }
+                ],
+            }
+        )
+        assert pivot["total_count"] == 30
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_a_sampled_json_split_reports_its_counts_as_estimates(self) -> None:
+        # The test schema has no uuid default, and the split samples by a hash of the uuid.
+        key_set = "<JSON:fields,level,target>"
+        self._insert(
+            [
+                {
+                    **self._log(json.dumps({"level": "ERROR", "fields": {"message": f"frame {i} too large"}})),
+                    "uuid": str(uuid4()),
+                    "pattern": key_set,
+                    "pattern_version": 6,
+                }
+                for i in range(200)
+            ]
+        )
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch.dict(os.environ, {"LOGS_PATTERNS_SAMPLE_LIMIT": "50"}),
+        ):
+            results = self._run()
+
+        assert results["source"] == "stored_patterns"
+        assert results["sampled"] is True
+        assert [pattern["pattern"] for pattern in results["patterns"]] == ["frame <num> too large"]
+        assert results["patterns"][0]["count"] == 200
 
     @parameterized.expand([(False, 100, "flag_disabled"), (True, 98, "insufficient_version_coverage")])
     @time_machine.travel(_FROZEN_NOW, tick=False)

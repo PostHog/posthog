@@ -208,10 +208,22 @@ class _PreparedBody:
     from_json: bool
 
 
-# Keys checked (in order) for the human-readable message inside a JSON body. Matches Loki's
-# pattern-ingester default list plus "event" (structlog's convention); Datadog's JSON
-# preprocessing remaps the same core keys (message/msg/log) to the log body.
-_JSON_MESSAGE_KEYS = ("message", "msg", "log", "msg_", "_msg", "content", "event")
+# Paths checked (in order) for the human-readable message inside a JSON body. The top-level keys
+# match Loki's pattern-ingester default list plus "event" (structlog's convention); Datadog's JSON
+# preprocessing remaps the same core keys (message/msg/log) to the log body. Rust `tracing` nests
+# its message under "fields".
+_JSON_MESSAGE_PATHS: tuple[tuple[str, ...], ...] = (
+    ("message",),
+    ("msg",),
+    ("log",),
+    ("msg_",),
+    ("_msg",),
+    ("content",),
+    ("event",),
+    ("fields", "message"),
+    ("error",),
+    ("fields", "error"),
+)
 
 # Raw example bodies (the predicate validation corpus) are kept at a multiple of the mining
 # truncation cap: long enough that predicates over truncated templates still validate against
@@ -249,12 +261,19 @@ def _prepare_json_body(body: str) -> str | None:
     if not isinstance(parsed, dict):
         return None
 
-    for key in _JSON_MESSAGE_KEYS:
-        value = parsed.get(key)
+    for path in _JSON_MESSAGE_PATHS:
+        value: object = parsed
+        for key in path:
+            value = value.get(key) if isinstance(value, dict) else None
         if isinstance(value, str) and value.strip():
             return value
 
     return None
+
+
+def is_json_key_set_pattern(pattern: str) -> bool:
+    """Whether a stored pattern is ingestion's key-set reduction of a JSON object body."""
+    return pattern.startswith("<JSON:")
 
 
 def _prepare_body(body: str, truncate: int) -> _PreparedBody:
@@ -563,3 +582,67 @@ def group_stored_patterns(patterns: list[MinedPattern], *, total_count: int) -> 
         replace(pattern, volume_share_pct=round(pattern.count / total_count * 100, 2) if total_count else 0)
         for pattern in ordered[: _env("LOGS_PATTERNS_MAX_PATTERNS", 200, int)]
     ]
+
+
+def split_json_key_set_group(
+    group: MinedPattern,
+    samples: list[LogSample],
+    *,
+    buckets: list[tuple[dt.datetime, dt.datetime]],
+) -> list[MinedPattern]:
+    """Split a stored JSON key-set group into the messages its rows carry.
+
+    Ingestion reduces a JSON object body without a top-level message key to its key set, so every
+    line from one logger shape lands in one group, whatever it says. Rust `tracing` output is the
+    common case: the message sits under "fields". Mining the sampled rows with the nested message
+    paths recovers what they say. The split patterns pivot with `match_regex` rather than
+    `match_patterns`, because each one covers only part of a stored pattern.
+
+    Counts are scaled from the sample to the group's exact count, so they are estimates whenever
+    the sample is smaller than the group. Rows that carry no message stay in the key-set group,
+    which keeps its exact-match pivot. A group with no message-bearing rows comes back unchanged.
+    """
+    with_message: list[LogSample] = []
+    residual: list[LogSample] = []
+    for sample in samples:
+        (residual if _prepare_json_body(sample.body) is None else with_message).append(sample)
+    if not with_message:
+        return [group]
+    scale = group.count / len(samples)
+
+    def scaled(count: int) -> int:
+        return round(count * scale)
+
+    split = [
+        replace(
+            pattern,
+            count=scaled(pattern.count),
+            error_count=scaled(pattern.error_count),
+            bucket_counts=[scaled(count) for count in pattern.bucket_counts],
+            severity_counts={severity: scaled(count) for severity, count in pattern.severity_counts.items()},
+            match_patterns=[],
+            pattern_version=None,
+        )
+        for pattern in mine_patterns(with_message, buckets=buckets)
+    ]
+    if residual:
+        severities: dict[str, int] = {}
+        for sample in residual:
+            severity = sample.severity_text.lower()
+            severities[severity] = severities.get(severity, 0) + 1
+        bucket_counts = [0] * len(buckets)
+        for sample in residual:
+            if (index := _bucket_index(buckets, sample.timestamp)) is not None:
+                bucket_counts[index] += 1
+        split.append(
+            replace(
+                group,
+                count=scaled(len(residual)),
+                error_count=scaled(sum(severities.get(severity, 0) for severity in ERROR_SEVERITIES)),
+                first_seen=min(sample.timestamp for sample in residual),
+                last_seen=max(sample.timestamp for sample in residual),
+                bucket_counts=[scaled(count) for count in bucket_counts],
+                severity_counts={severity: scaled(count) for severity, count in severities.items()},
+            )
+        )
+    return [pattern for pattern in split if pattern.count > 0]

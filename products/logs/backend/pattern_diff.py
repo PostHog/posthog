@@ -58,11 +58,16 @@ def stored_pattern_keys(current: list[dict], baseline: list[dict]) -> Callable[[
 
     for group in (*current, *baseline):
         roots = {find(member) for member in group["match_patterns"]}
+        if not roots:
+            continue
         root = min(roots)
         for other in roots:
             parent[other] = root
 
     def key(pattern: dict) -> str:
+        # The prefix keeps a fingerprint key from colliding with a stored member.
+        if not pattern["match_patterns"]:
+            return "\x01" + _fingerprint_key(pattern)
         return find(pattern["match_patterns"][0])
 
     return key
