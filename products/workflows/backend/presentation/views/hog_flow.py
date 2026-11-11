@@ -270,6 +270,7 @@ from products.workflows.backend.facade.proposals import (
 from products.workflows.backend.facade.revisions import get_revision, list_revisions, restore_revision
 from products.workflows.backend.facade.sandbox_email import (
     SANDBOX_EMAIL_ACTION_TYPE,
+    require_sandbox_runtime,
     sandbox_adoption_enabled,
     validate_sandbox_email_action,
 )
@@ -6769,11 +6770,13 @@ class HogFlowViewSet(
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
             payload["configuration"] = draft
 
+        configuration = payload.get("configuration") or {}
+        # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
+        actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
+        require_sandbox_runtime(actions)
+
         test_run_row = None
         if not payload.get("mock_async_functions", True):
-            configuration = payload.get("configuration") or {}
-            # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
-            actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
             self._require_replay_vision_caller_access(request, actions)
             test_run_row = log_workflow_test_run(
                 actor=self._activity_actor(),
