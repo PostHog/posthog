@@ -10,6 +10,7 @@ posts as a new message.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import Any, ClassVar
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
@@ -22,6 +23,8 @@ class WebhookUrlTransport(ABC):
     provider: str
     display_name: str
     headers: ClassVar[dict[str, str]] = {}
+    # None fits a URL that points at the customer's own endpoint, where every refusal is theirs.
+    owner_refusals: ClassVar[Mapping[int, bytes | None] | None] = None
 
     def channel_target(self, target: AlertDestinationData) -> str:
         # Some Teams URLs are longer than the column, which a digest also avoids. A changed URL
@@ -41,7 +44,11 @@ class WebhookUrlTransport(ABC):
             raise DeliveryError(f"This {self.display_name} destination has no webhook URL.")
         self.check_url(url)
         post_json(
-            self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers_for(target)
+            self.send_url(url),
+            self.body_for(message),
+            display_name=self.display_name,
+            headers=self.headers_for(target),
+            owner_refusals=self.owner_refusals,
         )
         return None
 
