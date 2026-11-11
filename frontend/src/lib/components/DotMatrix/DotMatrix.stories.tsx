@@ -34,6 +34,7 @@ const fixture: DotMatrixProps<Datum> = {
         )
     ),
     rowHeader: { title: 'Account' },
+    aggregateSelection: (cell, selected) => selected.filter((key) => cell.values[key] > 0).length,
     legend: { itemLabel: 'products', valueLabel: 'Users', hint: 'Click a product to filter. Shift-click to add more.' },
 }
 
@@ -44,7 +45,11 @@ const meta: Meta<DotMatrixProps<Datum>> = {
     args: fixture,
     render: function Render(args) {
         const [selectedSeries, setSelectedSeries] = useState(args.selectedSeries)
-        return <DotMatrix {...args} selectedSeries={selectedSeries} onSelectedSeriesChange={setSelectedSeries} />
+        return (
+            <div className="w-[1100px] max-w-full">
+                <DotMatrix {...args} selectedSeries={selectedSeries} onSelectedSeriesChange={setSelectedSeries} />
+            </div>
+        )
     },
 }
 export default meta
@@ -77,16 +82,18 @@ export const Loading: Story = {
 }
 export const CustomFields: Story = {
     render: () => (
-        <DotMatrix
-            data={[
-                { station: 'North station', inspection: 'Morning', faults: 2 },
-                { station: 'North station', inspection: 'Evening', faults: 0 },
-                { station: 'South station', inspection: 'Morning', faults: 4 },
-                { station: 'South station', inspection: 'Evening', faults: 1 },
-            ]}
-            fields={{ row: 'station', column: 'inspection', value: 'faults' }}
-            rowHeader={{ title: 'Station' }}
-        />
+        <div className="w-[1100px] max-w-full">
+            <DotMatrix
+                data={[
+                    { station: 'North station', inspection: 'Morning', faults: 2 },
+                    { station: 'North station', inspection: 'Evening', faults: 0 },
+                    { station: 'South station', inspection: 'Morning', faults: 4 },
+                    { station: 'South station', inspection: 'Evening', faults: 1 },
+                ]}
+                fields={{ row: 'station', column: 'inspection', value: 'faults' }}
+                rowHeader={{ title: 'Station' }}
+            />
+        </div>
     ),
 }
 export const Thresholds: Story = {
