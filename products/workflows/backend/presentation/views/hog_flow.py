@@ -2152,6 +2152,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         parse_account_audience_filters(filters)
                     else:
+                        reject_unusable_audience_conditions(self.context["get_team"](), filters)
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
             elif data.get("config", {}).get("type") == "api":
                 # A transactional email's trigger: the authenticated send endpoint runs the workflow once
