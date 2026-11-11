@@ -1867,6 +1867,8 @@ class TestExportRendererTokenFlow(APIBaseTest):
     def test_exporter_page_mints_token_that_only_serves_its_heatmap_query(
         self, _name: str, heatmap_data_url: str, url_param: str, url_value: str
     ) -> None:
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
         export_context = {
             "heatmap_url": "https://example.com",
             "heatmap_data_url": heatmap_data_url,
@@ -1907,6 +1909,25 @@ class TestExportRendererTokenFlow(APIBaseTest):
             headers={"authorization": f"Bearer {renderer_token}"},
         )
         assert heatmap_response.status_code == status.HTTP_200_OK
+
+    def test_exporter_page_rejects_stored_heatmap_asset_outside_authorized_urls(self) -> None:
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": "https://example.org/page",
+                "heatmap_data_url": "https://example.org/page",
+                "heatmap_type": "click",
+            },
+        )
+
+        with patch("products.exports.backend.url_security.is_url_allowed", return_value=(True, None)):
+            response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_exporter_page_rejects_stored_cross_origin_screenshot_asset(self) -> None:
         asset = ExportedAsset.objects.create(
