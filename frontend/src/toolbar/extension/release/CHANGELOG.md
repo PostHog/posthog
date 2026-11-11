@@ -1,5 +1,11 @@
 # @posthog/toolbar-extension
 
+## 0.4.0
+
+### Minor changes
+
+- [804aa444ede](https://github.com/PostHog/posthog/commit/804aa444edea74001d07709ca21425cc773e95b8) Filter the heatmap and clickmap by feature flag variant, and search flags and variants. Not every account has it yet.
+
 ## 0.3.0
 
 ### Minor changes

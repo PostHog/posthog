@@ -412,6 +412,72 @@ export const OverviewWithoutWarehouseAccess: Story = {
     },
 }
 
+const certificationSuggestion = (id: string, kind: 'certify' | 'deprecate', name: string): Record<string, unknown> => ({
+    id,
+    kind,
+    subject_kind: 'saved_query',
+    subject_id: `subject-${id}`,
+    payload:
+        kind === 'certify'
+            ? { subject_name: name }
+            : { subject_name: name, refresh_seconds_per_month: 5400, refresh_bytes_per_month: 2 * 10 ** 12 },
+    payload_version: 1,
+    evidence: { human_requests: 640, human_users: 9, human_days: 28, requests_by_surface: { dashboard: 640 } },
+    evidence_window_start: '2026-08-15T00:00:00Z',
+    evidence_window_end: '2026-09-14T00:00:00Z',
+    last_seen_at: '2026-09-14T08:30:00Z',
+    status: 'proposed',
+    surfaced_at: '2026-09-14T08:30:00Z',
+    reviewed_by: null,
+    reviewed_at: null,
+    dismissal_reason: null,
+    dismissal_note: null,
+    created_asset: null,
+    asset_outcome: null,
+    realized_seconds_saved_per_month: null,
+    realized_bytes_saved_per_month: null,
+    can_act: true,
+    assignee: null,
+})
+
+const certificationSuggestions = [
+    certificationSuggestion('1', 'certify', 'customer_monthly_revenue'),
+    certificationSuggestion('2', 'certify', 'orders_daily'),
+    certificationSuggestion('3', 'deprecate', 'old_marketing_rollup'),
+]
+
+export const OverviewWithCertificationSuggestions: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+            FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS,
+        ],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/warehouse_suggestions/': {
+                    results: certificationSuggestions,
+                    count: certificationSuggestions.length,
+                },
+                '/api/projects/:team_id/warehouse_suggestions/status/': {
+                    enabled: true,
+                    eligible: true,
+                    days_with_data: 30,
+                    window_days: 30,
+                    paused_reason: null,
+                    refreshed_at: '2026-09-14T08:30:00Z',
+                },
+            },
+        }),
+    ],
+}
+
+export const Lineage: Story = {
+    parameters: { pageUrl: urls.dataCatalog('lineage') },
+}
+
 export const OverviewWithoutWarehouseAccessNarrow: Story = {
     ...OverviewWithoutWarehouseAccess,
     decorators: [inMainContent('w-128')],

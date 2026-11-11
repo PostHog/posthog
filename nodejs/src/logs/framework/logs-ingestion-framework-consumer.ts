@@ -21,6 +21,7 @@ import type { MetricRuleSource } from '../metrics-rules/compile-metric-rules'
 import { MetricSeriesAdmission } from '../metrics-rules/tally'
 import type { RetentionRuleSource } from '../retention/compile-retention-rules'
 import { LogsSamplingService } from '../sampling/logs-sampling.service'
+import type { SamplingRuleSource } from '../sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from '../services/logs-rate-limiter.service'
 import type { TransformationBatchBudget } from '../transformations/logs-transformer.service'
 import { LogsIngestionMessage } from '../types'
@@ -47,6 +48,7 @@ export class LogsIngestionFrameworkConsumer {
     protected appSource: 'logs' | 'traces' = 'logs'
     protected metricRuleSource: MetricRuleSource = 'logs'
     protected retentionRuleSource: RetentionRuleSource = 'logs'
+    protected samplingRuleSource: SamplingRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private readonly appMetricsAggregator: AppMetricsAggregator
     private readonly redis: RedisV2
@@ -127,6 +129,7 @@ export class LogsIngestionFrameworkConsumer {
                 quotaResource: this.quotaResource,
                 metricRuleSource: this.metricRuleSource,
                 retentionRuleSource: this.retentionRuleSource,
+                samplingRuleSource: this.samplingRuleSource,
             }
             this.pipelineContext = {
                 identity,
