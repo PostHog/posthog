@@ -165,7 +165,10 @@ rules:
                 - pattern: $X.start_workflow
                 - pattern: $X.execute_workflow
           # Sending the selected rows to a console operation is how an action moves to the console.
-          - pattern-not: $CALL(<... reverse("=~/^admin_console_/", ...) ...>)
+          - pattern-not: redirect("=~/^admin_console_/", ...)
+          - pattern-not: redirect(<... reverse("=~/^admin_console_/", ...) ...>)
+          - pattern-not: HttpResponseRedirect(<... reverse("=~/^admin_console_/", ...) ...>)
+          - pattern-not: HttpResponsePermanentRedirect(<... reverse("=~/^admin_console_/", ...) ...>)
       paths:
           include:
               - '**/admin.py'

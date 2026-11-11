@@ -146,6 +146,16 @@ class CampaignAdmin(admin.ModelAdmin):
         # ok: no-new-admin-workflow-actions
         return redirect(reverse("admin_console_tool", args=["rebuild"]))
 
+    @admin.action(description="Rebuild by view name")
+    def rebuild_by_name(self, request, queryset):
+        # ok: no-new-admin-workflow-actions
+        return redirect("admin_console_tool", tool_key="rebuild")
+
+    @admin.action(description="Report in the background")
+    def report_in_background(self, request, queryset):
+        # ruleid: no-new-admin-workflow-actions
+        report_task.delay(reverse("admin_console_home"))
+
     def send_report(self, request, queryset):
         # ok: no-new-admin-workflow-actions
         send_report_task.delay()
