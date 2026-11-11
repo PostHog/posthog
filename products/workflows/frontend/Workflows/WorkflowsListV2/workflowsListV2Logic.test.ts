@@ -812,22 +812,31 @@ describe('workflowsListV2Logic', () => {
                     edges: RENEWAL_EDGES,
                 }),
             ],
+            'Workflow "Renewal reminder" duplicated',
         ],
-        ['fails', 500, []],
-    ])('sends one duplicate at a time and clears the pending state when the copy %s', async (_, status, posted) => {
+        ['fails', 500, [], /^Failed to duplicate workflow/],
+        [
+            'stalls',
+            null,
+            [],
+            'Failed to duplicate workflow: The server took too long to respond. Refresh the list before you try again.',
+        ],
+    ])('sends one duplicate at a time and releases the row when the copy %s', async (_, status, posted, toast) => {
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
 
         let answerRetrieve: () => void = () => {}
+        const retrieveSignals: AbortSignal[] = []
         const postedBodies: Record<string, unknown>[] = []
         const retrieveSent = new Promise<void>((markSent) => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/hog_flows/summaries/': () => [200, paginated(FIXTURE_WORKFLOWS)],
-                    '/api/projects/:team_id/hog_flows/:id/': () =>
+                    '/api/projects/:team_id/hog_flows/:id/': ({ request }) =>
                         new Promise((resolve) => {
+                            retrieveSignals.push(request.signal)
                             answerRetrieve = () =>
                                 resolve(
                                     status === 200
@@ -855,15 +864,28 @@ describe('workflowsListV2Logic', () => {
         })
         const row = logic.values.rows.find((r) => r.id === 'wf-renewal')!
 
-        logic.actions.duplicateWorkflow(row)
-        logic.actions.duplicateWorkflow(row)
-        expect(logic.values.pendingRowActions).toEqual({ 'wf-renewal': 'duplicate' })
+        jest.useFakeTimers()
+        try {
+            logic.actions.duplicateWorkflow(row)
+            logic.actions.duplicateWorkflow(row)
+            expect(logic.values.pendingRowActions).toEqual({ 'wf-renewal': 'duplicate' })
 
-        await retrieveSent
-        answerRetrieve()
-        await expectLogic(logic).toFinishAllListeners()
+            await retrieveSent
+            if (status === null) {
+                await jest.advanceTimersByTimeAsync(SUMMARY_REQUEST_TIMEOUT_MS)
+            } else {
+                answerRetrieve()
+            }
+        } finally {
+            jest.useRealTimers()
+        }
+        await act(async () => {
+            await expectLogic(logic).toFinishAllListeners()
+        })
         expect(postedBodies).toEqual(posted)
         expect(logic.values.pendingRowActions).toEqual({})
+        expect(screen.queryByText(toast)).not.toBeNull()
+        expect(retrieveSignals.map((signal) => signal.aborted)).toEqual([status === null])
     })
 
     it('stops paging an older load once a newer load starts', async () => {
