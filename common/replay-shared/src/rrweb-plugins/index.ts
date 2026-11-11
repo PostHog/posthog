@@ -1,6 +1,6 @@
 import { ReplayPlugin, playerConfig } from 'posthog-js/rrweb'
 
-import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../mobile/transformer/shared'
+import { BLOCKED_ELEMENT_STYLE_RULE } from './blocked-element'
 
 const PROXY_URL = 'https://replay.ph-proxy.com' as const
 
@@ -81,25 +81,7 @@ export function createCorsPlugin(getProxyToken: () => string | null | undefined)
 // The headless renderer has no proxy token, so it calls the proxy without one.
 export const CorsPlugin = createCorsPlugin(() => null)
 
-export const BLOCKED_ELEMENT_LABEL = 'Hidden from recording by privacy settings'
-
-function blockedElementLabelImage(text: string): string {
-    // The viewBox lets the label shrink to fit a small element while keeping its proportions.
-    const svg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="40" viewBox="0 0 400 40">` +
-        `<rect x="1" y="1" width="398" height="38" rx="6" fill="#ffffff" stroke="#6b7280"/>` +
-        `<text x="200" y="26" text-anchor="middle" font-family="sans-serif" font-size="16" fill="#374151">${text}</text>` +
-        `</svg>`
-    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
-}
-
-// Without the label, viewers read the stripes as a broken or loading element.
-const defaultStyleRules = `.ph-no-capture {
-    background-image: ${blockedElementLabelImage(BLOCKED_ELEMENT_LABEL)}, ${PLACEHOLDER_SVG_DATA_IMAGE_URL};
-    background-position: center, 0 0;
-    background-size: min(400px, 90%) min(40px, 90%), auto;
-    background-repeat: no-repeat, repeat;
-}`
+const defaultStyleRules = BLOCKED_ELEMENT_STYLE_RULE
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
 // Language picker prepended to <body> by the "Translator, dictionary - accurate translate" extension.
