@@ -52,6 +52,8 @@ _DELIVERY_ATTEMPTS = 3
 # The per-attempt limits the separate activities had as their start_to_close timeouts.
 _DELIVERY_ATTEMPT_TIMEOUT_SECONDS = 30
 _SIGNAL_EMISSION_TIMEOUT_SECONDS = 120
+# Under prepare's own start_to_close timeout, so a stalled network capture is dropped instead of failing the scan.
+_NETWORK_FETCH_TIMEOUT_SECONDS = 90
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
@@ -79,8 +81,11 @@ async def prepare_observation_activity(inputs: PrepareObservationInputs) -> Prep
             FetchSessionEventsInputs(observation_id=observation_id, team_id=team_id, session_id=session_id)
         ),
         ensure_session_asset(EnsureSessionAssetInputs(team_id=team_id, session_id=session_id)),
-        fetch_session_network(
-            FetchSessionNetworkInputs(observation_id=observation_id, team_id=team_id, session_id=session_id)
+        asyncio.wait_for(
+            fetch_session_network(
+                FetchSessionNetworkInputs(observation_id=observation_id, team_id=team_id, session_id=session_id)
+            ),
+            _NETWORK_FETCH_TIMEOUT_SECONDS,
         ),
         resolve,
         return_exceptions=True,
