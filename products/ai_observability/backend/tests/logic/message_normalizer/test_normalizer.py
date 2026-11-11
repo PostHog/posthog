@@ -66,7 +66,7 @@ def test_a_run_logs_non_text_content_once_with_a_count_per_type() -> None:
     ]
 
 
-def test_probing_for_matches_never_serializes_an_unmatched_value() -> None:
+def test_normalizing_if_matched_never_serializes_an_unmatched_value() -> None:
     too_deep_to_serialize: dict = {}
     cursor = too_deep_to_serialize
     for _ in range(100_000):
@@ -76,8 +76,26 @@ def test_probing_for_matches_never_serializes_an_unmatched_value() -> None:
 
     with pytest.raises(RecipeRuntimeError):
         normalizer.normalize_messages(too_deep_to_serialize, "user")
-    assert normalizer.matched_recipe_ids(too_deep_to_serialize, "user") == frozenset()
-    assert normalizer.matched_recipe_ids([{"say": "hi"}], "user") >= {"echo"}
+    assert normalizer.normalize_if_matched(too_deep_to_serialize, "user", frozenset({"echo"})) is None
+
+
+def test_normalizing_if_matched_runs_a_recipe_once_when_nothing_needs_a_fallback() -> None:
+    normalizer = RecipeNormalizer([*default_recipes(), ECHO])
+
+    with structlog.testing.capture_logs() as logs:
+        outcome = normalizer.normalize_if_matched({"say": {"not": "text"}}, "user", frozenset({"echo"}))
+
+    assert outcome == RunOutcome(messages=({"role": "user", "content": ""},), recognized=True)
+    assert [log["event"] for log in logs] == ["llma_recipe_produced_non_text_content"]
+
+
+def test_normalizing_if_matched_falls_back_for_items_no_recipe_matched() -> None:
+    outcome = RecipeNormalizer([*default_recipes(), ECHO]).normalize_if_matched(
+        [{"say": "hi"}, {"weird": 1}], "user", frozenset({"echo"})
+    )
+
+    assert outcome is not None
+    assert [message["content"] for message in outcome.messages] == ["hi", '{"weird":1}']
 
 
 def test_custom_recipe_ids_leave_out_the_bundled_recipes() -> None:

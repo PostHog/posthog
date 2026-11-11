@@ -213,10 +213,9 @@ def _team_recipe_side(
     team_normalizer = normalizer()
     if not team_normalizer.custom_recipe_ids:
         return None
-    # Most sides match no team recipe, so a probe without the fallback text decides before the full run builds it.
-    if not team_normalizer.matched_recipe_ids(value, default_role) & team_normalizer.custom_recipe_ids:
+    outcome = team_normalizer.normalize_if_matched(value, default_role, team_normalizer.custom_recipe_ids)
+    if outcome is None:
         return None
-    outcome = team_normalizer.normalize_messages(value, default_role)
     side = _side_of(outcome.messages, id_prefix=id_prefix, node_id=node_id, team_id=team_id)
     # A team recipe can match and still emit nothing renderable, such as an object as content, and the raw JSON then
     # shows more than an empty conversation.

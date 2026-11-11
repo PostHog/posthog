@@ -94,10 +94,15 @@ class RecipeNormalizer:
             return RunOutcome(messages=(), recognized=True)
         return self._pipeline.run(value, default_role)
 
-    def matched_recipe_ids(self, value: Value, default_role: str) -> frozenset[str]:
+    def normalize_if_matched(self, value: Value, default_role: str, recipe_ids: frozenset[str]) -> RunOutcome | None:
+        # Most values match none of the given recipes, so a first run without the salvage fallback, which serializes
+        # whole values, decides that cheaply. A first run that never needed the fallback is already the full result.
         if not (isinstance(value, str) or is_object_like(value)):
-            return frozenset()
-        return self._pipeline.run(value, default_role, salvages=False).matched_recipe_ids
+            return None
+        probe = self._pipeline.run(value, default_role, salvages=False)
+        if not probe.matched_recipe_ids & recipe_ids:
+            return None
+        return probe if probe.complete else self.normalize_messages(value, default_role)
 
     def normalize_messages(self, value: Value, default_role: str, tools: Value = MISSING) -> RunOutcome:
         # The run inside joins these limits, so copying the tools and normalizing the messages share one budget and

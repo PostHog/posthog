@@ -38,10 +38,11 @@ MAX_DEPTH: Final = 10
 TIME_LIMIT_SECONDS: Final = 1.0
 
 
-@frozen
+@frozen(frozen=False)
 class _RunRecord:
     # A probe only asks which recipes match, so it skips the salvage fallback, which serializes whole values.
     salvages: bool = True
+    skipped_salvage: bool = False
     matched_recipe_ids: set[str] = dataclasses.field(default_factory=set)
     non_text_content_types: Counter[str] = dataclasses.field(default_factory=Counter)
 
@@ -69,6 +70,8 @@ class RunOutcome:
     recognized: bool
     # Which recipes produced the messages, not what the messages are, so two runs that render the same are equal.
     matched_recipe_ids: frozenset[str] = dataclasses.field(default=frozenset(), compare=False)
+    # False when a run without salvage met a value no recipe matched, so its messages leave that value out.
+    complete: bool = dataclasses.field(default=True, compare=False)
 
 
 class SlotCoercer:
@@ -163,9 +166,13 @@ class RecipePipeline:
                 matched = self._match(value, default_role, 0)
                 if not isinstance(matched, NoMatch):
                     return RunOutcome(
-                        messages=tuple(matched), recognized=True, matched_recipe_ids=frozenset(run.matched_recipe_ids)
+                        messages=tuple(matched),
+                        recognized=True,
+                        matched_recipe_ids=frozenset(run.matched_recipe_ids),
+                        complete=not run.skipped_salvage,
                     )
                 salvaged = self._salvage(value, default_role) if salvages else NO_MATCH
+                run.skipped_salvage = run.skipped_salvage or not salvages
         except RecursionError as error:
             raise RecipeRuntimeError("RecipeNormalizer: the input nests too deeply to normalize") from error
         finally:
@@ -176,6 +183,7 @@ class RecipePipeline:
             messages=() if isinstance(salvaged, NoMatch) else tuple(salvaged),
             recognized=False,
             matched_recipe_ids=frozenset(run.matched_recipe_ids),
+            complete=not run.skipped_salvage,
         )
 
     def dispatch(self, value: Value, inherited_role: str, depth: int) -> DispatchResult:
@@ -183,7 +191,10 @@ class RecipePipeline:
         if not isinstance(matched, NoMatch):
             return matched
         run = _active_run.get()
-        return self._salvage(value, inherited_role) if run is None or run.salvages else NO_MATCH
+        if run is None or run.salvages:
+            return self._salvage(value, inherited_role)
+        run.skipped_salvage = True
+        return NO_MATCH
 
     def _match(self, value: Value, inherited_role: str, depth: int) -> DispatchResult:
         if depth > MAX_DEPTH:
