@@ -2705,23 +2705,28 @@ describe('Cyclotron V2', () => {
                     name: 'each established team',
                     queuedEmailTeams: [41, 42],
                     reroutedTeams: [41, 41, 41, 42, 42, 42],
+                    emailTeamsQueuedAfter: [],
                     expectedDrain: [41, 42, 41, 42, 41, 42, 41, 42],
                 },
                 {
                     name: 'a team without a counter yet',
                     queuedEmailTeams: [41],
                     reroutedTeams: [42, 42, 42],
-                    expectedDrain: [41, 42, 42, 42],
+                    emailTeamsQueuedAfter: [41, 41, 41],
+                    expectedDrain: [41, 41, 42, 41, 42, 41, 42],
                 },
             ])(
                 'gives concurrent reroutes into the email queue their own turn in fair order: $name',
-                async ({ queuedEmailTeams, reroutedTeams, expectedDrain }) => {
+                async ({ queuedEmailTeams, reroutedTeams, emailTeamsQueuedAfter, expectedDrain }) => {
                     await manager.bulkCreateJobs(queuedEmailTeams.map((teamId) => ({ teamId, queueName: EMAIL_QUEUE })))
                     await manager.bulkCreateJobs(reroutedTeams.map((teamId) => ({ teamId, queueName: 'hogflow' })))
                     const hogflowJobs = await dequeueOneBatch(createWorker('hogflow'))
                     expect(hogflowJobs).toHaveLength(reroutedTeams.length)
 
                     await Promise.all(hogflowJobs.map((job) => job.reschedule({ queueName: EMAIL_QUEUE })))
+                    await manager.bulkCreateJobs(
+                        emailTeamsQueuedAfter.map((teamId) => ({ teamId, queueName: EMAIL_QUEUE }))
+                    )
 
                     const drained: number[] = []
                     for (let i = 0; i < expectedDrain.length; i++) {
