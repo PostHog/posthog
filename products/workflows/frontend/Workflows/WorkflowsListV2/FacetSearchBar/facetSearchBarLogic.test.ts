@@ -1,9 +1,12 @@
-import posthog from 'posthog-js'
+import posthog, { CaptureResult } from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
 import { FacetDefinition, FacetSearchValue } from './facetQuery'
 import { facetSearchBarLogic } from './facetSearchBarLogic'
+
+// The real SDK, so the analytics cases read the events it would send rather than calls to a mock.
+jest.unmock('posthog-js')
 
 interface Item {
     name: string
@@ -57,6 +60,28 @@ const ITEMS: Item[] = [
 
 const matchesText = (item: Item, text: string): boolean => item.name.toLowerCase().includes(text.toLowerCase())
 
+/** Records the events posthog-js would send, and drops them before any request. The test setup opts capturing out. */
+function recordSentEvents(): { events: CaptureResult[]; stop: () => void } {
+    const events: CaptureResult[] = []
+    posthog.set_config({
+        capture_pageview: false,
+        before_send: (event) => {
+            if (event) {
+                events.push(event)
+            }
+            return null
+        },
+    })
+    posthog.opt_in_capturing({ captureEventName: false })
+    return {
+        events,
+        stop: () => {
+            posthog.opt_out_capturing()
+            posthog.set_config({ before_send: undefined })
+        },
+    }
+}
+
 describe('facetSearchBarLogic', () => {
     let onChange: jest.Mock
     let logic: ReturnType<typeof facetSearchBarLogic.build>
@@ -67,7 +92,7 @@ describe('facetSearchBarLogic', () => {
     }
 
     beforeEach(() => {
-        initKeaTests()
+        initKeaTests(false)
         onChange = jest.fn()
     })
 
@@ -284,12 +309,64 @@ describe('facetSearchBarLogic', () => {
             { change: 'removed', facet: 'sends', negated: true, source: 'backspace' },
         ],
     ])('reports a pill %s', (_, value, act, properties) => {
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const sent = recordSentEvents()
         mountWith(value)
         act()
-        expect(capture.mock.calls).toEqual([['search bar filter changed', { search_bar: 'test', ...properties }]])
-        capture.mockRestore()
+        sent.stop()
+        expect(sent.events).toEqual([
+            expect.objectContaining({
+                event: 'search bar filter changed',
+                properties: expect.objectContaining({ search_bar: 'test', ...properties }),
+            }),
+        ])
     })
+
+    it.each([
+        ['a facet draft', ['tag:', 'tag:d', 'tag:de'], 50, 'deal0001'],
+        ['a bare word', ['de', 'dea', 'deal'], 8, 'Tag: deal0001'],
+    ])(
+        'reuses the counts of a scope and builds only the rows it shows while typing %s',
+        (_, keystrokes, rowCount, firstLabel) => {
+            let valueReads = 0
+            let formats = 0
+            const tag: FacetDefinition<number> = {
+                key: 'tag',
+                label: 'Tag',
+                description: 'Labels',
+                getValues: (item) => {
+                    valueReads++
+                    return [`deal${String(item).padStart(4, '0')}`]
+                },
+                formatValue: (value) => {
+                    formats++
+                    return value
+                },
+            }
+            logic = facetSearchBarLogic({
+                id: 'test',
+                facets: [tag],
+                items: Array.from({ length: 1000 }, (_, index) => index + 1),
+                value: { filters: [], text: '' },
+                onChange,
+                matchesText: () => true,
+            })
+            logic.mount()
+
+            logic.actions.setInput(keystrokes[0])
+            expect(logic.values.suggestions.length).toBeGreaterThan(0)
+            const readsForScope = valueReads
+            for (const keystroke of keystrokes.slice(1)) {
+                logic.actions.setInput(keystroke)
+            }
+            formats = 0
+            const rows = logic.values.suggestions.filter((suggestion) => suggestion.kind === 'value')
+
+            expect(rows).toHaveLength(rowCount)
+            expect(rows[0].label).toEqual(firstLabel)
+            expect(valueReads).toEqual(readsForScope)
+            expect(formats).toBeLessThanOrEqual(rowCount)
+        }
+    )
 
     it('adds a pill from a value row and keeps the text before the draft', () => {
         mountWith({ filters: [], text: '' })

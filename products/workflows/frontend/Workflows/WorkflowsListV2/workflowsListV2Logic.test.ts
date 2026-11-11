@@ -1,7 +1,9 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { act, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -23,7 +25,7 @@ import {
     buildWorkflowRow,
     paginated,
 } from './workflowsListV2Fixtures'
-import { workflowsListV2Logic } from './workflowsListV2Logic'
+import { SUMMARY_REQUEST_TIMEOUT_MS, workflowsListV2Logic } from './workflowsListV2Logic'
 
 const shownIds = (logic: ReturnType<typeof workflowsListV2Logic.build>): string[] =>
     logic.values.filteredRows.map((row) => row.id)
@@ -77,6 +79,8 @@ describe('workflowsListV2Logic', () => {
             },
         })
         initKeaTests()
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
     })
 
     afterEach(() => {
@@ -231,6 +235,70 @@ describe('workflowsListV2Logic', () => {
         expect(shownIds(logic)).toEqual(['wf-sync'])
     })
 
+    it('shows each page as it arrives, keeps the rows when a later page fails, and loads the rest on retry', async () => {
+        type HeldPage = { offset: string; answer: (status: number, body: unknown) => void }
+        const held: HeldPage[] = []
+        let markHeld: () => void = () => {}
+        const nextHeld = async (): Promise<HeldPage> => {
+            if (!held.length) {
+                await new Promise<void>((resolve) => (markHeld = resolve))
+            }
+            return held.shift()!
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new Promise((resolve) => {
+                        held.push({
+                            offset: new URL(request.url).searchParams.get('offset') ?? '0',
+                            answer: (status, body) => resolve([status, body]),
+                        })
+                        markHeld()
+                    }),
+            },
+        })
+        const pageOf = (offset: number): unknown =>
+            paginated(
+                [buildWorkflowRow({ id: `wf-at-${offset}` })],
+                offset < 1000 ? `http://localhost/api/projects/997/hog_flows/summaries/?offset=${offset + 500}` : null
+            )
+        const shownSorted = (): string[] => logic.values.rows.map((row) => row.id).sort()
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+
+        ;(await nextHeld()).answer(200, pageOf(0))
+        const second = await nextHeld()
+        expect(shownSorted()).toEqual(['wf-at-0'])
+        expect(logic.values).toMatchObject({ listComplete: false, loadingMoreWorkflows: true })
+        second.answer(200, pageOf(500))
+        const third = await nextHeld()
+        expect(third.offset).toEqual('1000')
+        third.answer(500, { detail: 'Boom' })
+        await act(async () => {
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsFailure'])
+        })
+        expect(screen.queryByText(/Showing the list from before/)).toBeNull()
+        expect(shownSorted()).toEqual(['wf-at-0', 'wf-at-500'])
+        expect(logic.values).toMatchObject({
+            listComplete: false,
+            loadingMoreWorkflows: false,
+            loadFailed: true,
+            loadErrorDetail: 'Boom',
+        })
+
+        logic.actions.loadWorkflows()
+        ;(await nextHeld()).answer(200, pageOf(0))
+        const retriedSecond = await nextHeld()
+        expect(shownSorted()).toEqual(['wf-at-0', 'wf-at-500'])
+        expect(logic.values).toMatchObject({ loadFailed: false, loadingMoreWorkflows: true })
+        retriedSecond.answer(200, pageOf(500))
+        ;(await nextHeld()).answer(200, pageOf(1000))
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+        expect(shownSorted()).toEqual(['wf-at-0', 'wf-at-1000', 'wf-at-500'])
+        expect(logic.values).toMatchObject({ listComplete: true, loadingMoreWorkflows: false })
+    })
+
     it('stops at a next link that does not move forward and shows the load error', async () => {
         let requests = 0
         useMocks({
@@ -320,6 +388,53 @@ describe('workflowsListV2Logic', () => {
         expect(logic.values.loadErrorDetail).toEqual(detail)
     })
 
+    const stalledSummaries = (): {
+        signals: AbortSignal[]
+        requested: Promise<void>
+        stall: ({ request }: { request: Request }) => Promise<never>
+    } => {
+        const signals: AbortSignal[] = []
+        let markRequested: () => void = () => {}
+        const requested = new Promise<void>((resolve) => (markRequested = resolve))
+        const stall = ({ request }: { request: Request }): Promise<never> => {
+            signals.push(request.signal)
+            markRequested()
+            return new Promise(() => {})
+        }
+        return { signals, requested, stall }
+    }
+
+    it('fails a stalled summary request at its deadline and aborts it', async () => {
+        const { signals, stall } = stalledSummaries()
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/summaries/': stall } })
+        router.actions.push(urls.workflows())
+        jest.useFakeTimers()
+        try {
+            logic = workflowsListV2Logic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(SUMMARY_REQUEST_TIMEOUT_MS)
+            expect(logic.values).toMatchObject({
+                workflowsLoading: false,
+                loadFailed: true,
+                loadErrorDetail: 'Workflows took too long to load. Check your connection and try again.',
+            })
+            expect(signals.map((signal) => signal.aborted)).toEqual([true])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('aborts a running summary request when the list closes', async () => {
+        const { signals, requested, stall } = stalledSummaries()
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/summaries/': stall } })
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await requested
+        logic.unmount()
+        expect(signals.map((signal) => signal.aborted)).toEqual([true])
+    })
+
     it('shows the list before the metrics arrive, then fills in health', async () => {
         let answerMetrics: () => void = () => {}
         const metricsSent = new Promise<void>((markSent) => {
@@ -349,25 +464,55 @@ describe('workflowsListV2Logic', () => {
             succeeded: 0,
             failed: 0,
         })
+
+        let answerRefreshedMetrics: () => void = () => {}
+        const refreshedMetricsSent = new Promise<void>((markSent) => {
+            metricsResponse = () =>
+                new Promise((resolve) => {
+                    answerRefreshedMetrics = () =>
+                        resolve([200, [{ workflow_id: 'wf-renewal', succeeded: 9, failed: 0 }]])
+                    markSent()
+                })
+        })
+        await expectLogic(logic, () => logic.actions.refreshWorkflows()).toDispatchActions(['loadWorkflowsSuccess'])
+        expect(logic.values.metricsLoading).toBe(true)
+        await refreshedMetricsSent
+        expect(logic.values.rows.find((row) => row.id === 'wf-renewal')?.last7Days).toEqual({ succeeded: 3, failed: 2 })
+
+        answerRefreshedMetrics()
+        await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
+        expect(logic.values.rows.find((row) => row.id === 'wf-renewal')).toMatchObject({
+            health: 'healthy',
+            last7Days: { succeeded: 9, failed: 0 },
+        })
     })
 
     it('keeps the list and skips the error toast when the metrics fail', async () => {
-        const toastError = jest.spyOn(lemonToast, 'error')
         metricsResponse = async () => [500, { detail: 'Server error' }]
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
+        await act(async () => {
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
+        })
         expect(logic.values).toMatchObject({ metrics: null, metricsLoading: false, loadFailed: false })
         expect(shownIds(logic)).toHaveLength(5)
-        expect(toastError).not.toHaveBeenCalled()
-        toastError.mockRestore()
+        expect(screen.queryByRole('alert')).toBeNull()
     })
 
-    it.each([urls.workflows(), urls.workflows('workflows')])(
-        'moves old filter params on %s into q and text once, replacing the history entry',
-        async (pathname) => {
+    it.each([
+        [urls.workflows(), 'the list opens', false],
+        [urls.workflows('workflows'), 'the list opens', false],
+        [urls.workflows(), 'the list is already open', true],
+    ])(
+        'moves old filter params on %s into q and text, replacing the history entry, when %s',
+        async (pathname, _, alreadyOpen) => {
+            logic = workflowsListV2Logic()
+            if (alreadyOpen) {
+                router.actions.push(pathname, { q: 'tag:old' })
+                logic.mount()
+            }
             router.actions.push(pathname, {
                 status: 'active',
                 type: 'loop',
@@ -378,8 +523,9 @@ describe('workflowsListV2Logic', () => {
                 page: '3',
                 other: 'kept',
             })
-            logic = workflowsListV2Logic()
-            logic.mount()
+            if (!alreadyOpen) {
+                logic.mount()
+            }
 
             expect(router.values.location.pathname).toEqual(`/project/${MOCK_DEFAULT_TEAM.id}${pathname}`)
             expect(router.values.searchParams).toEqual({
@@ -558,7 +704,6 @@ describe('workflowsListV2Logic', () => {
     })
 
     it('holds the no-match verdict until the server search answers, and reports a failed search without a toast', async () => {
-        const toastError = jest.spyOn(lemonToast, 'error')
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
         logic.mount()
@@ -583,26 +728,48 @@ describe('workflowsListV2Logic', () => {
         expect(shownIds(logic)).toEqual(['wf-sync'])
 
         serverSearch = () => Promise.reject(new Error('down'))
-        await expectLogic(logic, () => logic.actions.setValue({ filters: [], text: 'renewal' })).toDispatchActions([
-            'searchWorkflowsSuccess',
-        ])
+        await act(async () => {
+            await expectLogic(logic, () => logic.actions.setValue({ filters: [], text: 'renewal' })).toDispatchActions([
+                'searchWorkflowsSuccess',
+            ])
+        })
         expect(logic.values.serverSearchStatus).toEqual('failed')
         expect(shownIds(logic)).toEqual(['wf-renewal'])
-        expect(toastError).not.toHaveBeenCalled()
-        toastError.mockRestore()
+        expect(screen.queryByRole('alert')).toBeNull()
     })
 
+    const RENEWAL_ACTIONS = [
+        { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+        { id: 'action_email', name: 'Send reminder', type: 'function_email', config: { inputs: {} } },
+        { id: 'exit_node', name: 'Exit', type: 'exit', config: { reason: 'Default exit' } },
+    ]
+    const RENEWAL_EDGES = [
+        { from: 'trigger_node', to: 'action_email', type: 'continue' },
+        { from: 'action_email', to: 'exit_node', type: 'continue' },
+    ]
+
     it.each([
-        ['succeeds', 200, 1],
-        ['fails', 500, 0],
-    ])('sends one duplicate at a time and clears the pending state when the copy %s', async (_, status, copies) => {
+        [
+            'succeeds',
+            200,
+            [
+                expect.objectContaining({
+                    name: 'Renewal reminder (copy)',
+                    status: 'draft',
+                    actions: RENEWAL_ACTIONS,
+                    edges: RENEWAL_EDGES,
+                }),
+            ],
+        ],
+        ['fails', 500, []],
+    ])('sends one duplicate at a time and clears the pending state when the copy %s', async (_, status, posted) => {
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
 
         let answerRetrieve: () => void = () => {}
-        let posts = 0
+        const postedBodies: Record<string, unknown>[] = []
         const retrieveSent = new Promise<void>((markSent) => {
             useMocks({
                 get: {
@@ -612,16 +779,24 @@ describe('workflowsListV2Logic', () => {
                             answerRetrieve = () =>
                                 resolve(
                                     status === 200
-                                        ? [200, { ...FIXTURE_WORKFLOWS[1], actions: [], edges: [] }]
+                                        ? [
+                                              200,
+                                              {
+                                                  ...FIXTURE_WORKFLOWS[1],
+                                                  status: 'active',
+                                                  actions: RENEWAL_ACTIONS,
+                                                  edges: RENEWAL_EDGES,
+                                              },
+                                          ]
                                         : [500, {}]
                                 )
                             markSent()
                         }),
                 },
                 post: {
-                    '/api/projects/:team_id/hog_flows/': () => {
-                        posts++
-                        return [200, { id: `wf-copy-${posts}` }]
+                    '/api/projects/:team_id/hog_flows/': async ({ request }) => {
+                        postedBodies.push((await request.json()) as Record<string, unknown>)
+                        return [200, { id: `wf-copy-${postedBodies.length}` }]
                     },
                 },
             })
@@ -635,7 +810,7 @@ describe('workflowsListV2Logic', () => {
         await retrieveSent
         answerRetrieve()
         await expectLogic(logic).toFinishAllListeners()
-        expect(posts).toEqual(copies)
+        expect(postedBodies).toEqual(posted)
         expect(logic.values.pendingRowActions).toEqual({})
     })
 
