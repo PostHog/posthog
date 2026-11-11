@@ -2318,6 +2318,7 @@ def _turn_event_properties(
         "run_index": run_index,
         "trigger_source": report.trigger_source,
         "turn_trigger_source": turn_trigger_source,
+        **({"$update_person_last_seen_at": False} if turn_trigger_source == TRIGGER_AUTOMATIC else {}),
         "author_login": report.author_login,
     }
 

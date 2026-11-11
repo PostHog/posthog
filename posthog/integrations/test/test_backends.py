@@ -1,5 +1,6 @@
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -467,6 +468,50 @@ class TestBackendsBehaveTheSame(BaseTest):
 
         saved = self._stored(row_id).config["flag"]
         assert (saved, type(saved)) == (after, type(after))
+
+    def test_update_leaves_an_unreadable_secret_field_alone(self) -> None:
+        # An undecryptable secret field reads back as a raw string, not a dict.
+        row_id = self._seed("unreadable", "github", {})
+        if self.fake is not None:
+            self.fake._rows[row_id] = replace(self.fake._rows[row_id], sensitive_config="raw")  # type: ignore[arg-type]
+        else:
+            Integration._base_manager.filter(id=row_id).update(sensitive_config="raw")
+
+        updated = IntegrationManager.github.oauth.update(self.team.id, row_id, config_patch={"login": "x"})
+
+        stored = self._stored(row_id)
+        for record in (updated, stored):
+            sensitive_config: object = record.sensitive_config
+            assert (record.config, sensitive_config) == ({"login": "x"}, "raw")
+
+    @parameterized.expand(
+        [
+            ("moves", "github_oauth", "moved", "moved"),
+            ("same_id_writes_nothing", "github_oauth", "github_oauth", "github_oauth"),
+            # Postgres checks the unique key across auth types, so the token row blocks the oauth row.
+            ("taken_by_a_row_of_another_auth_type", "github_oauth", "github_token", IntegrationConflict),
+            ("row_out_of_scope", "github_token", "moved", IntegrationNotFound),
+        ]
+    )
+    def test_change_external_id(
+        self, _name: str, row_name: str, external_id: str, expected: str | type[Exception]
+    ) -> None:
+        row_id = self.ids[row_name]
+
+        if isinstance(expected, type):
+            with self.assertRaises(expected):
+                IntegrationManager.github.oauth.change_external_id(self.team.id, row_id, external_id)
+            assert self._stored(row_id).integration_id == row_name
+            return
+        row = IntegrationManager.github.oauth.change_external_id(self.team.id, row_id, external_id)
+
+        assert (row.integration_id, self._stored(row_id).integration_id) == (expected, expected)
+        # The row of the other team keeps its external id.
+        assert self._stored(self.other_id, self.other_team).integration_id == "github_oauth"
+
+    def test_change_external_id_stays_in_the_team(self) -> None:
+        with self.assertRaises(IntegrationNotFound):
+            IntegrationManager.github.oauth.change_external_id(self.other_team.id, self.ids["github_oauth"], "x")
 
     def test_update_raises_for_a_row_out_of_scope(self) -> None:
         with self.assertRaises(IntegrationNotFound):
