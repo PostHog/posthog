@@ -833,7 +833,7 @@ describe('scenario environment', () => {
         const realExecFile = childProcess.execFile as (...args: unknown[]) => ChildProcess
         const stubRolePids = new Set<number>()
         const stubRole =
-            "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
+            "console.log('started at', Date.now()); require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
@@ -944,6 +944,7 @@ describe('scenario environment', () => {
                 process.stderr.write('The fake docker has no command ' + args.join(' ') + '\\n')
                 process.exit(1)
             }
+            const members = Date.now() < Number(fs.readFileSync(path.join(__dirname, 'dead-member-leaves-at'), 'utf8')) ? 1 : 0
             if (seeks) {
                 const answer = path.join(__dirname, 'seek')
                 if (fs.existsSync(answer)) {
@@ -952,7 +953,7 @@ describe('scenario environment', () => {
                     process.stderr.write(stderr)
                     process.exit(code)
                 }
-                if (Number(fs.readFileSync(path.join(__dirname, 'members'), 'utf8')) > 0) {
+                if (members > 0) {
                     process.stdout.write(
                         'TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\\n' +
                             topic + '  0          -1            -1              INVALID_OPERATION: seeking a non-empty group is not allowed.\\n'
@@ -966,13 +967,10 @@ describe('scenario environment', () => {
                 process.stdout.write('TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\\n' + topic + '  0  -1  0\\n')
                 process.exit(0)
             }
-            const members = Number(fs.readFileSync(path.join(__dirname, 'members'), 'utf8'))
             process.stdout.write(
                 'GROUP        ' + group + '\\nCOORDINATOR  0\\nSTATE        ' + (members > 0 ? 'Stable' : 'Empty') +
                     '\\nBALANCER     range\\nMEMBERS      ' + members + '\\nTOTAL-LAG    0\\n'
             )
-            const answers = path.join(__dirname, 'answers')
-            fs.writeFileSync(answers, String((fs.existsSync(answers) ? Number(fs.readFileSync(answers, 'utf8')) : 0) + 1))
         `
         const jobsSchema = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_reset_${process.pid}`, [
             'cyclotron_jobs',
@@ -1040,9 +1038,10 @@ describe('scenario environment', () => {
             }
             return () => holder.kill('SIGKILL')
         }
-        const answerMembers = (members: number): void => writeFileSync(path.join(fakes, 'members'), String(members))
-        const answersSoFar = (): number =>
-            existsSync(path.join(fakes, 'answers')) ? Number(readFileSync(path.join(fakes, 'answers'), 'utf8')) : 0
+        const deadMemberLeavesAt = (at: number): void =>
+            writeFileSync(path.join(fakes, 'dead-member-leaves-at'), String(at))
+        const startedAt = (role: Role): number =>
+            Number(/^started at (\d+)$/m.exec(readFileSync(logOf(role), 'utf8'))?.[1])
         const writeStack = (stack: { running: boolean; ready: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
@@ -1070,7 +1069,7 @@ describe('scenario environment', () => {
             writeFake(path.join(fakes, 'hogli'), fakeHogli)
             writeFake(path.join(fakes, 'docker'), fakeDocker)
             writeStack({ running: true, ready: true })
-            answerMembers(0)
+            deadMemberLeavesAt(0)
             process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronUrl
             await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
             await withPostgres(async (client) => {
@@ -1179,22 +1178,17 @@ describe('scenario environment', () => {
         })
 
         it('waits for a dead consumer to leave the events group before it starts the roles', async () => {
-            answerMembers(1)
+            const leavesAt = Date.now() + 3000
+            deadMemberLeavesAt(leavesAt)
             environment = environmentOf()
-            let settled = false
-            const upping = environment.up().finally(() => {
-                settled = true
-            })
-            upping.catch(() => undefined)
 
-            await waitForExpect(() => expect(answersSoFar()).toBeGreaterThan(1), 10_000)
-            expect({ settled, apiPortFree: await isPortFree(ROLE_PORTS['cdp-api']) }).toEqual({
-                settled: false,
-                apiPortFree: true,
-            })
-            answerMembers(0)
+            await environment.up()
 
-            await expect(upping).resolves.toBeUndefined()
+            const firstStart = Math.min(...(Object.keys(ROLE_PORTS) as Role[]).map(startedAt))
+            expect({ startedAfterItLeft: firstStart >= leavesAt, apiHealth: await healthOf('cdp-api') }).toEqual({
+                startedAfterItLeft: true,
+                apiHealth: 200,
+            })
         }, 30_000)
 
         it.each<[string, { running: boolean; ready: boolean }, string[]]>([
@@ -1404,19 +1398,10 @@ describe('scenario environment', () => {
             const { group, topic } = eventsGroup()
             environment = environmentOf()
             await environment.up()
-            answerMembers(1)
-            const answersBefore = answersSoFar()
-            let settled = false
-            const resetting = environment.reset({}).finally(() => {
-                settled = true
-            })
-            resetting.catch(() => undefined)
+            deadMemberLeavesAt(Date.now() + 3000)
 
-            await waitForExpect(() => expect(answersSoFar() - answersBefore).toBeGreaterThan(1), 10_000)
-            expect({ settled, offsets: offsetsOf() }).toEqual({ settled: false, offsets: {} })
-            answerMembers(0)
+            await environment.reset({})
 
-            await expect(resetting).resolves.toBeUndefined()
             expect(offsetsOf()).toEqual({ [group]: { [topic]: 'end' } })
         }, 30_000)
 
