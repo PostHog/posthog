@@ -1,9 +1,12 @@
 import {
   API_DOWNLOAD_TIMEOUT_MS,
   API_TRANSFER_TIMEOUT_MS,
+  type GatewayModel,
+  gatewayModelRowsFromTaskModels,
   type McpServerConnection,
   type McpToolApprovalState,
   type McpToolPolicy,
+  normalizeGatewayModelsResponse,
   PostHogHttpClient,
   type StoredLogEntry,
   type TaskRunUpdate,
@@ -18,6 +21,8 @@ import type { PostHogAPIConfig, StoredEntry, Task, TaskRun } from "./types";
 import { getGatewayUsageUrl, getLlmGatewayUrl } from "./utils/gateway";
 
 export { getGatewayUsageUrl, getLlmGatewayUrl };
+
+const TASK_MODELS_FETCH_TIMEOUT_MS = 10_000;
 export { API_TRANSFER_TIMEOUT_MS, type TaskRunUpdate };
 
 const DEFAULT_USER_AGENT = `posthog/agent.hog.dev; version: ${packageJson.version}`;
@@ -128,6 +133,16 @@ export class PostHogAPIClient {
 
   getLlmGatewayUrl(): string {
     return getLlmGatewayUrl(this.baseUrl);
+  }
+
+  async getTaskModels(): Promise<GatewayModel[]> {
+    const response = await this.apiRequest<unknown>(
+      `/api/projects/${this.getTeamId()}/tasks/models/`,
+      { signal: AbortSignal.timeout(TASK_MODELS_FETCH_TIMEOUT_MS) },
+    );
+    return normalizeGatewayModelsResponse(
+      gatewayModelRowsFromTaskModels(response),
+    );
   }
 
   /**

@@ -2,7 +2,7 @@ import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
 import type { Adapter } from "@posthog/agent-contracts";
 import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import { withTurnTraceId } from "../acp-extensions";
-import type { ModelInfo } from "../gateway-models";
+import type { GatewayModel, ModelInfo } from "../gateway-models";
 import type { SessionLogWriter } from "../session-log-writer";
 import type { PostHogAPIConfig, ProcessSpawnedCallback } from "../types";
 import { createEventIdSource, type NextEventId } from "../utils/event-id";
@@ -46,6 +46,7 @@ export type AcpConnectionConfig = {
   claudeGatewayEnv?: GatewayEnv;
   claudeMachineAuth?: MachineClaudeAuth;
   claudeModelsGatewayUrl?: string;
+  claudeListModels?: () => Promise<GatewayModel[]>;
   /** Per-session context wiki mount — prevents global process.env mutation. */
   contextWiki?: ContextWikiEnv;
 };
@@ -171,6 +172,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
       gatewayEnv: config.claudeGatewayEnv,
       machineAuth: config.claudeMachineAuth,
       modelsGatewayUrl: config.claudeModelsGatewayUrl,
+      listModels: config.claudeListModels,
       contextWiki: config.contextWiki,
     });
     return agent;
