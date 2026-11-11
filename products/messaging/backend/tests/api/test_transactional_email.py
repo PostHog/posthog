@@ -1033,7 +1033,15 @@ class TestTransactionalEmail(APIBaseTest):
         assert bool(UNSUBSCRIBE_PLACEHOLDER.search(queued.content["text"])) == (kind == "marketing")
         assert [send["category_type"] for send in self.usage.api_sends()] == [kind or "transactional"]
 
-    @parameterized.expand(CLICKABLE_UNSUBSCRIBE_LINKS)
+    @parameterized.expand(
+        [
+            *CLICKABLE_UNSUBSCRIBE_LINKS,
+            (
+                "placeholder_padded_with_a_byte_order_mark",
+                {"html": '<a href="{{\ufeffunsubscribe_url\ufeff}}">Unsubscribe</a>', "text": ""},
+            ),
+        ]
+    )
     def test_a_marketing_code_send_with_a_clickable_unsubscribe_link_is_accepted(
         self, cdp_post, _flag, capture, _name, case
     ):
@@ -2019,6 +2027,87 @@ class TestTransactionalEmail(APIBaseTest):
             ({"id": str(account.id), "type": "marketing"}, True)
         ]
         assert self._email_step(self.hog_flow_id)["message_category_type"] == "transactional"
+
+    def test_a_template_send_with_categories_off_posts_what_the_base_posts(self, cdp_post, flag, capture):
+        self._use_fakes(cdp_post, capture)
+        flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
+        account = self._category(key="account", name="Account", category_type=MessageCategoryType.TRANSACTIONAL)
+        self._save_template({"message_category": str(account.id)})
+        queued_before_the_deploy = self.cdp.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_email",
+            json={
+                "to": self.body["to"],
+                "distinct_id": "user-1",
+                "variables": self.body["message_data"],
+                "idempotency_key": "reset-1",
+            },
+        ).json()
+
+        retried = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "reset-1"})
+        sent = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "reset-2"})
+
+        assert retried.status_code == status.HTTP_202_ACCEPTED, retried.json()
+        assert retried.json() == {"message_id": queued_before_the_deploy["invocation_id"], "replayed": True}
+        assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
+        assert [queued.category for queued in self.cdp.queued] == [None, None]
+
+    @parameterized.expand(
+        [
+            ("link_kept", True, '<p><a href="{{ unsubscribe_url }}">Unsubscribe</a> any time</p>', None),
+            ("link_removed", True, "<p>See you next week</p>", "unsubscribe_link_required"),
+            ("link_removed_with_categories_off", False, "<p>See you next week</p>", None),
+        ]
+    )
+    def test_a_design_edit_of_a_marketing_template_keeps_its_unsubscribe_link(
+        self, _cdp_post, flag, _capture, _name, flag_on, new_text, expected_code
+    ):
+        design = {
+            "counters": {"u_row": 1, "u_column": 1, "u_content_text": 1},
+            "schemaVersion": 16,
+            "body": {
+                "id": "body1",
+                "rows": [
+                    {
+                        "id": "row1",
+                        "cells": [1],
+                        "columns": [
+                            {
+                                "id": "col1",
+                                "contents": [{"id": "txt1", "type": "text", "values": {"text": self.UNSUBSCRIBE_HTML}}],
+                                "values": {},
+                            }
+                        ],
+                        "values": {},
+                    }
+                ],
+                "values": {},
+            },
+        }
+        content = {"email": {"subject": "Weekly news", "design": design, "html": self.UNSUBSCRIBE_HTML}}
+        self._save_template({"message_category": str(self._category().id), "content": content})
+        flag.side_effect = lambda key, *_args, **_kwargs: flag_on or key != CODE_SEND_CATEGORIES_FLAG
+
+        with patch(
+            "products.messaging.backend.presentation.views.message_templates.render_design_html",
+            side_effect=lambda design: "".join(
+                content["values"]["text"] for content in design["body"]["rows"][0]["columns"][0]["contents"]
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/design/",
+                {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": new_text}}}]},
+                format="json",
+            )
+
+        self.template.refresh_from_db()
+        workflow_html = self._email_step(self.hog_flow_id)["inputs"]["email"]["value"]["html"]
+        if expected_code:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["code"] == expected_code
+            assert (self.template.content["email"]["html"], workflow_html) == (self.UNSUBSCRIBE_HTML,) * 2
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert (self.template.content["email"]["html"], workflow_html) == (new_text,) * 2
 
     @parameterized.expand([("flag_on", True, None), ("flag_off", False, "marketing_template")])
     def test_a_code_send_under_a_marketing_templates_key_goes_out_as_marketing(

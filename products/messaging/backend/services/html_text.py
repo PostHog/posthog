@@ -67,13 +67,13 @@ VOID_TAGS = frozenset(
     }
 )
 LINK_SCHEMES = ("http://", "https://", "mailto:")
-EMAIL_WORKER_WHITESPACE = r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]"
-UNSUBSCRIBE_PLACEHOLDER = re.compile(
-    rf"\{{\{{{EMAIL_WORKER_WHITESPACE}*unsubscribe_url{EMAIL_WORKER_WHITESPACE}*\}}\}}"
-)
-TEXT_WORDS = re.compile(r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+")
+JAVASCRIPT_WHITESPACE = r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
+LIQUID_WHITESPACE = r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]"
+TEXT_WORDS = re.compile(rf"{JAVASCRIPT_WHITESPACE}+")
 TEXT_LINK_START = re.compile(r"[hH][tT][tT][pP][sS]?://|[wW]{3}\.")
 TEXT_LINK_END_PUNCTUATION = ".,;:!?'\")]}>*"
+UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{JAVASCRIPT_WHITESPACE}*unsubscribe_url{JAVASCRIPT_WHITESPACE}*\}}\}}")
+LIQUID_UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{LIQUID_WHITESPACE}*unsubscribe_url{LIQUID_WHITESPACE}*\}}\}}")
 LIQUID_TAG_START = re.compile(r"\{[{%]")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
@@ -86,11 +86,12 @@ SCRIPT_END_TAG_OPEN = "</script"
 
 def has_unsubscribe_link(html: str, text: str, *, liquid: bool) -> bool:
     link = f"unsubscribe-link-{uuid4().hex}"
+    placeholder = LIQUID_UNSUBSCRIBE_PLACEHOLDER if liquid else UNSUBSCRIBE_PLACEHOLDER
     if not html:
         url = f"https://{link}.invalid/"
-        return "" in _text_links_to(UNSUBSCRIBE_PLACEHOLDER.sub(url, text), url, liquid=liquid)
+        return "" in _text_links_to(placeholder.sub(url, text), url, liquid=liquid)
     parser = _TextParser(keep_unsubscribe_link=False, reads_like_a_browser=True)
-    parser.feed(UNSUBSCRIBE_PLACEHOLDER.sub(link, html))
+    parser.feed(placeholder.sub(link, html))
     parser.close()
     return not parser.has_frames and link in parser.visible_hrefs
 

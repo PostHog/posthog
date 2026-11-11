@@ -55,6 +55,7 @@ class QueuedSend:
 class CdpApi:
     def __init__(self) -> None:
         self.queued: list[QueuedSend] = []
+        self._idempotency_keys: dict[tuple[str, str], tuple[str, str]] = {}
 
     def post(self, url: str, **request: Any) -> requests.Response:
         route = _ROUTE.search(url)
@@ -82,7 +83,26 @@ class CdpApi:
             status_code = 400 if refusal in ("unsubscribe_link_required", "copies_not_allowed", "not_sendable") else 422
             return _reply(status_code, {"error": refusal})
 
+        key = (route["team_id"], body["idempotency_key"]) if body.get("idempotency_key") else None
+        fingerprint = json.dumps(
+            [
+                route["hog_flow_id"],
+                body["to"],
+                body["distinct_id"],
+                body.get("variables"),
+                body.get("message_category"),
+                send,
+            ],
+            sort_keys=True,
+        )
+        if key in self._idempotency_keys:
+            earlier_fingerprint, earlier_invocation_id = self._idempotency_keys[key]
+            if earlier_fingerprint != fingerprint:
+                return _reply(422, {"error": "idempotency_key_reused"})
+            return _reply(202, {"status": "queued", "invocation_id": earlier_invocation_id, "replayed": True})
         invocation_id = str(UUIDT())
+        if key is not None:
+            self._idempotency_keys[key] = (fingerprint, invocation_id)
         self.queued.append(
             QueuedSend(
                 hog_flow_id=hog_flow.id,

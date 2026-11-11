@@ -1349,6 +1349,16 @@ class MessageTemplatesViewSet(
                 self._with_creators([template])[0], data={"content": content}, partial=True
             )
             serializer.is_valid(raise_exception=True)
+            if hog_flow_id and self._marketing_enabled():
+                try:
+                    check_transactional_update(
+                        template.id,
+                        self.team_id,
+                        {"content": serializer.validated_data["content"]},
+                        marketing_enabled=True,
+                    )
+                except TransactionalEmailError as e:
+                    raise TransactionalEmailRejected(e) from None
             return serializer.validated_data["content"]
 
         with transaction.atomic():

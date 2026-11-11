@@ -565,6 +565,8 @@ def send_transactional_email(
             message = get_transactional_email_message(team_id=team.id, hog_flow_id=send.hog_flow_id)
             _require_marketing_email(message.html, message.text, has_copies=message.has_copies, liquid=True)
         send_category = template_send_category(send.category, category)
+        if not marketing_enabled:
+            send_category = None
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     if send_category is not None:
         payload["message_category"] = {"id": str(send_category.id), "type": send_category.type}
