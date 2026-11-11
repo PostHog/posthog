@@ -15,6 +15,7 @@ import { workflowSurveyPickerLogic } from './workflowSurveyPickerLogic'
 import { isLimitedToWorkflowRecipients } from './workflowSurveyTargeting'
 
 const IN_APP_SURVEY_TYPES = new Set(['popover', 'widget'])
+const HIDE_SURVEY_TEMPLATE_ID = 'template-posthog-hide-survey'
 
 function surveyStatusLabel(survey: SurveyApi): string {
     if (!survey.start_date) {
@@ -86,7 +87,11 @@ function SurveyReadiness({ survey }: { survey: SurveyApi }): JSX.Element {
     )
 }
 
-export default function CyclotronJobInputSurveyPicker({ value, onChange }: CustomInputRendererProps): JSX.Element {
+export default function CyclotronJobInputSurveyPicker({
+    value,
+    onChange,
+    templateId,
+}: CustomInputRendererProps): JSX.Element {
     const selectedId = typeof value === 'string' ? value : ''
     const logic = workflowSurveyPickerLogic({ surveyId: selectedId || null })
     const { surveys, surveysLoading, selectedSurvey, selectedSurveyLoading } = useValues(logic)
@@ -143,7 +148,9 @@ export default function CyclotronJobInputSurveyPicker({ value, onChange }: Custo
                 </LemonButton>
             </div>
             {currentSurvey && !currentSurvey.archived ? (
-                <SurveyReadiness survey={currentSurvey} />
+                templateId === HIDE_SURVEY_TEMPLATE_ID ? null : (
+                    <SurveyReadiness survey={currentSurvey} />
+                )
             ) : selectedId && !selectedSurveyLoading ? (
                 <LemonBanner type="error">This survey was archived or deleted. Pick another one.</LemonBanner>
             ) : null}

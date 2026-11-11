@@ -5,6 +5,8 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 
+import { workflowSurveyPickerLogic } from 'products/surveys/frontend/components/WorkflowSurveyPicker/workflowSurveyPickerLogic'
+
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import type { HogFlowAction } from '../../types'
@@ -13,6 +15,7 @@ import {
     getAwaitedSurveyId,
     getNextAction,
     insertSurveyResponseWait,
+    retargetSurveyResponseWait,
 } from '../surveyResponseWait'
 
 type FunctionConfig = Extract<HogFlowAction, { type: 'function' }>['config']
@@ -27,13 +30,33 @@ export function SurveyResponseWaitConfiguration({
     const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
     const { setWorkflowInfo } = useActions(workflowLogic)
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
+    const { selectedSurvey, selectedSurveyLoading } = useValues(workflowSurveyPickerLogic({ surveyId }))
+    const surveyUnavailable =
+        !!surveyId && !selectedSurveyLoading && (selectedSurvey?.id !== surveyId || !!selectedSurvey?.archived)
 
     const awaitedSurveyId = getAwaitedSurveyId(getNextAction(workflow, actionId))
 
     if (awaitedSurveyId) {
-        return awaitedSurveyId === surveyId ? null : (
-            <LemonBanner type="warning">
-                The next step waits for an answer to a different survey. Update it to wait for this one.
+        if (awaitedSurveyId === surveyId || !surveyId) {
+            return null
+        }
+        const retargetWait = (): void => {
+            const result = retargetSurveyResponseWait(workflow, actionId, surveyId)
+            if (result) {
+                setWorkflowInfo(result)
+            }
+        }
+        return (
+            <LemonBanner
+                type="warning"
+                action={{
+                    children: 'Wait for this survey',
+                    onClick: retargetWait,
+                    disabledReason: surveyUnavailable ? 'Pick a survey that still exists' : undefined,
+                    'data-attr': 'workflow-survey-retarget-answer-wait',
+                }}
+            >
+                The next step waits for an answer to a different survey.
             </LemonBanner>
         )
     }
@@ -74,11 +97,13 @@ export function SurveyResponseWaitConfiguration({
                     disabledReason={
                         !surveyId
                             ? 'Pick a survey first'
-                            : !hideSurveyTemplate
-                              ? 'Loading...'
-                              : getNextAction(workflow, actionId) === undefined
-                                ? "This step doesn't lead to a single next step"
-                                : undefined
+                            : surveyUnavailable
+                              ? 'Pick a survey that still exists'
+                              : !hideSurveyTemplate
+                                ? 'Loading...'
+                                : getNextAction(workflow, actionId) === undefined
+                                  ? "This step doesn't lead to a single next step"
+                                  : undefined
                     }
                 >
                     Add wait for answer

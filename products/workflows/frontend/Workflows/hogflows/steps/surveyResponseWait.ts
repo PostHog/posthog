@@ -52,6 +52,45 @@ export function getNextAction(workflow: WorkflowGraph, actionId: string): HogFlo
     return workflow.actions.find((action) => action.id === outgoing[0].to)
 }
 
+export function retargetSurveyResponseWait(
+    workflow: WorkflowGraph,
+    showSurveyActionId: string,
+    surveyId: string,
+    now: number = Date.now()
+): WorkflowGraph | null {
+    const waitAction = getNextAction(workflow, showSurveyActionId)
+    const previousSurveyId = getAwaitedSurveyId(waitAction)
+    if (!waitAction || !previousSurveyId) {
+        return null
+    }
+    const hideActionIds = new Set(workflow.edges.filter((edge) => edge.from === waitAction.id).map((edge) => edge.to))
+
+    const actions = workflow.actions.map((action): HogFlowAction => {
+        if (action.id === waitAction.id && action.type === 'wait_until_condition') {
+            const events = (action.config.events ?? []).map((entry) =>
+                entry.filters?.events?.some((event) => event.id === SURVEY_SENT_EVENT)
+                    ? surveySentEntry(surveyId)
+                    : entry
+            )
+            return { ...action, config: { ...action.config, events }, updated_at: now }
+        }
+        if (
+            hideActionIds.has(action.id) &&
+            action.type === 'function' &&
+            action.config.template_id === HIDE_SURVEY_TEMPLATE_ID &&
+            action.config.inputs?.survey_id?.value === previousSurveyId
+        ) {
+            const inputs = {
+                ...action.config.inputs,
+                survey_id: { ...action.config.inputs.survey_id, value: surveyId },
+            }
+            return { ...action, config: { ...action.config, inputs }, updated_at: now }
+        }
+        return action
+    })
+    return { actions, edges: workflow.edges }
+}
+
 export function insertSurveyResponseWait(
     workflow: WorkflowGraph,
     showSurveyActionId: string,

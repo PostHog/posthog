@@ -4,6 +4,7 @@ import {
     getAwaitedSurveyId,
     getNextAction,
     insertSurveyResponseWait,
+    retargetSurveyResponseWait,
 } from './surveyResponseWait'
 
 const action = (id: string, type: string, config: Record<string, unknown> = {}): HogFlowAction =>
@@ -54,5 +55,17 @@ describe('insertSurveyResponseWait', () => {
             edges: [...workflow.edges, { from: 'show', to: 'exit', type: 'branch' as const }],
         }
         expect(insertSurveyResponseWait(branched, 'show', 'survey-1', hideConfig)).toBeNull()
+    })
+})
+
+describe('retargetSurveyResponseWait', () => {
+    it('points the wait and its hide step at the new survey', () => {
+        const inserted = insertSurveyResponseWait(workflow, 'show', 'survey-1', hideConfig)!
+        const result = retargetSurveyResponseWait(inserted, 'show', 'survey-2')!
+
+        expect(getAwaitedSurveyId(getNextAction(result, 'show'))).toEqual('survey-2')
+        const hide = result.actions.find((a) => a.type === 'function' && a.id !== 'show')!
+        expect(hide.config).toMatchObject({ inputs: { survey_id: { value: 'survey-2' } } })
+        expect(result.edges).toEqual(inserted.edges)
     })
 })
