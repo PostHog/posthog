@@ -1,8 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-
-import { lemonToast } from '@posthog/lemon-ui'
+import { ToastContainer } from 'react-toastify'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -19,7 +18,6 @@ describe('AddDeliveryWebhookModal', () => {
     beforeEach(() => {
         releaseCreate = null
         createdBody = null
-        jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
         useMocks({
             post: {
                 '/api/projects/:team_id/hog_functions/': async ({ request }) => {
@@ -37,11 +35,15 @@ describe('AddDeliveryWebhookModal', () => {
     afterEach(() => {
         cleanup()
         deliveryWebhooksLogic.unmount()
-        jest.restoreAllMocks()
     })
 
     function openModal(): void {
-        render(<AddDeliveryWebhookModal />)
+        render(
+            <>
+                <ToastContainer />
+                <AddDeliveryWebhookModal />
+            </>
+        )
         act(() => deliveryWebhooksLogic.actions.openAddModal())
     }
 
@@ -105,9 +107,7 @@ describe('AddDeliveryWebhookModal', () => {
         await startCreate()
 
         act(() => releaseCreate!([500, { detail: 'Server error' }]))
-        await waitFor(() =>
-            expect(lemonToast.error).toHaveBeenCalledWith(expect.stringMatching(/^Couldn't create the webhook/))
-        )
+        expect(await screen.findByText(/Couldn't create the webhook/)).toBeInTheDocument()
 
         fireEvent.click(screen.getByText('Cancel'))
         await waitFor(() => expect(isDialogOpen()).toBe(false))
@@ -129,7 +129,7 @@ describe('AddDeliveryWebhookModal', () => {
         submitUrl('http://example.com/hooks')
 
         expect(await screen.findByText('Enter a URL that starts with https://')).toBeInTheDocument()
-        expect(lemonToast.error).not.toHaveBeenCalled()
+        expect(screen.queryByText(/Couldn't create the webhook/)).not.toBeInTheDocument()
         expect(createdBody).toBeNull()
     })
 })
