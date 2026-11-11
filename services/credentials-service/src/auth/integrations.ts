@@ -240,12 +240,17 @@ export function parseIntegrationClaims(payload: JWTPayload, nowSeconds: number):
     return { owner, ops, kinds, refs, userId, caller, jti, iat, exp }
 }
 
-/** The token's kinds narrowed by the policy. Null means any kind. */
-function effectiveKinds(token: readonly string[] | null, policy: KindAllowlist): readonly string[] | null {
-    if (policy === ALL_KINDS) {
+/** The token's kinds narrowed by the policy, and by the policy's kinds for `op`. Null means any kind. */
+function effectiveKinds(
+    token: readonly string[] | null,
+    policy: KindAllowlist,
+    opKinds: readonly string[] | undefined
+): readonly string[] | null {
+    const allowed = opKinds ?? policy
+    if (allowed === ALL_KINDS) {
         return token
     }
-    return token === null ? policy : token.filter((kind) => policy.includes(kind))
+    return token === null ? allowed : token.filter((kind) => allowed.includes(kind))
 }
 
 /** Null when the policy gives no source rows. */
@@ -323,7 +328,7 @@ export class IntegrationGrant {
             throw this.error('forbidden_op', `operation ${op} does not match the token owner`)
         }
 
-        const kinds = effectiveKinds(this.claims.kinds, policy.kinds)
+        const kinds = effectiveKinds(this.claims.kinds, policy.kinds, policy.opKinds?.[op])
         const sourceRows = sourceRowAccess(this.claims.kinds, policy)
         const requestedKinds = asList(scope.kind)
         let kindAllowed: boolean

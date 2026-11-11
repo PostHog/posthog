@@ -146,7 +146,7 @@ openssl pkey -in posthog-web-django.key -pubout -out posthog-web-django.pub   # 
 ```
 
 - Any other claim fails the token.
-- A token has exactly one `owner`. A token with cross-team ops (`list_across_teams`, `*_by_external_id`) has no owner and no team ops.
+- A token has exactly one `owner`. A token with cross-team ops (`list_across_teams`, `*_by_external_id`, `reverse_sync`) has no owner and no team ops.
 - `refs` is required for `delete`, `refresh`, `revoke` and `mint`. A route that acts on named refs (a get, a patch, a resolve) needs a token whose `refs` covers them.
 - Clocks may differ by 30s. Each `jti` is used once (see "Replay store" below).
 - A request needs its op in the token **and** in the policy for its deployment (`src/auth/policy.ts`). The kinds it may touch are the token's `kinds` narrowed by the policy's kinds. A deployment that the policy does not name gets nothing.
@@ -163,21 +163,21 @@ The names are the `apps/<name>` charts in `PostHog/charts`, the same names as th
 Each entry has an op list and a kinds allowlist. `*` (any kind) is kept for the deployments whose code touches kinds that no list could keep up with.
 A test pins the whole table, so a change to it is visible in review.
 
-| Deployment | Ops | Kinds |
-| --- | --- | --- |
-| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key) | all except `reverse_sync` | any |
-| `posthog-integrations-reverse-sync` (dedicated Celery queue, Phase 7 removes it) | `reverse_sync` only | any |
-| `posthog-worker-django` (Celery), `posthog-admin-django`, `temporal-worker-general-purpose` | `read`, `resolve`, `write`, `refresh`, `list_across_teams` | any |
-| `posthog-query-django` | `read` | any (HogQL `system.integrations`) |
-| `temporal-worker-data-warehouse`, `warehouse-sources-load` | `read`, `resolve`, `write`, `refresh`, `list_across_teams` | the warehouse OAuth and destination kinds, plus warehouse source rows |
-| `temporal-worker-batch-exports` | `read`, `resolve`, `refresh` | `aws-redshift`, `aws-s3`, `azure-blob`, `databricks`, `google-cloud-service-account`, `postgresql`, `s3-compatible`, `snowflake` |
-| `temporal-worker-tasks-agent` | `read`, `resolve`, `refresh`, `mint` | `github`, `slack`, `slack-posthog-code` |
-| `temporal-worker-max-ai`, `temporal-worker-wizard` | `read`, `resolve`, `refresh`, `mint` | `github` |
-| `temporal-worker-video-export` (also runs signals, conversations and review workflows) | `read`, `resolve`, `refresh`, `mint` | `github`, `gitlab`, `google-calendar`, `jira`, `linear`, `slack` |
-| the listed `cdp-*` deployments and `ingestion-*` lanes (hog functions and hog transformations) | `resolve` | any |
+| Deployment                                                                                     | Ops                                                                                      | Kinds                                                                                                                            |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key)            | all except `reverse_sync`                                                                | any                                                                                                                              |
+| `posthog-integrations-reverse-sync` (dedicated Celery queue, Phase 7 removes it)               | `reverse_sync` only                                                                      | any                                                                                                                              |
+| `posthog-worker-django` (Celery), `posthog-admin-django`, `temporal-worker-general-purpose`    | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                               | any                                                                                                                              |
+| `posthog-query-django`                                                                         | `read`                                                                                   | any (HogQL `system.integrations`)                                                                                                |
+| `temporal-worker-data-warehouse`, `warehouse-sources-load`                                     | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                               | the warehouse OAuth and destination kinds, plus warehouse source rows                                                            |
+| `temporal-worker-batch-exports`                                                                | `read`, `resolve`, `refresh`                                                             | `aws-redshift`, `aws-s3`, `azure-blob`, `databricks`, `google-cloud-service-account`, `postgresql`, `s3-compatible`, `snowflake` |
+| `temporal-worker-tasks-agent`                                                                  | `read`, `resolve`, `refresh`, `mint`, and `read_by_external_id` for the Slack kinds only | `github`, `slack`, `slack-posthog-code`                                                                                          |
+| `temporal-worker-max-ai`, `temporal-worker-wizard`                                             | `read`, `resolve`, `mint`                                                                | `github`                                                                                                                         |
+| `temporal-worker-video-export` (also runs signals, conversations and review workflows)         | `read`, `resolve`, `refresh`, `mint`                                                     | `github`, `gitlab`, `google-calendar`, `jira`, `linear`, `slack`                                                                 |
+| the listed `cdp-*` deployments and `ingestion-*` lanes (hog functions and hog transformations) | `resolve`                                                                                | any                                                                                                                              |
 
 `temporal-worker-health-check`, `temporal-worker-stamphog` and every other name get nothing.
-Only `posthog-web-django` holds `delete`, `revoke`, `oauth_exchange`, `*_by_external_id` and `delete_owner`.
+Only `posthog-web-django` holds `delete`, `revoke`, `oauth_exchange`, `write_by_external_id`, `delete_by_external_id` and `delete_owner`. `read_by_external_id` also goes to `temporal-worker-tasks-agent`, for the Slack kinds only.
 
 A warehouse source row holds the typed-in credentials of a warehouse source and is marked by `config.warehouse_source_type`.
 There are about a thousand such kinds, so the policy gives the warehouse deployments a `sourceRows` flag instead of a list.
@@ -359,6 +359,11 @@ The runtime role gets `SELECT, INSERT, UPDATE, DELETE` on `integrations`, `integ
 On `audit_log` it gets only `SELECT, INSERT`: it cannot `UPDATE`, `DELETE` or `TRUNCATE` audit rows, so a compromised pod cannot erase its own trail.
 Audit retention runs under the migrate or a maintenance role, outside the service process.
 
+In `prod-us`, `prod-eu` and any environment whose name starts with `prod`, the service checks the runtime role at startup.
+It refuses to start the integration features when the runtime role owns `audit_log`, can `UPDATE`, `DELETE` or `TRUNCATE` it, or has the same user as `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`.
+The pod logs `startup:database_role_refused`, stays ready, and keeps serving platform secrets.
+The same-user check runs only when the pod sets `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`. Other environments skip the check.
+
 Infra creates both roles.
 The migration Job sets `CREDENTIALS_SERVICE_RUNTIME_ROLE` to the runtime role name.
 The Job passes it to Postgres as the session setting `credentials_service.runtime_role`, and the grants migration reads it, so the SQL file holds no role name.
@@ -524,24 +529,24 @@ Its wrapped keys go into the same columns. The service refuses it when `CREDENTI
 
 ## Configuration
 
-| Variable                                   | Default                       | Notes                                                   |
-| ------------------------------------------ | ----------------------------- | ------------------------------------------------------- |
-| `CREDENTIALS_SERVICE_ENV`                  | `dev`                         | Logical env, recorded on every startup log line         |
-| `CREDENTIALS_SERVICE_SECRET_SOURCE`        | `directory`                   | `directory` or `kubernetes`; anything else fails boot   |
-| `CREDENTIALS_SERVICE_SECRETS_DIR`          | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)    |
-| `CREDENTIALS_SERVICE_SECRET_NAME`          | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                      |
-| `CREDENTIALS_SERVICE_SECRET_NAMESPACE`     | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
-| `CREDENTIALS_SERVICE_RELOAD_SECONDS`       | `30`                          | Re-read interval; a safety re-list next to the watch    |
-| `CREDENTIALS_SERVICE_METRICS_PORT`         | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
-| `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` | unset | Ed25519 `<deployment>.pub` files; unset disables the integrations routes |
-| `CREDENTIALS_SERVICE_LOG_LEVEL`            | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
-| `PORT`                                     | `8004`                        |                                                         |
-| `HOST`                                     | `0.0.0.0`                     |                                                         |
-| `SHUTDOWN_PRESTOP_DELAY_MS`                | `5000`                        | Wait before draining, for the Kubernetes prestop window |
-| `CREDENTIALS_SERVICE_DATABASE_URL`         | unset                         | Postgres URL; unset means platform secrets only         |
-| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE`   | `20`                          | Connections per pod                                     |
-| `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` | unset                         | Migrate role URL, for the migration Job only            |
-| `CREDENTIALS_SERVICE_RUNTIME_ROLE`         | unset                         | Role that the migration Job grants access to            |
+| Variable                                                 | Default                       | Notes                                                                                               |
+| -------------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| `CREDENTIALS_SERVICE_ENV`                                | `dev`                         | Logical env, recorded on every startup log line                                                     |
+| `CREDENTIALS_SERVICE_SECRET_SOURCE`                      | `directory`                   | `directory` or `kubernetes`; anything else fails boot                                               |
+| `CREDENTIALS_SERVICE_SECRETS_DIR`                        | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)                                                |
+| `CREDENTIALS_SERVICE_SECRET_NAME`                        | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                                                                  |
+| `CREDENTIALS_SERVICE_SECRET_NAMESPACE`                   | the pod's namespace           | Read from the service account when unset (`kubernetes`)                                             |
+| `CREDENTIALS_SERVICE_RELOAD_SECONDS`                     | `30`                          | Re-read interval; a safety re-list next to the watch                                                |
+| `CREDENTIALS_SERVICE_METRICS_PORT`                       | `9090`                        | Dedicated `/metrics` listener, kept off the ingress                                                 |
+| `CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR` | unset                         | Ed25519 `<deployment>.pub` files for the integrations audience; unset accepts no integrations token |
+| `CREDENTIALS_SERVICE_LOG_LEVEL`                          | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                                                                  |
+| `PORT`                                                   | `8004`                        |                                                                                                     |
+| `HOST`                                                   | `0.0.0.0`                     |                                                                                                     |
+| `SHUTDOWN_PRESTOP_DELAY_MS`                              | `5000`                        | Wait before draining, for the Kubernetes prestop window                                             |
+| `CREDENTIALS_SERVICE_DATABASE_URL`                       | unset                         | Postgres URL; unset means platform secrets only                                                     |
+| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE`                 | `20`                          | Connections per pod                                                                                 |
+| `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`               | unset                         | Migrate role URL, for the migration Job only                                                        |
+| `CREDENTIALS_SERVICE_RUNTIME_ROLE`                       | unset                         | Role that the migration Job grants access to                                                        |
 
 The service exits at boot rather than starting degraded: a missing production variable, a
 numeric variable that does not parse, or a `kubernetes` source without `KUBERNETES_SERVICE_HOST`

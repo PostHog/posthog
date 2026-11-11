@@ -147,7 +147,11 @@ describe('loadConfig secret source', () => {
 })
 
 describe('loadConfig database', () => {
-    const DB_VARS = ['CREDENTIALS_SERVICE_DATABASE_URL', 'CREDENTIALS_SERVICE_DATABASE_POOL_SIZE']
+    const DB_VARS = [
+        'CREDENTIALS_SERVICE_DATABASE_URL',
+        'CREDENTIALS_SERVICE_DATABASE_POOL_SIZE',
+        'CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL',
+    ]
     const URL = 'postgres://credentials:not-a-real-password@localhost:5432/credentials'
 
     afterEach(() => {
@@ -170,6 +174,25 @@ describe('loadConfig database', () => {
     ])('%s', (_label, env: Record<string, string>, expected) => {
         Object.assign(process.env, env)
         expect(loadConfig().database).toEqual(expected)
+    })
+
+    it.each([
+        [
+            'the user of the migrate URL',
+            'postgres://migrator:not-a-real-password@localhost:5432/credentials',
+            'migrator',
+        ],
+        ['no user when the migrate URL has none', 'postgres://localhost:5432/credentials', undefined],
+    ])('reads %s', (_label, migrateUrl, expected) => {
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = URL
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = migrateUrl
+        expect(loadConfig().database?.migrateUser).toBe(expected)
+    })
+
+    it('refuses to boot with a migrate URL that is not a URL', () => {
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = URL
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'not a url'
+        expect(() => loadConfig()).toThrow('CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL')
     })
 
     it.each(['0', '-1', '20x'])('refuses to boot with pool size %j', (size) => {

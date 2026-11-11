@@ -354,7 +354,8 @@ describe('server readiness with a database', () => {
     async function boot(
         database: DatabaseConfig | undefined,
         kms?: KmsConfig,
-        withIntegrationKeys = false
+        withIntegrationKeys = false,
+        env = 'test'
     ): Promise<number> {
         const mountDir = await mkdtemp(join(tmpdir(), 'credentials-db-e2e-'))
         dirs.push(mountDir)
@@ -365,7 +366,7 @@ describe('server readiness with a database', () => {
             port: 0,
             host: '127.0.0.1',
             shutdownPrestopDelayMs: 0,
-            env: 'test',
+            env,
             mountDir,
             reloadSeconds: 3600,
             metricsPort: 0,
@@ -402,6 +403,10 @@ describe('server readiness with a database', () => {
         servers.push(server)
         await server.start()
         return listening
+    }
+
+    function bootedServer(): CredentialsServer {
+        return servers[servers.length - 1]!
     }
 
     async function resolveStatus(port: number): Promise<number> {
@@ -446,5 +451,76 @@ describe('server readiness with a database', () => {
 
         expect((await fetch(`http://127.0.0.1:${port}/v1/integrations`)).status).toBe(status)
         expect(await resolveStatus(port)).toBe(200)
+    })
+
+    describe('runtime role check', () => {
+        const RUNTIME_ROLE = 'credentials_guard_runtime'
+        const PASSWORD = 'not-a-real-password'
+        let migratedUrl: string
+        let runtimeUrl: string
+
+        beforeAll(async () => {
+            await pool.query(`CREATE ROLE ${RUNTIME_ROLE} LOGIN PASSWORD '${PASSWORD}'`)
+            migratedUrl = await createDatabase('runtime_role_check')
+            await runMigrations({ databaseUrl: migratedUrl, direction: 'up', runtimeRole: RUNTIME_ROLE })
+            const url = new URL(migratedUrl)
+            url.username = RUNTIME_ROLE
+            url.password = PASSWORD
+            runtimeUrl = url.toString()
+        })
+
+        const ownerUser = (): string => new URL(migratedUrl).username
+
+        // The owner of audit_log can rewrite it, so production refuses to serve integrations
+        // with that role. Platform secrets keep serving and the pod stays ready.
+        it.each([
+            ['prod-us', 'the owner role', () => ({ url: migratedUrl, poolSize: 2 }), false],
+            ['prod-eu', 'the owner role', () => ({ url: migratedUrl, poolSize: 2 }), false],
+            ['production', 'the owner role', () => ({ url: migratedUrl, poolSize: 2 }), false],
+            [
+                'prod-us',
+                'a limited role that shares the migrate user',
+                () => ({ url: runtimeUrl, poolSize: 2, migrateUser: RUNTIME_ROLE }),
+                false,
+            ],
+            ['dev', 'the owner role', () => ({ url: migratedUrl, poolSize: 2 }), true],
+            ['test', 'the owner role', () => ({ url: migratedUrl, poolSize: 2 }), true],
+            [
+                'dev',
+                'a limited role that shares the migrate user',
+                () => ({ url: runtimeUrl, poolSize: 2, migrateUser: RUNTIME_ROLE }),
+                true,
+            ],
+            ['prod-us', 'a separate limited role', () => ({ url: runtimeUrl, poolSize: 2 }), true],
+            [
+                'prod-eu',
+                'a separate limited role with a different migrate user',
+                () => ({ url: runtimeUrl, poolSize: 2, migrateUser: ownerUser() }),
+                true,
+            ],
+        ] as [string, string, () => DatabaseConfig, boolean][])(
+            'in %s with %s, integrations enabled is %s',
+            async (env, _label, database, enabled) => {
+                const port = await boot(database(), undefined, false, env)
+
+                expect(bootedServer().integrationsPool() !== undefined).toBe(enabled)
+                expect((await fetch(`http://127.0.0.1:${port}/_readiness`)).status).toBe(200)
+                expect(await resolveStatus(port)).toBe(200)
+            }
+        )
+
+        it.each([
+            ['prod-us', () => ({ url: migratedUrl, poolSize: 2 }), 404],
+            ['prod-us', () => ({ url: runtimeUrl, poolSize: 2 }), 401],
+            ['dev', () => ({ url: migratedUrl, poolSize: 2 }), 401],
+        ] as [string, () => DatabaseConfig, number][])(
+            'in %s, the integration routes answer %i with the role as configured',
+            async (env, database, status) => {
+                const kms: KmsConfig = { provider: 'local', keys: [randomBytes(32)] }
+                const port = await boot(database(), kms, true, env)
+
+                expect((await fetch(`http://127.0.0.1:${port}/v1/integrations`)).status).toBe(status)
+            }
+        )
     })
 })
