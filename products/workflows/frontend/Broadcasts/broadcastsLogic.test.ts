@@ -42,7 +42,6 @@ describe('broadcastsLogic', () => {
     let sends: Record<string, Record<string, number>>
     // Each fault fails the next request to its endpoint, then clears, so a test can wait until it was served.
     let failing: Set<'list' | 'runs' | 'schedules' | 'metrics' | 'write'>
-    // Each hold pauses the next request to its endpoint until the test releases it.
     let held: Partial<Record<'list' | 'runs' | 'metrics', Promise<void>>>
 
     const holdNext = (endpoint: keyof typeof held): (() => void) => {
@@ -110,8 +109,12 @@ describe('broadcastsLogic', () => {
         await waitFor(() => expect(logic.values.rowDetailsById[LIVE.id]).toEqual(LIVE_DETAILS))
     }
 
-    const settleRequestsAheadOfANewOne = async (): Promise<void> => {
+    const answerRequestsAheadOfANewOne = async (): Promise<void> => {
         await generatedApi.hogFlowsBatchJobsList(String(MOCK_TEAM_ID), LIVE.id)
+    }
+
+    const settleRequestsAheadOfANewOne = async (): Promise<void> => {
+        await answerRequestsAheadOfANewOne()
         await new Promise((resolve) => setTimeout(resolve, 0))
     }
 
@@ -275,7 +278,8 @@ describe('broadcastsLogic', () => {
             await waitFor(() => expect(held).not.toHaveProperty('list'))
         }
         releaseEarlier()
-        await generatedApi.hogFlowsBatchJobsList(String(MOCK_TEAM_ID), LIVE.id)
+        // Fake timers would hold the settling tick, so only the requests are awaited.
+        await answerRequestsAheadOfANewOne()
 
         expect(shownNow()).toEqual({ names: row.shown, pending: true })
         await jest.advanceTimersByTimeAsync(300)
@@ -539,7 +543,11 @@ describe('broadcastsLogic', () => {
             }
             await waitFor(() => expect(screen.queryByText(/broadcast\?$/)).toBeNull())
             await waitFor(() => expect(logic.values.broadcasts.results).toMatchObject(row.after))
-            expect(flows).toMatchObject(row.after)
+            await settleRequestsAheadOfANewOne()
+            expect({ shown: logic.values.broadcasts.results, stored: flows }).toMatchObject({
+                shown: row.after,
+                stored: row.after,
+            })
         })
     })
 
