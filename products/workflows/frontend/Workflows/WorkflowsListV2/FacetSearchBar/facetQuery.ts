@@ -178,7 +178,7 @@ export function createFacetMatcher<TItem>(
 /**
  * Returns a counter of each facet's values over the items the other pills and the text let through.
  * A facet's own pills are left out, so picking one value keeps the counts of its OR alternatives.
- * The text is matched once per item, however many facets get counted.
+ * The text is matched once per item, however many facets get counted, and each facet is counted once.
  */
 export function createFacetCounter<TItem>(
     items: TItem[],
@@ -189,10 +189,15 @@ export function createFacetCounter<TItem>(
     const text = value.text.trim()
     const textMatches = text ? items.filter((item) => matchesText(item, text)) : items
     const groups = groupFilters(value.filters, facets)
+    const byFacet = new Map<string, FacetValueCount[]>()
     return (facetKey) => {
         const facet = findFacet(facets, facetKey)
         if (!facet) {
             return []
+        }
+        const cached = byFacet.get(facet.key)
+        if (cached) {
+            return cached
         }
         const counts = new Map<string, FacetValueCount>()
         for (const item of textMatches) {
@@ -213,6 +218,8 @@ export function createFacetCounter<TItem>(
                 }
             }
         }
-        return [...counts.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+        const sorted = [...counts.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+        byFacet.set(facet.key, sorted)
+        return sorted
     }
 }

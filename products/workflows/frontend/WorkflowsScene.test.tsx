@@ -15,7 +15,6 @@ import { AccessControlLevel } from '~/types'
 
 import type { HogFlowListSummaryApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
 import {
     FIXTURE_METRICS,
     FIXTURE_WORKFLOWS,
@@ -29,19 +28,39 @@ import { WorkflowsScene } from './WorkflowsScene'
 const shownRowNames = (): string[] =>
     Array.from(document.querySelectorAll('[data-attr="workflows-list-v2-name"]')).map((el) => el.textContent ?? '')
 
+const shownHeaders = (): (string | null)[] =>
+    Array.from(document.querySelectorAll('[data-attr="workflows-list-v2"] th')).map((th) => th.textContent)
+
 describe('WorkflowsScene', () => {
     let listRequests: string[]
+    let answeredSearches: string[]
     let workflows: HogFlowListSummaryApi[]
+
+    // The list shows its local matches at once and greys out until the debounced server search answers.
+    const waitForSearch = (text: string): Promise<void> =>
+        waitFor(() => {
+            expect(answeredSearches).toContain(text)
+            expect(document.querySelector('[data-attr="workflows-list-v2"] .LemonTable--loading')).toBeNull()
+        })
 
     beforeEach(() => {
         listRequests = []
+        answeredSearches = []
         workflows = FIXTURE_WORKFLOWS
         localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flows/summaries/': ({ request }) => {
                     listRequests.push(request.url)
-                    return [200, paginated(workflows)]
+                    const search = new URL(request.url).searchParams.get('search')
+                    if (search === null) {
+                        return [200, paginated(workflows)]
+                    }
+                    answeredSearches.push(search)
+                    const matches = workflows.filter((workflow) =>
+                        `${workflow.name}\n${workflow.description}`.toLowerCase().includes(search.toLowerCase())
+                    )
+                    return [200, paginated(matches)]
                 },
                 '/api/projects/:team_id/hog_flows/metrics/global/': ({ request }) => {
                     listRequests.push(request.url)
@@ -91,6 +110,56 @@ describe('WorkflowsScene', () => {
         expect(shownRowNames()).toContain('Welcome series')
         expect(document.querySelector('[data-attr="workflows-list-v2-retry"]')).toBeNull()
         expect(document.querySelector('[data-attr="workflows-folder-contents"]')).not.toBeNull()
+    })
+
+    it('waits for later pages before saying nothing matches, and keeps the loaded rows when one fails', async () => {
+        const answerLaterPage: ((status: number, body: unknown) => void)[] = []
+        const firstPage = paginated(
+            [
+                buildWorkflowRow({
+                    id: 'wf-live',
+                    name: 'Live flow',
+                    status: 'active',
+                    updated_at: '2026-09-02T00:00:00Z',
+                }),
+            ],
+            'http://localhost/api/projects/997/hog_flows/summaries/?offset=100'
+        )
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new URL(request.url).searchParams.get('offset')
+                        ? new Promise((resolve) => answerLaterPage.push((status, body) => resolve([status, body])))
+                        : [200, firstPage],
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled status:draft' })
+        render(
+            <Provider>
+                <WorkflowsScene />
+            </Provider>
+        )
+
+        await waitFor(() => expect(answerLaterPage).toHaveLength(1))
+        await waitFor(() => expect(document.body).toHaveTextContent('Loading more workflows'))
+        expect(document.body).not.toHaveTextContent('Nothing matches')
+
+        act(() => answerLaterPage[0](500, { detail: 'Boom' }))
+        act(() =>
+            workflowsListV2Logic.actions.setValue({
+                filters: [{ facet: 'in', value: 'Unfiled', negated: false }],
+                text: '',
+            })
+        )
+        await waitFor(() => expect(document.body).toHaveTextContent("Couldn't load all workflows"))
+        expect(shownRowNames()).toEqual(['Live flow'])
+
+        fireEvent.click(document.querySelector('[data-attr="workflows-list-v2-retry"]')!)
+        await waitFor(() => expect(answerLaterPage).toHaveLength(2))
+        act(() => answerLaterPage[1](200, paginated([buildWorkflowRow({ id: 'wf-draft', name: 'Draft flow' })])))
+        await waitFor(() => expect(shownRowNames()).toEqual(['Live flow', 'Draft flow']))
+        expect(document.body).not.toHaveTextContent("Couldn't load all workflows")
     })
 
     it('keeps guided automation setup on an empty automation view', async () => {
@@ -158,7 +227,9 @@ describe('WorkflowsScene', () => {
 
         // 125 rows match, so a kept page would still show matches 101 and up.
         act(() => workflowsListV2Logic.actions.setValue({ filters: scope, text: 'odd' }))
-        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 001 odd'))
+        await waitForSearch('odd')
+        expect(shownRowNames()[0]).toEqual('Flow 001 odd')
+        expect(shownRowNames().every((name) => name.endsWith('odd'))).toBe(true)
     })
 
     it('keeps the sort order when a filter changes', async () => {
@@ -187,7 +258,8 @@ describe('WorkflowsScene', () => {
                 text: 'odd',
             })
         )
-        await waitFor(() => expect(shownRowNames()).toEqual(['Flow 5 odd', 'Flow 3 odd', 'Flow 1 odd']))
+        await waitForSearch('odd')
+        expect(shownRowNames()).toEqual(['Flow 5 odd', 'Flow 3 odd', 'Flow 1 odd'])
     })
 
     it.each([
@@ -214,10 +286,37 @@ describe('WorkflowsScene', () => {
         )
 
         await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
-        const headers = Array.from(document.querySelectorAll('[data-attr="workflows-list-v2"] th')).map(
-            (th) => th.textContent
-        )
-        expect(headers).toEqual(expectedHeaders)
+        expect(shownHeaders()).toEqual(expectedHeaders)
+    })
+
+    it('keeps the columns picked in List options after the list reopens, until they are reset', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+        const openList = async (): Promise<void> => {
+            render(
+                <Provider>
+                    <WorkflowsScene />
+                </Provider>
+            )
+            await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
+        }
+        const chooseFromListOptions = async (item: string): Promise<void> => {
+            fireEvent.click(document.querySelector('[data-attr="workflows-list-v2-options"]')!)
+            await waitFor(() => expect(document.querySelector(`[data-attr="${item}"]`)).not.toBeNull())
+            fireEvent.click(document.querySelector(`[data-attr="${item}"]`)!)
+        }
+
+        await openList()
+        await chooseFromListOptions('workflows-list-v2-column-health')
+        await chooseFromListOptions('workflows-list-v2-column-owner')
+        await waitFor(() => expect(shownHeaders()).toEqual(['Name', 'Status', 'Health', 'Updated', '', '']))
+
+        cleanup()
+        await openList()
+        expect(shownHeaders()).toEqual(['Name', 'Status', 'Health', 'Updated', '', ''])
+
+        await chooseFromListOptions('workflows-list-v2-reset-columns')
+        await waitFor(() => expect(shownHeaders()).toEqual(['Name', 'Status', 'Owner', 'Updated', '', '']))
     })
 
     it('opens the template chooser on the old list type tab', async () => {
@@ -237,8 +336,13 @@ describe('WorkflowsScene', () => {
         )
 
         await waitFor(() => expect(document.querySelector('[data-attr="new-workflow"]')).not.toBeNull())
+        expect(document.body).not.toHaveTextContent('Create a workflow')
         fireEvent.click(document.querySelector('[data-attr="new-workflow"]')!)
-        expect(workflowTemplatesLogic.values.typeFilter).toEqual('messaging')
+
+        await waitFor(() => expect(document.body).toHaveTextContent('Create a workflow'))
+        expect(document.querySelector('[data-attr="workflow-template-type-messaging"]')?.closest('li')).toHaveClass(
+            'LemonSegmentedButton__option--selected'
+        )
     })
 
     it('turns an old filter link into pills without loading the old list', async () => {
