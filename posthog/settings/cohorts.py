@@ -5,6 +5,9 @@ from posthog.settings.utils import get_from_env, str_to_bool
 # Off by default ("none"); enable per environment via the env override
 # A set-but-empty value survives as "", which the parser reads as "all teams".
 REALTIME_COHORT_TEAM_ALLOWLIST: str = os.getenv("REALTIME_COHORT_TEAM_ALLOWLIST", "none")
+# The longest history a realtime cohort's criteria may reach back. Keep it at or below rust/cohort-seeder's
+# `SEEDER_MAX_LOOKBACK_DAYS`: a cohort past the seeder's cap is backfilled truncated and still stamped ready.
+REALTIME_COHORT_MAX_HISTORY_DAYS: int = get_from_env("REALTIME_COHORT_MAX_HISTORY_DAYS", 400, type_cast=int)
 # Teams whose cohort saves enqueue a backfill run for rust/cohort-seeder to claim. Same grammar as
 # the allowlist above, except that a set-but-empty value means no teams: nothing outside Python
 # parses this setting, so it can fail closed on empty where the realtime allowlist cannot. It is

@@ -884,8 +884,9 @@ class RESTClient:
             # the response shape changed (e.g. an error object on a 200) — fail loud rather than
             # wrapping the stray object as a single row.
             if required and not isinstance(body, list):
+                keys = f" (body keys: {sorted(body.keys())[:20]})" if isinstance(body, dict) else ""
                 raise ValueError(
-                    f"Required a list response body, got {type(body).__name__}. "
+                    f"Required a list response body, got {type(body).__name__}{keys}. "
                     "The API response shape may have changed."
                 )
             data = body

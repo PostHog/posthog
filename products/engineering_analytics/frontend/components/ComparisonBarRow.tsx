@@ -22,17 +22,14 @@ export function ComparisonBarRow({
     children,
 }: {
     label: string
-    /** Shown on hover over the label, e.g. the full name a narrow label truncates. */
     labelTooltip?: string
     value: number
     /** The largest figure on the card's shared scale. Omit it for a bar that fills the track, e.g. a share split. */
     max?: number
     formatValue: (value: number) => string
-    /** The baseline row (previous window, repo), drawn quieter than the row it is compared with. */
     muted?: boolean
     /** A companion figure pinned as a tick on the same scale, named in its tooltip (e.g. "90th percentile"). */
     marker?: { value: number; label: string } | null
-    /** Segments that fill the bar instead of one color, e.g. a pass/fail or before/after split. */
     children?: ReactNode
 }): JSX.Element {
     const fraction = max == null ? 1 : max > 0 ? value / max : 0

@@ -24,6 +24,7 @@ from posthog.dataclasses import frozen
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
 
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
@@ -439,6 +440,7 @@ def _clickhouse_http_pool_mgr():
 def get_http_client(**overrides):
     from clickhouse_connect import get_client  # noqa: PLC0415
 
+    clickhouse_test_setup.run()
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -660,6 +662,7 @@ def default_client(
     user and password override these, for example with a dedicated user's resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
+    clickhouse_test_setup.run()
     if user is None and password is None:
         user = settings.CLICKHOUSE_USER
         password = ClickHouseCredentials(
@@ -695,6 +698,10 @@ class ClickHouseChPool(ChPool):
         else:
             self._pool.append(client)
         return client
+
+    def pull(self, key: str | None = None) -> SyncClient:
+        clickhouse_test_setup.run()
+        return super().pull(key)
 
 
 class RefreshingChPool(ClickHouseChPool):

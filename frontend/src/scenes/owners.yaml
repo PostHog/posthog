@@ -98,6 +98,8 @@ rules:
       owners: conversations
     - match: ['/themes/', '/trends/']
       owners: team-product-analytics
+    - match: '/toolbar-launch/'
+      owners: team-growth
     - match: '/web-analytics/'
       owners: team-web-analytics
     - match: '/welcome/'

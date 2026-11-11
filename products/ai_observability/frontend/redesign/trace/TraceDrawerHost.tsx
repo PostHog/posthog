@@ -8,11 +8,11 @@ import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLog
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { DetailPanel, isDetailPanelFullWidth } from '../shared/components/DetailPanel'
-import { TraceViewContainer } from './adapter/TraceViewContainer'
 import { TraceDrawerToolbar } from './components/TraceDrawerToolbar'
 import { isOverlayOpen } from './shouldCloseOnEscape'
 import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './traceDrawerLists'
 import { TraceStepDirection, traceDrawerLogic } from './traceDrawerLogic'
+import { TraceViewHost } from './TraceViewHost'
 
 export interface TraceDrawerHostProps {
     listId: TraceDrawerListId
@@ -77,11 +77,12 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
                     onPrevious={previousTrace ? () => stepTo('previous') : null}
                     onNext={nextTrace ? () => stepTo('next') : null}
                     fullPageHref={fullPageHref}
+                    fullPageInNewTab={TRACE_DRAWER_LISTS[listId].fullPageInNewTab}
                     onClose={close}
                 />
             }
         >
-            <TraceViewContainer
+            <TraceViewHost
                 key={openRef.traceId}
                 hostId={hostId}
                 traceId={openRef.traceId}
