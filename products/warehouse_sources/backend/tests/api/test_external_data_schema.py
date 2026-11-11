@@ -10,6 +10,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import mock
 
 from django.conf import settings
+from django.core.cache.backends.locmem import LocMemCache
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.client import Client as HttpClient
@@ -722,12 +723,18 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_cursor_yet", {}, "fecha_actualizacion", 1),
-            ("cursor_configured", {"incremental_field": "created_at"}, "created_at", 0),
+            ("no_cursor_yet", {}, ["created_at", "fecha_actualizacion"], 1),
+            ("cursor_configured", {"incremental_field": "created_at"}, ["created_at", "created_at"], 0),
+            (
+                "stale_stored_pick",
+                {"incremental_field_suggestion": {"field": "dropped_column", "candidates": "older-column-set"}},
+                ["created_at", "fecha_actualizacion"],
+                1,
+            ),
         ]
     )
-    def test_incremental_fields_asks_the_decision_model_only_without_a_cursor(
-        self, _name, sync_type_config, expected_first_field, expected_model_calls
+    def test_incremental_fields_stores_the_model_pick_for_later_opens(
+        self, _name, sync_type_config, expected_first_field_per_open, expected_model_calls
     ):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
@@ -748,13 +755,20 @@ class TestExternalDataSchema(APIBaseTest):
             mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
             mock.patch.object(StripeSource, "get_schemas", return_value=[discovered]),
             fake_decision_model() as model_calls,
+            mock.patch(
+                "products.warehouse_sources.backend.logic.incremental_field_model.cache",
+                LocMemCache(f"incremental-field-{_name}", {}),
+            ),
         ):
-            response = self.client.post(
-                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
-            )
+            first_fields = []
+            for _ in expected_first_field_per_open:
+                response = self.client.post(
+                    f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                first_fields.append(response.json()["incremental_fields"][0]["field"])
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["incremental_fields"][0]["field"] == expected_first_field
+        assert first_fields == expected_first_field_per_open
         assert len(model_calls) == expected_model_calls
 
     @parameterized.expand(

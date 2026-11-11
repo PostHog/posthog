@@ -11,7 +11,7 @@ import json
 import asyncio
 import hashlib
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.core.cache import cache
 
@@ -39,6 +39,7 @@ from posthog.llm.system_one_client import (
 from posthog.ph_client import feature_enabled_or_false
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
+from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema, tracks_updates
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -63,6 +64,8 @@ TEAM_BUDGET = Budget(burst=12, per_hour=60)
 TEAM_BUDGET_KEY_PREFIX = "warehouse_incremental_field_model_rate"
 
 MODEL_PICK_NOTE = "Picked by AI from the table and column names."
+# Key in the schema's sync_type_config that holds the stored model pick for the sync settings form.
+SUGGESTION_KEY = "incremental_field_suggestion"
 
 _INSTRUCTIONS = (
     "state.tables.{table_id} is a database table and its columns that can be the cursor of an incremental sync. "
@@ -99,6 +102,60 @@ def recommend_for_candidates(
         for schema in schemas
         if schema.incremental_fields and schema.incremental_fields[0].get("picked_by_model")
     }
+
+
+def apply_stored_suggestion(
+    schema: SourceSchema, sync_type_config: Mapping[str, Any] | None, *, team_id: int, schema_id: str
+) -> None:
+    """Move a stored model pick to the front, or queue one to be computed and stored.
+
+    The sync settings form opens one table at a time, so asking the model on each open would make
+    the person wait for it. The first open shows the rule-based order and queues the question; later
+    opens read the stored answer. A stored pick only counts while the table has the same candidates.
+    """
+    stored = (sync_type_config or {}).get(SUGGESTION_KEY)
+    key = _candidates_key(schema)
+    if isinstance(stored, dict) and stored.get("candidates") == key and isinstance(stored.get("field"), str):
+        _apply_pick(schema, stored["field"])
+        return
+    if _is_open(schema):
+        # Deferred import: the task module imports this one.
+        from products.warehouse_sources.backend.tasks.tasks import compute_incremental_field_suggestion  # noqa: PLC0415
+
+        compute_incremental_field_suggestion.delay(
+            team_id=team_id, schema_id=schema_id, table=schema.name, fields=[dict(f) for f in _candidates(schema)]
+        )
+
+
+def store_incremental_field_suggestion(
+    team: "Team", schema_id: str, table: str, fields: list[IncrementalField]
+) -> None:
+    """Ask the model for one table and store a confident pick on the schema."""
+    picks = recommend_for_candidates([(table, fields)], team=team)
+    if table not in picks:
+        return
+    update_sync_type_config_keys(
+        schema_id,
+        team.pk,
+        updates={SUGGESTION_KEY: {"field": picks[table][0]["field"], "candidates": _candidates_key_for(fields)}},
+    )
+
+
+def _candidates_key(schema: SourceSchema) -> str:
+    return _candidates_key_for(_candidates(schema))
+
+
+def _candidates_key_for(fields: Sequence[IncrementalField]) -> str:
+    shape = [
+        [
+            field["field"],
+            str(field.get("field_type") or field["type"]),
+            field.get("is_indexed", True),
+            field.get("nullable", False),
+        ]
+        for field in fields
+    ]
+    return hashlib.sha256(json.dumps([MODEL, PROMPT_VERSION, shape]).encode()).hexdigest()
 
 
 def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
