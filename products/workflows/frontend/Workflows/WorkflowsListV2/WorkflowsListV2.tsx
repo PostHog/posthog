@@ -23,10 +23,9 @@ export function WorkflowsListV2(): JSX.Element {
         workflowsLoading,
         loadFailed,
         loadErrorDetail,
-        metricsLoading,
         serverSearchStatus,
         hasHealthFilter,
-        metricsLoaded,
+        metricsStatus,
     } = useValues(workflowsListV2Logic)
     const { setValue, loadWorkflows, loadMetrics } = useActions(workflowsListV2Logic)
     const {
@@ -45,7 +44,7 @@ export function WorkflowsListV2(): JSX.Element {
     })
 
     const { loadBrowser } = useActions(workflowFoldersLogic)
-    const metricsFailed = listLoaded && hasHealthFilter && !metricsLoaded && !metricsLoading
+    const metricsFailed = hasHealthFilter && metricsStatus === 'failed'
     const renderWorkflowsLoadError = (title: string): JSX.Element => (
         <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
             <span className="font-semibold">{title}</span>
@@ -76,17 +75,20 @@ export function WorkflowsListV2(): JSX.Element {
             return renderWorkflowsLoadError("Couldn't load workflows")
         }
         return (
-            <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
-                <span>Couldn't load run metrics for these health filters</span>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={loadMetrics}
-                    data-attr="workflows-list-v2-metrics-retry"
-                >
-                    Retry
-                </LemonButton>
-            </div>
+            <>
+                {loadFailed && !listComplete && renderWorkflowsLoadError("Couldn't load all workflows")}
+                <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
+                    <span>Couldn't load run metrics for these health filters</span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={loadMetrics}
+                        data-attr="workflows-list-v2-metrics-retry"
+                    >
+                        Retry
+                    </LemonButton>
+                </div>
+            </>
         )
     }
 

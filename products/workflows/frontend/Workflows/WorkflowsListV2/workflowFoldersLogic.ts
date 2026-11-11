@@ -34,7 +34,7 @@ import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-
 import { createFacetMatcher, type FacetDefinition, type MatchesText } from './FacetSearchBar/facetQuery'
 import type { FacetSearchValue } from './FacetSearchBar/facetQuery'
 import { workflowFilesByRef } from './workflowFilesByRef'
-import { displayedFolder, folderScopes, workflowFolderFacet } from './workflowListFacets'
+import { ancestorFolders, displayedFolder, folderScopes, workflowFolderFacet } from './workflowListFacets'
 import type { WorkflowListRow } from './workflowListRows'
 import { type ServerSearchStatus, workflowsListV2Logic } from './workflowsListV2Logic'
 
@@ -330,6 +330,19 @@ function fileIndex(cache: Record<string, any>): Map<string, FileSystemEntry> {
     return cache.fileIndex
 }
 
+/** Takes `gone` and everything inside a gone folder out of the file index. */
+function forgetFiles(cache: Record<string, any>, gone: FileSystemEntry[]): void {
+    cache.changes = changeCount(cache) + 1
+    const ids = new Set(gone.map((item) => item.id))
+    const folders = new Set(gone.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path))))
+    const index = fileIndex(cache)
+    for (const [id, entry] of index) {
+        if (ids.has(id) || ancestorFolders(entry.path).some((path) => folders.has(path))) {
+            index.delete(id)
+        }
+    }
+}
+
 /** Makes a full scan the truth for the files `owns` selects: cached copies that moved or went away elsewhere leave the shared tree, and `scanned` replaces them in the file index. */
 function applyFullScan(
     cache: Record<string, any>,
@@ -368,11 +381,6 @@ function publishPlacements(
 
 function treeFolderId(folder: string | null): string {
     return `project://${folder ?? ''}`
-}
-
-function ancestorFolders(path: string): string[] {
-    const parts = splitPath(path)
-    return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
 }
 
 // A folder pill opens its folder instead of filtering rows; a negated one still filters.
@@ -740,6 +748,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 if (!placements) {
                     return []
                 }
+                const parentOf = (row: WorkflowListRow): string =>
+                    parentPath(placements[`hog_flow::${row.id}`]?.path ?? 'Unfiled/Workflows/')
                 return rows
                     .filter((row) => {
                         const entry = placements[`hog_flow::${row.id}`]
@@ -748,13 +758,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     })
                     .sort(
                         (a, b) =>
-                            (searching
-                                ? parentPath(
-                                      placements[`hog_flow::${a.id}`]?.path ?? 'Unfiled/Workflows/'
-                                  ).localeCompare(
-                                      parentPath(placements[`hog_flow::${b.id}`]?.path ?? 'Unfiled/Workflows/')
-                                  )
-                                : 0) || a.name.localeCompare(b.name)
+                            (searching ? parentOf(a).localeCompare(parentOf(b)) : 0) || a.name.localeCompare(b.name)
                     )
             },
         ],
@@ -878,28 +882,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             cache.changes = changeCount(cache) + 1
         },
         [projectTreeDataLogic.actionTypes.deleteSavedItem]: ({ savedItem }) => {
-            cache.changes = changeCount(cache) + 1
-            const index = fileIndex(cache)
-            for (const [id, entry] of index) {
-                if (id === savedItem.id || (savedItem.type === 'folder' && isPathUnder(entry.path, savedItem.path))) {
-                    index.delete(id)
-                }
-            }
+            forgetFiles(cache, [savedItem])
             publishPlacements(cache, actions.setPlacements)
         },
-        [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }: { items: FileSystemEntry[] }) => {
-            cache.changes = changeCount(cache) + 1
-            const ids = new Set(items.map((item) => item.id))
-            const folders = new Set(
-                items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
-            )
-            const index = fileIndex(cache)
-            for (const [id, entry] of index) {
-                if (ids.has(id) || ancestorFolders(entry.path).some((path) => folders.has(path))) {
-                    index.delete(id)
-                }
-            }
-        },
+        [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }) => forgetFiles(cache, items),
         [projectTreeDataLogic.actionTypes.movedItem]: ({ item, oldPath, newPath }) => {
             cache.changes = changeCount(cache) + 1
             const index = fileIndex(cache)
@@ -1007,12 +993,16 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         folders: (folders: Record<string, FileSystemEntry[]>) => {
             const index = fileIndex(cache)
             const present = new Map(Object.values(folders).flatMap((files) => files.map((entry) => [entry.id, entry])))
+            const goneFolders: FileSystemEntry[] = []
             for (const [id, entry] of index) {
                 const folder = parentPath(entry.path)
                 // Only a complete folder load is the truth: a folder cut short, loading its next page or failed may still hold the file.
                 if (!present.has(id) && folder in folders && values.folderStates[folder] === 'loaded') {
                     index.delete(id)
                     cache.changes = changeCount(cache) + 1
+                    if (entry.type === 'folder') {
+                        goneFolders.push(entry)
+                    }
                 }
             }
             for (const entry of present.values()) {
@@ -1023,6 +1013,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     }
                     index.set(entry.id, entry)
                 }
+            }
+            // The shared tree still caches what was inside a folder that is gone, which would bring the branch back.
+            if (goneFolders.length > 0) {
+                projectTreeDataLogic.actions.dropStaleItems(goneFolders)
             }
             publishPlacements(cache, actions.setPlacements)
         },
