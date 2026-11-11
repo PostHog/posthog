@@ -6565,6 +6565,7 @@ export const ShortcutPositionEnumApi = {
  * * `other` - Other
  * * `provisioned` - Account provisioned by a partner
  * * `connector` - Signed up through an OAuth connector
+ * * `device_login` - Signed up through an OAuth device login
  */
 export type OnboardingSkippedReasonEnumApi =
     (typeof OnboardingSkippedReasonEnumApi)[keyof typeof OnboardingSkippedReasonEnumApi]
@@ -6575,6 +6576,7 @@ export const OnboardingSkippedReasonEnumApi = {
     Other: 'other',
     Provisioned: 'provisioned',
     Connector: 'connector',
+    DeviceLogin: 'device_login',
 } as const
 
 /**

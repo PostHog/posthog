@@ -14,7 +14,7 @@ import {
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { MESSAGE_ASSETS_OUTPUT } from '~/common/outputs'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
@@ -26,6 +26,7 @@ import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
@@ -172,9 +173,13 @@ describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
     let team: Team
-    let workflowsActivationReporter: { report: jest.Mock }
+    let workflowsActivationReporter: WorkflowsActivationReporter
+    let activationEvents: { teamId: number; event: string; properties: Record<string, unknown> }[]
     let ses: FakeSes
-    const createService = (config: Partial<EmailServiceConfig> = {}): EmailService =>
+    const createService = (
+        config: Partial<EmailServiceConfig> = {},
+        limiters: { workflowEmailRateLimiter?: RateLimiterService; teamEmailRateLimiter?: RateLimiterService } = {}
+    ): EmailService =>
         new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -193,8 +198,57 @@ describe('EmailService', () => {
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
             null,
-            workflowsActivationReporter
+            workflowsActivationReporter,
+            undefined,
+            limiters.workflowEmailRateLimiter ?? null,
+            limiters.teamEmailRateLimiter ?? null
         )
+    // The limiter's script reads the time from Redis, which a test cannot freeze. This client answers
+    // TIME from Date.now instead, so a test that freezes Date.now also stops the bucket's refill.
+    const limiterTimeCall = "redis.call('TIME')"
+    const onTestClock = (redis: RedisV2): RedisV2 => ({
+        ...redis,
+        useClient: (options, callback) =>
+            redis.useClient(options, (client) =>
+                callback(
+                    new Proxy(client, {
+                        get: (target, property, receiver) =>
+                            property === 'eval'
+                                ? (script: string, ...args: [number, ...string[]]) => {
+                                      if (!script.includes(limiterTimeCall)) {
+                                          throw new Error('The limiter script no longer reads the time from Redis')
+                                      }
+                                      const nowMs = Date.now()
+                                      const time = `{'${Math.floor(nowMs / 1000)}', '${(nowMs % 1000) * 1000}'}`
+                                      return target.eval(script.replace(limiterTimeCall, time), ...args)
+                                  }
+                                : Reflect.get(target, property, receiver),
+                    })
+                )
+            ),
+    })
+    let limiterRedis: RedisV2 | undefined
+    const createRateLimiter = (name: string): RateLimiterService => {
+        limiterRedis ??= createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        return new RateLimiterService(onTestClock(limiterRedis), { name })
+    }
+    const unreachableValkey: RedisV2 = {
+        useClient: () => Promise.reject(new Error('connect ECONNREFUSED')),
+        usePipeline: () => Promise.reject(new Error('connect ECONNREFUSED')),
+    }
+    const settledActivationEvents = async (): Promise<typeof activationEvents> => {
+        await new Promise((resolve) => setImmediate(resolve))
+        return activationEvents
+    }
     beforeEach(async () => {
         hub = await createHub({})
         ses = await startFakeSes({
@@ -204,7 +258,14 @@ describe('EmailService', () => {
         hub.SES_ENDPOINT = ses.endpoint
         team = (await createTestTeamFixture(hub.postgres)).team
         integrationIdBase = team.id
-        workflowsActivationReporter = { report: jest.fn() }
+        await hub.teamManager.getTeam(team.id)
+        activationEvents = []
+        workflowsActivationReporter = new WorkflowsActivationReporter(
+            hub.teamManager,
+            (capturedTeam, event, properties = {}) => {
+                activationEvents.push({ teamId: capturedTeam.id, event, properties })
+            }
+        )
         service = createService()
         mockFetch.mockClear()
     })
@@ -231,7 +292,7 @@ describe('EmailService', () => {
                 new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                 new RecipientsManagerService(hub.postgres),
                 null,
-                { report: jest.fn() }
+                workflowsActivationReporter
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
@@ -341,12 +402,16 @@ describe('EmailService', () => {
                     expect(result.error).toMatchInlineSnapshot(
                         `"The selected email integration domain is not verified"`
                     )
-                    expect(workflowsActivationReporter.report.mock.calls).toEqual(
-                        Array(reports).fill([
-                            team.id,
-                            'workflows send failed',
-                            { reason: 'unverified_domain', channel: 'email', workflow_id: invocation.functionId },
-                        ])
+                    expect(await settledActivationEvents()).toEqual(
+                        Array(reports).fill({
+                            teamId: team.id,
+                            event: 'workflows send failed',
+                            properties: {
+                                reason: 'unverified_domain',
+                                channel: 'email',
+                                workflow_id: invocation.functionId,
+                            },
+                        })
                     )
                 }
             )
@@ -654,83 +719,127 @@ describe('EmailService', () => {
         })
 
         describe('workflow sending rate limit', () => {
-            let claimOrReserve: jest.Mock
             let limitedService: EmailService
 
             beforeEach(() => {
-                claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
-                limitedService = new EmailService(
-                    {
-                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                        sesRegion: hub.SES_REGION,
-                        sesEndpoint: hub.SES_ENDPOINT,
-                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
-                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                    },
-                    hub.integrationManager,
-                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    { report: jest.fn() },
-                    undefined,
-                    { claimOrReserve } as unknown as RateLimiterService
+                limitedService = createService(
+                    {},
+                    { workflowEmailRateLimiter: createRateLimiter('workflow-email-rate-test') }
                 )
-                invocation.hogFunction.metadata = {
-                    email_sending_rate_limit: { count: 120, period: 'minute' },
-                }
             })
 
-            it.each([
-                // A reserved slot means "your turn is at this exact time". Park on it as-is:
-                // wake earlier and the token is not there yet, so the send gets denied again
-                // and goes to the back of the line.
-                ['exactly at the reserved slot', 5000, true, 5000, 5000],
-                // Sub-second slots too: flooring them to 1s would push the wake off its
-                // slot and collide it with the slot behind.
-                ['exactly at a sub-second reserved slot', 500, true, 500, 500],
-                // Past the horizon there are no slots left and everyone gets the same "come
-                // back in an hour", so those wakes get spread out (1x-2x) instead.
-                [
-                    'with spread when re-contending at the horizon',
-                    60 * 60 * 1000,
-                    false,
-                    60 * 60 * 1000,
-                    2 * 60 * 60 * 1000,
-                ],
-                // No horizon at all (error-path denial) falls back to the clamped token
-                // interval: 120/minute refills every 500ms, clamped to [1s, 2s] jittered.
-                ['on the clamped token interval when the limiter could not reserve', null, false, 1000, 2000],
-            ])('reschedules a denied send %s', async (_name, retryAfterMs, reserved, minDelayMs, maxDelayMs) => {
-                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs, reserved })
+            const limitTo = (count: number, period: 'minute' | 'hour'): void => {
+                invocation.hogFunction.metadata = { email_sending_rate_limit: { count, period } }
+            }
 
+            type TimedSend = {
+                result: Awaited<ReturnType<EmailService['executeSendEmail']>>
+                before: number
+                after: number
+            }
+
+            const timedSend = async (
+                send: () => ReturnType<EmailService['executeSendEmail']> = () =>
+                    limitedService.executeSendEmail(invocation)
+            ): Promise<TimedSend> => {
                 const before = Date.now()
-                const result = await limitedService.executeSendEmail(invocation)
-                const after = Date.now()
+                const result = await send()
+                return { result, before, after: Date.now() }
+            }
 
-                expect(ses.sent).toEqual([])
+            const sendUntilDenied = async (): Promise<TimedSend> => {
+                for (let attempt = 0; attempt < 5; attempt++) {
+                    const send = await timedSend()
+                    if (!send.result.finished) {
+                        return send
+                    }
+                }
+                throw new Error('The workflow sending limit never denied a send')
+            }
+
+            const parkedAt = (send: TimedSend): number => send.result.invocation.queueScheduledAt!.toMillis()
+
+            let frozenClock: jest.SpyInstance | undefined
+            const freezeClock = (): void => {
+                frozenClock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
+            }
+
+            afterEach(() => {
+                frozenClock?.mockRestore()
+                frozenClock = undefined
+            })
+
+            it('reschedules a denied send with its email payload and no business metric', async () => {
+                freezeClock()
+                limitTo(30, 'minute')
+
+                const denied = await sendUntilDenied()
+                const { result } = denied
+
+                expect(ses.sent).toHaveLength(1)
                 expect(result.error).toBeUndefined()
                 expect(result.finished).toBe(false)
-                expect(result.invocation.queueScheduledAt).toBeDefined()
                 // The reschedule must carry the email payload forward: without queueParameters the
                 // retry has nothing to send and the throttled email is dropped rather than delayed.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
-                // Bracketed against both ends of the call, so the bounds hold the delay itself
-                // and not the time the call took.
-                const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
-                expect(scheduledMs).toBeGreaterThanOrEqual(before + minDelayMs)
-                expect(scheduledMs).toBeLessThanOrEqual(after + maxDelayMs)
-                // No business metric on a pacing delay — the eventual send produces email_sent.
+                expect(parkedAt(denied)).toBeGreaterThan(denied.before)
+                expect(parkedAt(denied)).toBeLessThanOrEqual(denied.after + 2000)
                 expect(result.metrics ?? []).toEqual([])
             })
 
-            it('fails a send that lists files at once, without claiming a token or waiting for one', async () => {
-                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 5000, reserved: true })
+            it.each([
+                ['2s slots at 30 a minute', 30, 2000],
+                ['sub-second slots at 120 a minute', 120, 500],
+            ])('parks consecutive denials exactly one slot apart: %s', async (_name, count, slotMs) => {
+                freezeClock()
+                limitTo(count, 'minute')
+
+                const first = await sendUntilDenied()
+                const next = [await timedSend(), await timedSend()]
+
+                next.forEach((denied, index) => {
+                    expect(denied.result.finished).toBe(false)
+                    const driftMs = parkedAt(denied) - parkedAt(first) - (index + 1) * slotMs
+                    const callMs = first.after - first.before + (denied.after - denied.before)
+                    expect(Math.abs(driftMs)).toBeLessThanOrEqual(callMs + 1)
+                })
+            })
+
+            it('scatters a backlog that overflows the reservation horizon', async () => {
+                limitTo(1, 'hour')
+                await sendUntilDenied()
+
+                const parks: number[] = []
+                for (let i = 0; i < 20; i++) {
+                    const denied = await timedSend()
+                    expect(denied.result.finished).toBe(false)
+                    expect(parkedAt(denied)).toBeGreaterThanOrEqual(denied.before + 60 * 60 * 1000)
+                    expect(parkedAt(denied)).toBeLessThanOrEqual(denied.after + 2 * 60 * 60 * 1000)
+                    parks.push(parkedAt(denied))
+                }
+
+                expect(Math.max(...parks) - Math.min(...parks)).toBeGreaterThan(10 * 60 * 1000)
+            })
+
+            it('retries on the clamped token interval when the limiter cannot be reached', async () => {
+                limitedService = createService(
+                    {},
+                    { workflowEmailRateLimiter: new RateLimiterService(unreachableValkey, { name: 'unreachable' }) }
+                )
+                limitTo(120, 'minute')
+
+                const denied = await timedSend()
+
+                expect(ses.sent).toEqual([])
+                expect(denied.result.finished).toBe(false)
+                expect(parkedAt(denied)).toBeGreaterThanOrEqual(denied.before + 1000)
+                expect(parkedAt(denied)).toBeLessThanOrEqual(denied.after + 2000)
+            })
+
+            it('fails a send that lists files at once, without waiting for a token', async () => {
+                limitTo(1, 'minute')
+                await sendUntilDenied()
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1 },
                     attachments: [
@@ -745,69 +854,30 @@ describe('EmailService', () => {
 
                 const result = await limitedService.executeSendEmail(invocation)
 
-                expect(claimOrReserve).not.toHaveBeenCalled()
-                expect(ses.sent).toEqual([])
+                expect(ses.sent).toHaveLength(1)
                 expect(result).toMatchObject({ finished: true, error: expect.stringMatching(/^attachments_missing: /) })
                 expect(result.invocation.queueScheduledAt).toBeFalsy()
             })
 
-            it('parks consecutive denials on their exact reserved slots', async () => {
-                // At 30/minute the limiter hands out slots 2s apart. Each send has to wake at
-                // its own slot, exactly. If one wake moves even a little earlier, its token is
-                // not there yet and the send goes to the back of the line.
-                invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 30, period: 'minute' } }
-                const slotMs = 2000
+            it('sends a burst of one second of budget, then parks only the workflow over its limit', async () => {
+                freezeClock()
+                limitTo(61, 'minute')
 
-                for (let i = 1; i <= 3; i++) {
-                    claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: i * slotMs, reserved: true })
+                const burst = [await timedSend(), await timedSend()]
+                const denied = await timedSend()
 
-                    const before = Date.now()
-                    const denied = await limitedService.executeSendEmail(invocation)
-                    const after = Date.now()
+                expect(burst.map((send) => send.result.finished)).toEqual([true, true])
+                expect(denied.result.finished).toBe(false)
+                expect(parkedAt(denied)).toBeLessThanOrEqual(denied.after + 1000)
 
-                    expect(denied.finished).toBe(false)
-                    const parkedAt = denied.invocation.queueScheduledAt!.toMillis()
-                    expect(parkedAt).toBeGreaterThanOrEqual(before + i * slotMs)
-                    expect(parkedAt).toBeLessThanOrEqual(after + i * slotMs)
-                }
-            })
+                const otherWorkflow = createExampleInvocation({ team_id: team.id, id: 'function-2' })
+                otherWorkflow.state.vmState = { stack: [] } as any
+                otherWorkflow.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+                otherWorkflow.hogFunction.metadata = invocation.hogFunction.metadata
+                const other = await limitedService.executeSendEmail(otherWorkflow)
 
-            it('scatters a backlog that overflows the reservation horizon', async () => {
-                // When the backlog is deeper than one hour of refill there are no slots left:
-                // every remaining send gets "come back in an hour". If they all came back at
-                // the same moment they would pile up at the front of the queue again, so their
-                // wakes get spread out over the hour.
-                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 60 * 60 * 1000, reserved: false })
-
-                const parkedAt: number[] = []
-                for (let i = 0; i < 20; i++) {
-                    const denied = await limitedService.executeSendEmail(invocation)
-                    expect(denied.finished).toBe(false)
-                    parkedAt.push(denied.invocation.queueScheduledAt!.toMillis())
-                }
-
-                // The wakes must cover a real part of the hour, not one narrow window:
-                // 20 of them spread over an hour should easily span more than 10 minutes.
-                const spreadMs = Math.max(...parkedAt) - Math.min(...parkedAt)
-                expect(spreadMs).toBeGreaterThan(10 * 60 * 1000)
-            })
-
-            it('claims one token scoped to the workflow and sends when granted', async () => {
-                const result = await limitedService.executeSendEmail(invocation)
-
-                expect(claimOrReserve).toHaveBeenCalledWith(
-                    {
-                        key: `@posthog/workflow-email-rate/${team.id}/function-1`,
-                        requested: 1,
-                        // Burst capacity is ~1s of budget (not the count), so the first period can't
-                        // send ~2x the limit and an idle-expired bucket can't re-burst.
-                        capacity: 2,
-                        refillPerSecond: 2,
-                    },
-                    60 * 60 * 1000
-                )
-                expect(result.finished).toBe(true)
-                expect(ses.sent).toHaveLength(1)
+                expect(other.finished).toBe(true)
+                expect(ses.sent).toHaveLength(3)
             })
 
             it.each([
@@ -817,24 +887,29 @@ describe('EmailService', () => {
                     (): void =>
                         void (invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 'lots' } }),
                 ],
-            ])('does not consult the bucket when %s', async (_name, setup) => {
+            ])('sends without pacing when %s', async (_name, setup) => {
                 setup()
 
-                const result = await limitedService.executeSendEmail(invocation)
+                const results = [
+                    await limitedService.executeSendEmail(invocation),
+                    await limitedService.executeSendEmail(invocation),
+                ]
 
-                expect(claimOrReserve).not.toHaveBeenCalled()
-                expect(result.finished).toBe(true)
-                expect(ses.sent).toHaveLength(1)
+                expect(results.map((result) => [result.finished, result.error])).toEqual([
+                    [true, undefined],
+                    [true, undefined],
+                ])
+                expect(ses.sent).toHaveLength(2)
             })
 
             it('skips the limit for test sends', async () => {
-                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 5000 })
+                limitTo(1, 'minute')
+                await sendUntilDenied()
 
-                const result = await limitedService.executeSendEmail(invocation, true)
+                const testSend = await timedSend(() => limitedService.executeSendEmail(invocation, true))
 
-                expect(claimOrReserve).not.toHaveBeenCalled()
-                expect(result.finished).toBe(true)
-                expect(ses.sent).toHaveLength(1)
+                expect(testSend.result.finished).toBe(true)
+                expect(ses.sent).toHaveLength(2)
             })
         })
 
@@ -843,36 +918,9 @@ describe('EmailService', () => {
         // workflow without a limit keeps sending right past the parked backlog.
         describe('a denied backlog cannot crowd out other sends', () => {
             it('spreads denied sends over distinct future slots and leaves unlimited workflows untouched', async () => {
-                const redis = createRedisV2PoolFromConfig({
-                    connection: hub.CDP_REDIS_HOST
-                        ? {
-                              url: hub.CDP_REDIS_HOST,
-                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          }
-                        : { url: hub.REDIS_URL },
-                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                })
-                const realLimitedService = new EmailService(
-                    {
-                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                        sesRegion: hub.SES_REGION,
-                        sesEndpoint: hub.SES_ENDPOINT,
-                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
-                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                    },
-                    hub.integrationManager,
-                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    { report: jest.fn() },
-                    undefined,
-                    new RateLimiterService(redis, { name: 'workflow-email-backlog-test' })
+                const realLimitedService = createService(
+                    {},
+                    { workflowEmailRateLimiter: createRateLimiter('workflow-email-backlog-test') }
                 )
 
                 // 6/minute: refill 0.1 tokens/s, burst capacity 1. Slow enough that the test's
@@ -926,107 +974,38 @@ describe('EmailService', () => {
         })
 
         describe('team sending cap (enforce mode)', () => {
-            let claimAllOrNothing: jest.Mock
-            let claimUpTo: jest.Mock
-            let cappedService: EmailService
+            let limiter: RateLimiterService
 
             beforeEach(() => {
-                claimAllOrNothing = jest.fn()
-                claimUpTo = jest.fn().mockResolvedValue(0)
-                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
-                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
-                cappedService = new EmailService(
-                    {
-                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                        sesRegion: hub.SES_REGION,
-                        sesEndpoint: hub.SES_ENDPOINT,
-                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
-                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                        teamEmailCapMode: 'enforce',
-                        teamEmailTierDailyCaps: [200],
-                    },
-                    hub.integrationManager,
-                    configService,
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    { report: jest.fn() },
-                    undefined,
-                    null,
-                    { claimAllOrNothing, claimUpTo } as unknown as RateLimiterService
-                )
+                limiter = createRateLimiter('team-email-cap-test')
             })
 
             afterEach(() => {
                 jest.restoreAllMocks()
             })
 
-            const buildEnforcedService = (
-                name: string,
-                dailyCap: number
-            ): { service: EmailService; limiter: RateLimiterService } => {
-                const redis = createRedisV2PoolFromConfig({
-                    connection: hub.CDP_REDIS_HOST
-                        ? {
-                              url: hub.CDP_REDIS_HOST,
-                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          }
-                        : { url: hub.REDIS_URL },
-                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                })
-                const limiter = new RateLimiterService(redis, { name })
-                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
-                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
-                const service = new EmailService(
-                    {
-                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                        sesRegion: hub.SES_REGION,
-                        sesEndpoint: hub.SES_ENDPOINT,
-                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
-                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
-                        teamEmailCapMode: 'enforce',
-                        teamEmailTierDailyCaps: [dailyCap],
-                    },
-                    hub.integrationManager,
-                    configService,
-                    hub.ENCRYPTION_SALT_KEYS,
-                    hub.SITE_URL,
-                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                    new RecipientsManagerService(hub.postgres),
-                    null,
-                    { report: jest.fn() },
-                    undefined,
-                    null,
-                    limiter
+            // A team without a workflows config row is on tier 0, so its cap is the first entry.
+            const createCappedService = (dailyCap: number, teamLimiter = limiter): EmailService =>
+                createService(
+                    { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [dailyCap] },
+                    { teamEmailRateLimiter: teamLimiter }
                 )
-                return { service, limiter }
+
+            const drainTeamCap = async (teamId: number, dailyCap: number, tokensLeft = 0): Promise<void> => {
+                const bucket = teamEmailCapBucket(teamId, dailyCap)
+                await limiter.claimUpTo({ ...bucket, requested: dailyCap - tokensLeft })
             }
 
             it.each([
-                // A reserved slot is exclusive and is parked on exactly; spreading it would
-                // collide it with the slot in front.
-                ['parks exactly on a reserved slot', 30 * 60 * 1000, true, 30 * 60 * 1000, 30 * 60 * 1000],
-                // Past the horizon nothing is reserved: every overflow caller gets the same
-                // wake back and spreads itself 1x-2x across the horizon.
-                [
-                    'spreads an overflow wake across the horizon',
-                    60 * 60 * 1000,
-                    false,
-                    60 * 60 * 1000,
-                    2 * 60 * 60 * 1000,
-                ],
-            ])('%s', async (_name, retryAfterMs, reserved, minMs, maxMs) => {
-                claimAllOrNothing.mockResolvedValue({ granted: false, retryAfterMs, reserved })
+                ['parks exactly on a reserved slot', 200, 432_000, 432_000],
+                ['spreads an overflow wake across the horizon', 10, 60 * 60 * 1000, 2 * 60 * 60 * 1000],
+            ])('%s', async (_name, dailyCap, minMs, maxMs) => {
+                const cappedService = createCappedService(dailyCap)
+                const drainedAt = Date.now()
+                await drainTeamCap(team.id, dailyCap)
 
-                const before = Date.now()
                 const result = await cappedService.executeSendEmail(invocation)
+                const after = Date.now()
 
                 expect(ses.sent).toEqual([])
                 expect(result.error).toBeUndefined()
@@ -1036,71 +1015,54 @@ describe('EmailService', () => {
                 // The flag labels the eventual send's queue wait, so alerts can leave out the cap delay.
                 expect(result.invocation.queueMetadata).toEqual({ ...invocation.queueMetadata, teamCapped: true })
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
-                expect(scheduledMs).toBeGreaterThanOrEqual(before + minMs)
-                expect(scheduledMs).toBeLessThan(before + maxMs + 5000)
+                expect(scheduledMs).toBeGreaterThanOrEqual(drainedAt + minMs)
+                expect(scheduledMs).toBeLessThanOrEqual(after + maxMs)
                 // A real denial names the cap it hit, which is what makes the limiter-fault case
-                // above distinguishable to the customer reading the run's logs.
+                // below distinguishable to the customer reading the run's logs.
                 expect(result.logs.map((log) => log.message).join(' ')).toContain('reached its email sending limit of')
             })
 
-            it('retries on the token bucket cadence when the limiter reports no horizon', async () => {
-                // A Valkey fault denies with no horizon. Parking on the daily cap's pacing
+            it('retries on the token bucket cadence when the limiter cannot be reached', async () => {
+                // An unreachable Valkey denies with no horizon. Parking on the daily cap's pacing
                 // interval would hold the email long after the limiter recovered.
                 jest.spyOn(Math, 'random').mockReturnValue(0)
-                claimAllOrNothing.mockResolvedValue({ granted: false, retryAfterMs: null, reserved: false })
+                const cappedService = createCappedService(
+                    200,
+                    new RateLimiterService(unreachableValkey, { name: 'unreachable' })
+                )
 
                 const before = Date.now()
                 const result = await cappedService.executeSendEmail(invocation)
+                const after = Date.now()
 
                 expect(ses.sent).toEqual([])
                 expect(result.finished).toBe(false)
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 5 * 60 * 1000)
-                expect(scheduledMs).toBeLessThan(before + 5 * 60 * 1000 + 5000)
+                expect(scheduledMs).toBeLessThanOrEqual(after + 5 * 60 * 1000)
                 // No cap was reached, so the customer must not be told they hit one.
                 const messages = result.logs.map((log) => log.message).join(' ')
                 expect(messages).not.toContain('reached its email sending limit')
                 expect(messages).toContain("Could not check this project's email sending limit")
             })
 
-            it('sends a transactional email past the cap and charges the bucket anyway', async () => {
-                claimAllOrNothing.mockResolvedValue({ granted: false, retryAfterMs: 30 * 60 * 1000, reserved: true })
-                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            it('sends while the team has budget left', async () => {
+                const result = await createCappedService(200).executeSendEmail(invocation)
 
-                const result = await cappedService.executeSendEmail(invocation)
-
-                expect(result.finished).toBe(true)
-                expect(ses.sent).toHaveLength(1)
-                expect(result.invocation.queueScheduledAt).toBeUndefined()
-                expect(claimAllOrNothing).not.toHaveBeenCalled()
-                expect(claimUpTo).toHaveBeenCalledTimes(1)
-                // No cap was applied, so the customer must not be told one was.
-                expect(result.logs.map((log) => log.message).join(' ')).not.toContain('reached its email sending limit')
-            })
-
-            it('sends when the claim is granted', async () => {
-                claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null, reserved: false })
-
-                const result = await cappedService.executeSendEmail(invocation)
-
-                // The reservation horizon must reach the limiter, or denials fall back to
-                // shared-horizon wakes and a denied backlog re-herds.
-                expect(claimAllOrNothing).toHaveBeenCalledWith(expect.anything(), 60 * 60 * 1000)
                 expect(result.finished).toBe(true)
                 expect(ses.sent).toHaveLength(1)
             })
 
             // A team over its tier cap must not slow anyone else down: its denied sends get
             // their own future slots instead of all waking together, and another team's send
-            // goes straight out. Runs against the real limiter.
+            // goes straight out.
             it('spreads a capped team over distinct slots while another team keeps sending', async () => {
                 const dailyCap = 8640
-                const { service: enforcedService, limiter } = buildEnforcedService('team-email-cap-test', dailyCap)
+                const enforcedService = createCappedService(dailyCap)
 
                 // Drain the capped team's bucket so every send below is a denial. The
                 // 0.1 tokens/s refill makes the slot spacing 10s, far above test wall-clock.
-                const bucket = teamEmailCapBucket(team.id, dailyCap)
-                await limiter.claimUpTo({ ...bucket, requested: dailyCap })
+                await drainTeamCap(team.id, dailyCap)
 
                 const parkedAt: number[] = []
                 for (let i = 0; i < 4; i++) {
@@ -1140,34 +1102,14 @@ describe('EmailService', () => {
                 expect(ses.sent).toHaveLength(1)
             })
 
-            // Enforce mode has only ever issued claimAllOrNothing against real Valkey, so
-            // transactional through claimUpTo has never run there. Real limiter.
-            it('charges a transactional send against the real bucket without delaying it', async () => {
+            it('charges a transactional send against the bucket without delaying it', async () => {
                 const dailyCap = 50
-                const { service: enforcedService, limiter } = buildEnforcedService(
-                    'team-email-cap-transactional-test',
-                    dailyCap
-                )
-
-                // A team of its own, so the buckets start cold whatever else touched Valkey.
-                const capTeam = (await createTestTeamFixture(hub.postgres)).team
-                await insertIntegration(hub.postgres, capTeam.id, {
-                    id: capTeam.id + 1,
-                    kind: 'email',
-                    config: {
-                        email: 'test@posthog.com',
-                        name: 'Test User',
-                        domain: 'posthog.com',
-                        verified: true,
-                        provider: 'ses',
-                    },
-                })
+                const enforcedService = createCappedService(dailyCap)
                 const sendFor = (id: string, transactional: boolean): CyclotronJobInvocationHogFunction => {
-                    const next = createExampleInvocation({ team_id: capTeam.id, id: `function-${id}` })
+                    const next = createExampleInvocation({ team_id: team.id, id: `function-${id}` })
                     next.id = `invocation-${id}`
                     next.state.vmState = { stack: [] } as any
-                    next.queueParameters = createEmailParams()
-                    next.queueParameters.from = { integrationId: capTeam.id + 1 }
+                    next.queueParameters = createEmailParams({ from: { integrationId: 1 } })
                     if (transactional) {
                         next.hogFunction.metadata = { message_category_type: 'transactional' }
                     }
@@ -1175,8 +1117,7 @@ describe('EmailService', () => {
                 }
 
                 // Leave one token, so the next send can show the charge before the cap closes.
-                const bucket = teamEmailCapBucket(capTeam.id, dailyCap)
-                await limiter.claimUpTo({ ...bucket, requested: dailyCap - 1 })
+                await drainTeamCap(team.id, dailyCap, 1)
 
                 // The charge: this send takes the last token rather than riding past the bucket.
                 const charged = await enforcedService.executeSendEmail(sendFor('charged', true))
@@ -1193,6 +1134,9 @@ describe('EmailService', () => {
                 expect(transactional.finished).toBe(true)
                 expect(transactional.invocation.queueScheduledAt).toBeUndefined()
                 expect(ses.sent).toHaveLength(2)
+                expect(transactional.logs.map((log) => log.message).join(' ')).not.toContain(
+                    'reached its email sending limit'
+                )
             })
         })
     })
@@ -1606,12 +1550,16 @@ describe('EmailService', () => {
 
                 await service.executeSendEmail(sentInvocation, isTest)
 
-                expect(workflowsActivationReporter.report.mock.calls).toEqual(
-                    Array(reports).fill([
-                        team.id,
-                        'workflows send blocked',
-                        { reason: 'missing_recipient', channel: 'email', workflow_id: invocation.functionId },
-                    ])
+                expect(await settledActivationEvents()).toEqual(
+                    Array(reports).fill({
+                        teamId: team.id,
+                        event: 'workflows send blocked',
+                        properties: {
+                            reason: 'missing_recipient',
+                            channel: 'email',
+                            workflow_id: invocation.functionId,
+                        },
+                    })
                 )
             }
         )
