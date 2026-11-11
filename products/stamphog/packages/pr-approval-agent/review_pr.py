@@ -441,9 +441,10 @@ class Pipeline:
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
-        deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations)
+        lifted_files = {"migrations": safe_migrations}
+        deny = detect_deny_categories(pr.deny_paths, lifted_files)
         exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, apply_exceptions=False) != deny
+            detect_deny_categories(pr.deny_paths, lifted_files, apply_exceptions=False) != deny
         )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to

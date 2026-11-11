@@ -1,25 +1,24 @@
 from typing import IO, Any, cast
 
 from django import forms
-from django.contrib import admin, messages
-from django.contrib.admin.utils import unquote
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.contrib import admin
+from django.contrib.admin import ActionLocation
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.core.validators import FileExtensionValidator
 from django.db import IntegrityError, transaction
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
-from django.urls import URLPattern, path, reverse
+from django.http import HttpRequest
+from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
 import structlog
 
+from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.inline_registry import register_admin_inline
-from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.models.organization import Organization
 from posthog.storage import object_storage
 
-from . import logic
 from .models import LegalDocument
 from .storage import signed_pdf_storage_key
 
@@ -69,28 +68,6 @@ class LegalDocumentAdminForm(forms.ModelForm):
         return pdf
 
 
-# What a delete does depends on the row's status, and the signed case is the one
-# staff get wrong: `logic.delete_document` skips the PandaDoc void for signed rows,
-# and nothing restores the AI opt-out that a signed BAA applied.
-_SIGNED_DELETE_NOTE = (
-    "Deleting a signed document removes the PostHog record and the stored PDF. "
-    "It does not change the document in PandaDoc, because PandaDoc cannot void a completed document. "
-    "Delete or archive it in PandaDoc yourself. "
-    "For a BAA, the organization keeps AI data processing and AI training turned off after the delete. "
-    "An owner can turn them back on in organization settings."
-)
-
-_UNSIGNED_DELETE_NOTE = (
-    "Deleting a document that is out for signature voids its PandaDoc envelope. "
-    "PandaDoc tells the signer that the document is canceled, so the old signing link stops working."
-)
-
-_REFETCH_UNAVAILABLE_NOTE = (
-    "PandaDoc only serves a final PDF once a document is signed, and this document has no PandaDoc envelope "
-    "or is still out for signature. There is nothing to refetch."
-)
-
-
 @admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
     # FK to posthog.Organization — without this the add view renders a <select>
@@ -116,9 +93,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
     )
     ordering = ("-created_at",)
     show_full_result_count = False
-    change_form_template = "admin/legal_documents/legaldocument_change_form.html"
     list_select_related = ("organization", "created_by")
-    actions = ("resend_signing_email",)
 
     # Change view stays read-only — customer-submitted content can't be quietly
     # rewritten. The add view uses LegalDocumentAdminForm fields directly.
@@ -132,6 +107,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         "status",
         "pandadoc_link",
         "download_link",
+        "staff_operations",
         "created_by",
         "created_at",
         "updated_at",
@@ -170,6 +146,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                     "status",
                     "pandadoc_link",
                     "download_link",
+                    "staff_operations",
                 )
             },
         ),
@@ -221,10 +198,18 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         return bool(request.user and request.user.is_staff)
 
     def has_delete_permission(self, request: HttpRequest, obj: LegalDocument | None = None) -> bool:
-        # Needed so admins can clear an existing row (the unique-per-org-per-type
-        # constraint blocks re-uploads otherwise). Best-effort S3 cleanup runs
-        # alongside the row delete.
-        return bool(request.user and request.user.is_staff)
+        # A delete must also remove PandaDoc's copy of a signed document and the AI opt-outs of a BAA, which the
+        # Delete document operation in PostHog Admin does. The old <id>/delete/ URL redirects there, and this keeps
+        # the raw delete view closed when that redirect is missing. A Django admin delete of an organization that
+        # has documents is refused too, because the cascade would skip the same cleanup.
+        return False
+
+    def get_actions(
+        self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST
+    ) -> dict[str, Any]:
+        actions = super().get_actions(request, action_location=action_location)
+        actions.pop("delete_selected", None)
+        return actions
 
     def save_model(self, request: HttpRequest, obj: LegalDocument, form: Any, change: bool) -> None:
         if change:
@@ -258,150 +243,14 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             # Surface the unique-per-org-per-type constraint as a form error
             # instead of a 500.
             raise ValidationError(
-                f"This organization already has a {obj.document_type}. Delete the existing row first."
+                f"This organization already has a {obj.document_type}. Delete the existing one in PostHog Admin first."
             ) from exc
 
-    @admin.action(description="Re-send PandaDoc signing email")
-    def resend_signing_email(self, request: HttpRequest, queryset: Any) -> None:
-        # Recovery path for envelopes stranded because the `document.draft`
-        # webhook that normally triggers the send was missed: the envelope was
-        # created but the signing email never went out. Re-dispatching the send
-        # (idempotent on PandaDoc's side) gets the signer their link without
-        # forcing a delete + regenerate. Signed rows and rows without an
-        # envelope have nothing to send.
-        sent = skipped = failed = 0
-        for document in queryset:
-            if document.status == LegalDocument.Status.SIGNED or not document.pandadoc_document_id:
-                skipped += 1
-            elif logic.send_pandadoc_envelope(document):
-                sent += 1
-            else:
-                failed += 1
-
-        if sent:
-            messages.success(request, f"Re-sent the signing email for {sent} document(s).")
-        if skipped:
-            messages.warning(request, f"Skipped {skipped} document(s): already signed or no PandaDoc envelope.")
-        if failed:
-            messages.error(
-                request,
-                f"Couldn't re-send {failed} document(s). PandaDoc may still be processing the template, or the "
-                "envelope is no longer sendable. Check the logs and try again shortly.",
-            )
-
-    @staticmethod
-    def _can_refetch_pdf(document: LegalDocument) -> bool:
-        # PandaDoc only has a final PDF for a completed envelope. Storing anything
-        # else would put an unsigned document behind the customer download link.
-        return document.status == LegalDocument.Status.SIGNED and bool(document.pandadoc_document_id)
-
-    def get_urls(self) -> list[URLPattern]:
-        # Custom route first: the admin's own `<path:object_id>/` catch-all
-        # would otherwise swallow it and redirect to the change page.
-        return [
-            path(
-                "<path:object_id>/refetch-pdf/",
-                self.admin_site.admin_view(self.refetch_pdf_view),
-                name=f"{self.opts.app_label}_{self.opts.model_name}_refetch_pdf",
-            ),
-            *super().get_urls(),
-        ]
-
-    def refetch_pdf_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
-        """
-        Pull the document PandaDoc serves right now and overwrite our stored
-        copy. Recovers a row whose archive job failed every retry, and refreshes
-        a copy that no longer matches PandaDoc (e.g., a counter-signature added
-        after we archived).
-        """
-        if request.method != "POST":
-            raise PermissionDenied
-        document = cast(LegalDocument | None, self.get_object(request, unquote(object_id)))
-        if document is None:
-            raise Http404
-        change_url = reverse(
-            f"admin:{self.opts.app_label}_{self.opts.model_name}_change",
-            args=[document.pk],
-            current_app=self.admin_site.name,
+    @admin.display(description="Staff operations")
+    def staff_operations(self, document: LegalDocument) -> SafeString:
+        return MovedToConsole.action(
+            "organization", document.organization, "legal-documents", "Refetch PDF, re-send signing email, delete"
         )
-
-        if not self._can_refetch_pdf(document):
-            messages.warning(request, _REFETCH_UNAVAILABLE_NOTE)
-            return HttpResponseRedirect(change_url)
-
-        if logic.download_and_store_signed_pdf(document):
-            logic.mark_signed_pdf_stored(document)
-            messages.success(request, "Refetched the PDF from PandaDoc. The stored copy now matches PandaDoc.")
-        else:
-            messages.error(
-                request,
-                "Could not refetch the PDF from PandaDoc. PandaDoc may be unreachable, or object storage may be "
-                "unavailable. The stored copy is unchanged. Check the logs and try again.",
-            )
-        return HttpResponseRedirect(change_url)
-
-    def delete_model(self, request: HttpRequest, obj: LegalDocument) -> None:
-        # Shared helper voids the PandaDoc envelope, removes the S3 object,
-        # and deletes the row (firing the activity-log entry via
-        # ModelActivityMixin). The same helper backs the public DELETE
-        # endpoint — admin keeps the privilege of deleting signed rows by
-        # calling the helper directly rather than going through the facade.
-        logic.delete_document(obj)
-
-    def delete_queryset(self, request: HttpRequest, queryset: Any) -> None:
-        # Per-row delete (rather than queryset.delete()) so each row fires its
-        # own activity-log delete and so the shared helper can run its
-        # PandaDoc + S3 cleanup against each envelope individually.
-        for obj in queryset:
-            logic.delete_document(obj)
-
-    def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
-        if not (is_cloud() or is_dev_mode()):
-            messages.warning(
-                request,
-                "Legal documents are only generated on PostHog Cloud. On self-hosted "
-                "deployments, listed rows (if any) are read-only historical records and "
-                "the PandaDoc integration is disabled.",
-            )
-        return super().changelist_view(request, extra_context=extra_context)
-
-    def change_view(
-        self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: dict[str, Any] | None = None
-    ) -> HttpResponse:
-        if not (is_cloud() or is_dev_mode()):
-            messages.warning(
-                request,
-                "Legal documents are only generated on PostHog Cloud. On self-hosted "
-                "deployments, listed rows (if any) are read-only historical records and "
-                "the PandaDoc integration is disabled.",
-            )
-        document = cast(LegalDocument | None, self.get_object(request, unquote(object_id)))
-        self._note_delete_behavior(request, document)
-        extra_context = {**(extra_context or {}), "refetch_pdf_url": self._refetch_pdf_url(document)}
-        return super().change_view(request, object_id, form_url, extra_context=extra_context)
-
-    def _refetch_pdf_url(self, document: LegalDocument | None) -> str | None:
-        if document is None or not self._can_refetch_pdf(document):
-            return None
-        return reverse(
-            f"admin:{self.opts.app_label}_{self.opts.model_name}_refetch_pdf",
-            args=[document.pk],
-            current_app=self.admin_site.name,
-        )
-
-    def delete_view(
-        self, request: HttpRequest, object_id: str, extra_context: dict[str, Any] | None = None
-    ) -> HttpResponse:
-        self._note_delete_behavior(request, cast(LegalDocument | None, self.get_object(request, unquote(object_id))))
-        return super().delete_view(request, object_id, extra_context=extra_context)
-
-    def _note_delete_behavior(self, request: HttpRequest, document: LegalDocument | None) -> None:
-        if document is None:
-            return
-        if document.status == LegalDocument.Status.SIGNED:
-            messages.warning(request, _SIGNED_DELETE_NOTE)
-        else:
-            messages.info(request, _UNSIGNED_DELETE_NOTE)
 
     @admin.display(description="Organization", ordering="organization__name")
     def organization_link(self, document: LegalDocument) -> SafeString:

@@ -182,6 +182,10 @@ export type InboxReportActionType =
     | 'resume_discussion'
     | 'restore'
     | 'create_pr'
+    | 'implementation_button_clicked'
+    | 'monitor'
+    | 'reopen'
+    | 'change_priority'
     | 'github_access_recovery'
     | 'copy_implementation_prompt'
     | 'refund'
@@ -194,6 +198,7 @@ export type InboxReportActionType =
     | 'remove_suggested_reviewer'
     | 'claim'
     | 'unclaim'
+    | 'claim_dialog'
     | 'expand_preview'
     | 'add_note'
 
@@ -501,7 +506,7 @@ export function captureInboxReportsImpressed(params: {
     rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
-    const personalSort = params.sortField === 'personal'
+    const personalSort = params.sortField === 'personal' || params.rankerId === 'personal'
     if (params.rankingPill) {
         params.reports
             .filter((report) => rankingPillLifts(report) !== null)

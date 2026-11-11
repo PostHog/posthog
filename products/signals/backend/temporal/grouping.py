@@ -34,14 +34,8 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
-from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact
-from products.signals.backend.quota import (
-    SelfDrivingQuotaGate,
-    capture_signal_report_quota_paused,
-    self_driving_quota_gate,
-)
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import signal_target_report
@@ -74,9 +68,8 @@ from products.signals.backend.temporal.signal_queries import (
     soft_delete_report_signals,
     wait_for_signal_in_clickhouse_activity,
 )
-from products.signals.backend.temporal.summary import RESEARCH_SANDBOX_RETRY_BUDGET, SignalReportSummaryWorkflow
+from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow, summary_execution_timeout
 from products.signals.backend.temporal.types import (
-    IMPLEMENTATION_DEBOUNCE_SECONDS,
     RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
     ExistingReportMatch,
@@ -849,7 +842,6 @@ class AssignAndEmitDbResult:
     reresearch_capped: bool
     report_status: str
     report_signal_count: int
-    promotion_suppressed: bool
     # Cumulative signal count the report must reach for its next research pass, or None when its
     # last pass already covered the final bucket. Carried out of the transaction only so the skip
     # event can report it.
@@ -915,11 +907,10 @@ async def _schedule_writeback_for_source_issue_signal(input: "AssignAndEmitSigna
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit(suppress_promotion: bool) -> AssignAndEmitDbResult:
+    def do_assign_and_emit() -> AssignAndEmitDbResult:
         spend = signal_spend_summaries(team_id=input.team_id, signal_ids=[input.signal_id]).get(input.signal_id)
         with transaction.atomic():
             promoted = False
-            promotion_suppressed = False
             monitoring_billing_exemption = None
             if (
                 input.source_product == SignalSourceProduct.SIGNALS_CHECK
@@ -981,7 +972,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         reresearch_capped=False,
                         report_status=report.status,
                         report_signal_count=report.signal_count,
-                        promotion_suppressed=False,
                         next_research_bucket=None,
                     )
                 # Wrong-repo feedback rejects the repository choice rather than the issue, so new
@@ -1077,23 +1067,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     and report.signal_count >= report.signals_at_run
                 )
             ):
-                if suppress_promotion:
-                    # The team's org is over its self-driving credits quota with enforcement on, or
-                    # the team hit its daily report limit: the signal is still assigned, weighted,
-                    # and emitted, but no summary run spawns. The status is left untouched, so the
-                    # first matching signal after the limit lifts re-evaluates promotion under the
-                    # same rules.
-                    promotion_suppressed = True
-                else:
-                    updated_fields = (
-                        report.transition_to(SignalReport.Status.CANDIDATE)
-                        if report.status != SignalReport.Status.CANDIDATE
-                        else []
-                    )
-                    if updated_fields or report.triggering_signal_id is None:
-                        report.triggering_signal_id = input.signal_id
-                        report.save(update_fields=[*updated_fields, "triggering_signal_id"])
-                    promoted = True
+                updated_fields = (
+                    report.transition_to(SignalReport.Status.CANDIDATE)
+                    if report.status != SignalReport.Status.CANDIDATE
+                    else []
+                )
+                if updated_fields or report.triggering_signal_id is None:
+                    report.triggering_signal_id = input.signal_id
+                    report.save(update_fields=[*updated_fields, "triggering_signal_id"])
+                promoted = True
 
             pending_bucket = next_research_bucket(report.researching_signal_count or 0)
             if report.status == SignalReport.Status.IN_PROGRESS and (
@@ -1171,7 +1153,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 reresearch_capped=reresearch_capped,
                 report_status=report.status,
                 report_signal_count=report.signal_count,
-                promotion_suppressed=promotion_suppressed,
                 next_research_bucket=bucket,
                 report_signals_researched=signals_researched,
                 report_title=report.title,
@@ -1179,21 +1160,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        # Resolved before the assign transaction: the gates are Redis/Postgres + flag network I/O
-        # that must not run while holding the report row lock.
-        system_source = system_source_exempt(input.source_product)
-        quota_gate = (
-            SelfDrivingQuotaGate(limited=False, enforced=False)
-            if system_source
-            else await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(
-                team, signal_id=input.signal_id
-            )
-        )
-        daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
-
-        db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(
-            not system_source and (quota_gate.enforced or daily_gate.limited)
-        )
+        db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
@@ -1304,17 +1271,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         team_id=input.team_id,
                         source_id=input.source_id,
                     )
-            # Emitted only when the signal would have promoted the report, so the event volume
-            # measures withheld summary runs rather than every assignment on a limited team. Both
-            # events fire when both limits are hit, keeping each stream complete for its own gate.
-            if quota_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
-                capture_signal_report_quota_paused(
-                    team, report_id=db_result.report_id, stage="promotion", enforced=quota_gate.enforced
-                )
-            if daily_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
-                capture_signal_report_daily_limit_paused(
-                    team, report_id=db_result.report_id, stage="promotion", gate=daily_gate
-                )
 
         if not db_result.matched_deleted_report:
             metrics.increment_funnel(metrics.FUNNEL_STAGE_GROUPED, input.source_product)
@@ -1874,14 +1830,7 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                # The hour covers the research work; the two terms after it cover the workflow's own
-                # sleeps, which the hour was never sized for — the research debounce at entry and the
-                # implementation buffer at settle. A run that loops through several buffers can still
-                # outlive this; it's a backstop, and the report stays READY and re-promotes.
-                execution_timeout=timedelta(
-                    hours=1, seconds=report_input.debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS
-                )
-                + RESEARCH_SANDBOX_RETRY_BUDGET,
+                execution_timeout=summary_execution_timeout(report_input.debounce_seconds),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             metrics.increment_research_run_collapsed()

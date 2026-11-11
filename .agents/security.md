@@ -13,6 +13,11 @@ Before you create a branch or PR, choose the route:
 - **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit PostHog Cloud remotely today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution on our infrastructure, or exposure of credentials or secrets. The severity label does not necessarily decide the route: a high finding that does not meet this bar can go public. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
 - **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, issues in local tools such as a CLI or SDK that need a non-default setup like a custom host, and missing rate limits.
 
+Two questions help you choose between the embargo and a public PR:
+
+- **Is the weakness already public?** A dependency upgrade that picks up an upstream fix with a public release, advisory, or CVE does not disclose anything new, because attackers can already read the upstream patch. It goes to `PostHog/posthog` as a plain version bump. Ask team-security to look before it merges, and to decide if it must land faster than the merge queue allows.
+- **Could an attacker, or an agent that reads every public diff, exploit the weakness from your diff before the fix is live?** A merged fix takes about an hour to deploy. If the diff does not give that head start, the fix goes public. If it does and the finding meets the severe bar above, it needs the embargo.
+
 A public security fix is a normal fix with a neutral description.
 Describe what the change does, not how to exploit the old behavior.
 Leave out step-by-step reproductions, payloads, and severity ratings from the title, description, commit messages, and test names.
@@ -20,11 +25,47 @@ Leave out step-by-step reproductions, payloads, and severity ratings from the ti
 Never create a branch, push, or open a PR in `PostHog/posthog-private` without the user's confirmation in the current conversation.
 When you ask, say why the finding looks severe enough for an embargo.
 If you are unsure whether a finding is severe enough, stop and ask the user before you push to either repo.
+With the user's confirmation, a draft PR in `PostHog/posthog-private` lets team-security read the diff before anyone decides. Keep it a draft until they decide, and move the fix to `PostHog/posthog` if they say it can go public.
 Do not choose the private repo only because a change touches access control, authentication, or another security-sensitive area, or only because a branch is named `security/`.
 
 Follow the user's instructions about whether to create a branch, commit, push, or update a PR.
 
 This section is about where the fix lands; the rest of this doc is about writing secure code.
+
+## Requesting a security review
+
+The `security-review` label starts an automated security review of a PR.
+The review removes the label when it ends, so adding the label again runs another review.
+A check adds the label when a PR becomes ready for review.
+It reads the author's answer in the PR description, and it matches paths and code patterns.
+The patterns miss a change whose risk is in what it means, so the author's answer covers that change.
+
+Every PR that matches the list below carries the `security-review` label when it is ready for review.
+Check every PR against the list when you open it, not only a PR in a security area.
+Write the result on the `**Security review:**` line of the PR template's Agent context section: `needed` or `not needed`.
+
+- **Authentication:** login, signup, SSO, SAML, OIDC, OAuth grants and scopes, client registration, 2FA, passkeys, sessions, password or email changes, impersonation, invites, or account linking.
+- **Credentials:** a change that mints, scopes, stores, rotates, or revokes a key, token, JWT, or secret, or that changes encryption or signing.
+- **Authorization:** permission classes, API scopes, access control, object-level checks, sharing links, membership, or staff and admin gates. This includes a query or action that resolves an object ID from request input.
+- **New attack surface:** a new API, viewset, route, or action for a product, a public or unauthenticated endpoint, a webhook or ingress, or a new MCP or agent tool.
+- **Untrusted input in a dangerous call:** raw SQL or HogQL built from strings, HTML rendering, redirects, file paths or archives, subprocesses, or deserialization.
+- **Outbound requests:** a request to a URL that a user controls, such as an integration, a warehouse source, a webhook, an MCP server, or a proxy, or a change to egress or URL validation.
+- **Agents and sandboxes:** what an agent or sandbox can run, read, or reach, which credentials it gets, untrusted text in its prompt, or logic that approves an action automatically.
+- **Browser boundary:** the Content Security Policy, CORS, CSRF, cookies, framing, `postMessage`, or trusted proxy headers.
+- **CI and supply chain:** `pull_request_target` or `workflow_run` triggers, secrets, write tokens, publish or deploy jobs, CODEOWNERS, or the dev sandbox profile.
+- **Tenant data paths:** a query or background task that takes a team or project ID from its input, reads across projects, or reads a system table.
+- **A security fix** of any severity.
+
+Do not add the label to a PR that only changes tests, docs, copy, or styling, to a dependency bump with no security advisory, or to a file move with no other change.
+
+Do not add the label to a draft yourself, because the review reads the code at the moment the label lands.
+A later push does not start another review.
+Add the label yourself with `gh pr edit <number> --add-label security-review` in two cases:
+
+- The PR is already ready for review when you find that it matches.
+- A push to a reviewed PR changes one of the areas in the list.
+
+A review reads one layer of a stack, so answer on each layer.
 
 ## Principle of Least Privilege
 

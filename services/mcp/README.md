@@ -281,7 +281,7 @@ Available features:
 
 > **Note:** Hyphens and underscores are treated as equivalent in feature names (e.g., `error-tracking` and `error_tracking` both work).
 
-To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions-all.json`.
+To view which tools are available per feature, see our [documentation](https://posthog.com/docs/model-context-protocol) or check `schema/tool-definitions.json` (hand-written tools) and `schema/generated-tool-definitions.json` (tools generated from YAML).
 
 ### Learning and skills in cli mode
 
@@ -456,7 +456,7 @@ Changes in the examples repo will be reflected on the next request.
 
 - `src/` - The MCP server: Hono app (`src/hono/`), tool handlers (`src/tools/`), prompt templates (`src/templates/`)
 - `definitions/` - Hand-authored YAML tool definitions (per-product YAML lives at `products/<product>/mcp/` in the monorepo)
-- `schema/` - Generated schema files, including `tool-definitions-all.json` (the full tool catalog)
+- `schema/` - Tool definitions: hand-written `tool-definitions.json`, plus generated files such as `generated-tool-definitions.json`
 
 ### Development Commands
 

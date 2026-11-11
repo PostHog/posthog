@@ -262,8 +262,12 @@ instead.
 numeric property. `math` is ignored. `quantile` is the level, from `0.01` to
 `0.99`. Events without a numeric value for the property don't count.
 
-Not supported: breakdowns, data warehouse sources, CUPED, timeseries and
-sequential testing. With sequential testing on, the metric returns an error.
+With breakdowns, each breakdown gets the percentile of its own events, and the
+overall result keeps the percentile of all events of the variant.
+
+Not supported: data warehouse sources, CUPED and timeseries.
+Sequential testing works, and its tuning parameter counts exposed users, not
+events, as it does for every other metric.
 
 ### Right — p90 page load time
 

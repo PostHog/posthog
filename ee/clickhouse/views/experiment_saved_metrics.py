@@ -76,8 +76,7 @@ class ExperimentSavedMetricSerializer(
             "'funnel' (set series to an array of EventsNode steps), "
             "'ratio' (set numerator and denominator EventsNode entries), "
             "'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric "
-            "property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; "
-            "breakdowns and sequential testing are not supported), or "
+            "property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90), or "
             "'retention' (set start_event and completion_event). "
             "Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
         ),

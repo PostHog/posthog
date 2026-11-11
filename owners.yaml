@@ -34,6 +34,10 @@ teams:
         slack: '#team-mcp-analytics'
     platform-ux:
         slack: '#team-platform-ux'
+    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-ai-observability:
+        notifications:
+            stamphog: false
     team-data-stack:
         slack: '#group-data-stack'
     # PostHog Desktop's channel kept the name it was created under.
@@ -83,7 +87,7 @@ rules:
       owners: mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
       owners: team-product-analytics
-    - match: '/.claude/'
+    - match: ['/.claude/', '/.depot/']
       owners: team-devex
     - match: '/.claude/agents/ingestion/'
       owners: team-ingestion
@@ -131,7 +135,7 @@ rules:
           - '/posthog/urls.py'
       owners: team-devex
     - match: '/posthog/helpers/email_utils.py'
-      owners: team-platform-features
+      owners: team-workflows
     - match: '/posthog/test/activity_logging/'
       owners: team-platform-features
     - match: '/posthog/api/test/test_playwright_setup.py'
@@ -169,16 +173,13 @@ rules:
           - '/posthog/test/repo_invariants/test_model_enum_defaults.py'
           - '/posthog/test/repo_invariants/test_squash_partial_fallback.py'
           - '/posthog/test/repo_invariants/test_startup_import_budget.py'
-          - '/posthog/test/repo_invariants/test_unowned_test_directories.py'
           - '/products/README.md'
           - '/products/architecture.md'
           - '/products/isolation_baseline.txt'
           - '/tools/openapi-codegen/'
       owners: team-devex
       sensitive: true
-    - match:
-          - '/posthog/test/repo_invariants/unowned_test_directories_baseline.txt'
-          - '/products/model_crossing_uses_baseline.txt'
+    - match: '/products/model_crossing_uses_baseline.txt'
       owners: team-devex
     - match: '/posthog/management/commands/find_enum_collisions.py'
       owners: team-devex

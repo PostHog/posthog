@@ -74,9 +74,9 @@ from .evaluation_llm_judge import (
     TransientJudgeError,
     _build_errored_trace_result,
     _build_output_limit_skip_result,
-    _execute_llm_judge_activity,
     call_llm_judge,
     get_output_type_config,
+    run_generation_llm_judge,
 )
 from .evaluation_types import GENERATION_NOT_FOUND, build_generation_not_found_result, build_skipped_evaluation_result
 from .evaluation_workflow_activities import (
@@ -1413,7 +1413,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "The answer is grounded.",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -2326,7 +2326,7 @@ class TestRunEvaluationWorkflow:
             ),
         ):
             with pytest.raises(AssertionError, match="stop after hydration"):
-                _execute_llm_judge_activity(
+                run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(
                         evaluation=_local_evaluation(
                             evaluation_type="llm_judge", evaluation_config={"prompt": "grade it"}
@@ -2393,7 +2393,7 @@ class TestRunEvaluationWorkflow:
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as call_judge,
         ):
             if evaluation_type == "llm_judge":
-                result = _execute_llm_judge_activity(
+                result = run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=dict(THIN_REFERENCE))
                 )
             else:
@@ -2541,7 +2541,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "ok",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -4140,7 +4140,7 @@ class TestEvalResultModels:
                 parsed=schema.model_validate({"reasoning": "Resolution", "categories": categories}),
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
-            result = _execute_llm_judge_activity(
+            result = run_generation_llm_judge(
                 ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
             )
         assert result["result_type"] == "categorical"
@@ -4190,7 +4190,7 @@ class TestEvalResultModels:
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
             inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
-            result = _execute_llm_judge_activity(inputs)
+            result = run_generation_llm_judge(inputs)
             increment_errors.assert_not_called()
         assert result["result_type"] == "numeric"
         assert "verdict" not in result
