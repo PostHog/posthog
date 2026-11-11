@@ -54,6 +54,9 @@ const hidesArchive: WorkflowViewApi = {
     state: { filters: [{ facet: 'in', value: 'Archive', negated: true }], text: '', columns: [] },
 }
 
+const LANDED_ID = '00000000-0000-4000-8000-000000000005'
+const RETRIED_ID = '00000000-0000-4000-8000-000000000006'
+
 describe('workflowsSavedViewsLogic', () => {
     let logic: ReturnType<typeof workflowsSavedViewsLogic.build>
     let requests: string[]
@@ -1385,19 +1388,21 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.views.find((view) => view.id === VIEW_ID)?.name).toEqual('Renamed flows')
     })
 
-    it('picks up a new view whose timed-out save landed, instead of saving it twice', async () => {
-        const landedId = '00000000-0000-4000-8000-000000000005'
+    it.each([
+        ['picks up a new view whose timed-out save landed, instead of saving it twice', true, 1, LANDED_ID],
+        ["saves again when only a teammate's view of that name with another search exists", false, 2, RETRIED_ID],
+    ])('%s', async (_name, landed, expectedPosts, activeId) => {
         let posts = 0
         useMocks({
             post: {
                 '/api/projects/:team_id/workflow_views/': async ({ request }) => {
                     posts++
-                    const view = { ...savedView, ...((await request.json()) as WorkflowViewCreateApi), id: landedId }
+                    const view = { ...savedView, ...((await request.json()) as WorkflowViewCreateApi), id: LANDED_ID }
                     if (posts === 1) {
-                        storedViews.push(view)
+                        storedViews.push(landed ? view : { ...view, state: { ...view.state, text: 'renewal' } })
                         return new Promise(() => {})
                     }
-                    return [201, { ...view, id: '00000000-0000-4000-8000-000000000006' }]
+                    return [201, { ...view, id: RETRIED_ID }]
                 },
             },
         })
@@ -1416,11 +1421,9 @@ describe('workflowsSavedViewsLogic', () => {
         }
         await logic.asyncActions.saveViewAs('Draft flows')
         await expectLogic(logic).toFinishAllListeners()
-        expect(posts).toBe(1)
-        expect(logic.values.views.filter((view) => view.name === 'Draft flows').map((view) => view.id)).toEqual([
-            landedId,
-        ])
-        expect(logic.values.activeViewId).toBe(landedId)
+        expect(posts).toBe(expectedPosts)
+        expect(logic.values.views.filter((view) => view.id === activeId)).toHaveLength(1)
+        expect(logic.values.activeViewId).toBe(activeId)
     })
 
     it('keeps a view whose stalled delete answers after the deadline', async () => {
