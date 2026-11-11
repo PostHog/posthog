@@ -17,6 +17,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthRuleTest,
     ExperimentHealthValueKey,
 )
+from products.experiments.backend.facade.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.health.checks.bias_risk import (
     MULTIPLE_VARIANT_BIAS_MINIMUM_COUNT,
     MULTIPLE_VARIANT_BIAS_THRESHOLD,
@@ -65,6 +66,7 @@ from products.experiments.backend.health.checks.srm import (
     srm,
     srm_values,
 )
+from products.experiments.backend.health.checks.stale_experiment import stale_experiment
 from products.experiments.backend.health.checks.unserved_variants import (
     UNSERVED_MINIMUM_COUNT,
     UNSERVED_SHARE_THRESHOLD,
@@ -262,6 +264,16 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         ),
         run=metrics_not_matured,
         read=metrics_not_matured_values,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.STALE_EXPERIMENT,
+        name=f"Experiment running past {DAILY_CALCULATION_DAYS} days",
+        description=(
+            f"Checks how long ago the experiment started. PostHog's daily calculation covers only the first "
+            f"{DAILY_CALCULATION_DAYS} days after the start date, so after that the chart of results over time stops "
+            "updating and PostHog sends no significance notifications."
+        ),
+        run=stale_experiment,
     ),
 )
 

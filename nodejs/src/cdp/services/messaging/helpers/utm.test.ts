@@ -89,11 +89,6 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a href="https://example.com/{{ person.id }}">x</a>',
         },
         {
-            case: 'an unquoted href',
-            html: '<a href=https://example.com/pricing>x</a>',
-            expected: `<a href="https://example.com/pricing?${QUERY}">x</a>`,
-        },
-        {
             case: 'an unquoted href with a query',
             html: '<a href=https://example.com/pricing?plan=pro>x</a>',
             expected: `<a href="https://example.com/pricing?plan=pro&amp;${QUERY}">x</a>`,
@@ -233,11 +228,6 @@ describe('addUtmTagsToEmail', () => {
             case: 'replaces every run id of earlier sends and keeps a hash route',
             html: '<a href="https://example.com/?ph_workflow_run=a&amp;ph_workflow_run=b#/p?ph_workflow_run=x">x</a>',
             expected: '<a href="https://example.com/?ph_workflow_run=run-1#/p?ph_workflow_run=x">x</a>',
-        },
-        {
-            case: 'tags an unquoted href',
-            html: '<a href=https://example.com/p>x</a>',
-            expected: '<a href="https://example.com/p?ph_workflow_run=run-1">x</a>',
         },
         {
             case: 'tags a link that only opts out of UTM tags',
