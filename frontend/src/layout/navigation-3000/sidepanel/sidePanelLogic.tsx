@@ -265,9 +265,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 const hiddenTabs: SidePanelTab[] = sceneSidePanelContext.canvas_id
                     ? [SidePanelTab.Exports, SidePanelTab.Support]
                     : [SidePanelTab.Exports]
-                // The Today layout has no home for these tabs yet. They stay openable from their entry points.
+                // The Today layout has no home for Notebooks yet. It stays openable from its entry points.
                 if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
-                    hiddenTabs.push(SidePanelTab.Discussion, SidePanelTab.Notebooks)
+                    hiddenTabs.push(SidePanelTab.Notebooks)
                 }
                 const tabs = enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
                 return [

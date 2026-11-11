@@ -42,7 +42,7 @@ export type LemonRichContentEditorProps = {
     footerActions?: React.ReactNode
 }
 
-const DEFAULT_INITIAL_CONTENT: JSONContent = {
+export const DEFAULT_INITIAL_CONTENT: JSONContent = {
     type: 'doc',
     content: [
         {
