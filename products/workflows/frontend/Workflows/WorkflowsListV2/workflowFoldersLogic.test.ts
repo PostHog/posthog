@@ -247,26 +247,37 @@ describe('workflowFoldersLogic', () => {
             "Couldn't rename the folder.",
         ],
     ])("%s a folder only under a name no other product's file uses in that folder", async (_, change, failure) => {
-        const dashboard = { id: 'weekly', path: 'Billing/Weekly', type: 'dashboard' }
+        const dashboards = [
+            { id: 'weekly', path: 'Billing/Weekly', type: 'dashboard' },
+            { id: 'quoted', path: 'Billing/Quarterly "Report"', type: 'dashboard' },
+        ]
+        let lookups: Record<string, string>[] = []
+        const writes: string[] = []
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system/': ({ request }) => {
-                    const search = new URL(request.url).searchParams.get('search') ?? ''
-                    return search.startsWith('name:')
-                        ? [200, paginated(search.toLowerCase().includes('weekly') ? [dashboard] : [])]
-                        : projectFiles({ request })
+                    const params = new URL(request.url).searchParams
+                    const exact = params.get('path__iexact')
+                    if (exact === null) {
+                        return projectFiles({ request })
+                    }
+                    lookups.push(Object.fromEntries(params))
+                    const matches = dashboards.filter((entry) => entry.path.toLowerCase() === exact.toLowerCase())
+                    return [200, paginated(matches)]
                 },
             },
             post: {
-                '/api/projects/:team_id/file_system/': async ({ request }) => [
-                    201,
-                    { id: 'new-folder', ...((await request.json()) as { path: string; type: string }) },
-                ],
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    const body = (await request.json()) as { path: string; type: string }
+                    writes.push(body.path)
+                    return [201, { id: 'new-folder', ...body }]
+                },
                 '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 1 }],
-                '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => [
-                    200,
-                    { id: params.id, path: ((await request.json()) as { new_path: string }).new_path, type: 'folder' },
-                ],
+                '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => {
+                    const path = ((await request.json()) as { new_path: string }).new_path
+                    writes.push(path)
+                    return [200, { id: params.id, path, type: 'folder' }]
+                },
             },
         })
         showToasts()
@@ -276,8 +287,15 @@ describe('workflowFoldersLogic', () => {
         expect(await screen.findByText(`${failure} This name is already used in this folder.`)).toBeInTheDocument()
         expect(logic.values.folderPaths.map((path) => path.toLowerCase())).not.toContain('billing/weekly')
 
-        await change('Invoices')
-        await waitFor(() => expect(logic.values.folderPaths).toContain('Billing/Invoices'))
+        await change('Quarterly "Report"')
+        expect(lookups.at(-1)?.path__iexact).toBe('Billing/Quarterly "Report"')
+        expect(writes).toEqual([])
+
+        lookups = []
+        await change('a')
+        await waitFor(() => expect(logic.values.folderPaths).toContain('Billing/a'))
+        expect(lookups).toEqual([{ path__iexact: 'Billing/a', limit: '2' }])
+        expect(writes).toEqual(['Billing/a'])
     })
 
     it.each([

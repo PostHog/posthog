@@ -430,13 +430,18 @@ function whenSettled(isPending: () => boolean): Promise<void> {
 
 const NAME_TAKEN = 'This name is already used in this folder.'
 
+function folderRequest<T>(request: (signal: AbortSignal) => Promise<T>, what: string): Promise<T> {
+    return withTimeout(request, FOLDER_REQUEST_TIMEOUT_MS, `workflowFoldersLogic: ${what} timed out`)
+}
+
 /** The view loads no other product's files, so the server is asked whether one already sits at this path. */
 async function isPathTaken(teamId: string, path: string, except?: string): Promise<boolean> {
-    const parts = splitPath(path)
-    const parent = parts.at(-2)
-    const search = [`name:"${parts.at(-1)}"`, ...(parent ? [`path:"${parent}"`] : [])].join(' ')
-    const entries = await listAllFiles(teamId, search)
-    return entries.some((entry) => entry.id !== except && entry.path.toLowerCase() === path.toLowerCase())
+    // A rename may match its own folder when only the case changes, so a second row is needed to find another file.
+    const { results } = await folderRequest(
+        (signal) => fileSystemList(teamId, { path__iexact: path, limit: 2 }, { signal }),
+        'checking a folder name'
+    )
+    return results.some((entry) => entry.id !== except)
 }
 
 function changeCount(cache: Record<string, any>): number {
