@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal
 
-from django.db import connection
+from django.db import connection, router
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -224,8 +224,10 @@ def realtime_cohorts_available(*, team_id: int) -> bool:
 
 def find_cohort_by_description_prefix(*, team_id: int, prefix: str) -> CreatedCohort | None:
     """The oldest cohort of the team that is not deleted and whose description starts with `prefix`."""
+    # Reads the writer, so a cohort created a moment ago by another import is found despite replica lag.
     cohort = (
-        Cohort.objects.filter(team_id=team_id, deleted=False, description__startswith=prefix)
+        Cohort.objects.using(router.db_for_write(Cohort))
+        .filter(team_id=team_id, deleted=False, description__startswith=prefix)
         .only("id", "name", "cohort_type", "is_static")
         .order_by("id")
         .first()
