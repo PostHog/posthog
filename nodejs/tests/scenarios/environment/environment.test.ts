@@ -172,6 +172,8 @@ describe('scenario environment', () => {
                     proc(355, 355, 'tsx scripts/lint.tsx src/index.ts', PLAIN_ENV),
                     proc(356, 356, 'node -e require("fs").watch(process.argv[1],()=>{}) src/index.ts', PLAIN_ENV),
                     proc(357, 357, 'node --print 1 src/index.ts', PLAIN_ENV),
+                    proc(359, 359, 'node --eval=require("fs").watch(process.argv[1],()=>{}) src/index.ts', PLAIN_ENV),
+                    proc(360, 360, 'node -pe process.argv[1] src/index.ts', PLAIN_ENV),
                     proc(
                         358,
                         358,

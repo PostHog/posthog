@@ -35,7 +35,7 @@ const isMarked = (entry: ProcEntry): boolean =>
 const ENTRY_POINTS = ['bin/posthog-node', 'src/index.ts', 'dist/index.js']
 const NODE_LAUNCHERS = ['node', 'tsx']
 const SHELLS = ['sh', 'bash', 'dash', 'zsh']
-const EVAL_OPTIONS = ['-e', '--eval', '-p', '--print']
+const INLINE_CODE = /^(--(eval|print)(=|$)|-[a-zA-Z]*[ep])/
 const SCRIPT_FILE = /\.[cm]?[jt]sx?$/
 
 const entryPointsOf = (nodejsDir: string): string[] => [
@@ -69,7 +69,7 @@ function launchesNode(entry: ProcEntry, nodejsDir: string): boolean {
     return (
         NODE_LAUNCHERS.includes(path.basename(program)) &&
         at !== -1 &&
-        !before.some((arg) => EVAL_OPTIONS.includes(arg)) &&
+        !before.some((arg) => INLINE_CODE.test(arg)) &&
         !before.some((arg, index) => isForeignScript(arg, rest[index - 1]))
     )
 }
