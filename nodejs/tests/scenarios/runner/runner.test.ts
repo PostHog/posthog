@@ -1,16 +1,36 @@
-import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+
+import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
 
-import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
+import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
+import { CdpConsumerBaseDeps } from '~/cdp/consumers/cdp-base.consumer'
+import { CdpCyclotronWorkerEmail } from '~/cdp/consumers/cdp-cyclotron-worker-email.consumer'
+import { CdpCyclotronWorkerHogFlow } from '~/cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { triggersOnEvents } from '~/cdp/consumers/event-name-gate'
+import {
+    CdpProducerName,
+    WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_PRODUCER,
+    WARPSTREAM_INGESTION_PRODUCER,
+} from '~/cdp/outputs/producers'
+import { template as emailTemplate } from '~/cdp/templates/_destinations/email/email.template'
+import { CyclotronJobInvocation } from '~/cdp/types'
+import { convertToHogFunctionInvocationGlobals } from '~/cdp/utils'
 import { defaultConfig } from '~/common/config/config'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { KafkaProducer, KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { InternalCaptureService } from '~/common/services/internal-capture'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { RawClickHouseEvent } from '~/types'
+import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
 import { LoadedCard, Profile, load } from '../cards'
 import { Environment } from '../environment/environment'
@@ -151,7 +171,89 @@ describe('runner', () => {
 
 type DeliveringRoles = { stop(): Promise<void> }
 
-async function startDeliveringRoles(specs: RoleSpec[], leaveOneJobRunning: boolean): Promise<DeliveringRoles> {
+type Cdp = { hub: Hub; hogflow: CdpCyclotronWorkerHogFlow; email: CdpCyclotronWorkerEmail }
+
+const MOST_LEGS_PER_RUN = 10
+
+const discardingProducer: KafkaProducer = {
+    produce: () => Promise.resolve(),
+    queueMessages: () => Promise.resolve(),
+    disconnect: () => Promise.resolve(),
+    checkConnection: () => Promise.resolve(),
+    checkTopicExists: () => Promise.resolve(),
+}
+
+const noPersons: PersonReadRepository = {
+    fetchPerson: () => Promise.resolve(undefined),
+    fetchPersonsByDistinctIds: () => Promise.resolve([]),
+    fetchPersonsByPersonIds: () => Promise.resolve([]),
+    fetchDistinctIdsForPersons: () => Promise.resolve({}),
+}
+
+const noGroups: GroupReadRepository = {
+    fetchGroupsByKeys: () => Promise.resolve([]),
+    fetchGroupTypesByTeamIds: () => Promise.resolve({}),
+    fetchGroupTypesByProjectIds: () => Promise.resolve({}),
+}
+
+async function startCdp(config: Partial<PluginsServerConfig>): Promise<Cdp> {
+    const hub = await createHub(config)
+    await insertHogFunctionTemplate(hub.postgres, emailTemplate)
+    const deps: CdpConsumerBaseDeps = {
+        postgres: hub.postgres,
+        pubSub: hub.pubSub,
+        encryptedFields: hub.encryptedFields,
+        teamManager: hub.teamManager,
+        integrationManager: hub.integrationManager,
+        cdpProducerRegistry: new KafkaProducerRegistry<CdpProducerName>({
+            [WARPSTREAM_INGESTION_PRODUCER]: discardingProducer,
+            [WARPSTREAM_CYCLOTRON_PRODUCER]: discardingProducer,
+            [WAREHOUSE_PRODUCER]: discardingProducer,
+        }),
+        internalCaptureService: new InternalCaptureService(hub),
+        personRepository: noPersons,
+        geoipService: hub.geoipService,
+        groupRepository: noGroups,
+        quotaLimiting: hub.quotaLimiting,
+        emailValidationValkey: null,
+        frequencyCapValkey: null,
+    }
+    return {
+        hub,
+        hogflow: new CdpCyclotronWorkerHogFlow(hub, deps, createMockJobQueue()),
+        email: new CdpCyclotronWorkerEmail(hub, deps, createMockJobQueue()),
+    }
+}
+
+async function stopCdp({ hub, hogflow, email }: Cdp): Promise<void> {
+    await Promise.all([hogflow.stop(), email.stop()])
+    await closeHub(hub)
+}
+
+async function runToItsEnd(cdp: Cdp, invocation: CyclotronJobInvocation): Promise<void> {
+    let job = invocation
+    for (let leg = 0; leg < MOST_LEGS_PER_RUN; leg++) {
+        const worker = job.queue === 'hogflow' || job.queue === 'email' ? cdp[job.queue] : undefined
+        if (!worker) {
+            throw new Error(`No role works the ${job.queue} queue of flow ${job.functionId}`)
+        }
+        const [result] = await worker.processInvocations([job])
+        if (result.error !== undefined) {
+            throw new Error(`Flow ${job.functionId} failed on the ${job.queue} queue: ${String(result.error)}`)
+        }
+        if (result.finished) {
+            return
+        }
+        job = { ...result.invocation, state: parseJSON(JSON.stringify(result.invocation.state)) }
+    }
+    throw new Error(`Flow ${invocation.functionId} did not finish within ${MOST_LEGS_PER_RUN} legs`)
+}
+
+async function startDeliveringRoles(
+    cdp: Cdp,
+    specs: RoleSpec[],
+    leaveOneJobRunning: boolean
+): Promise<DeliveringRoles> {
     const worker = specs.find(({ role }) => role === 'cdp-cyclotron-worker-email')!.env
     const [
         {
@@ -165,67 +267,39 @@ async function startDeliveringRoles(specs: RoleSpec[], leaveOneJobRunning: boole
         credentials: { accessKeyId: worker.AWS_ACCESS_KEY_ID!, secretAccessKey: worker.AWS_SECRET_ACCESS_KEY! },
         maxAttempts: 1,
     })
-    const signer = new EmailTrackingCodeSigner(worker.ENCRYPTION_SALT_KEYS!, '')
+    cdp.email.emailService.sesV2Client = ses
     let jobsToLeaveRunning = leaveOneJobRunning ? 1 : 0
     const failures: unknown[] = []
     let work = Promise.resolve()
 
     const deliver = async (event: RawClickHouseEvent): Promise<void> => {
-        const flows = await withPostgres(
-            async (client) =>
-                (
-                    await client.query<{ id: string; actions: { id: string; type: string }[] }>(
-                        "SELECT id, actions FROM posthog_hogflow WHERE team_id = $1 AND status = 'active'",
-                        [event.team_id]
-                    )
-                ).rows,
-            worker.DATABASE_URL
+        const team = await cdp.hub.teamManager.getTeam(event.team_id)
+        if (!team) {
+            throw new Error(`No team ${event.team_id}`)
+        }
+        const flows = (await cdp.hogflow.hogFlowManager.getHogFlowsForTeam(team.id)).filter(triggersOnEvents)
+        const { invocations } = await cdp.hogflow.hogFlowExecutor.buildHogFlowInvocations(
+            flows,
+            convertToHogFunctionInvocationGlobals(event, team, cdp.hub.SITE_URL)
         )
-        const { email } = parseJSON(event.properties ?? '{}') as { email: string }
-        for (const flow of flows) {
-            for (const action of flow.actions.filter(({ type }) => type === 'function_email')) {
-                const jobId = await withPostgres(
-                    async (client) =>
-                        (
-                            await client.query<{ id: string }>(
-                                "INSERT INTO cyclotron_jobs (id, team_id, function_id, queue_name, status, priority, scheduled, created, last_transition) VALUES (gen_random_uuid(), $1, $2, 'email', 'running', 0, now(), now(), now()) RETURNING id",
-                                [event.team_id, flow.id]
-                            )
-                        ).rows[0].id,
+        for (const invocation of invocations) {
+            await withPostgres(
+                (client) =>
+                    client.query(
+                        "INSERT INTO cyclotron_jobs (id, team_id, function_id, queue_name, status, priority, scheduled, created, last_transition) VALUES ($1, $2, $3, $4, 'running', 0, now(), now(), now())",
+                        [invocation.id, invocation.teamId, invocation.functionId, invocation.queue]
+                    ),
+                cyclotronUrl
+            )
+            await runToItsEnd(cdp, invocation)
+            if (jobsToLeaveRunning > 0) {
+                jobsToLeaveRunning -= 1
+            } else {
+                await withPostgres(
+                    (client) =>
+                        client.query("UPDATE cyclotron_jobs SET status = 'completed' WHERE id = $1", [invocation.id]),
                     cyclotronUrl
                 )
-                await ses.send(
-                    new SendEmailCommand({
-                        FromEmailAddress: 'flows@www.example.com',
-                        Destination: { ToAddresses: [email] },
-                        Content: {
-                            Simple: {
-                                Subject: { Data: 'Scenario delivery' },
-                                Body: { Text: { Data: 'Scenario delivery' } },
-                                Headers: [
-                                    {
-                                        Name: 'X-PostHog-Tracking-Code',
-                                        Value: signer.generate({
-                                            functionId: flow.id,
-                                            id: jobId,
-                                            teamId: event.team_id,
-                                            state: { actionId: action.id },
-                                        }),
-                                    },
-                                ],
-                            },
-                        },
-                    })
-                )
-                if (jobsToLeaveRunning > 0) {
-                    jobsToLeaveRunning -= 1
-                } else {
-                    await withPostgres(
-                        (client) =>
-                            client.query("UPDATE cyclotron_jobs SET status = 'completed' WHERE id = $1", [jobId]),
-                        cyclotronUrl
-                    )
-                }
             }
         }
     }
@@ -277,6 +351,7 @@ describe('runner through seed, drive and judge', () => {
     let edge: ProviderEdge
     let roles: DeliveringRoles | undefined
     let results: RunResult[]
+    let cdp: Cdp
 
     const environmentOf = (delivering: 'none' | 'all' | 'all, leaving one job running'): Environment => ({
         up: () => Promise.resolve(),
@@ -286,6 +361,7 @@ describe('runner through seed, drive and judge', () => {
                 delivering === 'none'
                     ? undefined
                     : await startDeliveringRoles(
+                          cdp,
                           roleSpecs(env, edge.url, secretsOf(env), settings),
                           delivering !== 'all'
                       )
@@ -331,9 +407,14 @@ describe('runner through seed, drive and judge', () => {
     beforeAll(async () => {
         await ensureKafkaTopics([topic])
         await jobsSchema.create()
+        cdp = await startCdp({
+            DATABASE_URL: defaultConfig.DATABASE_URL,
+            ENCRYPTION_SALT_KEYS: secretsOf(process.env).encryptionSaltKeys,
+        })
     })
 
     afterAll(async () => {
+        await stopCdp(cdp)
         await jobsSchema.drop()
         await deleteKafkaTopics([topic])
     })
