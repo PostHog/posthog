@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { memo, useEffect } from 'react'
 
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
@@ -21,7 +21,6 @@ import {
 } from '../types'
 import { confirmRemoveFromQueue } from './confirmRemoveFromQueue'
 import { TraceReviewActions } from './TraceReviewActions'
-import { traceReviewBridgeLogic } from './traceReviewBridgeLogic'
 
 export interface TraceViewContainerProps {
     hostId: string
@@ -270,7 +269,6 @@ export const TraceViewContainer = memo(function TraceViewContainer({
     const { reviewStatus, reviewStatusFailed, queueHref, canEditReviews, removeFromQueueLoading } =
         useValues(reviewLogic)
     const { loadReviewStatus, removeFromQueue } = useActions(reviewLogic)
-    useMountedLogic(traceReviewBridgeLogic({ traceId }))
     // The dataset button remounts on every step change. Its logic has no key, so it would refetch datasets and recents
     // on every remount without this mount.
     useEffect(() => (datasetsEnabled ? saveToDatasetButtonLogic.mount() : undefined), [datasetsEnabled])
