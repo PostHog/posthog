@@ -1160,7 +1160,7 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).not.toContain('Old')
     })
 
-    it('refuses a second change to a folder or its subfolders until its rename lands', async () => {
+    it('refuses a second change to a folder or its subfolders until its rename lands, then creates a drafted folder at the new path', async () => {
         await expectLogic(logic).toFinishAllListeners()
         showToasts()
         let releaseMove!: () => void
@@ -1191,7 +1191,9 @@ describe('workflowFoldersLogic', () => {
 
         logic.actions.renameFolder('Billing', 'Accounts')
         logic.actions.renameFolder('Billing/Cards', 'Debit')
-        await logic.asyncActions.createFolder('Weekly', 'Billing/Cards')
+        logic.actions.startFolderDraft('Billing/Cards')
+        logic.actions.setFolderDraftName('Weekly')
+        await logic.asyncActions.submitFolderDraft()
         await logic.asyncActions.dropFile('project/direct', 'project://Billing/Cards')
         expect(
             await screen.findByText("Couldn't create the folder. Wait until this folder finishes moving.")
@@ -1207,6 +1209,9 @@ describe('workflowFoldersLogic', () => {
         expect(created).toEqual([])
         expect(logic.values.folderPaths).toEqual(expect.arrayContaining(['Invoices', 'Invoices/Cards']))
         expect(logic.values.folderPaths).not.toContain('Billing/Cards')
+
+        await logic.asyncActions.submitFolderDraft()
+        expect(created).toEqual(['Invoices/Cards/Weekly'])
     })
 
     it('releases a folder rename when counting the folder stalls', async () => {

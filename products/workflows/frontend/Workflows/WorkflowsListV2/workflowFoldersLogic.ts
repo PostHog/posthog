@@ -778,6 +778,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                       )
                     : counts,
         },
+        folderDraft: {
+            [projectTreeDataLogic.actionTypes.movedItem]: (draft, { item, oldPath, newPath }) =>
+                draft && item.type === 'folder'
+                    ? { ...draft, parent: reparentPath(draft.parent, oldPath, newPath) ?? draft.parent }
+                    : draft,
+        },
     })),
     selectors({
         browserLoadFailed: [(s) => [s.folderScanFailed], (folderScanFailed: boolean): boolean => folderScanFailed],
