@@ -1599,9 +1599,7 @@ class TestExternalDataSchema(APIBaseTest):
             ("enable_keyless_xmin_accepted", ExternalDataSchema.SyncType.XMIN, status.HTTP_200_OK),
         ]
     )
-    def test_update_schema_to_xmin_without_primary_key(
-        self, _name: str, current_sync_type: ExternalDataSchema.SyncType, expected_status: int
-    ):
+    def test_update_schema_to_xmin_without_primary_key(self, _name: str, current_sync_type: str, expected_status: int):
         source = self._xmin_postgres_source()
         schema = ExternalDataSchema.objects.create(
             name="public.orders",
