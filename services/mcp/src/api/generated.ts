@@ -37939,6 +37939,8 @@ export namespace Schemas {
       stage: EarlyAccessFeatureStageEnum;
       /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
+      /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+      image_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
@@ -37988,6 +37990,8 @@ export namespace Schemas {
       stage: EarlyAccessFeatureStageEnum;
       /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
+      /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+      image_url?: string;
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
       readonly created_at: string;
@@ -84749,6 +84753,8 @@ export namespace Schemas {
       stage?: EarlyAccessFeatureStageEnum;
       /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
+      /** URL of an image that shows the feature, such as a screenshot. Shown to users in the opt-in UI. */
+      image_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
@@ -91032,9 +91038,9 @@ export namespace Schemas {
      * installation and simply won't resolve webhooks until synced.
      */
     export interface PatchedStamphogRepoConfigWrite {
-      /** SCM provider this config talks to. Defaults to 'github'. */
+      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
       provider?: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. */
+      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
       repository?: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
@@ -113299,9 +113305,9 @@ export namespace Schemas {
      * installation and simply won't resolve webhooks until synced.
      */
     export interface StamphogRepoConfigWrite {
-      /** SCM provider this config talks to. Defaults to 'github'. */
+      /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
       provider?: string;
-      /** Repository full name, e.g. 'PostHog/posthog'. */
+      /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
       repository: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
