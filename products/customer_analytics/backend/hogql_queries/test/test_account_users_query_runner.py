@@ -9,7 +9,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import CacheMissResponse, HogQLQueryResponse, QueryStatus
+from posthog.schema import ActorsQuery, CacheMissResponse, HogQLQueryResponse, QueryStatus
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -32,6 +32,10 @@ from posthog.test.persons import create_person, update_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.customer_analytics.backend.hogql_queries.account_persons_catalog import (
+    ACCOUNT_PERSONS_CATALOG_FLAG,
+    AccountPersonsCatalog,
+)
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.presentation.views.account_persons import AccountPersonsQuerySerializer
@@ -39,9 +43,68 @@ from products.customer_analytics.backend.test.factories import create_account
 from products.event_definitions.backend.models import PropertyDefinition
 
 FLAG_CHECK = "products.customer_analytics.backend.logic.account_persons.posthog_feature_flag_enabled"
+CATALOG_FLAG_CHECK = (
+    "products.customer_analytics.backend.hogql_queries.account_persons_catalog.get_feature_flag_or_none"
+)
 
 
 class TestAccountPersonsQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({}, True),
+            ({"select": ["person.$delete"]}, True),
+            ({"select": ["person.$delete -- Label"]}, False),
+            ({"select": ["person.$delete -- Label\n + (SELECT count() FROM warehouse_table)"]}, False),
+            ({"select": ["persons.id", "properties.`a.b` AS value", "source.distinct_ids"]}, True),
+            ({"orderBy": ["person_display_name DESC"]}, True),
+            ({"select": ["coalesce(nullIf(toString(properties.name), ''), persons.id)"]}, True),
+            ({"orderBy": ["toString(properties.name) DESC"]}, True),
+            ({"orderBy": ["1 WITH FILL"]}, False),
+            ({"orderBy": ["1 WITH FILL FROM (SELECT count() FROM warehouse_table)"]}, False),
+            ({"select": ["toString(1)(properties.name)"]}, False),
+            ({"select": ["toString(properties.name) FILTER (WHERE (SELECT count() FROM warehouse_table))"]}, False),
+            ({"select": ["toString(properties.name ORDER BY (SELECT count() FROM warehouse_table))"]}, False),
+            (
+                {"select": ["toString(properties.name) WITHIN GROUP (ORDER BY (SELECT count() FROM warehouse_table))"]},
+                False,
+            ),
+            ({"select": ["toString(DISTINCT properties.name)"]}, False),
+            ({"orderBy": ["toString(properties.name) FILTER (WHERE (SELECT count() FROM warehouse_table))"]}, False),
+            ({"select": ["coalesce(toString(properties.name) FILTER (WHERE 1), '')"]}, False),
+            ({"select": ["persons.revenue_analytics.mrr"]}, False),
+            ({"select": ["properties.$virt_mrr"]}, False),
+            ({"select": ["(SELECT count() FROM warehouse_table)"]}, False),
+            ({"select": ["persons.custom_join.email"]}, False),
+            ({"select": ["persons.source.account_last_seen"]}, False),
+            ({"select": ["1 + 1"]}, False),
+            ({"select": ["("]}, False),
+            ({"orderBy": ["(SELECT count() FROM warehouse_table) DESC"]}, False),
+            ({"properties": [{"type": "hogql", "key": "1=1"}]}, False),
+            ({"fixedProperties": [{"type": "cohort", "key": "id", "value": 1}]}, False),
+            (
+                {
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"type": "person", "key": "plan", "operator": "exact", "value": "paid"}],
+                    }
+                },
+                True,
+            ),
+            ({"properties": [{"type": "person", "key": "$virt_mrr", "operator": "gt", "value": 0}]}, False),
+            ({"modifiers": {"dataWarehouseEventsModifiers": []}}, False),
+        ]
+    )
+    def test_builtin_catalog_accepts_only_supported_inputs(self, overrides: dict, supported: bool) -> None:
+        query = ActorsQuery.model_validate(
+            {
+                "kind": "ActorsQuery",
+                "source": {"kind": "AccountUsersQuery", "accountId": "example-account"},
+                "select": ["person_display_name -- Person", "properties.plan", "source.account_last_seen"],
+                **overrides,
+            }
+        )
+        assert AccountPersonsCatalog.supports_query(query, Team()) is supported
+
     @parameterized.expand(
         [
             ({"limit": 0}, "limit"),
@@ -57,6 +120,49 @@ class TestAccountPersonsQueryValidation(SimpleTestCase):
         serializer = AccountPersonsQuerySerializer(data=parameters)
         assert not serializer.is_valid()
         assert field in serializer.errors
+
+
+class TestAccountPersonsCatalogEvents(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("control", False, True),
+            ("test", False, True),
+            ("test", True, True),
+            ("test", False, False),
+            (None, False, True),
+        ]
+    )
+    def test_exposure_and_outcome(self, variant: str | None, failed: bool, track: bool) -> None:
+        team = Team(id=123, organization_id="00000000-0000-0000-0000-000000000001")
+        user = User(distinct_id="example-reader", email="reader@example.com")
+        catalog = AccountPersonsCatalog(team, user)
+        with (
+            patch("posthog.ph_client.posthoganalytics.get_feature_flag", return_value=variant) as flag_check,
+            patch(
+                "products.customer_analytics.backend.hogql_queries.account_persons_catalog.emit_slo_started"
+            ) as started,
+            patch(
+                "products.customer_analytics.backend.hogql_queries.account_persons_catalog.emit_slo_completed"
+            ) as completed,
+        ):
+            if failed:
+                with self.assertRaises(RuntimeError), catalog.run(track=track):
+                    raise RuntimeError("Do not capture this content")
+            else:
+                with catalog.run(track=track):
+                    catalog.cache_hit = True
+            assert flag_check.call_args.kwargs["only_evaluate_locally"] is True
+            assert flag_check.call_args.kwargs["send_feature_flag_events"] is False
+            if variant is None or not track:
+                assert not started.called and not completed.called
+            else:
+                exposure = started.call_args.kwargs["extra_properties"]
+                assert started.call_args.kwargs["properties"].operation == "account_persons_query"
+                assert completed.call_args.kwargs["properties"].operation == "account_persons_query"
+                assert exposure[f"$feature/{ACCOUNT_PERSONS_CATALOG_FLAG}"] == variant
+                assert completed.call_args.kwargs["properties"].outcome == ("failure" if failed else "success")
+                assert "error_message" not in completed.call_args.kwargs["extra_properties"]
+                assert completed.call_args.kwargs["extra_properties"]["cache_hit"] is not failed
 
 
 class TestMembershipSchema(QueryMatchingTest, SimpleTestCase):
@@ -83,6 +189,7 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch(FLAG_CHECK, return_value=True))
+        self.catalog_flag_check = self.enterContext(patch(CATALOG_FLAG_CHECK, return_value=None))
         TeamCustomerAnalyticsConfig.objects.update_or_create(team=self.team, defaults={"account_group_type_index": 0})
         self.account = create_account(team_id=self.team.pk, external_id="workspace-demo")
         self.endpoint = f"/api/projects/{self.team.pk}/accounts/{self.account.id}/persons/"
@@ -131,6 +238,7 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
     def test_widget_query_supports_display_names_filters_search_sort_and_pages(
         self, materialized_cte: bool, max_threads: int | None
     ) -> None:
+        self.catalog_flag_check.return_value = "test"
         self.enterContext(
             self.settings(
                 HOGQL_MATERIALIZED_CTE_SUPPORTED=materialized_cte, CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS=max_threads
@@ -180,6 +288,16 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         assert response.status_code == 200, response.content
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0][0]["id"] == str(self.first.uuid)
+
+    def test_widget_catalog_variants_keep_results_and_caches_separate(self) -> None:
+        self.catalog_flag_check.return_value = "control"
+        control = self._run_widget_query().json()
+        self.catalog_flag_check.return_value = "test"
+        treatment = self._run_widget_query().json()
+        cached = self._run_widget_query().json()
+        assert control["results"] == treatment["results"] == cached["results"]
+        assert not control["is_cached"] and not treatment["is_cached"]
+        assert cached["is_cached"]
 
     @parameterized.expand([("flag_disabled",), ("account_hidden",)])
     def test_widget_cached_results_repeat_access_checks(self, condition: str) -> None:
@@ -245,7 +363,13 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         )
         assert isinstance(response, CacheMissResponse)
 
-    def test_widget_display_name_and_search_hide_restricted_properties(self) -> None:
+    @parameterized.expand([("control",), ("test",)])
+    def test_widget_display_name_and_search_hide_restricted_properties(self, variant: str) -> None:
+        self.catalog_flag_check.return_value = variant
+        if variant == "test":
+            self.enterContext(
+                patch.object(Database, "_fetch_sources", side_effect=AssertionError("Unexpected catalog load"))
+            )
         self._restrict_properties()
         response = self._run_widget_query()
         assert response.status_code == 200, response.content
@@ -253,6 +377,8 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         response = self._run_widget_query(search="first@example.com")
         assert response.status_code == 200, response.content
         assert response.json()["results"] == []
+        assert self.catalog_flag_check.call_args.args == (ACCOUNT_PERSONS_CATALOG_FLAG, str(self.user.distinct_id))
+        assert self.catalog_flag_check.call_args.kwargs["groups"]["organization"] == str(self.team.organization_id)
 
     @parameterized.expand(
         [
@@ -262,6 +388,7 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             (["persons.id AS `group`", "group"],),
             (["persons.id AS session", "session"],),
             (["(SELECT count() FROM posthog.person_group_membership)"],),
+            (["lower(properties.email)"],),
         ]
     )
     def test_widget_rejects_unsupported_columns(self, columns: list[str]) -> None:

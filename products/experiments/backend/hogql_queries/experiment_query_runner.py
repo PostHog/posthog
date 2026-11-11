@@ -71,6 +71,7 @@ from products.experiments.backend.hogql_queries.utils import (
     split_baseline_and_test_variants,
 )
 from products.experiments.backend.metric_calculation.config import (
+    CALCULATION_KEY_VERSION,
     ExperimentCalculationSettings,
     MetricCalculationConfig,
 )
@@ -742,4 +743,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # age limit refreshes its moving window end.
         if self.experiment.end_date is not None:
             payload["end_date"] = self.experiment.end_date.isoformat()
+        # Version 1 leaves the payload as it was, so the release that adds version 2 keeps every cached response.
+        calculation_config = self.calculation_config
+        if calculation_config.settings.key_version == CALCULATION_KEY_VERSION:
+            payload["calculation_key"] = calculation_config.calculation_key()
         return payload
