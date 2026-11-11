@@ -813,6 +813,7 @@ describe('KafkaConsumerV2', () => {
 
         expect(captureException).toHaveBeenCalledWith(failure)
         expect((consumer as any).fatalError).toBe(failure)
+        expect(consumer.hasFailed()).toBe(true)
         expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
     })
 

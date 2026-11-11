@@ -258,6 +258,10 @@ export class KafkaConsumerV2 {
         return meta.topics.find((entry) => entry.name === topic)?.partitions ?? []
     }
 
+    public hasFailed(): boolean {
+        return this.fatalError !== undefined
+    }
+
     public offsetsStore(offsets: TopicPartitionOffset[]): void {
         // Manual offset path used by SessionRecording. Storing offsets after the consumer
         // has revoked the partitions is harmless — librdkafka will reject the store internally.
