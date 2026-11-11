@@ -87,7 +87,7 @@ const SHORTCUTS_PERSIST_OPTIONS =
  * without this one stalled request would withhold the toast and the Undo from every item that already
  * succeeded, and leave the batch in `cache.moveBatches` for the logic's lifetime.
  */
-const MOVE_TIMEOUT_MS = 30000
+export const MOVE_TIMEOUT_MS = 30000
 /**
  * A bulk move sends one request per item. Without a limit, a selection of thousands sends them all at once, the
  * browser queues most of them, and each queued request uses up its `MOVE_TIMEOUT_MS` before it is sent. The limit
@@ -882,7 +882,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         const verb = action.type === 'prepare-link' ? 'link' : 'move'
                         const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
                         try {
-                            const response = await api.fileSystem.count(action.item.id)
+                            // The prepare step stays pending until the count answers, and a pending folder move
+                            // blocks other changes to that folder, so a stalled count fails like a stalled move.
+                            const response = await withTimeout(
+                                api.fileSystem.count(action.item.id),
+                                MOVE_TIMEOUT_MS,
+                                `projectTreeDataLogic: counting ${action.item.type} timed out`
+                            )
                             actions.removeQueuedAction(action)
                             if (response && response.count > MOVE_ALERT_LIMIT) {
                                 const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
