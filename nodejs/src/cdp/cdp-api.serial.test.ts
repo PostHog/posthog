@@ -1,5 +1,6 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -12,6 +13,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -2313,8 +2315,6 @@ describe('CDP API', () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
-            // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
-            jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
         })
 
         afterEach(() => {
@@ -2411,6 +2411,7 @@ describe('CDP API', () => {
             const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
 
             beforeEach(() => {
+                mockProducerObserver.resetKafkaProducer()
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
@@ -2452,9 +2453,17 @@ describe('CDP API', () => {
                             hogFlow.id,
                         ])
                         expect(rows.map((row) => row.id)).toEqual([sent.body.invocation_id])
-                        expect(emailStatusRows()).toEqual([
-                            expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
-                        ])
+                        await waitForExpect(() =>
+                            expect(
+                                mockProducerObserver
+                                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                                    .filter(({ key }) => key === sent.body.invocation_id)
+                            ).toEqual([
+                                expect.objectContaining({
+                                    value: expect.objectContaining({ status: 'queued' }),
+                                }),
+                            ])
+                        )
                     } finally {
                         await queue.stopProducer()
                         await cyclotron.end()

@@ -1,4 +1,5 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
@@ -8,6 +9,7 @@ import express from 'ultimate-express'
 import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -27,7 +29,6 @@ import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
 import { SandboxEmailEvents } from './sandbox-email-events'
 
-// example.com publishes a null MX, which the endpoint's reachability check would refuse.
 jest.mock('node:dns/promises', () => ({
     Resolver: jest.fn().mockImplementation(() => ({
         resolveMx: jest.fn().mockResolvedValue([{ exchange: 'mx.example.com', priority: 10 }]),
@@ -90,6 +91,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     })
 
     beforeEach(async () => {
+        mockProducerObserver.resetKafkaProducer()
         queued.length = 0
         hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
         hub.SES_SANDBOX_TENANT_NAME = world.tenantName
@@ -177,16 +179,27 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             email: new CdpCyclotronWorkerEmail(hub, deps, createMockJobQueue()),
             emailsandbox: new CdpCyclotronWorkerEmailSandbox(hub, deps, createMockJobQueue()),
             hogflow: new CdpCyclotronWorkerHogFlow(hub, deps, createMockJobQueue()),
-        } as Record<string, { processInvocations: CdpCyclotronWorkerEmail['processInvocations'] }>
+        } as Record<string, { processBatch: CdpCyclotronWorkerEmail['processBatch'] }>
         const results: CyclotronJobInvocationResult[] = []
         let next: CyclotronJobInvocation | null = job
         while (next && results.length < 6) {
-            const [result] = await workers[next.queue].processInvocations([roundTrip(next)])
+            const batch: Awaited<ReturnType<CdpCyclotronWorkerEmail['processBatch']>> = await workers[
+                next.queue
+            ].processBatch([roundTrip(next)])
+            await batch.backgroundTask
+            const [result] = batch.invocationResults
             results.push(result)
             next = result.finished || result.error ? null : result.invocation
         }
         return results
     }
+
+    const deliveryStatuses = (messageId: string): { status: string; reason: string }[] =>
+        mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+            .map(({ value }) => value as { message_id: string; status: string; reason: string })
+            .filter((row) => row.message_id === messageId && row.status !== 'queued')
+            .map(({ status, reason }) => ({ status, reason }))
 
     const metricNames = (results: CyclotronJobInvocationResult[]): MinimalAppMetric['metric_name'][] =>
         results.flatMap((result) => result.metrics ?? []).map((metric) => metric.metric_name)
@@ -227,6 +240,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             ])
             expect(metricNames(results)).toContain('email_sandbox_sent')
             expect(metricNames(results)).not.toContain('billable_invocation')
+            expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'sent', reason: '' }])
         }
     )
 
@@ -236,7 +250,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     it.each<[string, string, () => Promise<unknown>]>([
         [
             'the member left',
-            'not sent (skipped)',
+            'not_member',
             () =>
                 world.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -247,7 +261,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         ],
         [
             'staff suspended the project',
-            'not sent (skipped): sending_suspended',
+            'sending_suspended',
             () =>
                 world.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -262,7 +276,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         ],
         [
             "the workflow's email was paused",
-            'not sent (skipped): sending_paused',
+            'sending_paused',
             () =>
                 world.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -271,7 +285,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                     'test:pause-workflow-email'
                 ),
         ],
-    ])('rechecks at delivery and sends nothing when %s after the send was queued', async (_desc, log, arrange) => {
+    ])('rechecks at delivery and sends nothing when %s after the send was queued', async (_desc, reason, arrange) => {
         const res = await sendFromCode(request(sandboxSend()))
         expect(res.status).toEqual(202)
         await arrange()
@@ -281,7 +295,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(world.ses.delivered).toEqual([])
         expect(results.at(-1)).toMatchObject({ finished: true })
         expect(metricNames(results)).toContain('email_sandbox_blocked')
-        expect(runLogs(results)).toContainEqual(expect.stringContaining(log))
+        expect(runLogs(results)).toContainEqual(expect.stringContaining(`not sent (skipped): ${reason}`))
+        expect(deliveryStatuses(queued[0].id)).toEqual([{ status: 'failed', reason }])
     })
 
     it.each([
