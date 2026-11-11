@@ -111,6 +111,14 @@ describe('hog mcp add', () => {
             WIZARD_URL,
         ],
         [
+            'an entry for the EU host is kept',
+            { [`${HOME}/.cursor/mcp.json`]: '{"mcpServers": {"posthog": {"url": "https://mcp-eu.posthog.com/mcp"}}}' },
+            ['--agent', 'cursor'],
+            `${HOME}/.cursor/mcp.json`,
+            'already_added',
+            'https://mcp-eu.posthog.com/mcp',
+        ],
+        [
             'an entry in the file is replaced with --force',
             { [`${HOME}/.cursor/mcp.json`]: '{"mcpServers": {"posthog": {"url": "https://old.example.com"}}}' },
             ['--agent', 'cursor', '--force'],

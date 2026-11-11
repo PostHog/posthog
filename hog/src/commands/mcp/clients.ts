@@ -29,8 +29,12 @@ const MCP_URLS: Record<RegionId, string> = {
     eu: 'https://mcp.posthog.com/mcp',
 }
 
-// By origin, so the Wizard's URLs with a path or query, like `?features=...`, count too.
-const POSTHOG_ORIGINS = new Set(Object.values(MCP_URLS).map((url) => new URL(url).origin))
+// By origin, so the Wizard's URLs with a path or query, like `?features=...`, count too. The EU host
+// serves the same MCP server, so an entry another tool wrote for it is PostHog's as well.
+const POSTHOG_ORIGINS = new Set([
+    ...Object.values(MCP_URLS).map((url) => new URL(url).origin),
+    'https://mcp-eu.posthog.com',
+])
 
 export interface Where {
     runtime: Runtime
