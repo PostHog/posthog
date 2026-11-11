@@ -30,10 +30,10 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
                     """
                     SELECT FQDN(), query_id
                     FROM clusterAllReplicas(%(cluster)s, system.processes)
-                    WHERE query_id LIKE %(client_query_id)s
+                    WHERE startsWith(query_id, %(client_query_id)s)
                     SETTINGS max_execution_time = 2, skip_unavailable_shards = 1
                     """,
-                    {"cluster": cluster, "client_query_id": f"{team_id}_{client_query_id}%"},
+                    {"cluster": cluster, "client_query_id": f"{team_id}_{client_query_id}"},
                     sync_client=client,
                 )
             initiator_host, query_id = result[0] if (result and len(result[0]) == 2) else (None, None)
@@ -61,8 +61,8 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
             ) as client:
                 # nosemgrep: clickhouse-fstring-param-audit - cluster is a cluster name from settings
                 result = sync_execute(
-                    f"KILL QUERY ON CLUSTER '{cluster}' WHERE query_id LIKE %(client_query_id)s SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
-                    {"client_query_id": f"{team_id}_{client_query_id}%"},
+                    f"KILL QUERY ON CLUSTER '{cluster}' WHERE startsWith(query_id, %(client_query_id)s) SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
+                    {"client_query_id": f"{team_id}_{client_query_id}"},
                     sync_client=client,
                 )
             logger.info("Cancelled query %s for team %s, result: %s", client_query_id, team_id, result)

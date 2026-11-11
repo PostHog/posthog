@@ -46,6 +46,8 @@ def test_cancellation_finds_the_query_regardless_of_the_current_schema(
 
     def execute(query: str, params: dict[str, str], *, sync_client: str) -> list[list[str]]:
         if query.lstrip().startswith("SELECT"):
+            assert "startsWith(query_id, %(client_query_id)s)" in query
+            assert params["client_query_id"] == "42_requested"
             expected_host = "legacy.example.com" if params["cluster"] == "legacy" else events_online or events_offline
             assert sync_client == expected_host
             if params["cluster"] == running_cluster:
@@ -69,4 +71,5 @@ def test_cancellation_finds_the_query_regardless_of_the_current_schema(
         assert "KILL QUERY ON CLUSTER 'legacy'" in kills[0][1]
         if events_online:
             assert "KILL QUERY ON CLUSTER 'events'" in kills[1][1]
-        assert all(params == {"client_query_id": "42_requested%"} for _host, _query, params in kills)
+        assert all("startsWith(query_id, %(client_query_id)s)" in query for _host, query, _params in kills)
+        assert all(params == {"client_query_id": "42_requested"} for _host, _query, params in kills)
