@@ -328,9 +328,9 @@ export type StamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]: strin
  * installation and simply won't resolve webhooks until synced.
  */
 export interface StamphogRepoConfigWriteApi {
-    /** SCM provider this config talks to. Defaults to 'github'. */
+    /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
     provider?: string
-    /** Repository full name, e.g. 'PostHog/posthog'. */
+    /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
     repository: string
     /** Whether stamphog actively reviews pull requests for this repo. */
     enabled?: boolean
@@ -373,9 +373,9 @@ export type PatchedStamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]
  * installation and simply won't resolve webhooks until synced.
  */
 export interface PatchedStamphogRepoConfigWriteApi {
-    /** SCM provider this config talks to. Defaults to 'github'. */
+    /** SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it. */
     provider?: string
-    /** Repository full name, e.g. 'PostHog/posthog'. */
+    /** Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it. */
     repository?: string
     /** Whether stamphog actively reviews pull requests for this repo. */
     enabled?: boolean
@@ -560,7 +560,7 @@ export const ReviewRunVerdictEnumApi = {
  * Allowlisted, content-free slice of ``ReviewRun.gate_result``.
  *
  * The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
- * repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+ * repository content — changed-file paths (``lifted_files``, ``invalid_folder_files``),
  * manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
  * access must not read. Only the terminal decision is exposed.
  */

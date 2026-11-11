@@ -67,7 +67,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, GenerationNotFoundError, hydrate_event_reference
+from .evaluation_event_io import GenerationNotFoundError, hydrate_event_reference
 from .evaluation_llm_judge import (
     BACKFILL_ACTIVITY_RETRY_POLICY,
     NumericWithNAEvalResult,
@@ -1413,7 +1413,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "The answer is grounded.",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -2339,15 +2339,15 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.parametrize("live", [pytest.param(True, id="live"), pytest.param(False, id="backfill")])
     @pytest.mark.parametrize(
-        "attempt,retryable",
+        "attempt,retryable,live_delay",
         [
-            pytest.param(1, True, id="first attempt"),
-            pytest.param(2, True, id="second attempt"),
-            pytest.param(3, False, id="last attempt"),
+            pytest.param(1, True, timedelta(seconds=30), id="first attempt"),
+            pytest.param(2, True, timedelta(seconds=90), id="second attempt"),
+            pytest.param(3, False, None, id="last attempt"),
         ],
     )
     def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(
-        self, attempt: int, retryable: bool, live: bool
+        self, attempt: int, retryable: bool, live_delay: timedelta | None, live: bool
     ):
         reference = {**THIN_REFERENCE, "awaiting_ingestion": True} if live else dict(THIN_REFERENCE)
         env = ActivityEnvironment()
@@ -2360,8 +2360,7 @@ class TestRunEvaluationWorkflow:
         assert raised.value.non_retryable is not retryable
         assert is_expected_activity_failure(raised.value) is (retryable or not live)
         assert isinstance(raised.value, GenerationNotFoundError) is (not retryable and not live)
-        expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
-        assert raised.value.next_retry_delay == expected_delay
+        assert raised.value.next_retry_delay == (live_delay if live else None)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -2541,7 +2540,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "ok",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 

@@ -30,6 +30,7 @@ import {
     suggestionsOnHome,
     withoutKeys,
 } from './todayPulseEditorRows'
+import { TodayPulseInsightHover } from './TodayPulseInsightHover'
 
 function IgnoredToggleItem({ count, open }: { count: number; open: boolean }): JSX.Element {
     const Chevron = open ? IconChevronDown : IconChevronRight
@@ -217,7 +218,7 @@ export function TodayPulseEditor(): JSX.Element {
                                         return <IgnoredItem key={key} value={key} row={ignored} />
                                     }
                                     const pinned = pinnedKeys.has(key)
-                                    return (
+                                    const item = (
                                         <ComboboxItem
                                             key={key}
                                             value={key}
@@ -229,6 +230,13 @@ export function TodayPulseEditor(): JSX.Element {
                                         >
                                             <span className="min-w-0 truncate">{rowByKey.get(key)?.name}</span>
                                         </ComboboxItem>
+                                    )
+                                    return key.startsWith('insight:') ? (
+                                        <TodayPulseInsightHover key={key} shortId={key.slice('insight:'.length)}>
+                                            {item}
+                                        </TodayPulseInsightHover>
+                                    ) : (
+                                        item
                                     )
                                 }}
                             </ComboboxCollection>
