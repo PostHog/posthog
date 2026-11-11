@@ -96,6 +96,109 @@ function ApiKeyHelp({ provider }: { provider: ImportProviderOptionApi }): JSX.El
     )
 }
 
+function ImportStartButton({
+    provider,
+    hasStoredKey,
+}: {
+    provider: ImportProviderOptionApi
+    hasStoredKey: boolean
+}): JSX.Element {
+    const { importForm, latestImportRun, selectedImportSteps, startedImportRunLoading } = useValues(providerImportLogic)
+    const { submitImportForm, startImport } = useActions(providerImportLogic)
+
+    const noStepsReason = selectedImportSteps.length === 0 ? 'Select at least one thing to import' : undefined
+
+    if (hasStoredKey) {
+        return (
+            <LemonButton
+                type="primary"
+                onClick={() => startImport({ apiKey: null })}
+                loading={startedImportRunLoading}
+                disabledReason={noStepsReason}
+                data-attr={`${provider.key}-import-run-again`}
+            >
+                {latestImportRun ? 'Run again' : 'Start import'}
+            </LemonButton>
+        )
+    }
+    return (
+        <LemonButton
+            type="primary"
+            onClick={submitImportForm}
+            loading={startedImportRunLoading}
+            disabledReason={!importForm.api_key ? 'Enter your API key' : noStepsReason}
+            data-attr={`${provider.key}-import-start`}
+        >
+            Start import
+        </LemonButton>
+    )
+}
+
+function ImportForm({
+    provider,
+    storedKeyField,
+    beforeForm,
+    apiKeyPlaceholder,
+}: {
+    provider: ImportProviderOptionApi
+    storedKeyField?: ReactNode
+    beforeForm?: ReactNode
+    apiKeyPlaceholder: string
+}): JSX.Element {
+    const { importError, latestImportRun, showImportAgainForm } = useValues(providerImportLogic)
+    const { setShowImportAgainForm } = useActions(providerImportLogic)
+
+    return (
+        <div className="space-y-4">
+            {latestImportRun && provider.retains_credentials ? (
+                <ImportRunResult run={latestImportRun} provider={provider} />
+            ) : (
+                beforeForm
+            )}
+
+            {showImportAgainForm && (
+                <p className="text-sm text-secondary m-0">
+                    Importing again adds what's new. Anything you changed or deleted in PostHog since the last import
+                    stays as it is.
+                </p>
+            )}
+
+            <ImportStepPicker provider={provider} />
+
+            {provider.not_imported && <p className="text-xs text-secondary m-0">{provider.not_imported}</p>}
+
+            {storedKeyField ?? (
+                <Form logic={providerImportLogic} formKey="importForm" enableFormOnSubmit>
+                    <LemonField name="api_key" label={provider.api_key_label}>
+                        <LemonInput
+                            placeholder={apiKeyPlaceholder}
+                            type="password"
+                            data-attr={`${provider.key}-api-key`}
+                            autoComplete="off"
+                        />
+                    </LemonField>
+                    <ApiKeyHelp provider={provider} />
+                </Form>
+            )}
+
+            {importError && (
+                <LemonBanner type="error" className="text-sm">
+                    {importError}
+                </LemonBanner>
+            )}
+
+            <div className="flex justify-end gap-2">
+                {showImportAgainForm && (
+                    <LemonButton type="secondary" onClick={() => setShowImportAgainForm(false)}>
+                        Back to results
+                    </LemonButton>
+                )}
+                <ImportStartButton provider={provider} hasStoredKey={!!storedKeyField} />
+            </div>
+        </div>
+    )
+}
+
 export function ProviderImportPanel({
     provider,
     storedKeyField,
@@ -108,20 +211,9 @@ export function ProviderImportPanel({
     beforeForm?: ReactNode
     apiKeyPlaceholder?: string
 }): JSX.Element {
-    const {
-        importForm,
-        importError,
-        importRuns,
-        importRunsLoading,
-        latestImportRun,
-        isImportRunActive,
-        selectedImportSteps,
-        startedImportRunLoading,
-        showImportAgainForm,
-    } = useValues(providerImportLogic)
-    const { submitImportForm, startImport, setShowImportAgainForm, loadImportRuns } = useActions(providerImportLogic)
-
-    const noStepsReason = selectedImportSteps.length === 0 ? 'Select at least one thing to import' : undefined
+    const { importRuns, importRunsLoading, latestImportRun, isImportRunActive, showImportAgainForm } =
+        useValues(providerImportLogic)
+    const { setShowImportAgainForm, loadImportRuns } = useActions(providerImportLogic)
 
     if (importRuns === null && importRunsLoading) {
         return (
@@ -170,72 +262,11 @@ export function ProviderImportPanel({
     }
 
     return (
-        <div className="space-y-4">
-            {latestImportRun && provider.retains_credentials ? (
-                <ImportRunResult run={latestImportRun} provider={provider} />
-            ) : (
-                beforeForm
-            )}
-
-            {showImportAgainForm && (
-                <p className="text-sm text-secondary m-0">
-                    Importing again adds what's new. Anything you changed or deleted in PostHog since the last import
-                    stays as it is.
-                </p>
-            )}
-
-            <ImportStepPicker provider={provider} />
-
-            {provider.not_imported && <p className="text-xs text-secondary m-0">{provider.not_imported}</p>}
-
-            {storedKeyField ?? (
-                <Form logic={providerImportLogic} formKey="importForm" enableFormOnSubmit>
-                    <LemonField name="api_key" label={provider.api_key_label}>
-                        <LemonInput
-                            placeholder={apiKeyPlaceholder}
-                            type="password"
-                            data-attr={`${provider.key}-api-key`}
-                            autoComplete="off"
-                        />
-                    </LemonField>
-                    <ApiKeyHelp provider={provider} />
-                </Form>
-            )}
-
-            {importError && (
-                <LemonBanner type="error" className="text-sm">
-                    {importError}
-                </LemonBanner>
-            )}
-
-            <div className="flex justify-end gap-2">
-                {showImportAgainForm && (
-                    <LemonButton type="secondary" onClick={() => setShowImportAgainForm(false)}>
-                        Back to results
-                    </LemonButton>
-                )}
-                {storedKeyField ? (
-                    <LemonButton
-                        type="primary"
-                        onClick={() => startImport({ apiKey: null })}
-                        loading={startedImportRunLoading}
-                        disabledReason={noStepsReason}
-                        data-attr={`${provider.key}-import-run-again`}
-                    >
-                        {latestImportRun ? 'Run again' : 'Start import'}
-                    </LemonButton>
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        onClick={submitImportForm}
-                        loading={startedImportRunLoading}
-                        disabledReason={!importForm.api_key ? 'Enter your API key' : noStepsReason}
-                        data-attr={`${provider.key}-import-start`}
-                    >
-                        Start import
-                    </LemonButton>
-                )}
-            </div>
-        </div>
+        <ImportForm
+            provider={provider}
+            storedKeyField={storedKeyField}
+            beforeForm={beforeForm}
+            apiKeyPlaceholder={apiKeyPlaceholder}
+        />
     )
 }

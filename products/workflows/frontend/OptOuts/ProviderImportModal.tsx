@@ -6,6 +6,8 @@ import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@postho
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import type { ImportProviderOptionApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import { customerIOImportLogic } from './customerIOImportLogic'
 import { CustomerIOImportSteps } from './CustomerIOImportSteps'
 import { providerImportLogic } from './providerImportLogic'
@@ -45,12 +47,62 @@ function ProviderPicker(): JSX.Element {
     )
 }
 
+function SelectedProvider({ provider }: { provider: ImportProviderOptionApi }): JSX.Element {
+    const { hasSeveralProviders } = useValues(providerImportLogic)
+    const { selectProvider } = useActions(providerImportLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
+    const isCustomerIO = provider.key === CUSTOMERIO_PROVIDER
+
+    return (
+        <div className="space-y-4">
+            {hasSeveralProviders && (
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    icon={<IconArrowLeft />}
+                    onClick={() => selectProvider(null)}
+                    data-attr="import-provider-back"
+                >
+                    All tools
+                </LemonButton>
+            )}
+            {/* Only Customer.io keeps its key after the import, so only it needs an admin. The API checks workflow access for the rest. */}
+            {isCustomerIO && isAdminOrOwner === false ? (
+                <AccessDenied object="Customer.io integration" inline />
+            ) : isCustomerIO ? (
+                <CustomerIOImportSteps provider={provider} />
+            ) : (
+                <ProviderImportPanel provider={provider} />
+            )}
+        </div>
+    )
+}
+
+function ProviderImportModalContent(): JSX.Element {
+    const { selectedProvider, importProviders, importProvidersLoading } = useValues(providerImportLogic)
+    const { loadImportProviders } = useActions(providerImportLogic)
+
+    if (importProviders === null && importProvidersLoading) {
+        return (
+            <div className="flex justify-center py-8">
+                <Spinner className="text-3xl" />
+            </div>
+        )
+    }
+    if (importProviders === null) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadImportProviders }}>
+                Couldn't load what you can import.
+            </LemonBanner>
+        )
+    }
+    return selectedProvider === null ? <ProviderPicker /> : <SelectedProvider provider={selectedProvider} />
+}
+
 export function ProviderImportModal(): JSX.Element {
     useMountedLogic(customerIOImportLogic)
-    const { isImportModalOpen, selectedProvider, hasSeveralProviders, importProviders, importProvidersLoading } =
-        useValues(providerImportLogic)
-    const { closeImportModal, selectProvider, loadImportProviders } = useActions(providerImportLogic)
-    const { isAdminOrOwner } = useValues(organizationLogic)
+    const { isImportModalOpen, selectedProvider } = useValues(providerImportLogic)
+    const { closeImportModal } = useActions(providerImportLogic)
 
     const isCustomerIO = selectedProvider?.key === CUSTOMERIO_PROVIDER
     const title = isCustomerIO
@@ -73,39 +125,7 @@ export function ProviderImportModal(): JSX.Element {
             onClose={closeImportModal}
             width={640}
         >
-            {importProviders === null && importProvidersLoading ? (
-                <div className="flex justify-center py-8">
-                    <Spinner className="text-3xl" />
-                </div>
-            ) : importProviders === null ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadImportProviders }}>
-                    Couldn't load what you can import.
-                </LemonBanner>
-            ) : selectedProvider === null ? (
-                <ProviderPicker />
-            ) : (
-                <div className="space-y-4">
-                    {hasSeveralProviders && (
-                        <LemonButton
-                            size="small"
-                            type="tertiary"
-                            icon={<IconArrowLeft />}
-                            onClick={() => selectProvider(null)}
-                            data-attr="import-provider-back"
-                        >
-                            All tools
-                        </LemonButton>
-                    )}
-                    {/* Only Customer.io keeps its key after the import, so only it needs an admin. The API checks workflow access for the rest. */}
-                    {isCustomerIO && isAdminOrOwner === false ? (
-                        <AccessDenied object="Customer.io integration" inline />
-                    ) : isCustomerIO ? (
-                        <CustomerIOImportSteps provider={selectedProvider} />
-                    ) : (
-                        <ProviderImportPanel provider={selectedProvider} />
-                    )}
-                </div>
-            )}
+            <ProviderImportModalContent />
         </LemonModal>
     )
 }
