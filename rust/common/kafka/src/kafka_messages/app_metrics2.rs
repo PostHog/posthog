@@ -20,8 +20,6 @@ pub enum Kind {
     Unknown,
     #[serde(rename = "rate_limiting")]
     RateLimiting,
-    #[serde(rename = "adaptive_ingestion")]
-    AdaptiveIngestion,
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]

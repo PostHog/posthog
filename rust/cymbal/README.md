@@ -76,10 +76,7 @@ Cymbal removes incoming properties with the `$adaptive_ingestion_` prefix, so on
 | `$adaptive_ingestion_over_issue_line`, `$adaptive_ingestion_over_project_line` | whether the exception is over each line |
 | `$adaptive_ingestion_error` | `true` when the counters failed; the exception is kept and gets no other property |
 
-The stage also writes `app_metrics2` rows with the kind `adaptive_ingestion` and the source `exceptions`.
-The project rows use the source ID `{team_id}:exceptions:adaptive` and the names `seen`, `over_issue_line`, and `over_project_line`.
-An issue that is over its line also gets `over_issue_line` rows under its own ID.
-`cymbal_adaptive_ingestion_events_total` counts the same outcomes, plus `no_baseline` and `error`.
+`cymbal_adaptive_ingestion_events_total` counts exceptions by outcome: `seen`, `over_issue_line`, `over_project_line`, `no_baseline`, and `error`.
 
 ## Issue-created rate limit (notifications mode)
 

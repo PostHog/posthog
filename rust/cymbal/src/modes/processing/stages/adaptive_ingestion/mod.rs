@@ -7,11 +7,6 @@ use std::{
 };
 
 use chrono::Utc;
-use common_kafka::{
-    kafka_messages::app_metrics2::{AppMetric2, Kind, Source},
-    kafka_producer::send_iter_to_kafka,
-    APP_METRICS2_TOPIC,
-};
 use common_redis::{CompressionConfig, RedisClient, RedisValueFormat, ScriptRunner};
 use futures::stream::{self, StreamExt};
 use metrics::counter;
@@ -65,7 +60,8 @@ const OVER_PROJECT_LINE: &str = "over_project_line";
 const NO_BASELINE: &str = "no_baseline";
 const ERROR: &str = "error";
 
-type Tally = HashMap<(i32, Option<Uuid>, &'static str), u32>;
+/// Events per outcome, as counted by `cymbal_adaptive_ingestion_events_total`.
+type Outcomes = HashMap<&'static str, u64>;
 
 pub struct AdaptiveIngestionRuntime {
     redis: Arc<dyn ScriptRunner>,
@@ -220,7 +216,7 @@ async fn apply_shadow(
     settings: &HashMap<i32, RateLimitSettings>,
     now: i64,
     items: &mut [RateCheckedPipelineItem],
-) -> Tally {
+) -> Outcomes {
     let mut teams: HashMap<i32, Vec<(usize, Uuid)>> = HashMap::new();
     for (idx, item) in items.iter().enumerate() {
         let Ok(event) = item else { continue };
@@ -260,8 +256,7 @@ async fn apply_shadow(
     .collect()
     .await;
 
-    let mut tally = Tally::new();
-    let mut outcome_counts: HashMap<&'static str, u64> = HashMap::new();
+    let mut outcome_counts = Outcomes::new();
     for (team_id, events, verdicts) in outcomes {
         let verdicts = match verdicts {
             Ok(verdicts) => verdicts,
@@ -283,33 +278,25 @@ async fn apply_shadow(
                 continue;
             }
         };
-        for ((idx, issue_id), verdict) in events.into_iter().zip(verdicts) {
-            let mut names = vec![SEEN];
-            if verdict.reading.is_none() {
-                *outcome_counts.entry(NO_BASELINE).or_default() += 1;
-            }
-            if verdict.over_issue_line {
-                names.push(OVER_ISSUE_LINE);
-                *tally
-                    .entry((team_id, Some(issue_id), OVER_ISSUE_LINE))
-                    .or_default() += 1;
-            }
-            if verdict.over_project_line {
-                names.push(OVER_PROJECT_LINE);
-            }
-            for name in names {
-                *tally.entry((team_id, None, name)).or_default() += 1;
-                *outcome_counts.entry(name).or_default() += 1;
+        for ((idx, _), verdict) in events.into_iter().zip(verdicts) {
+            let outcomes = [
+                (SEEN, true),
+                (NO_BASELINE, verdict.reading.is_none()),
+                (OVER_ISSUE_LINE, verdict.over_issue_line),
+                (OVER_PROJECT_LINE, verdict.over_project_line),
+            ];
+            for (outcome, _) in outcomes.into_iter().filter(|(_, holds)| *holds) {
+                *outcome_counts.entry(outcome).or_default() += 1;
             }
             if let Ok(event) = &mut items[idx] {
                 stamp(event, &verdict);
             }
         }
     }
-    for (outcome, count) in outcome_counts {
-        counter!(ADAPTIVE_INGESTION_EVENTS, "outcome" => outcome).increment(count);
+    for (outcome, count) in &outcome_counts {
+        counter!(ADAPTIVE_INGESTION_EVENTS, "outcome" => *outcome).increment(*count);
     }
-    tally
+    outcome_counts
 }
 
 fn set(event: &mut ExceptionEvent<RateChecked>, name: &str, value: impl Into<Value>) {
@@ -380,42 +367,8 @@ impl Stage for AdaptiveIngestionStage {
             .team_manager
             .get_rate_limit_settings(&self.ctx.posthog_pool, team_ids)
             .await;
-        let tally = apply_shadow(runtime, &settings, Utc::now().timestamp(), &mut items).await;
-        self.emit_app_metrics(tally);
+        apply_shadow(runtime, &settings, Utc::now().timestamp(), &mut items).await;
         Ok(Batch::from(items))
-    }
-}
-
-impl AdaptiveIngestionStage {
-    fn emit_app_metrics(&self, tally: Tally) {
-        if tally.is_empty() {
-            return;
-        }
-        let now = Utc::now();
-        let app_metrics: Vec<_> = tally
-            .into_iter()
-            .map(|((team_id, issue_id, name), count)| AppMetric2 {
-                team_id: team_id as u32,
-                timestamp: now,
-                app_source: Source::Exceptions,
-                app_source_id: match issue_id {
-                    Some(issue_id) => issue_id.to_string(),
-                    None => format!("{team_id}:exceptions:adaptive"),
-                },
-                instance_id: None,
-                metric_kind: Kind::AdaptiveIngestion,
-                metric_name: name.to_string(),
-                count,
-            })
-            .collect();
-        let producer = self.ctx.app_metrics_producer.clone();
-        tokio::spawn(async move {
-            for result in send_iter_to_kafka(&producer, APP_METRICS2_TOPIC, app_metrics).await {
-                if let Err(err) = result {
-                    warn!("failed to emit adaptive ingestion app_metric: {err}");
-                }
-            }
-        });
     }
 }
 
@@ -542,9 +495,10 @@ mod tests {
         let issue = Uuid::now_v7();
         let mut items = vec![event(7, issue), event(8, issue)];
 
-        let tally = apply_shadow(&runtime(FakeRunner::failing()), &enabled(), 0, &mut items).await;
+        let outcomes =
+            apply_shadow(&runtime(FakeRunner::failing()), &enabled(), 0, &mut items).await;
 
-        assert!(tally.is_empty());
+        assert_eq!(outcomes, HashMap::from([(ERROR, 1)]));
         assert_eq!(property(&items[0], "error"), Some(&Value::Bool(true)));
         assert!(items[1].as_ref().unwrap().props.is_empty());
     }
@@ -570,7 +524,7 @@ mod tests {
         let mut items: Vec<_> = (0..130).map(|_| event(7, surging)).collect();
         items.push(event(7, steady));
         items.push(event(8, surging));
-        let tally = apply_shadow(&runtime, &enabled(), 14 * day, &mut items).await;
+        let outcomes = apply_shadow(&runtime, &enabled(), 14 * day, &mut items).await;
 
         // 13 days of 240 and one day of 1 give a typical day of 240, so a typical hour of 10 and a line at 120.
         assert_eq!(property(&items[0], "typical_day"), Some(&240.0.into()));
@@ -592,9 +546,9 @@ mod tests {
             Some(&false.into())
         );
         assert!(items[131].as_ref().unwrap().props.is_empty());
-        assert_eq!(tally[&(7, None, SEEN)], 131);
-        assert_eq!(tally[&(7, None, OVER_ISSUE_LINE)], 10);
-        assert_eq!(tally[&(7, Some(surging), OVER_ISSUE_LINE)], 10);
-        assert!(!tally.contains_key(&(7, None, OVER_PROJECT_LINE)));
+        assert_eq!(
+            outcomes,
+            HashMap::from([(SEEN, 131), (OVER_ISSUE_LINE, 10)])
+        );
     }
 }
