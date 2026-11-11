@@ -217,7 +217,7 @@ function LemonSceneTitleSection({
     const icon = sceneResourceIcon(resourceType)
 
     const descriptionBlock = hasDescription && (descriptionAlwaysVisible || showDescription || forceEdit) && (
-        <div className={cn('[&_svg]:size-6', noPadding ? cn('pl-4 pr-2', className) : '-mt-4')}>
+        <div className={noPadding ? cn('pl-4 pr-2', className) : '-mt-4'}>
             <SceneDescription
                 description={effectiveDescription}
                 markdown={markdown}
