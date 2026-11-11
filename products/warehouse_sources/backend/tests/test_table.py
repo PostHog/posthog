@@ -393,6 +393,36 @@ class TestGetCountEngineChoice:
         if not uses_chdb:
             assert "s3Cluster(" in mock_sync_execute.call_args.args[0]
 
+    @pytest.mark.parametrize(
+        "name,count_error,expected_attempts",
+        [
+            (
+                "unclassified_cluster_error",
+                ServerException("DB::Exception: Connection reset by peer", code=1002),
+                5,
+            ),
+            (
+                "query_performance_error",
+                ClickHouseQueryTimeOut(),
+                1,
+            ),
+        ],
+    )
+    def test_a_failed_count_retries_a_transient_cluster_error_but_not_a_query_performance_error(
+        self, name: str, count_error: Exception, expected_attempts: int
+    ) -> None:
+        # Mirrors get_columns' retry: the cluster fails intermittently on an unclassified error, so
+        # that's worth retrying, but a query-performance-limit error is a property of this query
+        # against this file and fails the same way every time.
+        with patch("products.warehouse_sources.backend.models.table.time.sleep"):
+            with patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", side_effect=count_error
+            ) as mock_sync_execute:
+                with pytest.raises(Exception):
+                    self._table(None).get_count()
+
+        assert mock_sync_execute.call_count == expected_attempts
+
 
 class TestChdbEngineChoiceByFormat:
     def _table(
