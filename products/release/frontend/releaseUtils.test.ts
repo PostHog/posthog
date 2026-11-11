@@ -1,3 +1,4 @@
+import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
@@ -32,7 +33,39 @@ function row(hasHiddenFlags: boolean, flags: FeatureFlagApi[] = [FLAG]): ReturnT
     return buildReleaseRow(release, index)
 }
 
+const ARCHIVED_EARLY_ACCESS = {
+    id: 'ea-1',
+    name: 'Quiet theme beta',
+    stage: 'archived',
+    created_at: '2026-10-03T00:00:00Z',
+    feature_flag: { key: FLAG.key },
+} as unknown as EarlyAccessFeatureApi
+
 describe('buildReleaseRow', () => {
+    it('keeps an archived early access feature in the history without an enrollment bar', () => {
+        const release = {
+            id: 'release-1',
+            name: 'Quiet theme',
+            description: '',
+            owner: null,
+            feature_flag_ids: [FLAG.id],
+            has_hidden_flags: false,
+            created_at: '2026-10-02T00:00:00Z',
+        } as ReleaseDTOApi
+        const index = buildReleaseIndex([FLAG], [], [ARCHIVED_EARLY_ACCESS], [], {
+            complete: true,
+            resolvedFlagIds: [FLAG.id],
+            unknownFlagIds: [],
+        })
+
+        const result = buildReleaseRow(release, index)
+
+        expect(result.earlyAccess).toEqual([ARCHIVED_EARLY_ACCESS])
+        expect(result.events.some((event) => event.key === 'ea-ea-1')).toBe(true)
+        expect(result.spans.some((span) => span.kind === 'early_access')).toBe(false)
+        expect(result.suggestions.map((suggestion) => suggestion.key)).not.toContain('early-access')
+    })
+
     it.each([
         ['every linked flag is visible', false, [FLAG], 'released', 'Clean up the flag', false],
         ['a linked flag is hidden from the caller', true, [FLAG], 'flag', undefined, false],

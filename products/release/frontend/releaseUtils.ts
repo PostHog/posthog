@@ -503,9 +503,7 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
     const experiments = flags
         .flatMap((flag) => index.experimentsByFlagKey.get(flag.key) ?? [])
         .filter((experiment) => !experiment.archived || isExperimentDone(experiment))
-    const earlyAccess = flags
-        .flatMap((flag) => index.earlyAccessByFlagKey.get(flag.key) ?? [])
-        .filter((item) => item.stage !== 'archived')
+    const earlyAccess = flags.flatMap((flag) => index.earlyAccessByFlagKey.get(flag.key) ?? [])
     const running = experiments.filter(isExperimentRunning)
     const done = experiments.filter(isExperimentDone)
     const openEarlyAccess = earlyAccess.find(isEnrollingEarlyAccess)
@@ -898,7 +896,7 @@ function releaseSpans(facts: ReleaseFacts): ReleaseSpan[] {
             href: urls.featureFlag(flags[0].id),
         })
     }
-    for (const item of earlyAccess.filter((entry) => entry.stage !== 'draft' && entry.stage !== 'concept')) {
+    for (const item of earlyAccess.filter((entry) => !['draft', 'concept', 'archived'].includes(entry.stage))) {
         spans.push({
             key: `ea-${item.id}`,
             kind: 'early_access',
