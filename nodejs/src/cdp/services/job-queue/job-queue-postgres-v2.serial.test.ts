@@ -5,11 +5,16 @@ import { register } from 'prom-client'
 import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
 import * as posthogUtils from '~/common/utils/posthog'
+import { PubSub } from '~/common/utils/pubsub'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
+import { createHogFunction, createIntegration } from '../../_tests/fixtures'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
-import { markServerResolvedIntegration, signIntegrationRef } from '../../utils/integration-input-refs'
+import { markServerResolvedIntegration } from '../../utils/integration-input-refs'
+import { HogInputsService } from '../hog-inputs.service'
+import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { IntegrationSource } from '../managers/integration-source'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
 
 describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
@@ -423,7 +428,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         ['on', true],
         ['off', false],
     ])(
-        'hands a deferred send with files back with its files, its queue metadata and its integration inputs as stored, with integration refs %s',
+        'hands a deferred send with files back with its files, its queue metadata and integration inputs that still resolve, with integration refs %s',
         async (_name, integrationRefsOn) => {
             jest.spyOn(posthogUtils, 'isFeatureFlagEnabled').mockResolvedValue(integrationRefsOn)
             const queue = await startQueue()
@@ -490,19 +495,45 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
                     attachmentDueAt: firstDueAt,
                 },
             })
-            expect(again.state!.currentAction.hogFunctionState.globals.inputs.oauth).toEqual(
-                integrationRefsOn
-                    ? {
-                          $integration_ref: 11,
-                          $integration_ref_sig: signIntegrationRef(
-                              new EncryptedFields(ENCRYPTION_SALT_KEYS),
-                              teamId,
-                              'oauth',
-                              11
-                          ),
-                      }
-                    : { $integration_id: 11, access_token_raw: accessToken }
+            const integrationStore: IntegrationSource = {
+                name: 'test',
+                load: (references) =>
+                    Promise.resolve(
+                        Object.fromEntries(
+                            references
+                                .filter((reference) => reference === '11')
+                                .map((reference) => [
+                                    reference,
+                                    {
+                                        reference,
+                                        integration: createIntegration({
+                                            id: 11,
+                                            team_id: teamId,
+                                            kind: 'oauth',
+                                            sensitive_config: { access_token: accessToken },
+                                        }),
+                                        decryptFailures: [],
+                                    },
+                                ])
+                        )
+                    ),
+            }
+            const worker = new HogInputsService(
+                new IntegrationManagerService({ on: () => undefined } as unknown as PubSub, integrationStore),
+                undefined,
+                new EncryptedFields(ENCRYPTION_SALT_KEYS)
             )
+            const sendStep = createHogFunction({
+                team_id: teamId,
+                inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
+                inputs: { oauth: { value: 11 } },
+            })
+            const resolved = await worker.resolveIntegrationRefs(
+                sendStep,
+                again.state!.currentAction.hogFunctionState.globals.inputs
+            )
+
+            expect(resolved.oauth).toMatchObject({ $integration_id: 11, access_token_raw: accessToken })
             expect(rows[0].state.toString('utf-8').includes(accessToken)).toBe(!integrationRefsOn)
         }
     )
