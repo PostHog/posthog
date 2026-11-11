@@ -3,6 +3,7 @@ import type { AutoresearchService } from "@posthog/core/autoresearch/autoresearc
 import { AUTORESEARCH_SERVICE } from "@posthog/core/autoresearch/identifiers";
 import { buildKickoffPreamble } from "@posthog/core/autoresearch/prompts";
 import { buildFileLineReferencePrompt } from "@posthog/core/code-review/reviewPrompts";
+import { findGitlabProjectForRepository } from "@posthog/core/integrations/gitlabProjects";
 import type { EditorContent } from "@posthog/core/message-editor/content";
 import { xmlToContent } from "@posthog/core/message-editor/content";
 import type {
@@ -24,6 +25,7 @@ import {
   ANALYTICS_EVENTS,
   adapterForModelId,
   PI_HARNESS_FLAG,
+  TASKS_GITLAB_FLAG,
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
@@ -83,6 +85,7 @@ import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded
 import { AdditionalDirectoriesButton } from "../../folder-picker/AdditionalDirectoriesButton";
 import { FolderPicker } from "../../folder-picker/FolderPicker";
 import { GitHubRepoPicker } from "../../folder-picker/GitHubRepoPicker";
+import { GitLabProjectPicker } from "../../folder-picker/GitLabProjectPicker";
 import { useFolders } from "../../folders/useFolders";
 import { BranchSelector } from "../../git-interaction/components/BranchSelector";
 import { GitBranchDialog } from "../../git-interaction/components/GitInteractionDialogs";
@@ -95,6 +98,7 @@ import {
 import { useInboxReportSelectionStore } from "../../inbox/stores/inboxReportSelectionStore";
 import { useIntegrationSelectors } from "../../integrations/store";
 import {
+  useGitlabProjects,
   useUserGithubBranches,
   useUserGithubRepositories,
   useUserRepositoryIntegration,
@@ -356,6 +360,12 @@ export function TaskInput({
     usePiModelCatalog(runtime === "pi");
   const [cloudRepoSearchQuery, setCloudRepoSearchQuery] = useState("");
   const [isCloudRepoPickerOpen, setIsCloudRepoPickerOpen] = useState(false);
+  const [selectedGitlabProject, setSelectedGitlabProject] = useState<{
+    project: string;
+    integrationId: number;
+  } | null>(null);
+  const [gitlabSearchQuery, setGitlabSearchQuery] = useState("");
+  const [isGitlabPickerOpen, setIsGitlabPickerOpen] = useState(false);
   const [cloudBranchSearchQuery, setCloudBranchSearchQuery] = useState("");
   const [selectedEnvironment, setSelectedEnvironmentRaw] = useState<
     string | null
@@ -489,6 +499,7 @@ export function TaskInput({
   } = useUserRepositoryIntegration();
 
   const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
+  const gitlabTasksEnabled = useFeatureFlag(TASKS_GITLAB_FLAG);
   const flagsLoaded = useFeatureFlagsLoaded();
   const { defaults: runDefaults, isSettled: runDefaultsSettled } =
     useTaskRunDefaults();
@@ -589,7 +600,7 @@ export function TaskInput({
     ? getInstallationIdForRepo(selectedCloudRepository)
     : undefined;
 
-  const { githubIntegrations: orgGithubIntegrations } =
+  const { githubIntegrations: orgGithubIntegrations, gitlabTaskIntegrations } =
     useIntegrationSelectors();
   const orgGithubIntegrationId = orgGithubIntegrations[0]?.id;
 
@@ -674,6 +685,7 @@ export function TaskInput({
 
   const handleRepositorySelect = useCallback(
     (repo: string | null) => {
+      setSelectedGitlabProject(null);
       if (!repo) {
         setSelectedRepository(null);
         setLastUsedCloudRepository(null);
@@ -687,11 +699,18 @@ export function TaskInput({
     [setLastUsedCloudRepository],
   );
 
+  // A prefilled GitHub repository replaces any GitLab pick, so the task cannot
+  // be created in the GitLab project the composer showed before the prefill.
+  const applyRepositoryPrefill = useCallback((repo: string | null) => {
+    setSelectedGitlabProject(null);
+    setSelectedRepository(repo);
+  }, []);
+
   useEffect(() => {
     if (initialCloudRepository === undefined) return;
     overrideWorkspaceMode("cloud");
-    setSelectedRepository(initialCloudRepository?.toLowerCase() ?? null);
-  }, [initialCloudRepository, overrideWorkspaceMode]);
+    applyRepositoryPrefill(initialCloudRepository?.toLowerCase() ?? null);
+  }, [initialCloudRepository, overrideWorkspaceMode, applyRepositoryPrefill]);
 
   const handleRefreshRepositories = useCallback(() => {
     void refreshRepositories().catch((error) => {
@@ -843,9 +862,41 @@ export function TaskInput({
     lastUsedLocalMode: lastUsedLocalWorkspaceMode,
     mostRecentEnvironment: view.folderRunEnvironment,
     setSelectedDirectory,
-    setSelectedRepository,
+    setSelectedRepository: applyRepositoryPrefill,
     switchWorkspaceMode: overrideWorkspaceMode,
   });
+
+  // The GitHub prefill above skips a GitLab project, so a sidebar "+" on a
+  // GitLab group would otherwise leave the previous repository selected.
+  const gitlabPrefillRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!view.folderRepository) {
+      gitlabPrefillRef.current = undefined;
+      return;
+    }
+    const requestKey = `${view.taskInputRequestId ?? ""}:${view.folderRepository}`;
+    if (gitlabPrefillRef.current === requestKey) return;
+    if (!gitlabTasksEnabled || activeReportAssociation) return;
+    const match = findGitlabProjectForRepository(
+      view.folderRepository,
+      gitlabTaskIntegrations,
+    );
+    if (!match) return;
+    gitlabPrefillRef.current = requestKey;
+    setSelectedGitlabProject(match);
+    if (!view.folderId || view.folderRunEnvironment === "cloud") {
+      overrideWorkspaceMode("cloud");
+    }
+  }, [
+    view.folderRepository,
+    view.taskInputRequestId,
+    view.folderId,
+    view.folderRunEnvironment,
+    gitlabTasksEnabled,
+    activeReportAssociation,
+    gitlabTaskIntegrations,
+    overrideWorkspaceMode,
+  ]);
 
   useEffect(() => {
     setCloudBranchSearchQuery("");
@@ -882,6 +933,52 @@ export function TaskInput({
     !hasGithubIntegration;
 
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
+
+  // Signal report tasks get their repository from the report on the server,
+  // which rejects a GitLab integration sent without a repository.
+  const hasReportAssociation = !!activeReportAssociation;
+  const gitlabIntegrationIds = useMemo(
+    () =>
+      gitlabTasksEnabled &&
+      workspaceMode === "cloud" &&
+      !repoOptional &&
+      !hasReportAssociation
+        ? gitlabTaskIntegrations.map((integration) => integration.id)
+        : [],
+    [
+      gitlabTasksEnabled,
+      workspaceMode,
+      repoOptional,
+      hasReportAssociation,
+      gitlabTaskIntegrations,
+    ],
+  );
+  const gitlabProjects = useGitlabProjects(
+    gitlabIntegrationIds,
+    gitlabSearchQuery,
+    gitlabIntegrationIds.length > 0 && isGitlabPickerOpen,
+  );
+  const activeGitlabProject =
+    gitlabIntegrationIds.length > 0 ? selectedGitlabProject : null;
+  // A GitLab project takes the place of the GitHub repository without clearing
+  // it, because the composer restores the last used GitHub repository
+  // whenever that selection is empty.
+  const cloudGithubRepository = activeGitlabProject
+    ? null
+    : selectedCloudRepository;
+  const handleGitlabProjectSelect = useCallback(
+    (project: string | null) => {
+      const integrationId = project
+        ? gitlabProjects.integrationIdByProject[project.toLowerCase()]
+        : undefined;
+      setSelectedGitlabProject(
+        project && integrationId !== undefined
+          ? { project, integrationId }
+          : null,
+      );
+    },
+    [gitlabProjects.integrationIdByProject],
+  );
 
   // Get current values from preview config options for task creation.
   // Defaults ensure values are always passed even before the preview config loads.
@@ -969,7 +1066,7 @@ export function TaskInput({
     claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
     codexModelAccess: adapter === "codex" ? composerModelAccess : undefined,
     workspaceMode,
-    selectedRepository: selectedCloudRepository,
+    selectedRepository: cloudGithubRepository,
     repositories: repoOptional ? taskRepositories : undefined,
     githubIntegrationId: repoOptional
       ? (taskGithubIntegration ?? undefined)
@@ -1104,14 +1201,20 @@ export function TaskInput({
     editorRef,
     sessionId,
     selectedDirectory: repoOptional ? taskFolder : selectedDirectory,
-    selectedRepository: selectedCloudRepository,
+    selectedRepository: activeGitlabProject
+      ? activeGitlabProject.project
+      : selectedCloudRepository,
     repositories: repoOptional ? taskRepositories : undefined,
     githubIntegrationId: repoOptional
       ? (taskGithubIntegration ?? undefined)
       : undefined,
-    githubUserIntegrationId: selectedGithubUserIntegrationId,
+    githubUserIntegrationId: activeGitlabProject
+      ? undefined
+      : selectedGithubUserIntegrationId,
+    repositoryIntegrationId: activeGitlabProject?.integrationId,
     workspaceMode: effectiveWorkspaceMode,
-    branch: branchForTaskCreation,
+    // GitLab tasks start from the project's default branch.
+    branch: activeGitlabProject ? null : branchForTaskCreation,
     editorIsEmpty,
     adapter,
     runtime,
@@ -1475,7 +1578,10 @@ export function TaskInput({
                     adapter={runtime === "pi" ? undefined : adapter}
                     cloudTarget={cloudTarget}
                     onCloudTargetChange={setCloudTarget}
-                    hasGithubIntegration={hasGithubIntegration}
+                    hasGithubIntegration={
+                      hasGithubIntegration ||
+                      (gitlabTasksEnabled && gitlabTaskIntegrations.length > 0)
+                    }
                     isLoadingGithubIntegration={isLoadingIntegrations}
                     size="1"
                   />
@@ -1499,31 +1605,53 @@ export function TaskInput({
                   ) : (
                     <>
                       {workspaceMode === "cloud" ? (
-                        <GitHubRepoPicker
-                          value={selectedRepository}
-                          onChange={handleRepositorySelect}
-                          repositories={
-                            isCloudRepoPickerOpen
-                              ? visibleCloudRepositories
-                              : repositories
-                          }
-                          isLoading={
-                            isLoadingRepos ||
-                            (isCloudRepoPickerOpen && cloudRepositoriesLoading)
-                          }
-                          isLoadingMore={cloudRepositoriesFetchingMore}
-                          isRefreshing={isRefreshingRepos}
-                          onRefresh={handleRefreshRepositories}
-                          open={isCloudRepoPickerOpen}
-                          onOpenChange={handleCloudRepoPickerOpenChange}
-                          searchQuery={cloudRepoSearchQuery}
-                          onSearchQueryChange={handleCloudRepoSearchChange}
-                          hasMore={cloudRepositoriesHasMore}
-                          onLoadMore={handleLoadMoreCloudRepositories}
-                          placeholder="Select repository..."
-                          size="1"
-                          disabled={isCreatingTask}
-                        />
+                        <>
+                          <GitHubRepoPicker
+                            value={
+                              activeGitlabProject ? null : selectedRepository
+                            }
+                            onChange={handleRepositorySelect}
+                            repositories={
+                              isCloudRepoPickerOpen
+                                ? visibleCloudRepositories
+                                : repositories
+                            }
+                            isLoading={
+                              isLoadingRepos ||
+                              (isCloudRepoPickerOpen &&
+                                cloudRepositoriesLoading)
+                            }
+                            isLoadingMore={cloudRepositoriesFetchingMore}
+                            isRefreshing={isRefreshingRepos}
+                            onRefresh={handleRefreshRepositories}
+                            open={isCloudRepoPickerOpen}
+                            onOpenChange={handleCloudRepoPickerOpenChange}
+                            searchQuery={cloudRepoSearchQuery}
+                            onSearchQueryChange={handleCloudRepoSearchChange}
+                            hasMore={cloudRepositoriesHasMore}
+                            onLoadMore={handleLoadMoreCloudRepositories}
+                            placeholder="Select repository..."
+                            size="1"
+                            disabled={isCreatingTask}
+                          />
+                          {gitlabIntegrationIds.length > 0 ? (
+                            <GitLabProjectPicker
+                              value={activeGitlabProject?.project ?? null}
+                              onChange={handleGitlabProjectSelect}
+                              projects={gitlabProjects.projects}
+                              isLoading={gitlabProjects.isPending}
+                              loadFailed={gitlabProjects.isError}
+                              onRetry={gitlabProjects.retry}
+                              missingScopes={gitlabProjects.missingScopes}
+                              open={isGitlabPickerOpen}
+                              onOpenChange={setIsGitlabPickerOpen}
+                              searchQuery={gitlabSearchQuery}
+                              onSearchQueryChange={setGitlabSearchQuery}
+                              disabled={isCreatingTask}
+                              anchor={buttonGroupRef}
+                            />
+                          ) : null}
+                        </>
                       ) : (
                         <FolderPicker
                           value={selectedDirectory}
@@ -1532,50 +1660,52 @@ export function TaskInput({
                           anchor={buttonGroupRef}
                         />
                       )}
-                      <BranchSelector
-                        repoPath={
-                          workspaceMode === "cloud"
-                            ? selectedCloudRepository
-                            : localWorkspaceReady
-                              ? selectedDirectory
-                              : null
-                        }
-                        currentBranch={currentBranch}
-                        defaultBranch={
-                          workspaceMode === "cloud"
-                            ? cloudDefaultBranch
-                            : defaultBranch
-                        }
-                        disabled={
-                          isCreatingTask ||
-                          !isWorkspaceModeResolved ||
-                          (workspaceMode === "cloud" &&
-                            !selectedCloudRepository)
-                        }
-                        loading={
-                          workspaceMode === "cloud" ? false : branchLoading
-                        }
-                        workspaceMode={workspaceMode}
-                        selectedBranch={selectedBranch}
-                        onBranchSelect={setSelectedBranch}
-                        busyState={busyState}
-                        cloudBranches={cloudBranches}
-                        cloudBranchesLoading={cloudBranchesLoading}
-                        isRefreshing={cloudBranchesRefreshing}
-                        cloudBranchesFetchingMore={cloudBranchesFetchingMore}
-                        cloudBranchesHasMore={cloudBranchesHasMore}
-                        cloudSearchQuery={cloudBranchSearchQuery}
-                        onCloudPickerClose={handleCloudBranchPickerClose}
-                        onCloudSearchChange={handleCloudBranchSearchChange}
-                        onCloudBranchCommit={handleCloudBranchPickerClose}
-                        onCloudLoadMore={handleLoadMoreCloudBranches}
-                        onRefresh={
-                          workspaceMode === "cloud"
-                            ? handleRefreshBranches
-                            : undefined
-                        }
-                        anchor={buttonGroupRef}
-                      />
+                      {activeGitlabProject ? null : (
+                        <BranchSelector
+                          repoPath={
+                            workspaceMode === "cloud"
+                              ? selectedCloudRepository
+                              : localWorkspaceReady
+                                ? selectedDirectory
+                                : null
+                          }
+                          currentBranch={currentBranch}
+                          defaultBranch={
+                            workspaceMode === "cloud"
+                              ? cloudDefaultBranch
+                              : defaultBranch
+                          }
+                          disabled={
+                            isCreatingTask ||
+                            !isWorkspaceModeResolved ||
+                            (workspaceMode === "cloud" &&
+                              !selectedCloudRepository)
+                          }
+                          loading={
+                            workspaceMode === "cloud" ? false : branchLoading
+                          }
+                          workspaceMode={workspaceMode}
+                          selectedBranch={selectedBranch}
+                          onBranchSelect={setSelectedBranch}
+                          busyState={busyState}
+                          cloudBranches={cloudBranches}
+                          cloudBranchesLoading={cloudBranchesLoading}
+                          isRefreshing={cloudBranchesRefreshing}
+                          cloudBranchesFetchingMore={cloudBranchesFetchingMore}
+                          cloudBranchesHasMore={cloudBranchesHasMore}
+                          cloudSearchQuery={cloudBranchSearchQuery}
+                          onCloudPickerClose={handleCloudBranchPickerClose}
+                          onCloudSearchChange={handleCloudBranchSearchChange}
+                          onCloudBranchCommit={handleCloudBranchPickerClose}
+                          onCloudLoadMore={handleLoadMoreCloudBranches}
+                          onRefresh={
+                            workspaceMode === "cloud"
+                              ? handleRefreshBranches
+                              : undefined
+                          }
+                          anchor={buttonGroupRef}
+                        />
+                      )}
                     </>
                   )}
                 </ButtonGroup>

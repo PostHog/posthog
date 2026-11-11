@@ -6897,7 +6897,7 @@ export namespace Schemas {
     };
     export type MetricsTableWidgetConfig = Partial<{
         dateRange: WidgetDateRange | null;
-        groupBy: string | null;
+        groupBy: string | Array<string> | null;
         columns: Array<MetricsTableColumn>;
         interval: ("minute" | "minute_5" | "minute_15" | "hour" | "day") | null;
         orderByColumn: number;
@@ -12215,6 +12215,38 @@ export namespace Schemas {
         rollout: FeatureFlagRolloutSummary;
     };
     export type FlagEvaluationsModeEnum = 0 | 1 | 2;
+    export type GitLabProject = {
+        /**
+         * GitLab numeric project ID.
+         */
+        id: number;
+        /**
+         * Full project path, including nested groups, such as `acme/platform/api`. Use it as a task repository.
+         */
+        path_with_namespace: string;
+        /**
+         * Project page on GitLab.
+         */
+        web_url: string;
+        /**
+         * Default branch of the project. Null for a project without commits.
+         */
+        default_branch: string | null;
+    };
+    export type GitLabProjectsResponse = {
+        /**
+         * The connected project, when the token has the Developer role or higher on it. Empty when it does not, or when it does not match the search.
+         */
+        projects: Array<GitLabProject>;
+        /**
+         * Token scopes that coding tasks need and the token does not have. Empty when the token has them, or when GitLab does not report the token's scopes.
+         */
+        missing_scopes: Array<string>;
+        /**
+         * Date when the token expires. Null when it does not expire or GitLab does not report it.
+         */
+        token_expires_at: string | null;
+    };
     /**
      * * `draft` - Draft
      * * `active` - Active
@@ -15507,6 +15539,14 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         last_client_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        repository_integration?: (number | null) | undefined;
     };
     /**
      * Basic list response for a task, returned when the list is asked for ``basic=true``.
@@ -15653,6 +15693,17 @@ export namespace Schemas {
          * server-side.
          */
         last_client_at?: (string | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        repository_integration?: (number | null) | undefined;
         /**
          * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
          */
@@ -16582,6 +16633,7 @@ export namespace Schemas {
         repository: string | null;
         repositories: Array<string>;
         github_integration: number | null;
+        repository_integration: number | null;
         github_user_integration: string | null;
         signal_report: string | null;
         signal_report_task_relationship: string;
@@ -18087,6 +18139,7 @@ export namespace Schemas {
         repository: string | null;
         repositories: Array<string>;
         github_integration: number | null;
+        repository_integration: number | null;
         github_user_integration: string | null;
         signal_report: string | null;
         signal_report_task_relationship: string;
@@ -18229,6 +18282,14 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         last_client_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        repository_integration?: (number | null) | undefined;
         /**
          * Detail response for a task.
          *
@@ -18444,6 +18505,13 @@ export namespace Schemas {
          * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
          * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
+        repository_integration?: (number | null) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
         run_error?: string | undefined;
         /**
          * The task ``run`` action's response: the refreshed task detail plus the run this call made.
@@ -18467,6 +18535,7 @@ export namespace Schemas {
         repository: string | null;
         repositories: Array<string>;
         github_integration: number | null;
+        repository_integration: number | null;
         github_user_integration: string | null;
         signal_report: string | null;
         signal_report_task_relationship: string;
@@ -19598,6 +19667,16 @@ export namespace Endpoints {
         };
         responses: { 204: unknown };
     };
+    export type get_Integrations_gitlab_projects_retrieve = {
+        method: "GET";
+        path: "/api/projects/{project_id}/integrations/{id}/gitlab_projects/";
+        requestFormat: "json";
+        parameters: {
+            query: Partial<{ search: string }>;
+            path: { id: number; project_id: string };
+        };
+        responses: { 200: Schemas.GitLabProjectsResponse };
+    };
     /**
      * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
      */
@@ -20193,6 +20272,7 @@ export type EndpointByMethod = {
         "/api/projects/{project_id}/hog_flows/{id}/schedules/": Endpoints.get_Hog_flows_schedules_list;
         "/api/projects/{project_id}/insights/{id}/": Endpoints.get_Insights_retrieve;
         "/api/projects/{project_id}/integrations/{id}/": Endpoints.get_Integrations_retrieve;
+        "/api/projects/{project_id}/integrations/{id}/gitlab_projects/": Endpoints.get_Integrations_gitlab_projects_retrieve;
         "/api/projects/{project_id}/persons/": Endpoints.get_Persons_list;
         "/api/projects/{project_id}/persons/{id}/": Endpoints.get_Persons_retrieve;
         "/api/projects/{project_id}/session_recordings/{id}/": Endpoints.get_Session_recordings_retrieve;
