@@ -46,6 +46,7 @@ from products.signals.backend.temporal.summary import (
     implementation_buffer_seconds_activity,
     mark_report_ready_activity,
     maybe_autostart_implementation_activity,
+    report_is_candidate_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
 from products.signals.backend.test.inbox_report_events_recorder import (
@@ -272,15 +273,16 @@ async def _run_summary_workflow(
 
     @activity.defn(name="implementation_buffer_seconds_activity")
     async def fake_buffer(input: ImplementationBufferInput) -> int:
+        if recorder.real_ready_transition and recorder.candidate_on_first_check and recorder.researches == 1:
+            await SignalReport.objects.filter(id=report_id).aupdate(status=SignalReport.Status.CANDIDATE)
         return recorder.buffer_seconds
 
     @activity.defn(name="report_is_candidate_activity")
     async def fake_candidate(input: ReportIsCandidateInput) -> bool:
         recorder.candidate_checks += 1
-        became_candidate = recorder.candidate_on_first_check and recorder.candidate_checks == 1
-        if became_candidate and recorder.real_ready_transition:
-            await SignalReport.objects.filter(id=report_id).aupdate(status=SignalReport.Status.CANDIDATE)
-        return became_candidate
+        if recorder.real_ready_transition:
+            return await report_is_candidate_activity(input)
+        return recorder.candidate_on_first_check and recorder.candidate_checks == 1
 
     @activity.defn(name="maybe_autostart_implementation_activity")
     async def fake_autostart(input: MaybeAutostartImplementationInput) -> None:
