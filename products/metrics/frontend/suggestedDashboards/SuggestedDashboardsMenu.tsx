@@ -13,6 +13,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { MetricsSuggestedDashboardApi } from 'products/metrics/frontend/generated/api.schemas'
 
+import { InternalTag } from '../dashboardReview/InternalTag'
 import { suggestedDashboardsLogic } from './suggestedDashboardsLogic'
 
 function suggestionItem(
@@ -69,7 +70,12 @@ export function SuggestedDashboardsMenu(): JSX.Element | null {
         sections.push({
             items: [
                 {
-                    label: 'Review generated dashboards',
+                    label: (
+                        <span className="flex items-center gap-2">
+                            <span>Review generated dashboards</span>
+                            <InternalTag />
+                        </span>
+                    ),
                     to: urls.metricsDashboardReview(),
                     'data-attr': 'metrics-suggested-dashboards-review',
                 },
