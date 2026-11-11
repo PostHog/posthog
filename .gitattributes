@@ -10,6 +10,7 @@ frontend/src/generated/** linguist-generated
 frontend/public/admin-console/console.css linguist-generated
 frontend/src/lib/posthog-typed.ts linguist-generated
 frontend/src/products.tsx linguist-generated
+frontend/src/productRegistry.tsx linguist-generated
 frontend/src/queries/schema/latest-versions.json linguist-generated
 frontend/src/queries/schema.json linguist-generated
 frontend/src/queries/validators.js linguist-generated

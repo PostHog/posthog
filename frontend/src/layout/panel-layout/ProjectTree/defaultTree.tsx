@@ -104,7 +104,7 @@ import {
     getTreeItemsMetadata,
     getTreeItemsNew,
     getTreeItemsProducts,
-} from '~/products'
+} from '~/productRegistry'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
 

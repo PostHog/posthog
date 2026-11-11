@@ -1,4 +1,4 @@
-// Build frontend/src/products.{json,tsx} from manifest.tsx files
+// Build frontend/src/products.{json,tsx} and productRegistry.tsx from manifest.tsx files
 import * as ps from 'child_process'
 import { createHash } from 'crypto'
 import fse from 'fs-extra'
@@ -44,6 +44,7 @@ function buildProductManifests() {
 
     const outputTsx = path.join(__dirname, 'src/products.tsx')
     const outputScenesTsx = path.join(__dirname, 'src/productScenes.tsx')
+    const outputRegistryTsx = path.join(__dirname, 'src/productRegistry.tsx')
     const outputJson = path.join(__dirname, 'src/products.json')
     const cacheDir = path.join(__dirname, '.cache')
     const cacheFile = path.join(cacheDir, 'products.hash')
@@ -67,6 +68,7 @@ function buildProductManifests() {
                 fse.readFileSync(cacheFile, 'utf8') === digest &&
                 fse.existsSync(outputTsx) &&
                 fse.existsSync(outputScenesTsx) &&
+                fse.existsSync(outputRegistryTsx) &&
                 LAZY_REGISTRIES.every(({ file }) => fse.existsSync(path.join(__dirname, 'src', file))) &&
                 fse.existsSync(outputJson)
             ) {
@@ -312,39 +314,63 @@ function buildProductManifests() {
 
     // 5. Serialise gathered imports → valid TypeScript code
     //    (no duplicate names, type/value kept separate)
-    const importLines = Object.entries(gathered)
-        .flatMap(([mod, spec]) => {
-            const lines = []
-            const named = [...spec.named].sort()
-            const typeNamed = [...spec.typeNamed].sort()
-
-            // value imports
-            if (spec.namespace) {
-                const head = spec.default
-                    ? `import ${spec.default}, * as ${spec.namespace} from '${mod}';`
-                    : `import * as ${spec.namespace} from '${mod}';`
-                lines.push(head)
-                if (named.length) {
-                    lines.push(`import { ${named.join(', ')} } from '${mod}';`)
-                }
-            } else {
-                if (spec.default && named.length) {
-                    lines.push(`import ${spec.default}, { ${named.join(', ')} } from '${mod}';`)
-                } else if (spec.default) {
-                    lines.push(`import ${spec.default} from '${mod}';`)
-                } else if (named.length) {
-                    lines.push(`import { ${named.join(', ')} } from '${mod}';`)
-                }
+    const localNameOf = (spec) => (spec.includes(' as ') ? spec.split(' as ').pop() : spec)
+    const referencedNames = (body) => {
+        const names = new Set()
+        ts.forEachChild(ts.createSourceFile('body.tsx', body, ts.ScriptTarget.ESNext, true), function walk(node) {
+            const parent = node.parent
+            const isMemberName =
+                (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+                (ts.isPropertyAssignment(parent) && parent.name === node) ||
+                (ts.isQualifiedName(parent) && parent.right === node)
+            if (ts.isIdentifier(node) && !isMemberName) {
+                names.add(node.text)
             }
-
-            // type-only imports
-            if (typeNamed.length) {
-                lines.push(`import type { ${typeNamed.join(', ')} } from '${mod}';`)
-            }
-            return lines
+            ts.forEachChild(node, walk)
         })
-        .sort()
-        .join('\n')
+        return names
+    }
+    const importLinesFor = (body) => {
+        const used = referencedNames(body)
+        const isUsed = (name) => used.has(name)
+        return Object.entries(gathered)
+            .flatMap(([mod, allSpecs]) => {
+                const spec = {
+                    default: allSpecs.default && isUsed(allSpecs.default) ? allSpecs.default : null,
+                    namespace: allSpecs.namespace && isUsed(allSpecs.namespace) ? allSpecs.namespace : null,
+                }
+                const lines = []
+                const named = [...allSpecs.named].filter((n) => isUsed(localNameOf(n))).sort()
+                const typeNamed = [...allSpecs.typeNamed].filter((n) => isUsed(localNameOf(n))).sort()
+
+                // value imports
+                if (spec.namespace) {
+                    const head = spec.default
+                        ? `import ${spec.default}, * as ${spec.namespace} from '${mod}';`
+                        : `import * as ${spec.namespace} from '${mod}';`
+                    lines.push(head)
+                    if (named.length) {
+                        lines.push(`import { ${named.join(', ')} } from '${mod}';`)
+                    }
+                } else {
+                    if (spec.default && named.length) {
+                        lines.push(`import ${spec.default}, { ${named.join(', ')} } from '${mod}';`)
+                    } else if (spec.default) {
+                        lines.push(`import ${spec.default} from '${mod}';`)
+                    } else if (named.length) {
+                        lines.push(`import { ${named.join(', ')} } from '${mod}';`)
+                    }
+                }
+
+                // type-only imports
+                if (typeNamed.length) {
+                    lines.push(`import type { ${typeNamed.join(', ')} } from '${mod}';`)
+                }
+                return lines
+            })
+            .sort()
+            .join('\n')
+    }
 
     // 6. Serialize Typescript objects to printable code
     const serializedProductScenes = makeObjExpr(scenes)
@@ -352,9 +378,12 @@ function buildProductManifests() {
     const serializedProductRedirects = makeObjExpr(redirects)
     const serializedProductConfiguration = makeObjExpr(sceneConfigs)
     const serializedProductUrls = makeObjExpr(urls)
-    const serializedFileSystemTypes = makeObjExpr(
-        fileSystemTypes.sort((a, b) => a.name.text.localeCompare(b.name.text))
+    const { hrefs: fileSystemTypeHrefs, definitions: fileSystemTypeDefinitions } = withHrefsFromTable(
+        fileSystemTypes.sort((a, b) => a.name.text.localeCompare(b.name.text)),
+        'fileSystemTypeHrefs'
     )
+    const serializedFileSystemTypeHrefs = makeObjExpr(fileSystemTypeHrefs)
+    const serializedFileSystemTypes = makeObjExpr(fileSystemTypeDefinitions)
     const serializedSetupProbes = printer.printNode(
         ts.EmitHint.Unspecified,
         ts.factory.createArrayLiteralExpression(setupProbes),
@@ -371,18 +400,13 @@ function buildProductManifests() {
     const serializedTreeItemsGames = makeArrExpr(treeItemsGames)
     const serializedTreeItemsMetadata = makeArrExpr(treeItemsMetadata)
 
-    // 6. Assemble `products.tsx` + `productScenes.tsx`, write, format, move to src/
+    // 6. Assemble `products.tsx` + `productRegistry.tsx` + `productScenes.tsx`, write, format, move to src/
     //    The scene lazy-import map lives in its own module: products.tsx is (transitively) imported
     //    by scenes/urls.ts and therefore by nearly every module in the app, and jest's
     //    --findRelatedTests counts dynamic import() as a dependency edge — keeping the scene map
     //    here would make any change to any product scene "related" to almost the entire test suite.
     const autogenDisclaimer = '/** This const is auto-generated, as is the whole file */'
-    const productsTsx = `
-        /* eslint @typescript-eslint/explicit-module-boundary-types: 0 */
-        // Generated by build-products.mjs – DO NOT EDIT BY HAND.
-
-        ${importLines}
-
+    const productsBody = `
         ${autogenDisclaimer}
         export const productRoutes: Record<string, [string, string]> = ${serializedProductRoutes}
 
@@ -395,6 +419,20 @@ function buildProductManifests() {
         ${autogenDisclaimer}
         export const productUrls = ${serializedProductUrls}
 
+        ${autogenDisclaimer}
+        export const fileSystemTypeHrefs = ${serializedFileSystemTypeHrefs}
+    `
+    const productsTsx = `
+        /* eslint @typescript-eslint/explicit-module-boundary-types: 0 */
+        // Generated by build-products.mjs – DO NOT EDIT BY HAND.
+        // Every page loads this module, /login included. Data that only logged-in UI reads goes in productRegistry.tsx.
+
+        ${importLinesFor(productsBody)}
+
+        ${productsBody}
+    `
+
+    const registryBody = `
         ${autogenDisclaimer}
         export const fileSystemTypes = ${serializedFileSystemTypes}
 
@@ -416,6 +454,15 @@ function buildProductManifests() {
         ${autogenDisclaimer}
         export const getTreeItemsMetadata = (): FileSystemImport[] => ${serializedTreeItemsMetadata}
     `
+    const registryTsx = `
+        /* eslint @typescript-eslint/explicit-module-boundary-types: 0 */
+        // Generated by build-products.mjs – DO NOT EDIT BY HAND.
+
+        ${importLinesFor(registryBody)}
+        import { fileSystemTypeHrefs } from '~/products'
+
+        ${registryBody}
+    `
 
     const scenesTsx = `
         /* eslint @typescript-eslint/explicit-module-boundary-types: 0 */
@@ -436,6 +483,11 @@ function buildProductManifests() {
     fse.writeFileSync(tsxTmpFile, productsTsx)
     ps.execFileSync('oxfmt', [tsxTmpFile])
     fse.renameSync(tsxTmpFile, outputTsx)
+
+    const productRegistryTmpFile = path.join(tsxTmpDir, 'productRegistry.tsx')
+    fse.writeFileSync(productRegistryTmpFile, registryTsx)
+    ps.execFileSync('oxfmt', [productRegistryTmpFile])
+    fse.renameSync(productRegistryTmpFile, outputRegistryTsx)
 
     const scenesTmpFile = path.join(tsxTmpDir, 'productScenes.tsx')
     fse.writeFileSync(scenesTmpFile, scenesTsx)
@@ -490,6 +542,34 @@ function buildProductManifests() {
 
     fse.mkdirSync(cacheDir, { recursive: true })
     fse.writeFileSync(cacheFile, digest)
+}
+
+function withHrefsFromTable(fileSystemTypes, tableName) {
+    const hrefs = []
+    const definitions = fileSystemTypes.map((prop) => {
+        const href =
+            ts.isPropertyAssignment(prop) &&
+            ts.isObjectLiteralExpression(prop.initializer) &&
+            prop.initializer.properties.find((p) => ts.isPropertyAssignment(p) && p.name?.text === 'href')
+        if (!href) {
+            return prop
+        }
+        hrefs.push(ts.factory.createPropertyAssignment(prop.name, href.initializer))
+        const hrefFromTable = ts.factory.createPropertyAssignment(
+            'href',
+            ts.factory.createElementAccessExpression(
+                ts.factory.createIdentifier(tableName),
+                ts.factory.createStringLiteral(prop.name.text)
+            )
+        )
+        return ts.factory.createPropertyAssignment(
+            prop.name,
+            ts.factory.createObjectLiteralExpression(
+                prop.initializer.properties.map((p) => (p === href ? hrefFromTable : p))
+            )
+        )
+    })
+    return { hrefs, definitions }
 }
 
 function keepOnlyImport(prop, manifestPath) {

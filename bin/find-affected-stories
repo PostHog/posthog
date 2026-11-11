@@ -52,6 +52,7 @@ const FULL_RUN_PATTERNS = [
     'frontend/src/queries/schema/',
     'frontend/src/queries/schema.json',
     'frontend/src/products.tsx',
+    'frontend/src/productRegistry.tsx',
     'frontend/src/products.json',
     'manifest.tsx',
     'playwright.config.ts',

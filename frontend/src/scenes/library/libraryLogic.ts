@@ -10,7 +10,7 @@ import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { isAnalyticsType } from 'scenes/analytics/analyticsUtils'
 import { urls } from 'scenes/urls'
 
-import { fileSystemTypes, getTreeItemsNew } from '~/products'
+import { fileSystemTypes, getTreeItemsNew } from '~/productRegistry'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import {

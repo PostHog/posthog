@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { fileSystemTypes, productUrls } from '~/products'
+import { fileSystemTypeHrefs, productUrls } from '~/products'
 import {
     DataTableNode,
     VisualizationNode,
@@ -402,11 +402,7 @@ export interface UrlMatcher {
 
 const rootMatcher: UrlMatcher = { matchers: {} }
 
-for (const [type, { href }] of Object.entries(fileSystemTypes)) {
-    if (typeof href !== 'function') {
-        continue
-    }
-
+for (const [type, href] of Object.entries(fileSystemTypeHrefs)) {
     const computed = href(':id') // e.g. "/insights/:id"
     const pathname = computed.split('?')[0]
 

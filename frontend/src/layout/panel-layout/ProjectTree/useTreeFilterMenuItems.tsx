@@ -6,7 +6,7 @@ import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { fileSystemTypes } from '~/products'
+import { fileSystemTypes } from '~/productRegistry'
 import { FileSystemType } from '~/types'
 
 import { ProjectTreeLogicProps, projectTreeLogic } from './projectTreeLogic'

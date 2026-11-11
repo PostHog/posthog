@@ -2,7 +2,7 @@ import { ANALYTICS_FILE_SYSTEM_TYPES } from 'scenes/analytics/analyticsUtils'
 import { routes } from 'scenes/scenes'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
+import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/productRegistry'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { FileSystemType } from '~/types'
 

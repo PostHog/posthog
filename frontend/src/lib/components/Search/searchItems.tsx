@@ -8,7 +8,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
-import { getTreeItemsProducts } from '~/products'
+import { getTreeItemsProducts } from '~/productRegistry'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, GroupTypeIndex, SearchResponse } from '~/types'
 

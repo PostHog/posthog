@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { fileSystemTypes } from '~/products'
+import { fileSystemTypes } from '~/productRegistry'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import { ProjectTreeRef, UserBasicType } from '~/types'
 

@@ -114,6 +114,8 @@ const ROOTS = [
             'src/lib/logic/billing/billingLogic.tsx',
             // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
             'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
+            // The tree items and file system types are for logged-in navigation. Routing reads src/products.tsx.
+            'src/productRegistry.tsx',
             KEA_TEST_UTILS,
         ],
     },

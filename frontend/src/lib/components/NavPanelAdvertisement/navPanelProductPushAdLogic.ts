@@ -6,7 +6,7 @@ import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { isExternalLink } from 'lib/utils/url'
 
-import { getTreeItemsProducts } from '~/products'
+import { getTreeItemsProducts } from '~/productRegistry'
 import { FileSystemImport, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'

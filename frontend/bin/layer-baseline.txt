@@ -314,7 +314,6 @@ frontend/src/posthogAiToolRenderers.ts -> products/cdp/frontend/posthogAiToolRen
 frontend/src/posthogAiToolRenderers.ts -> products/error_tracking/frontend/posthogAiToolRenderers.tsx
 frontend/src/posthogAiToolRenderers.ts -> products/logs/frontend/posthogAiToolRenderers.tsx
 frontend/src/posthogAiToolRenderers.ts -> products/posthog_ai/frontend/posthogAiToolRenderers.tsx
-frontend/src/products.tsx -> frontend/src/queries/examples.ts
 frontend/src/products.tsx -> products/ai_observability/frontend/clusters/constants.ts
 frontend/src/products.tsx -> products/ai_observability/frontend/scoreDefinitions/scoreDefinitionNavigation.ts
 frontend/src/products.tsx -> products/error_tracking/frontend/settingsRedirects.ts

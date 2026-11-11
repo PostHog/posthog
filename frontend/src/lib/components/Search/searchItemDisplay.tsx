@@ -3,7 +3,7 @@ import { ReactNode } from 'react'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { fileSystemTypes } from '~/products'
+import { fileSystemTypes } from '~/productRegistry'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { SearchItem } from './searchItems'

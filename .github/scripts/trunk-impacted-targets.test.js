@@ -440,7 +440,10 @@ test('a product manifest claims the frontend and python lanes together', () => {
 // These are compiled from it and carry no Python reader, so the frontend rule's
 // radius is the honest one.
 test('the generated frontend product artifacts claim only the frontend lanes', () => {
-    const generated = computeTargets(['frontend/src/products.tsx', 'frontend/src/productScenes.tsx'], CONTEXT)
+    const generated = computeTargets(
+        ['frontend/src/products.tsx', 'frontend/src/productRegistry.tsx', 'frontend/src/productScenes.tsx'],
+        CONTEXT
+    )
     assert.equal(generated.includes('fe:core'), true)
     assert.equal(generated.includes('fe:product:alpha'), true)
     assert.equal(generated.includes('py:core'), false)

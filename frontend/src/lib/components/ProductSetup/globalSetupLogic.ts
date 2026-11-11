@@ -3,14 +3,13 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { SetupTaskId } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic as globalTeamLogic } from 'scenes/teamLogic'
 
+import { AvailableSetupTaskIdsEnumApi, AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
-import type { AvailableSetupTaskIdsEnumApi } from '../../../generated/core/api.schemas'
 import { PRODUCTS_WITH_SETUP } from './productSetupRegistry'
 import type { SetupHighlight } from './types'
 

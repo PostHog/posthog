@@ -139,7 +139,7 @@ See [monorepo-layout.md](/docs/internal/monorepo-layout.md) → "What a product 
 - Each high level product should have its own folder.
   - Please keep the top level folders `under_score` cased, as dashes make it hard to import files in some languages (e.g. Python).
 - Each product has a few required files / folders:
-  - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx` and `frontend/src/products.json` on build.
+  - `manifest.tsx` - describes the product's features. All manifest files are combined into `frontend/src/products.tsx`, `frontend/src/productRegistry.tsx` and `frontend/src/products.json` on build.
   - `package.json` - describes the frontend dependencies. Ideally they should all be `peerDependencies` of whatever is in `frontend/package.json`
   - `__init__.py` - allows imports like `products.<product>.backend.*` (only if backend exists)
     - `backend/__init__.py` - marks the backend directory as a Python package/Django app (only if backend exists).
@@ -194,7 +194,7 @@ bin/hogli product:lint --regenerate-baseline
 - Create a new folder `products/your_product_name`, keep it underscore-cased.
 - Create a `manifest.tsx` file
   - Describe the product's frontend `scenes`, `routes`, `urls`, file system types, and project tree (navbar) items.
-  - All manifest files are combined into a single `frontend/src/products.tsx` file on build.
+  - All manifest files are combined into generated files on build. `frontend/src/products.tsx` holds the `routes`, `redirects`, `urls`, scene config, and file system type hrefs, which every page loads, including logged-out ones. `frontend/src/productRegistry.tsx` holds the file system types, tree items, and setup probes, which only logged-in pages load.
   - NOTE: we don't copy imports into `products.tsx`. If you add new icons, update the imports manually in `frontend/src/products.tsx`. It only needs to be done once.
   - NOTE: if you want to add a link to the old pre-project-tree navbar, do so manually in `frontend/src/layout/navigation-3000/navigationLogic.tsx`
 - Create a `package.json` file:

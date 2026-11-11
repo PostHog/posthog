@@ -10,7 +10,7 @@ import {
 } from '~/generated/core/api'
 import type { FileSystemApi, FileSystemListParams } from '~/generated/core/api.schemas'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { fileSystemTypes } from '~/products'
+import { fileSystemTypes } from '~/productRegistry'
 import type { HogQLQuery } from '~/queries/schema/schema-general'
 import type { ProjectTreeRef } from '~/types'
 

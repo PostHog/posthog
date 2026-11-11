@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { navProductsTabLogic } from '~/layout/panel-layout/navbar/tabs/navProductsTabLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { getTreeItemsProducts } from '~/products'
+import { getTreeItemsProducts } from '~/productRegistry'
 import type { TeamType } from '~/types'
 
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'

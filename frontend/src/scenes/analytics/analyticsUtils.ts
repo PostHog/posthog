@@ -6,7 +6,7 @@ import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { fileSystemTypes, getTreeItemsProducts } from '~/products'
+import { fileSystemTypes, getTreeItemsProducts } from '~/productRegistry'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
 

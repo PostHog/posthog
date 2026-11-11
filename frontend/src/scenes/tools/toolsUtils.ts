@@ -3,7 +3,7 @@ import { libraryRowOpensProduct, productObjectType } from 'scenes/library/librar
 import { urls } from 'scenes/urls'
 
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
+import { getTreeItemsMetadata, getTreeItemsProducts } from '~/productRegistry'
 import { FileSystemImport, ProductItemCategory } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 

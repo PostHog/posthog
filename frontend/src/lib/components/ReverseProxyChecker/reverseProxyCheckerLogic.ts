@@ -3,9 +3,11 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { hogql } from 'lib/utils/hogql'
 import { sceneLogic } from 'scenes/sceneLogic'
+
+import { AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
 
 const CHECK_INTERVAL_MS = 1000 * 60 * 10 // 10 minutes
 

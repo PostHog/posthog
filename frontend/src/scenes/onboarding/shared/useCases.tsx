@@ -4,7 +4,7 @@
  * on for self-driving to actually see data. Product display (name, icon) resolves from the products
  * registry via `productPath`, so the flow can't drift from the sidebar.
  */
-import { getTreeItemsProducts } from '~/products'
+import { getTreeItemsProducts } from '~/productRegistry'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 export type OnboardingUseCaseKey =

@@ -1,5 +1,5 @@
 import { productsItemName } from '~/layout/panel-layout/navbar/tabs/productsCatalog'
-import { getTreeItemsProducts } from '~/products'
+import { getTreeItemsProducts } from '~/productRegistry'
 import { FileSystemImport, ProductItemCategory } from '~/queries/schema/schema-general'
 
 export type ReleaseStage = 'alpha' | 'beta' | 'internal'

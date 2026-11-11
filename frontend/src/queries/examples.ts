@@ -1,5 +1,6 @@
 // This file contains example queries, used in storybook and in the /query interface.
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { SQL_EDITOR_EXAMPLE_QUERY } from 'lib/sqlEditorExampleQuery'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
@@ -301,12 +302,7 @@ const HogQLRaw: HogQLQuery = {
 
 const HogQLForDataVisualization: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
-    query: `select toDate(timestamp) as timestamp, count()
-from events
-where timestamp >= now() - interval '7 days'
-group by timestamp
-order by timestamp asc
-limit 100`,
+    query: SQL_EDITOR_EXAMPLE_QUERY,
 }
 
 const HogQLForDataWarehouse: HogQLQuery = {

@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -20,6 +20,7 @@ import {
 } from 'lib/utils/product-intents'
 import { identifierToHuman } from 'lib/utils/strings'
 
+import { AvailableSetupTaskIdsEnumApi as SetupTaskId } from '~/generated/core/api.schemas'
 import {
     CurrencyCode,
     CustomerAnalyticsConfig,

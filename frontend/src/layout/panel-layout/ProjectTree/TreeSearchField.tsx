@@ -7,7 +7,7 @@ import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAuto
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { fileSystemTypes } from '~/products'
+import { fileSystemTypes } from '~/productRegistry'
 import { FileSystemType } from '~/types'
 
 import { iconForType } from './defaultTree'

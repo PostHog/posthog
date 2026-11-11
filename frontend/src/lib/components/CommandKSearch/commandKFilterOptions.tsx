@@ -7,7 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { isFileSystemEntryTypeEnabled } from '~/layout/panel-layout/ProjectTree/utils'
-import { fileSystemTypes } from '~/products'
+import { fileSystemTypes } from '~/productRegistry'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { OrganizationMemberType, UserType } from '~/types'
 

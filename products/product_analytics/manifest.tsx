@@ -1,9 +1,9 @@
 import { combineUrl } from 'kea-router'
 
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
+import { SQL_EDITOR_EXAMPLE_QUERY } from 'lib/sqlEditorExampleQuery'
 import { urls } from 'scenes/urls'
 
-import { examples } from '~/queries/examples'
 import {
     isBIVisualizationNode,
     isDataTableNode,
@@ -13,7 +13,6 @@ import {
 import {
     DashboardFilter,
     HogQLFilters,
-    HogQLQuery,
     HogQLVariable,
     Node,
     NodeKind,
@@ -191,7 +190,7 @@ export const manifest: ProductManifest = {
         {
             path: `Insight/SQL`,
             type: 'insight',
-            href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+            href: urls.sqlEditor({ query: SQL_EDITOR_EXAMPLE_QUERY }),
             // The sibling insight items get a "New " prefix automatically because their hrefs include "new";
             // the SQL editor href doesn't, so set the label explicitly to stay consistent.
             displayLabel: 'New SQL',

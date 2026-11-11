@@ -56,7 +56,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { NewEventsTableSwitch } from '~/layout/navigation/NewEventsTableSwitch'
-import { getTreeItemsGames } from '~/products'
+import { getTreeItemsGames } from '~/productRegistry'
 import { UserTheme } from '~/types'
 
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'

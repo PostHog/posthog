@@ -1,4 +1,4 @@
-import { getTreeItemsProducts } from '~/products'
+import { getTreeItemsProducts } from '~/productRegistry'
 
 import {
     DOCS_URL_BY_PRODUCT_PATH,

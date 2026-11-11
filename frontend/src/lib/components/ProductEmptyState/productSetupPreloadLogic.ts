@@ -4,7 +4,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { runWhenIdle } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { productSetupProbes } from '~/products'
+import { productSetupProbes } from '~/productRegistry'
 
 import * as api from 'products/event_definitions/frontend/generated/api'
 

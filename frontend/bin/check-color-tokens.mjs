@@ -28,7 +28,7 @@ const REFERENCE_ROOTS = ['frontend/src', 'products']
 const REFERENCE_EXTS = ['.ts', '.tsx', '.scss', '.css']
 // Generated from the manifests, so a finding here is always a duplicate of the manifest's own.
 // The desktop app is a separate workspace with its own tokens.
-const IGNORED = ['frontend/src/products.tsx']
+const IGNORED = ['frontend/src/products.tsx', 'frontend/src/productRegistry.tsx']
 const IGNORED_DIRS = new Set(['node_modules', 'dist', 'generated', 'desktop', '.turbo'])
 
 function walk(dir, exts, out = []) {

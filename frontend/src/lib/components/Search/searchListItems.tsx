@@ -18,7 +18,7 @@ import {
     hiddenProductHrefs,
     isHiddenProductShortcut,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
+import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/productRegistry'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { SettingId, SettingLevelId, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab } from '~/types'

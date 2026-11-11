@@ -1,5 +1,5 @@
 import { SIDEBAR_PRODUCTS_WITHOUT_DOCS, sidebarProductMeta } from '~/layout/panel-layout/sidebarProductMeta'
-import { getTreeItemsProducts } from '~/products'
+import { getTreeItemsProducts } from '~/productRegistry'
 
 describe('sidebarProductMeta', () => {
     const products = getTreeItemsProducts()
