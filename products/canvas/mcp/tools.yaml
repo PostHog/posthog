@@ -101,9 +101,9 @@ tools:
         description: >
             Create a new, empty canvas in a channel. Set `move_to_folder` to file it in a project folder. Returns the
             canvas's id and (null) `current_version_id`; give it source by publishing a project with
-            canvas-publish-create. Only create a canvas when no existing one is the
-            intended target — list them with canvas-list first. The response's `url` is the canvas's only valid link —
-            share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself.
+            canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with
+            canvas-list first. The response's `url` is the canvas's only valid link — share it verbatim when pointing
+            the user at the canvas; never construct a canvas URL yourself.
         param_overrides:
             channel_id:
                 description:
@@ -343,8 +343,8 @@ tools:
         title: File canvas in folder
         description: >
             File a canvas in a project-tree folder. Folders that don't exist yet are created, and the canvas keeps its
-            name and space. Only the canvas creator can file it. Only standalone freeform canvases appear in the
-            project tree; components and grids return a 400 error. The response's `folder` shows where it now sits.
+            name and space. Only the canvas creator can file it. Only standalone freeform canvases appear in the project
+            tree; components and grids return a 400 error. The response's `folder` shows where it now sits.
         include_params:
             - move_to_folder
         param_overrides:
