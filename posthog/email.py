@@ -287,10 +287,11 @@ class WorkflowsEmailError(Exception):
     SDK sends instead. `status_code` is None when no response came back.
     """
 
-    def __init__(self, message: str, *, code: str, status_code: int | None = None) -> None:
+    def __init__(self, message: str, *, code: str, status_code: int | None = None, attr: str | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+        self.attr = attr
 
 
 # Waits between worker attempts of an HTTP send that failed with one of the errors below. Customer.io no longer sends
@@ -417,11 +418,12 @@ def _queue_workflows_email(
 
     if response.status_code != 202:
         try:
-            code = response.json().get("code") or "api_error"
+            error_body = response.json()
+            code, attr = error_body.get("code") or "api_error", error_body.get("attr")
         except ValueError:
-            code = "api_error"
+            code, attr = "api_error", None
         raise WorkflowsEmailError(
-            f"{response.status_code} - {response.text}", code=code, status_code=response.status_code
+            f"{response.status_code} - {response.text}", code=code, status_code=response.status_code, attr=attr
         )
     try:
         body = response.json()
@@ -513,7 +515,7 @@ def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: st
         capture(
             distinct_id=dest.get("distinct_id") or dest["raw_email"],
             event=event,
-            properties={"recipient_email": dest["raw_email"], **properties},
+            properties={"recipient_email": dest["raw_email"], **properties, "$update_person_last_seen_at": False},
         )
     except Exception as analytics_err:
         logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
@@ -538,7 +540,9 @@ def _send_one(
             _pin_to_workflows(idempotency_key, workflows_template_id)
             return "workflows", response
         except WorkflowsEmailError as err:
-            if err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES:
+            if (err.status_code == 422 and err.code in WORKFLOWS_UNDELIVERABLE_422_CODES) or (
+                err.status_code == 400 and err.code == "invalid_input" and err.attr == "to"
+            ):
                 # The send API replays an idempotency key before it checks the recipient, so this refusal also
                 # means that no earlier attempt queued the email. The pin keeps a retry of the batch on Workflows, so a
                 # flag change cannot send this recipient through Customer.io, where the email would hard bounce.
@@ -658,7 +662,10 @@ def _send_via_http_batch(
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
         unsent_count = len(to) - already_sent_count - sent_count - len(undeliverable)
-        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(unsent_count)
+        # An earlier attempt with this key is still queueing the email, so only a last attempt is a failed send.
+        in_flight = isinstance(err, WorkflowsEmailError) and err.code == "idempotency_key_in_flight"
+        if not (in_flight and retrying):
+            EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(unsent_count)
         if not retrying:
             EMAIL_SEND_DROPPED_COUNTER.labels(transport="http").inc(unsent_count)
         if retryable:

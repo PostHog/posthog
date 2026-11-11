@@ -1889,8 +1889,6 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly user_access_level: string | null
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -2195,6 +2193,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
@@ -2219,8 +2219,6 @@ export interface DataWarehouseSavedQueryApi {
     readonly suspended: DataWarehouseSavedQueryApiSuspended
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -2323,6 +2321,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.
@@ -2347,8 +2347,6 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine?: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino?: boolean
 }
 
 /**
