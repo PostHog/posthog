@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -30,6 +29,7 @@ import { toThread } from './traceThread'
 import { findTreeNode, firstFailingNodeId, stepLabelsOf } from './traceTreeLookups'
 import { traceViewHostLogic } from './traceViewHostLogic'
 import { TraceViewStatus, traceViewLogic } from './traceViewLogic'
+import { traceViewTracking } from './traceViewTracking'
 import {
     ConversationState,
     EvalRollupOutcome,
@@ -540,8 +540,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
             actions.requestStep(id, props.traceId)
         }
         const captureFeedbackViewed = (entry: FeedbackEntry | 'tab'): void => {
-            posthog.capture('llma trace view feedback viewed', {
-                entry,
+            traceViewTracking.feedbackViewed(entry, {
                 scores: values.traceFeedback?.scores.length ?? null,
                 responses: values.traceFeedback?.responses.length ?? null,
                 unanswered: values.traceFeedback?.unanswered.length ?? null,
@@ -576,7 +575,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
             summarize: () => requestSummary(false),
             regenerateSummary: () => requestSummary(true),
             summaryStepClicked: ({ nodeId, kind }) => {
-                posthog.capture('llma trace view summary step clicked', { kind })
+                traceViewTracking.summaryStepClicked(kind)
                 actions.selectAndShowSpans(nodeId)
             },
             stepMatch: ({ direction }) => {
