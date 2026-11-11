@@ -107,25 +107,35 @@ class LandingVerdict:
     appends_entry: bool
 
 
+def _parents_first(approvals: list[BaselineApproval]) -> list[BaselineApproval]:
+    """The approvals of one snapshot, each stack parent before its child, otherwise in the given order."""
+    remaining = list(approvals)
+    ordered: list[BaselineApproval] = []
+    while remaining:
+        pending_hashes = {approval.content_hash for approval in remaining}
+        ready = [approval for approval in remaining if approval.effective_base_hash not in pending_hashes]
+        # A cycle (a child that restores the parent's base) has no parent first, so keep approval order.
+        chosen = ready[0] if ready else remaining[0]
+        ordered.append(chosen)
+        remaining.remove(chosen)
+    return ordered
+
+
 def landing_order(approvals: list[BaselineApproval]) -> list[BaselineApproval]:
     """Each stack parent before the child approval whose base is the parent's hash.
 
     The later entry wins at one position, so a child that landed first would be overwritten by
     its parent, and the parent's own base check would then fail against the child's hash.
+    Approvals of different snapshots never depend on each other, so the stack order runs per snapshot
+    (in the order of each snapshot's first approval) and a landing of many snapshots, which holds the
+    ledger lock, does not compare every approval with every other.
     """
-    remaining = sorted(approvals, key=lambda approval: (approval.approved_at, approval.id))
+    by_snapshot: dict[tuple[str, str], list[BaselineApproval]] = {}
+    for approval in sorted(approvals, key=lambda approval: (approval.approved_at, approval.id)):
+        by_snapshot.setdefault((approval.run_type, approval.identifier), []).append(approval)
     ordered: list[BaselineApproval] = []
-    while remaining:
-        pending_hashes = {(approval.run_type, approval.identifier, approval.content_hash) for approval in remaining}
-        ready = [
-            approval
-            for approval in remaining
-            if (approval.run_type, approval.identifier, approval.effective_base_hash) not in pending_hashes
-        ]
-        # A cycle (a child that restores the parent's base) has no parent first, so keep approval order.
-        chosen = ready[0] if ready else remaining[0]
-        ordered.append(chosen)
-        remaining.remove(chosen)
+    for snapshot_approvals in by_snapshot.values():
+        ordered.extend(_parents_first(snapshot_approvals))
     return ordered
 
 
