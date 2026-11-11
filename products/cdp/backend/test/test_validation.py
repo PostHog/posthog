@@ -476,6 +476,22 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert "{person.properties.email}" in message
         assert "Liquid" in message
 
+    @parameterized.expand(
+        [
+            ("unclosed_brace", "Fix the { bug in checkout"),
+            ("json_example", 'Reply with JSON like {"status": "ok"}'),
+        ]
+    )
+    def test_literal_brace_in_hog_templated_input_says_how_to_escape_it(self, _name, value):
+        inputs_schema = [{"key": "prompt", "type": "string", "required": True}]
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {"prompt": {"value": value}})
+        assert ctx.value.detail["inputs"]["prompt"][0].endswith("To use a literal brace, type \\{ instead.")
+
+        escaped = value.replace("{", "\\{")
+        assert validate_inputs(inputs_schema, {"prompt": {"value": escaped}})["prompt"]["value"] == escaped
+
     def test_liquid_templated_input_still_accepts_liquid_syntax(self):
         inputs_schema = [{"key": "field", "type": "string", "required": True, "templating": "liquid"}]
         inputs = {"field": {"value": "Hey {{ person.properties.name }}"}}
