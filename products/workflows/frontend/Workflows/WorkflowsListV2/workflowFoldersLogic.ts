@@ -32,6 +32,7 @@ import {
     reparentPath,
     resolveProjectTreeDrop,
     calculateMovePath,
+    underAnyFolder,
 } from '~/layout/panel-layout/ProjectTree/utils'
 import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
@@ -1062,9 +1063,19 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         [projectTreeDataLogic.actionTypes.createSavedItem]: () => {
             cache.changes = changeCount(cache) + 1
         },
-        // A folder move that failed or passed its deadline can still have landed, so the folders reload from the server.
-        [projectTreeDataLogic.actionTypes.removeQueuedAction]: ({ action }: { action: ProjectTreeAction }) => {
-            if (action.type === 'move' && action.item.type === 'folder') {
+        // A folder move that failed or passed its deadline can still have landed, so the folders reload from the server
+        // once no folder move is left in flight, which is once per batch. A finished count queues its move right
+        // after this action, so the check waits a microtask to see it.
+        [projectTreeDataLogic.actionTypes.removeQueuedAction]: async ({ action }: { action: ProjectTreeAction }) => {
+            const folderMove = (queued: ProjectTreeAction): boolean =>
+                ['prepare-move', 'move'].includes(queued.type) && queued.item.type === 'folder'
+            if (!folderMove(action) || cache.folderMovesSettling) {
+                return
+            }
+            cache.folderMovesSettling = true
+            await Promise.resolve()
+            cache.folderMovesSettling = false
+            if (!values.pendingActions.some(folderMove)) {
                 actions.loadBrowser()
             }
         },
@@ -1080,10 +1091,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }: { items: FileSystemEntry[] }) => {
             cache.changes = changeCount(cache) + 1
             const ids = new Set(items.map((item) => item.id))
-            const folders = items.filter((item) => item.type === 'folder').map((item) => item.path)
+            const underStale = underAnyFolder(items.filter((item) => item.type === 'folder').map((item) => item.path))
             const index = fileIndex(cache)
             for (const [id, entry] of index) {
-                if (ids.has(id) || folders.some((path) => isPathUnder(entry.path, path))) {
+                if (ids.has(id) || underStale(entry.path)) {
                     index.delete(id)
                 }
             }
