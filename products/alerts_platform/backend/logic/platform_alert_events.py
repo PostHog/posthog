@@ -383,7 +383,7 @@ def history(
             "all_groups": all_groups,
         },
         team_id=team_id,
-        settings=_READ_BUDGET,
+        settings={**_READ_BUDGET, **_HISTORY_ROW_BUDGET},
         send_receive_timeout=READ_SOCKET_TIMEOUT_SECONDS,
     )
     changes: dict[UUID, list[PlatformStateChange]] = {}
@@ -416,6 +416,9 @@ _READ_BUDGET: Final = {"max_execution_time": 5}
 # The client's default socket timeout is effectively unbounded, so a stalled connection would hold the
 # request past the execution budget.
 READ_SOCKET_TIMEOUT_SECONDS: Final = 10
+# A grouped alert that flaps returns a row per group per change, so the read holds a row ceiling and
+# fails rather than load an unbounded result into the web worker. Its callers show the page without it.
+_HISTORY_ROW_BUDGET: Final = {"max_result_rows": 50_000, "result_overflow_mode": "throw"}
 # The earliest time a read that keeps all history passes as its lower bound.
 _EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
 
