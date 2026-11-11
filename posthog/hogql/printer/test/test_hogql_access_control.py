@@ -137,7 +137,7 @@ class TestAccessControlGuard(BaseTest):
 
     def test_build_access_control_guard_returns_none_without_user(self):
         """Without user context, no guard should be generated."""
-        from products.dashboards.backend.facade.hogql import dashboards
+        from posthog.hogql.database.schema.system import dashboards
 
         context = HogQLContext(team_id=self.team.pk, team=self.team, user=None)
         database = Database.create_for(team=self.team, user=None)
