@@ -1,6 +1,6 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { formatCurrency, getCurrencySymbol } from 'lib/utils/currency'
+import { formatCurrency } from 'lib/utils/currency'
 import { formatDurationMilliseconds, humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage, significantDecimalPlaces } from 'lib/utils/numbers'
 
@@ -312,10 +312,15 @@ function rowNumber(value: number, maximumFractionDigits: number): string {
 }
 
 function rowCurrency(value: number, currency: CurrencyCode): string {
-    const { symbol, isPrefix } = getCurrencySymbol(currency)
+    const magnitude = Math.abs(value)
     // Cents only matter on small amounts; `$1,200.00` does not fit the column.
-    const amount = Math.abs(value) >= 100 ? rowNumber(value, 0) : humanFriendlyNumber(value, 2, 2)
-    return isPrefix ? `${symbol}${amount}` : `${amount} ${symbol}`
+    const options: Intl.NumberFormatOptions =
+        magnitude >= ROW_COMPACT_FROM
+            ? { notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 }
+            : magnitude >= 100
+              ? { minimumFractionDigits: 0, maximumFractionDigits: 0 }
+              : {}
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, ...options }).format(value)
 }
 
 export function reportMetricRowParts(
