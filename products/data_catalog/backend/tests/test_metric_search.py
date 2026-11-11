@@ -108,6 +108,30 @@ class TestMetricListSearch(APIBaseTest):
         assert results[0]["is_drifted"] is False
         assert {row["match_reason"] for row in plain.json()["results"]} == {None}
 
+    @parameterized.expand(
+        [
+            ("approved_only", {"status": "approved"}, ["revenue_approved"]),
+            ("proposed_only", {"status": "proposed"}, ["revenue_proposed"]),
+            ("hogql_only", {"definition_kind": "HogQLQuery"}, ["revenue_approved"]),
+        ]
+    )
+    def test_search_keeps_the_list_filters(self, _name: str, filters: dict[str, str], expected: list[str]) -> None:
+        with team_scope(self.team.id):
+            Metric.objects.for_team(self.team.id).create(
+                team=self.team,
+                name="revenue_approved",
+                description="Revenue.",
+                status="approved",
+                definition={"kind": "HogQLQuery", "query": "SELECT 1"},
+            )
+            Metric.objects.for_team(self.team.id).create(
+                team=self.team, name="revenue_proposed", description="Revenue."
+            )
+
+        response = self.client.get(self.url, {"search": "revenue", **filters})
+
+        assert [row["name"] for row in response.json()["results"]] == expected
+
     def test_search_returns_a_short_page_unless_a_limit_is_sent(self) -> None:
         with team_scope(self.team.id):
             for index in range(12):
