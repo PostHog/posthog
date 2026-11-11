@@ -59,8 +59,12 @@ from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 UNSUBSCRIBE_LINK_CASES = json.loads((Path(__file__).parents[2] / "unsubscribe_link_cases.json").read_text())
 CLICKABLE_UNSUBSCRIBE_LINKS = [(case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if case["has_unsubscribe_link"]]
 TEXT_LINK_INTO_LONG_PUNCTUATION = "Unsubscribe: {{ unsubscribe_url }}" + "." * 200_000 + "x"
+UNMATCHED_CLOSES_INSIDE_A_TEMPLATE = (
+    "<div><template>" + "<span>" * 65536 + "</div>" * 65536 + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+)
 MISSING_UNSUBSCRIBE_LINKS = [
-    (case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]
+    *((case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]),
+    ("link_after_unmatched_closes_inside_a_template", {"html": UNMATCHED_CLOSES_INSIDE_A_TEMPLATE, "text": ""}),
 ]
 TEXT_LINK_INTO_LIQUID_MARKUP = "{% if person.properties.email %}Unsubscribe: {{ unsubscribe_url }}{% endif %}"
 TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]

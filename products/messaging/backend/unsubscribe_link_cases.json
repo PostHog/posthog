@@ -60,6 +60,36 @@
         "has_unsubscribe_link": true
     },
     {
+        "name": "link_after_a_noframes_element",
+        "html": "<p>News</p><noframes><style></noframes><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "link_after_a_closed_svg",
+        "html": "<svg><path d=\"M0 0h1\"/></svg><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "link_after_a_closed_select",
+        "html": "<select><option>One</option></select><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "link_after_a_frameset_inside_a_template",
+        "html": "<template><frameset></frameset></template><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "link_after_a_template_in_the_head",
+        "html": "<head><template></template></head><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
         "name": "no_placeholder",
         "html": "<p>News</p>",
         "text": "",
@@ -174,12 +204,6 @@
         "has_unsubscribe_link": false
     },
     {
-        "name": "link_after_a_noframes_element",
-        "html": "<p>News</p><noframes><style></noframes><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
-        "text": "",
-        "has_unsubscribe_link": false
-    },
-    {
         "name": "link_after_plaintext",
         "html": "<p>News</p><plaintext><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
         "text": "",
@@ -206,6 +230,24 @@
     {
         "name": "link_inside_a_select",
         "html": "<select><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></select>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_an_html_island_inside_svg",
+        "html": "<svg><foreignObject><div></svg></div></foreignObject><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_cdata_section_in_svg",
+        "html": "<svg><![CDATA[></svg><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>]]>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_after_a_select_closed_by_another_tag",
+        "html": "<div><select></div><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
         "text": "",
         "has_unsubscribe_link": false
     },

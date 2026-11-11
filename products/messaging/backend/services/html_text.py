@@ -10,8 +10,34 @@ LINE_TAGS = frozenset({"div", "li", "tr", "section", "article", "header", "foote
 HIDDEN_TAGS = frozenset({"head", "title", "style", "script", "template"})
 RAW_TEXT_TAGS = frozenset({"script", "style", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext"})
 ESCAPABLE_RAW_TEXT_TAGS = frozenset({"textarea", "title"})
-UNREADABLE_AFTER_TAGS = frozenset({"svg", "math", "select"})
-FRAME_TAGS = frozenset({"frameset", "noframes"})
+READABLE_AFTER_CLOSING_WITH_ONLY = {
+    "svg": frozenset(
+        {
+            "svg",
+            "g",
+            "path",
+            "circle",
+            "ellipse",
+            "line",
+            "polyline",
+            "polygon",
+            "rect",
+            "defs",
+            "use",
+            "symbol",
+            "lineargradient",
+            "radialgradient",
+            "stop",
+            "clippath",
+            "mask",
+            "pattern",
+            "text",
+            "tspan",
+        }
+    ),
+    "math": frozenset(),
+    "select": frozenset({"option", "optgroup"}),
+}
 VOID_TAGS = frozenset(
     {
         "area",
@@ -112,6 +138,7 @@ class _TextParser(HTMLParser):
         self.parts: list[str] = []
         self.open_tags: list[str] = []
         self.open_counts: Counter[str] = Counter()
+        self.open_counts_above_templates: list[Counter[str]] = [Counter()]
         self.open_links: list[_OpenLink] = []
         self.hidden_from: int | None = None
         self.label_text: list[str] = []
@@ -119,6 +146,9 @@ class _TextParser(HTMLParser):
         self.visible_hrefs: set[str] = set()
         self.has_frames = False
         self.unreadable = False
+        self.unreadable_from: int | None = None
+        self.unreadable_tag = ""
+        self.closing = ""
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in VOID_TAGS:
@@ -147,11 +177,13 @@ class _TextParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if tag in VOID_TAGS or not self.open_counts[tag]:
             return
-        if self.reads_like_a_browser and tag != "template" and not self._open_above_a_template(tag):
+        if self.reads_like_a_browser and tag != "template" and not self.open_counts_above_templates[-1][tag]:
             return
+        self.closing = tag
         while self.open_tags[-1] != tag:
             self._end_last()
         self._end_last()
+        self.closing = ""
 
     def handle_data(self, data: str) -> None:
         if self.hidden_from is not None:
@@ -161,24 +193,32 @@ class _TextParser(HTMLParser):
             self.label_text.append(stripped)
             self.label_length += len(stripped)
 
+    def handle_comment(self, data: str) -> None:
+        self._read_markup_other_than_tags()
+
+    def handle_decl(self, decl: str) -> None:
+        self._read_markup_other_than_tags()
+
+    def unknown_decl(self, data: str) -> None:
+        self._read_markup_other_than_tags()
+
+    def handle_pi(self, data: str) -> None:
+        self._read_markup_other_than_tags()
+
     def close(self) -> None:
         super().close()
         while self.open_tags:
             self._end_last()
 
-    def _open_above_a_template(self, tag: str) -> bool:
-        for open_tag in reversed(self.open_tags):
-            if open_tag == tag:
-                return True
-            if open_tag == "template":
-                return False
-        return False
+    def _read_markup_other_than_tags(self) -> None:
+        if self.unreadable_from is not None:
+            self.unreadable = True
 
     def _start(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in FRAME_TAGS:
+        if tag == "frameset" and len(self.open_counts_above_templates) == 1:
             self.has_frames = True
-        if self.reads_like_a_browser and tag in UNREADABLE_AFTER_TAGS:
-            self.unreadable = True
+        if self.reads_like_a_browser:
+            self._track_readability(tag)
         if self.hidden_from is not None:
             return
         if tag in HIDDEN_TAGS:
@@ -199,14 +239,31 @@ class _TextParser(HTMLParser):
     def _is_unsubscribe_link(self, href: str) -> bool:
         return self.keep_unsubscribe_link and UNSUBSCRIBE_PLACEHOLDER.fullmatch(href.strip()) is not None
 
+    def _track_readability(self, tag: str) -> None:
+        if self.unreadable_from is None:
+            if tag in READABLE_AFTER_CLOSING_WITH_ONLY:
+                self.unreadable_from = len(self.open_tags)
+                self.unreadable_tag = tag
+        elif tag not in READABLE_AFTER_CLOSING_WITH_ONLY[self.unreadable_tag]:
+            self.unreadable = True
+
     def _push(self, tag: str) -> None:
         self.open_tags.append(tag)
         self.open_counts[tag] += 1
+        self.open_counts_above_templates[-1][tag] += 1
+        if tag == "template":
+            self.open_counts_above_templates.append(Counter())
 
     def _end_last(self) -> None:
         tag = self.open_tags.pop()
         self.open_counts[tag] -= 1
+        if tag == "template":
+            self.open_counts_above_templates.pop()
+        self.open_counts_above_templates[-1][tag] -= 1
         depth = len(self.open_tags)
+        if depth == self.unreadable_from:
+            self.unreadable = self.unreadable or self.closing != self.unreadable_tag
+            self.unreadable_from = None
         if self.hidden_from is not None:
             if depth == self.hidden_from:
                 self.hidden_from = None
