@@ -18,6 +18,7 @@ export const ENGINE_LABELS: Record<string, string> = {
     'openai-web-search': 'ChatGPT',
     'exa-answer': 'Exa',
     'gemini-google-search': 'Gemini',
+    'perplexity-web-search': 'Perplexity',
 }
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
