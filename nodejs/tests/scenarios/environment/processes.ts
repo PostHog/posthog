@@ -22,12 +22,8 @@ export type CleanupPlan = Targets & { strangers: ProcEntry[] }
 export class StackConflictError extends Error {
     readonly exitCode = 2
 
-    constructor(
-        message: string,
-        readonly stopCommand: string,
-        advice = `Stop it with \`${stopCommand}\`, then run the scenario again.`
-    ) {
-        super(`${message} ${advice}`)
+    constructor(message: string) {
+        super(message)
         this.name = 'StackConflictError'
     }
 }
@@ -83,8 +79,7 @@ export function planCleanup(entries: ProcEntry[], selfPid: number, nodejsDir: st
 export function strangerConflict(strangers: ProcEntry[]): StackConflictError {
     const listed = strangers.map((entry) => `${entry.pid} (${entry.cmdline})`).join(', ')
     return new StackConflictError(
-        `CDP processes the scenario runner did not start are running: ${listed}. Use \`hogli down\` if hogli started them.`,
-        `kill ${strangers.map((entry) => entry.pid).join(' ')}`
+        `CDP processes the scenario runner did not start are running: ${listed}. Use \`hogli down\` if hogli started them. Stop it with \`kill ${strangers.map((entry) => entry.pid).join(' ')}\`, then run the scenario again.`
     )
 }
 
@@ -189,21 +184,18 @@ export async function holdRunLock(stateDir: string, retried = false): Promise<()
         const holder = await holderOf(address)
         if (holder) {
             throw new StackConflictError(
-                `Scenario runner ${holder} is already running from ${stateDir}.`,
-                `kill ${holder}`
+                `Scenario runner ${holder} is already running from ${stateDir}. Stop it with \`kill ${holder}\`, then run the scenario again.`
             )
         }
         const silent = listenerOf(address)
         if (silent) {
             throw new StackConflictError(
-                `Scenario runner ${silent} holds ${stateDir} but does not answer; it may be suspended (resume it with fg).`,
-                `kill -CONT ${silent}; kill ${silent}`
+                `Scenario runner ${silent} holds ${stateDir} but does not answer; it may be suspended (resume it with fg). Stop it with \`kill -CONT ${silent}; kill ${silent}\`, then run the scenario again.`
             )
         }
         if (retried) {
             throw new StackConflictError(
-                `Another scenario runner holds ${stateDir} and does not answer.`,
-                'ss -xlp | grep posthog-scenarios'
+                `Another scenario runner holds ${stateDir} and does not answer. Stop it with \`ss -xlp | grep posthog-scenarios\`, then run the scenario again.`
             )
         }
         return holdRunLock(stateDir, true)

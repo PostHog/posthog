@@ -155,8 +155,8 @@ describe('scenario environment', () => {
             proc(42, 41, 'node src/index.ts', PLAIN_ENV),
         ])
 
-        expect(error).toMatchObject({ exitCode: 2, stopCommand: 'kill 41 42' })
-        expect(error.message).toContain('Stop it with `kill 41 42`')
+        expect(error).toMatchObject({ exitCode: 2 })
+        expect(error.message).toContain('Stop it with `kill 41 42`, then run the scenario again.')
     })
 
     describe('roleSpecs', () => {
@@ -307,9 +307,8 @@ describe('scenario environment', () => {
             await expect(holdRunLock(stateDir)).rejects.toMatchObject({
                 exitCode: 2,
                 message: expect.stringContaining(
-                    `Scenario runner ${other.child.pid} holds ${stateDir} but does not answer`
+                    `Scenario runner ${other.child.pid} holds ${stateDir} but does not answer; it may be suspended (resume it with fg). Stop it with \`kill -CONT ${other.child.pid}; kill ${other.child.pid}\`, then run the scenario again.`
                 ),
-                stopCommand: `kill -CONT ${other.child.pid}; kill ${other.child.pid}`,
             })
         }, 20_000)
 
@@ -375,17 +374,14 @@ describe('scenario environment', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         const realSpawn = childProcess.spawn
         const stubRolePids = new Set<number>()
+        const roleChildren = new Map<Role, ChildProcess>()
         const stubRole =
             "require('http').createServer((_request, response) => response.end()).listen(Number(process.env.HTTP_SERVER_PORT))"
         let stranger: ChildProcess | undefined
         let environment: Environment | undefined
-        const exitsAfterFirstAnswer =
-            "require('http').createServer((_request, response) => { response.end(); setTimeout(() => process.exit(1), 100) }).listen(Number(process.env.HTTP_SERVER_PORT))"
         let portHolder: http.Server | undefined
         let unspawnable: Role | undefined
         let losesItsPort: Role | undefined
-        let exitsOnce: Role | undefined
-        let exitedOnce: Promise<unknown> | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
         const healthOf = async (role: Role): Promise<number> =>
@@ -423,12 +419,11 @@ describe('scenario environment', () => {
                 }
                 if (options.env?.PLUGIN_SERVER_MODE === losesItsPort) {
                     void holdPort(losesItsPort!)
+                    losesItsPort = undefined
                 }
-                const exitsNow = options.env?.PLUGIN_SERVER_MODE === exitsOnce
-                exitsOnce = exitsNow ? undefined : exitsOnce
-                const role = realSpawn(process.execPath, ['-e', exitsNow ? exitsAfterFirstAnswer : stubRole], options)
+                const role = realSpawn(process.execPath, ['-e', stubRole], options)
                 stubRolePids.add(role.pid!)
-                exitedOnce = exitsNow ? once(role, 'exit') : exitedOnce
+                roleChildren.set(options.env?.PLUGIN_SERVER_MODE as Role, role)
                 return role
             }) as unknown as typeof childProcess.spawn)
             process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
@@ -441,8 +436,7 @@ describe('scenario environment', () => {
             portHolder = undefined
             unspawnable = undefined
             losesItsPort = undefined
-            exitsOnce = undefined
-            exitedOnce = undefined
+            roleChildren.clear()
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             if (cacheHome === undefined) {
@@ -481,9 +475,11 @@ describe('scenario environment', () => {
                 'exits after it answered /_health',
                 'cdp-api',
                 () => {
-                    exitsOnce = 'cdp-api'
-                    jest.spyOn(stack, 'missingTemplates').mockImplementation(async () => {
-                        await exitedOnce
+                    jest.spyOn(stack, 'missingTemplates').mockImplementationOnce(async () => {
+                        const cdpApi = roleChildren.get('cdp-api')!
+                        const exited = once(cdpApi, 'exit')
+                        cdpApi.kill('SIGKILL')
+                        await exited
                         return []
                     })
                 },
@@ -521,9 +517,8 @@ describe('scenario environment', () => {
             await expect(environment.up()).rejects.toMatchObject({
                 exitCode: 2,
                 message: expect.stringMatching(
-                    /6760 \(cdp-processed-events\)\. Find what holds them with `ss -ltnp 'sport = :6760'`, stop it,/
+                    /6760 \(cdp-processed-events\)\. Find what holds them with `ss -ltnp 'sport = :6760'`, stop it, then run the scenario again\.$/
                 ),
-                stopCommand: "ss -ltnp 'sport = :6760'",
             })
         }, 30_000)
 
@@ -541,7 +536,12 @@ describe('scenario environment', () => {
             })
             await once(stranger, 'spawn')
             const environment = createEnvironment()
-            const refusal = { stopCommand: expect.stringMatching(new RegExp(`^kill (\\d+ )*${stranger.pid}( \\d+)*$`)) }
+            const refusal = {
+                exitCode: 2,
+                message: expect.stringMatching(
+                    new RegExp(`Stop it with \`kill (\\d+ )*${stranger.pid}( \\d+)*\`, then run the scenario again\\.$`)
+                ),
+            }
 
             await expect(environment.up()).rejects.toMatchObject(refusal)
             await expect(environment.up()).rejects.toMatchObject(refusal)
