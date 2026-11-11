@@ -188,10 +188,17 @@ def _seed_routing_comment(chain: RoutingChain, repo_config: StamphogRepoConfig) 
 
 
 def _finish_review(
-    repo_config: StamphogRepoConfig, status: ReviewRunStatus, verdict: ReviewVerdict, head_sha: str = HEAD_SHA
+    repo_config: StamphogRepoConfig,
+    status: ReviewRunStatus,
+    verdict: ReviewVerdict,
+    head_sha: str = HEAD_SHA,
+    *,
+    silent: bool = False,
 ) -> None:
     # The function post_verdict and mark_review_failed call. Celery runs eagerly in tests.
-    queue_routing_after_verdict(repo_config, pr_number=PR_NUMBER, head_sha=head_sha, status=status, verdict=verdict)
+    queue_routing_after_verdict(
+        repo_config, pr_number=PR_NUMBER, head_sha=head_sha, status=status, verdict=verdict, silent=silent
+    )
 
 
 @pytest.mark.parametrize(
@@ -529,8 +536,12 @@ def test_fallback_approval_requests_only_pinned_owners(
     "name,before_call,expect_routed",
     [
         ("routes_the_waiting_head_in_full", None, True),
+        # ReviewHog reports from the same delivery as the opening event, so its report can come first.
+        ("report_before_the_waiting_record", "report_first", True),
         # A silent review started after all, and its verdict routes the head.
         ("stamphog_reviews_the_head", "review_run", False),
+        # The trigger label starts a visible review, and its verdict routes the head.
+        ("trigger_label", "label", False),
         ("head_moved", "push", False),
         ("switch_turned_off", "switch_off", False),
     ],
@@ -545,10 +556,17 @@ def test_the_clean_review_switch_waits_for_reviewhog(
         StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(
             review_on_clean_external_review=True
         )
-    _route()
-    assert routing_chain.recorder.github_writes == []
-    assert _stored(team.id)["status"] == "waiting"
     routing_chain.cut_model.answer = _CUT_BETA
+
+    def report() -> None:
+        queue_routing_after_external_review(team_id=team.id, repository=REPO, pr_number=PR_NUMBER, head_sha=HEAD_SHA)
+
+    if before_call == "report_first":
+        report()
+    _route()
+    if before_call != "report_first":
+        assert routing_chain.recorder.github_writes == []
+        assert _stored(team.id)["status"] == "waiting"
 
     with team_scope(team.id):
         if before_call == "review_run":
@@ -558,13 +576,16 @@ def test_the_clean_review_switch_waits_for_reviewhog(
                 head_sha=HEAD_SHA,
                 status=ReviewRunStatus.QUEUED,
             )
+        elif before_call == "label":
+            routing_chain.recorder.prs[(REPO, PR_NUMBER)]["labels"] = [{"name": "stamphog"}]
         elif before_call == "push":
             _push(routing_chain, _HEAD_2)
         elif before_call == "switch_off":
             StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(
                 review_on_clean_external_review=False
             )
-    queue_routing_after_external_review(team_id=team.id, repository=REPO, pr_number=PR_NUMBER, head_sha=HEAD_SHA)
+    if before_call != "report_first":
+        report()
 
     record = _stored(team.id)
     if expect_routed:
@@ -628,6 +649,7 @@ _APPROVED = ("verdict", HEAD_SHA, ReviewRunStatus.COMPLETED, ReviewVerdict.APPRO
 _REFUSED = ("verdict", HEAD_SHA, ReviewRunStatus.COMPLETED, ReviewVerdict.REFUSED)
 _FAILED = ("verdict", HEAD_SHA, ReviewRunStatus.FAILED, ReviewVerdict.NONE)
 _WAIT = ("verdict", HEAD_SHA, ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT)
+_SILENT_WAIT = ("silent_verdict", HEAD_SHA, ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT)
 _PUSH = ("push", _HEAD_2)
 _NET = ("net",)
 
@@ -644,6 +666,8 @@ def _on_head_2(step: tuple[Any, ...]) -> tuple[Any, ...]:
         ("safety_net_routes_a_waiting_head_once", [_NET, _NET], 1, "safety_net", HEAD_SHA, 1),
         # A WAIT re-reviews later, so the head keeps waiting and only the safety net routes it.
         ("wait_keeps_waiting_for_the_safety_net", [_WAIT, _NET], 1, "safety_net", HEAD_SHA, 1),
+        # Nothing reviews again after a silent WAIT, so it routes in full at once.
+        ("silent_wait_routes_in_full", [_SILENT_WAIT, _NET], 1, "verdict:wait", HEAD_SHA, 1),
         # A WAIT on a head that never waited starts waiting there, with its own safety net.
         ("wait_on_a_push_starts_waiting", [_APPROVED, _PUSH, _on_head_2(_WAIT)], 1, "verdict:wait", _HEAD_2, 2),
         # The pinned-only routing does not count as the full routing, which runs once on head 2.
@@ -687,8 +711,8 @@ def test_fallback_routes_each_pull_request_once_in_full(
     repo_config = _open_fallback(routing_chain, team, user)
 
     for step in steps:
-        if step[0] == "verdict":
-            _finish_review(repo_config, step[2], step[3], head_sha=step[1])
+        if step[0] in ("verdict", "silent_verdict"):
+            _finish_review(repo_config, step[2], step[3], head_sha=step[1], silent=step[0] == "silent_verdict")
         elif step[0] == "push":
             _push(routing_chain, step[1])
         else:

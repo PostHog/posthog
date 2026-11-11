@@ -2144,6 +2144,7 @@ def _notify_finished_review(
         head_sha=run.head_sha,
         status=finished.status,
         verdict=finished.verdict,
+        silent=run.is_silent,
     )
 
 

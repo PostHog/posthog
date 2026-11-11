@@ -1987,59 +1987,6 @@ def request_rereview_after_external_review(*, repository: str, pr_number: int, h
     rereview_after_external_review.delay(repository=repository, pr_number=pr_number, head_sha=head_sha)
 
 
-def _queue_silent_review_at_head(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> str:
-    """Queue a silent review of ``head_sha``, or return why not. The returned outcome is for the log.
-
-    Every webhook gate but the review mode runs again here, against the PR as GitHub reports it
-    now. A refusal writes nothing to GitHub: no review starts, so no approval is left or removed.
-    """
-    if not repo_config.review_on_clean_external_review:
-        return "switch_off"
-    current = _check_current_pr(repo_config, pr_number, head_sha)
-    if current.refusal is not None:
-        return current.refusal
-    queued = _queue_review_at_head(
-        repo_config, current.pr, head_sha, output={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value}
-    )
-    if queued.run is None:
-        return "stale_snapshot"
-    return "queued" if queued.created else "already_covered"
-
-
-@shared_task(bind=True, ignore_result=True, max_retries=_REREVIEW_MAX_RETRIES)
-def silent_review_after_clean_external_review(
-    self: Task, team_id: int, repository: str, pr_number: int, head_sha: str
-) -> None:
-    """Start a silent review of ``head_sha`` because an external reviewer found nothing on it.
-
-    The repo config is read from the writer, because it gates run creation. A GitHub or Temporal
-    error retries with backoff, because no webhook redelivery stands behind this call. A retry is
-    safe: every check runs again, and the head dedupe collapses repeats into one run.
-    """
-    try:
-        repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
-        if repo_config is None:
-            logger.info(
-                "stamphog_silent_review_skipped", repository=repository, pr_number=pr_number, outcome="no_config"
-            )
-            return
-        outcome = _queue_silent_review_at_head(repo_config, pr_number, head_sha)
-    except GitHubRateLimitError as e:
-        logger.warning("stamphog_silent_review_rate_limited", repository=repository, pr_number=pr_number)
-        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
-    except Exception as e:
-        logger.exception("stamphog_silent_review_failed", repository=repository, pr_number=pr_number, error=str(e))
-        raise self.retry(exc=e, countdown=_REREVIEW_RETRY_BASE_SECONDS * 2**self.request.retries)
-    logger.info(
-        "stamphog_silent_review_requested",
-        repository=repository,
-        pr_number=pr_number,
-        head_sha=head_sha,
-        outcome=outcome,
-        team_id=team_id,
-    )
-
-
 _ROUTING_MAX_RETRIES = 4
 _ROUTING_RETRY_BASE_SECONDS = 30
 # Another task holds the routing claim. It finishes within seconds, so the retry comes soon.
@@ -2048,18 +1995,10 @@ ROUTING_BUSY_RETRY_SECONDS = 60
 ROUTING_SAFETY_NET_SECONDS = 30 * 60
 
 
-def queue_silent_review(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> None:
-    """Queue a silent stamphog review of ``head_sha``, without waiting for it.
-
-    For review_hog, when a Standard review of a PR that opened or was marked ready finished clean.
-    Stamphog decides whether anything happens: the repo's ``review_on_clean_external_review`` switch
-    must be on, and every webhook gate except the review mode must pass for the PR as it is now,
-    with ``head_sha`` still its head. A head that already has a review is left alone. The review posts
-    an approval as usual and keeps every other verdict off the PR. ``team_id`` may be an environment.
-    """
-    silent_review_after_clean_external_review.delay(
-        team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha
-    )
+def _review_mode_admits(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
+    """Whether the review mode alone starts a visible review of the pull request."""
+    label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
+    return repo_config.review_mode != ReviewMode.LABEL or repo_config.trigger_label in label_names
 
 
 def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
@@ -2074,8 +2013,7 @@ def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -
     if repo_config.review_on_clean_external_review:
         # ReviewHog either starts a silent review of this head or tells routing that it will not.
         return True
-    label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
-    return repo_config.review_mode != ReviewMode.LABEL or repo_config.trigger_label in label_names
+    return _review_mode_admits(repo_config, pr)
 
 
 def _schedule_routing_safety_net(repo_config: StamphogRepoConfig, pr_number: int) -> None:
@@ -2116,11 +2054,30 @@ def _has_review_of_head(repo_config: StamphogRepoConfig, pr_number: int, head_sh
     )
 
 
+# ReviewHog reports once per head. The safety net still routes a head whose mark expired or was lost.
+_EXTERNAL_REVIEW_MARK_SECONDS = 60 * 60
+
+
+def _external_review_mark_key(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> str:
+    return f"stamphog:routing:external_review:{repo_config.id}:{pr_number}:{head_sha}"
+
+
+def _mark_external_review(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> None:
+    cache.set(_external_review_mark_key(repo_config, pr_number, head_sha), True, _EXTERNAL_REVIEW_MARK_SECONDS)
+
+
+def _external_review_reported(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> bool:
+    return cache.get(_external_review_mark_key(repo_config, pr_number, head_sha)) is not None
+
+
 _ROUTING_REVIEW_PATH = ReviewPath(
     will_review=_stamphog_will_review,
     schedule_safety_net=_schedule_routing_safety_net,
     finished_outcome=_finished_review_outcome,
     has_review=_has_review_of_head,
+    review_mode_admits=_review_mode_admits,
+    mark_external_review=_mark_external_review,
+    external_review_reported=_external_review_reported,
 )
 
 
@@ -2172,7 +2129,7 @@ def route_pull_request_reviewers(self: Task, payload: dict[str, Any], delivery_i
 
 @shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
 def route_reviewers_after_verdict(
-    self: Task, team_id: int, repo_config_id: str, pr_number: int, head_sha: str, outcome: str
+    self: Task, team_id: int, repo_config_id: str, pr_number: int, head_sha: str, outcome: str, silent: bool = False
 ) -> None:
     """Route a FALLBACK pull request once stamphog's review of ``head_sha`` ended.
 
@@ -2188,6 +2145,7 @@ def route_reviewers_after_verdict(
             pr_number=pr_number,
             head_sha=head_sha,
             outcome=outcome,
+            silent=silent,
             task_id=self.request.id or "",
             review_path=_ROUTING_REVIEW_PATH,
         ),
@@ -2216,16 +2174,8 @@ def route_reviewers_safety_net(self: Task, team_id: int, repo_config_id: str, pr
 
 
 def _route_after_external_review(team_id: int, repository: str, pr_number: int, head_sha: str, task_id: str) -> None:
-    # Writer-pinned like every read that gates a GitHub write. Routing runs for a disabled repo too, so
-    # this reads any config bound to an installation.
-    repo_config = (
-        StamphogRepoConfig.objects.for_team(resolve_effective_team_id(team_id))
-        .using(router.db_for_write(StamphogRepoConfig))
-        .filter(provider="github", repository__iexact=repository)
-        .exclude(installation_id="")
-        .order_by("created_at", "id")
-        .first()
-    )
+    # A disabled repo has no config here. Its heads never wait for a silent review, so nothing is lost.
+    repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
     if repo_config is None:
         return
     route_after_external_review(
@@ -2249,7 +2199,13 @@ def route_reviewers_after_external_review(
 
 
 def queue_routing_after_verdict(
-    repo_config: StamphogRepoConfig, *, pr_number: int, head_sha: str, status: ReviewRunStatus, verdict: ReviewVerdict
+    repo_config: StamphogRepoConfig,
+    *,
+    pr_number: int,
+    head_sha: str,
+    status: ReviewRunStatus,
+    verdict: ReviewVerdict,
+    silent: bool = False,
 ) -> None:
     """Queue FALLBACK routing for a finished review. Never raises, because the outcome is already saved."""
     # The loaded config is enough to skip the queue for other modes. The task reads the mode again.
@@ -2262,6 +2218,7 @@ def queue_routing_after_verdict(
             pr_number=pr_number,
             head_sha=head_sha,
             outcome=verdict_outcome(status, verdict),
+            silent=silent,
         )
     except Exception:
         logger.exception("stamphog_reviewer_routing_queue_failed", pr_number=pr_number)
@@ -2282,3 +2239,79 @@ def queue_routing_after_external_review(*, team_id: int, repository: str, pr_num
         )
     except Exception:
         logger.exception("stamphog_reviewer_routing_queue_failed", pr_number=pr_number)
+
+
+# Outcomes of `_queue_silent_review_at_head` that are not a gate refusal of the pull request.
+_SILENT_REVIEW_NOT_REFUSED = frozenset({"switch_off", "stale_snapshot", "queued", "already_covered"})
+
+
+def _queue_silent_review_at_head(repo_config: StamphogRepoConfig, pr_number: int, head_sha: str) -> str:
+    """Queue a silent review of ``head_sha``, or return why not. The returned outcome is for the log.
+
+    Every webhook gate but the review mode runs again here, against the PR as GitHub reports it
+    now. A refusal writes nothing to GitHub: no review starts, so no approval is left or removed.
+    """
+    if not repo_config.review_on_clean_external_review:
+        return "switch_off"
+    current = _check_current_pr(repo_config, pr_number, head_sha)
+    if current.refusal is not None:
+        return current.refusal
+    queued = _queue_review_at_head(
+        repo_config, current.pr, head_sha, output={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value}
+    )
+    if queued.run is None:
+        return "stale_snapshot"
+    return "queued" if queued.created else "already_covered"
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_REREVIEW_MAX_RETRIES)
+def silent_review_after_clean_external_review(
+    self: Task, team_id: int, repository: str, pr_number: int, head_sha: str
+) -> None:
+    """Start a silent review of ``head_sha`` because an external reviewer found nothing on it.
+
+    The repo config is read from the writer, because it gates run creation. A GitHub or Temporal
+    error retries with backoff, because no webhook redelivery stands behind this call. A retry is
+    safe: every check runs again, and the head dedupe collapses repeats into one run.
+    """
+    try:
+        repo_config = _reviewable_repo_config(resolve_effective_team_id(team_id), repository)
+        if repo_config is None:
+            logger.info(
+                "stamphog_silent_review_skipped", repository=repository, pr_number=pr_number, outcome="no_config"
+            )
+            return
+        outcome = _queue_silent_review_at_head(repo_config, pr_number, head_sha)
+    except GitHubRateLimitError as e:
+        logger.warning("stamphog_silent_review_rate_limited", repository=repository, pr_number=pr_number)
+        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
+    except Exception as e:
+        logger.exception("stamphog_silent_review_failed", repository=repository, pr_number=pr_number, error=str(e))
+        raise self.retry(exc=e, countdown=_REREVIEW_RETRY_BASE_SECONDS * 2**self.request.retries)
+    if outcome not in _SILENT_REVIEW_NOT_REFUSED:
+        # A FALLBACK head can wait for this silent review, and a refused one gives no verdict.
+        queue_routing_after_external_review(
+            team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha
+        )
+    logger.info(
+        "stamphog_silent_review_requested",
+        repository=repository,
+        pr_number=pr_number,
+        head_sha=head_sha,
+        outcome=outcome,
+        team_id=team_id,
+    )
+
+
+def queue_silent_review(*, team_id: int, repository: str, pr_number: int, head_sha: str) -> None:
+    """Queue a silent stamphog review of ``head_sha``, without waiting for it.
+
+    For review_hog, when a Standard review of a PR that opened or was marked ready finished clean.
+    Stamphog decides whether anything happens: the repo's ``review_on_clean_external_review`` switch
+    must be on, and every webhook gate except the review mode must pass for the PR as it is now,
+    with ``head_sha`` still its head. A head that already has a review is left alone. The review posts
+    an approval as usual and keeps every other verdict off the PR. ``team_id`` may be an environment.
+    """
+    silent_review_after_clean_external_review.delay(
+        team_id=team_id, repository=repository, pr_number=pr_number, head_sha=head_sha
+    )

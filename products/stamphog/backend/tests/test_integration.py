@@ -2409,12 +2409,19 @@ def test_silent_review_is_refused_by_every_gate_but_the_review_mode(
             .id
         )
 
-    with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as start:
+    with (
+        patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as start,
+        patch("products.stamphog.backend.tasks.tasks.route_reviewers_after_external_review.delay") as route,
+    ):
         silent_review_after_clean_external_review(team_id=team.id, repository=REPO, pr_number=161, head_sha="sha161a")
 
     new_runs = list(ReviewRun.objects.for_team(team.id).exclude(id__in=existing_ids))
     assert len(new_runs) == int(expect_new_run)
     assert start.called is expect_new_run
+    # A gate refusal gives no verdict, so a FALLBACK head that waits for this review must route without one.
+    # A head that has a review, a switch that is off, and a disabled repo leave routing to its usual triggers.
+    refused_by_a_gate = switch_on and enabled and not prior_run and not expect_new_run
+    assert route.called is refused_by_a_gate
     if expect_new_run:
         assert new_runs[0].output == {"review_trigger": "reviewhog_clean"}
     assert recorder.github_writes == []
