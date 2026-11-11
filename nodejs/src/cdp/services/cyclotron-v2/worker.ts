@@ -5,10 +5,9 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
-import type { ValueMatcher } from '~/types'
 
 import { COUNT_WORK_SQL, DEQUEUE_JOBS_SQL, LEGACY_COUNT_WORK_SQL, LEGACY_DEQUEUE_JOBS_SQL } from './due-rows-sql'
-import { assignEmailDequeueSeq, assignFastEmailDequeueSeq, usesFastEmailCounter } from './manager'
+import { EmailSend, batchEmailDequeueSeqs } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -238,7 +237,7 @@ export class CyclotronV2Worker {
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
     private readonly boundedPolls: boolean
-    private readonly fastEmailCounterTeams: ValueMatcher<number>
+    private readonly assignRerouteDequeueSeq: (send: EmailSend) => Promise<string | null>
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = createCyclotronPool('worker', {
@@ -257,7 +256,10 @@ export class CyclotronV2Worker {
         // CyclotronV2Manager), so deriving this from the queue name keeps the
         // worker's ORDER BY in lockstep with where the sort key actually exists.
         this.fairDequeue = config.queueName === 'email'
-        this.fastEmailCounterTeams = buildIntegerMatcher(config.fastEmailCounterTeams, true)
+        this.assignRerouteDequeueSeq = batchEmailDequeueSeqs(
+            this.pool,
+            buildIntegerMatcher(config.fastEmailCounterTeams, true)
+        )
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -396,7 +398,7 @@ export class CyclotronV2Worker {
 
     protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
         const pool = this.pool
-        const fastEmailCounterTeams = this.fastEmailCounterTeams
+        const assignRerouteDequeueSeq = this.assignRerouteDequeueSeq
         const lockId = row.lock_id
         let released = false
 
@@ -511,13 +513,13 @@ export class CyclotronV2Worker {
                 // so existing fair-ordered rows keep their place after retry/
                 // reschedule without bumping the counter.
                 if (options?.queueName === 'email' && row.queue_name !== 'email') {
-                    const dequeueSeq = usesFastEmailCounter(
-                        fastEmailCounterTeams,
-                        row.team_id,
-                        options.priority ?? row.priority
-                    )
-                        ? await assignFastEmailDequeueSeq(pool, row.team_id)
-                        : await assignEmailDequeueSeq(pool, row.team_id)
+                    const dequeueSeq = await assignRerouteDequeueSeq({
+                        teamId: row.team_id,
+                        priority: options.priority ?? row.priority,
+                    })
+                    if (dequeueSeq === null) {
+                        throw new Error(`No email counter for team ${row.team_id} after bumping it`)
+                    }
                     params.push(dequeueSeq)
                     setClauses.push(`dequeue_seq = $${params.length}`)
                 }

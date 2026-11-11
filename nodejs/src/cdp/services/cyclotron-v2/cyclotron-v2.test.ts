@@ -12,7 +12,7 @@ import {
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
+import { CyclotronV2Manager } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -2227,9 +2227,11 @@ describe('Cyclotron V2', () => {
                     },
                 ],
                 [
-                    'assignEmailDequeueSeq (reschedule into email)',
+                    'a reroute into the email queue',
                     async (teamId: number): Promise<void> => {
-                        await assignEmailDequeueSeq(assertPool, teamId)
+                        await manager.createJob({ teamId, queueName: 'hog' })
+                        const [hogJob] = await dequeueOneBatch(createWorker('hog'))
+                        await hogJob.reschedule({ queueName: EMAIL_QUEUE })
                     },
                 ],
             ])(
@@ -2669,6 +2671,58 @@ describe('Cyclotron V2', () => {
                         } finally {
                             await holder.query('ROLLBACK')
                             holder.release()
+                        }
+                    }
+                )
+
+                it.each([
+                    ['bulk', 'cyclotron_email_team_seq', BULK],
+                    ['fast', 'cyclotron_email_team_seq_fast', FAST],
+                ])(
+                    "writes the team's %s counter row once for a batch of reroutes into the email queue",
+                    async (_class, counterTable, priority) => {
+                        const seedingManager = priority === FAST ? createFastCounterManager() : manager
+                        await seedingManager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority }])
+                        if (seedingManager !== manager) {
+                            await seedingManager.disconnect()
+                        }
+                        const reroutes = 5
+                        await manager.bulkCreateJobs(
+                            Array.from({ length: reroutes }, () => ({ teamId, queueName: 'hogflow', priority: BULK }))
+                        )
+                        const hogflowJobs = await dequeueOneBatch(
+                            createWorker('hogflow', { fastEmailCounterTeams: String(teamId) })
+                        )
+                        expect(hogflowJobs).toHaveLength(reroutes)
+
+                        await assertPool.query('CREATE TABLE test_counter_row_writes (team_id int)')
+                        await assertPool.query(
+                            `CREATE FUNCTION test_record_counter_row_write() RETURNS trigger LANGUAGE plpgsql AS $$
+                             BEGIN INSERT INTO test_counter_row_writes VALUES (NEW.team_id); RETURN NEW; END $$`
+                        )
+                        await assertPool.query(
+                            `CREATE TRIGGER test_record_counter_row_write AFTER UPDATE ON ${counterTable}
+                             FOR EACH ROW EXECUTE FUNCTION test_record_counter_row_write()`
+                        )
+                        try {
+                            await Promise.all(
+                                hogflowJobs.map((job) => job.reschedule({ queueName: EMAIL_QUEUE, priority }))
+                            )
+
+                            const writes = await assertPool.query<{ n: number }>(
+                                'SELECT count(*)::int AS n FROM test_counter_row_writes WHERE team_id = $1',
+                                [teamId]
+                            )
+                            expect(writes.rows[0].n).toBe(1)
+                            const seqs = await assertPool.query(
+                                'SELECT DISTINCT dequeue_seq FROM cyclotron_jobs WHERE id = ANY($1)',
+                                [hogflowJobs.map((job) => job.id)]
+                            )
+                            expect(seqs.rows).toHaveLength(reroutes)
+                        } finally {
+                            await assertPool.query(`DROP TRIGGER test_record_counter_row_write ON ${counterTable}`)
+                            await assertPool.query('DROP FUNCTION test_record_counter_row_write()')
+                            await assertPool.query('DROP TABLE test_counter_row_writes')
                         }
                     }
                 )
