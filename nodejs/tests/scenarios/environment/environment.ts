@@ -181,7 +181,7 @@ export function createEnvironment({
         const exitsBefore = recorded.length
         const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
         if (plan.strangers.length > 0) {
-            throw strangerConflict(plan.strangers)
+            throw await strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
         await startStack(hogli, stateDir, env)

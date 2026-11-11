@@ -198,8 +198,8 @@ describe('scenario environment', () => {
         })
     })
 
-    it('names the stop command for every stranger', () => {
-        const error = strangerConflict([
+    it('names the stop command for every stranger', async () => {
+        const error = await strangerConflict([
             proc(41, 41, 'bash ./bin/posthog-node', PLAIN_ENV, REPO),
             proc(42, 41, 'node src/index.ts', PLAIN_ENV),
         ])
@@ -208,16 +208,42 @@ describe('scenario environment', () => {
         expect(error.message).toContain('Run `kill 41 42`, then run the scenario again.')
     })
 
-    it('names the runner to stop, not its roles, when another runner marked them', () => {
-        const error = strangerConflict([
-            proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
-            proc(211, 210, 'node src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
-        ])
+    describe('roles another runner marked', () => {
+        const rolesOf = (stateDir: string): ProcEntry[] => {
+            const environ = ['PATH=/usr/bin', `SCENARIO_RUNNER=${stateDir}`]
+            return [
+                proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', environ, OTHER_CHECKOUT),
+                proc(211, 210, 'node src/index.ts', environ, OTHER_CHECKOUT),
+            ]
+        }
 
-        expect(error).toMatchObject({ exitCode: 2 })
-        expect(error.message).toBe(
-            'Roles of the scenario runner that uses /home/other/.cache/posthog-scenarios are running: 210 (sh node_modules/.bin/tsx src/index.ts), 211 (node src/index.ts). That runner restarts roles that are killed, so stop it, then run the scenario again.'
-        )
+        it('names the runner to stop, not its roles, while that runner holds its state dir', async () => {
+            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+            const release = await holdRunLock(stateDir)
+            try {
+                const error = await strangerConflict(rolesOf(stateDir))
+
+                expect(error).toMatchObject({ exitCode: 2 })
+                expect(error.message).toBe(
+                    `Roles of scenario runner ${process.pid}, which uses ${stateDir}, are running: 210 (sh node_modules/.bin/tsx src/index.ts), 211 (node src/index.ts). That runner restarts roles that are killed, so run \`kill ${process.pid}\`, then run the scenario again.`
+                )
+            } finally {
+                await release()
+            }
+        })
+
+        it('names the kill command for its roles once no runner holds its state dir', async () => {
+            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+
+            const error = await strangerConflict([
+                ...rolesOf(stateDir),
+                proc(41, 41, 'bash ./bin/posthog-node', PLAIN_ENV, REPO),
+            ])
+
+            expect(error.message).toBe(
+                'CDP processes the scenario runner did not start are running: 210 (sh node_modules/.bin/tsx src/index.ts), 211 (node src/index.ts), 41 (bash ./bin/posthog-node). Use `hogli down` if hogli started them. Run `kill 210 211 41`, then run the scenario again.'
+            )
+        })
     })
 
     describe('roleSpecs', () => {
