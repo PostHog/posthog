@@ -5,6 +5,8 @@ import pytest
 from parameterized import parameterized
 from syrupy.extensions.json import JSONSnapshotExtension
 
+from posthog.llm.gateway_client import Product
+
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.facade.model_catalogue import FREE_TIER_PIN_KEY, available_model_choices, plan_model_choices
@@ -215,7 +217,9 @@ class TestAvailableModelChoices:
             ("slack_app", "claude-opus-5-5", True),
         ]
     )
-    def test_offers_the_offered_models_the_product_pin_admits(self, product: str, model: str, offered: bool) -> None:
+    def test_offers_the_offered_models_the_product_pin_admits(
+        self, product: Product, model: str, offered: bool
+    ) -> None:
         assert (model in {c.model for c in available_model_choices(product)}) is offered
 
     def test_every_offered_model_carries_a_context_window(self) -> None:
