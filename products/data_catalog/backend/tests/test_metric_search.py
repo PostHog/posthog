@@ -297,7 +297,7 @@ class TestMetricListSearch(APIBaseTest):
         ]
     )
     def test_search_keeps_the_list_filters(
-        self, _name: str, filters: dict[str, str], expected: list[str], _flag: MagicMock
+        self, _flag: MagicMock, _name: str, filters: dict[str, str], expected: list[str]
     ) -> None:
         with team_scope(self.team.id):
             Metric.objects.for_team(self.team.id).create(
