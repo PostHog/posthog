@@ -65,7 +65,7 @@ describe('ImplementButton', () => {
         inboxTaskKickoffLogic.mount()
         createPrFromReport = jest.fn()
         jest.spyOn(inboxTaskKickoffLogic.actions, 'createPrFromReport').mockImplementation(createPrFromReport)
-        jest.mocked(captureInboxReportAction).mockClear()
+        jest.mocked(captureInboxReportAction).mockReset()
         jest.mocked(copyToClipboard).mockClear()
     })
 
@@ -85,7 +85,7 @@ describe('ImplementButton', () => {
     it('starts a PostHog agent from the main button without opening the options', async () => {
         const user = userEvent.setup()
         const capture = jest.spyOn(posthog, 'capture')
-        jest.mocked(captureInboxReportAction).mockImplementationOnce(
+        jest.mocked(captureInboxReportAction).mockImplementation(
             jest.requireActual('../../inboxAnalytics').captureInboxReportAction
         )
         render(<ImplementButton report={makeReport()} />)
@@ -96,16 +96,20 @@ describe('ImplementButton', () => {
         await waitFor(() =>
             expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
         )
-        expect(capture).toHaveBeenCalledWith(
-            'Inbox report action',
-            expect.objectContaining({
-                action_type: 'implementation_button_clicked',
-                surface: 'detail_pane',
-                button_action: 'implement',
-                button_position: 'body',
-            }),
-            undefined
-        )
+        expect(
+            capture.mock.calls.filter(([, properties]) => properties?.action_type === 'implementation_button_clicked')
+        ).toEqual([
+            [
+                'Inbox report action',
+                expect.objectContaining({
+                    action_type: 'implementation_button_clicked',
+                    surface: 'detail_pane',
+                    button_action: 'implement',
+                    button_position: 'body',
+                }),
+                undefined,
+            ],
+        ])
         expect(
             jest.mocked(captureInboxReportAction).mock.calls.find(([event]) => event.actionType === 'create_pr')?.[0]
                 .extra
@@ -136,7 +140,10 @@ describe('ImplementButton', () => {
         await waitFor(() =>
             expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
         )
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+        expect(
+            jest.mocked(captureInboxReportAction).mock.calls.find(([event]) => event.actionType === 'create_pr')?.[0]
+                .extra
+        ).toEqual({
             has_feedback: false,
             claim_step: 'start',
             opened_from_link: true,
@@ -357,6 +364,10 @@ describe('ImplementButton', () => {
         ],
         ['Enter', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Enter}')],
     ])('passes steering instructions with %s', async (_method, submit) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        jest.mocked(captureInboxReportAction).mockImplementation(
+            jest.requireActual('../../inboxAnalytics').captureInboxReportAction
+        )
         const user = await openMenu()
 
         await user.type(
@@ -371,7 +382,24 @@ describe('ImplementButton', () => {
                 'Keep the existing API'
             )
         )
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+        expect(
+            capture.mock.calls.filter(([, properties]) => properties?.action_type === 'implementation_button_clicked')
+        ).toEqual([
+            [
+                'Inbox report action',
+                expect.objectContaining({
+                    action_type: 'implementation_button_clicked',
+                    surface: 'detail_pane',
+                    button_action: 'implement',
+                    button_position: 'body',
+                }),
+                undefined,
+            ],
+        ])
+        expect(
+            jest.mocked(captureInboxReportAction).mock.calls.find(([event]) => event.actionType === 'create_pr')?.[0]
+                .extra
+        ).toEqual({
             has_feedback: true,
             claim_step: 'start',
             opened_from_link: false,

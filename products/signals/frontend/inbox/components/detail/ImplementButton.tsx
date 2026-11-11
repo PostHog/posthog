@@ -66,6 +66,15 @@ export function ImplementButton({
         (isDiscussing ? 'Wait for the discussion task to start.' : undefined) ??
         implementationDisabledReason
 
+    const captureButtonClick = (buttonAction: 'implement' | 'view_task'): void => {
+        captureInboxReportAction({
+            report,
+            actionType: 'implementation_button_clicked',
+            surface,
+            extra: { button_action: buttonAction, button_position: position },
+        })
+    }
+
     const submit = (note: string): void => {
         if (isCreatingPr || isDiscussing || implementationDisabledReason) {
             return
@@ -74,6 +83,7 @@ export function ImplementButton({
             lemonToast.error(createPrDisabledReason)
             return
         }
+        captureButtonClick('implement')
         if (repairNeeded) {
             setChoicesOpen(false)
             setConnectionOpen(true)
@@ -99,15 +109,6 @@ export function ImplementButton({
             extra: { agent: agentKey },
         })
         run(prompt)
-    }
-
-    const captureButtonClick = (buttonAction: 'implement' | 'view_task'): void => {
-        captureInboxReportAction({
-            report,
-            actionType: 'implementation_button_clicked',
-            surface,
-            extra: { button_action: buttonAction, button_position: position },
-        })
     }
 
     if (reportTaskToOpen?.task.latest_run) {
@@ -139,10 +140,7 @@ export function ImplementButton({
                 size="small"
                 className="[--lemon-button-hover-depth:0px]"
                 icon={<IconPullRequest />}
-                onClick={() => {
-                    captureButtonClick('implement')
-                    submit(instructions)
-                }}
+                onClick={() => submit(instructions)}
                 loading={isCreatingPr}
                 disabledReason={disabledReason}
                 tooltip="Start a PostHog agent to implement this report"
