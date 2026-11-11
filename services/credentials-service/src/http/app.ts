@@ -89,15 +89,31 @@ export function createApp(opts: AppOptions): Hono {
     const integrations = opts.integrations
     if (integrations) {
         let routes: { deps: IntegrationDeps; app: ReturnType<typeof createIntegrationRoutes> } | undefined
-        // `mount` strips the prefix, so the routes keep their own paths.
-        app.mount('/v1/integrations', async (request) => {
-            const deps = typeof integrations === 'function' ? integrations() : integrations
-            if (!deps) {
-                return new Response('404 Not Found', { status: 404 })
-            }
-            const current = routes?.deps === deps ? routes : (routes = { deps, app: createIntegrationRoutes(deps) })
-            return current.app.fetch(request)
-        })
+        // `mount` strips the prefix, so the routes keep their own paths. The default request
+        // copy passes the Node server request as `RequestInit`, which Node 26 rejects.
+        const stripPrefix = (request: Request): Request => {
+            const url = new URL(request.url)
+            url.pathname = url.pathname.slice('/v1/integrations'.length) || '/'
+            const hasBody = request.method !== 'GET' && request.method !== 'HEAD'
+            return new Request(url, {
+                method: request.method,
+                headers: request.headers,
+                body: hasBody ? request.body : null,
+                duplex: 'half',
+            } as RequestInit)
+        }
+        app.mount(
+            '/v1/integrations',
+            async (request) => {
+                const deps = typeof integrations === 'function' ? integrations() : integrations
+                if (!deps) {
+                    return new Response('404 Not Found', { status: 404 })
+                }
+                const current = routes?.deps === deps ? routes : (routes = { deps, app: createIntegrationRoutes(deps) })
+                return current.app.fetch(request)
+            },
+            { replaceRequest: stripPrefix }
+        )
     }
 
     return app
