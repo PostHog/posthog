@@ -191,7 +191,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     const wasInTree = isTreeItemLoaded('message_template', template.id)
-                    await deleteTemplateWithUndo({
+                    const deleted = await deleteTemplateWithUndo({
                         teamId: values.currentTeamIdStrict,
                         template,
                         callback: (undo) => {
@@ -205,7 +205,9 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                             }
                         },
                     })
-                    return values.templates.filter((t: MessageTemplate) => t.id !== template.id)
+                    return deleted
+                        ? values.templates.filter((t: MessageTemplate) => t.id !== template.id)
+                        : values.templates
                 },
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {

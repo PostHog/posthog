@@ -152,4 +152,30 @@ describe('messageTemplatesLogic', () => {
         toast.mockRestore()
         projectTreeDataLogic.unmount()
     })
+
+    it('keeps a template when the lookup of its folder fails, so an undo cannot lose its placement', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        let deleted = false
+        useMocks({
+            get: {
+                '/api/environments/:team_id/file_system/': () => [500, { detail: 'Server error' }],
+            },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    deleted = ((await request.json()) as { deleted: boolean }).deleted
+                    return [200, template('a', 'Welcome', [])]
+                },
+            },
+        })
+        const error = jest.spyOn(lemonToast, 'error')
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteTemplate(template('a', 'Welcome', []))
+        }).toFinishAllListeners()
+
+        expect(deleted).toBe(false)
+        expect(logic.values.templates.map((t) => t.id)).toEqual(['a', 'b', 'c'])
+        expect(error).toHaveBeenCalled()
+        error.mockRestore()
+    })
 })
