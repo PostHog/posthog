@@ -386,6 +386,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     sdk_health: {
         icon: <IconCode />,
+        iconColor: ['var(--color-product-sdk-health-light)', 'var(--color-product-sdk-health-dark)'],
     },
     pipeline_status: {
         icon: <IconDatabase />,
@@ -429,12 +430,15 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     stamphog: {
         icon: <IconStamphog />,
+        iconColor: ['var(--color-product-stamphog-light)', 'var(--color-product-stamphog-dark)'],
     },
     uptime_monitoring: {
         icon: <IconSignal />,
+        iconColor: ['var(--color-product-uptime-monitoring-light)', 'var(--color-product-uptime-monitoring-dark)'],
     },
     exports: {
         icon: <IconDownload />,
+        iconColor: ['var(--color-product-exports-light)', 'var(--color-product-exports-dark)'],
     },
     pulse: {
         icon: <IconPulse />,
