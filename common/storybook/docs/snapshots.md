@@ -22,7 +22,7 @@ Set them in `parameters.testOptions` on the meta or on a story. A story's keys m
 The runner counts these as loaders: `.Spinner`, `.quill-spinner`, `.LemonSkeleton`, `.LemonTableLoader`, `.Toastify__toast`, `[aria-busy="true"]`, `.SessionRecordingPlayer--buffering`, `.Lettermark--unknown` and `[data-attr="loading-bar"]`.
 
 - A toast counts as a loader. A story that leaves a toast on screen times out.
-- The loader wait checks only the first element that matches. When a story shows more than one loader, wait for content that renders after the last one.
+- The loader wait holds until no loader on the page is visible. On a timeout, the error lists the loaders that still show.
 - `waitForSelector` waits for existence. Pick an element that exists only after the async work is done, such as a row from the mocked data, not a container that renders before the data.
 - For Monaco, wait for `.CodeEditor[data-editor-ready="true"]`. `.monaco-editor` also matches a root that Monaco adds to `<body>` before any editor mounts.
 - A story that shows a loading state on purpose sets `waitForLoadersToDisappear: false` and waits for the loader with `waitForSelector`.
@@ -62,8 +62,8 @@ That gives `my-story-viewports--medium--light` and so on. `frontend/src/scenes/d
 
 You don't need to add waits for any of this. Knowing the order helps when a story times out or flakes.
 
-1. It loads the story and waits for `load`. In CI it also waits for network idle.
-2. The `storybook-test-runner` body class turns off transitions and animations, pins the end state of a few animations, and hides scrollbars and decorative overlays. A component opts in to more with `.storybook-test-runner &` in its styles.
+1. Before the story renders, it sets the `storybook-test-runner` body class and the class for the story's layout. The body class turns off transitions and animations, pins the end state of a few animations, and hides scrollbars and decorative overlays. A component opts in to more with `.storybook-test-runner &` in its styles. The story renders without scrollbars from the start, because Chromium can keep a scroll container's old height when scrollbars are hidden after layout.
+2. It renders the story and waits for `load`. In CI it also waits for network idle.
 3. It makes hidden `content-visibility` content visible, fires a resize, and waits 300 ms for resize observers.
 4. It runs the loader wait and `waitForSelector`.
 5. For each theme, it sets `body[theme]` and the color scheme, then:
@@ -74,6 +74,7 @@ You don't need to add waits for any of this. Knowing the order helps when a stor
    - waits 1 more second;
    - waits until no quill chart canvas is still painting.
 6. It captures the target. A component snapshot grows to include a popover or a tooltip that overflows the root.
+7. It waits 100 ms, waits for chart paint and animations again, and captures again. It keeps the capture when two in a row match. After four captures it keeps the last one and logs the story as still changing.
 
 An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, so a shared dashboard or embed never loads the real app inside the story.
 
