@@ -415,6 +415,7 @@ From step 7 on, the stale-approval rule covers such a run too.
 A run created in `yaml` mode has no ledger record, and `ledger` mode refuses to finalize it. Re-run CI on the commit and approve the new run.
 
 To go back from `ledger` to `shadow`, commit the output of `export` to the default branch first, then `mode --set shadow`. Leave the ruleset as it is. An approval made in `ledger` mode left no commit on its branch, so the next run of that pull request shows the change again.
+A pull request that merges on such an approval puts the change in the ledger and not in the baseline file, so run `export` and commit its output again once those pull requests have merged.
 To go on to `yaml`, every open pull request first needs a run created after the switch back to `shadow`.
 A run created in `ledger` mode has `gate = commit_status`, so its CI job passed on the status alone, and nothing holds its pull request once the statuses are no longer required.
 A new push or a re-run of the workflow creates a run with `gate = ci_job`. `status` lists the pull requests that still need one.
