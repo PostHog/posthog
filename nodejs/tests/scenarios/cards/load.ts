@@ -139,14 +139,7 @@ function checkSuppression(card: Card): string[] {
     )
 }
 
-function checkProfile(
-    card: Card,
-    profile: Profile,
-    definitions: Definitions,
-    defaults: Record<string, unknown>,
-    config: Settings
-) {
-    const queue = 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
+function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
     return [
@@ -156,9 +149,6 @@ function checkProfile(
         ...(profile.name === card.profile
             ? []
             : [`profile.name: ${profile.name} is not the card profile ${card.profile}`]),
-        ...(config[queue] === true
-            ? [`profile.settings.${queue}: the queued SES feedback branch is not built yet, so it stays false`]
-            : []),
         ...card.drive.traffic.flatMap(({ name }) => {
             const definition = definitions.traffic.find((traffic) => traffic.name === name)
             const traffic = definition?.profile.safeParse(profile.traffic[name])
@@ -200,7 +190,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         ...checkSchedules(card),
         ...checkStallBound(card, config),
         ...checkSuppression(card),
-        ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults, config) : loaded.problems),
+        ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults) : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
         throw new CardError(cardPath, problems)
