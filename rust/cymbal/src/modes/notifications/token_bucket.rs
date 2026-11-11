@@ -11,7 +11,7 @@ use chrono::Utc;
 use common_redis::{CustomRedisError, ScriptRunner};
 use tracing::warn;
 
-use crate::modes::{processing::redis_heal::HealGate, shadow_redis};
+use crate::modes::processing::redis_heal::HealGate;
 
 const SECONDS_PER_HOUR: f64 = 3600.0;
 
@@ -74,7 +74,6 @@ return { 1 }
 
 pub struct TokenBucket {
     redis: Arc<dyn ScriptRunner>,
-    shadow: Option<Arc<dyn ScriptRunner>>,
     key_prefix: String,
     max: f64,
     rate: f64,
@@ -104,18 +103,12 @@ impl TokenBucket {
 
         Self {
             redis,
-            shadow: None,
             key_prefix,
             max: per_hour,
             rate: per_hour / SECONDS_PER_HOUR,
             ttl_seconds: ttl_seconds.max(refill_window_seconds),
             heal_gate: HealGate::new(),
         }
-    }
-
-    pub fn with_shadow(mut self, shadow: Option<Arc<dyn ScriptRunner>>) -> Self {
-        self.shadow = shadow;
-        self
     }
 
     /// Kick a background heal of the bucket's Redis connection, for a caller
@@ -135,21 +128,10 @@ impl TokenBucket {
             self.ttl_seconds.to_string(),
             Utc::now().timestamp().to_string(),
         ];
-        let shadow_args = self.shadow.as_ref().map(|_| args.clone());
         let res = self
             .redis
             .eval_int_vec(CHARGE_SCRIPT, vec![self.key(team_id)], args)
             .await?;
-        if let (Some(shadow), Some(args)) = (&self.shadow, shadow_args) {
-            let shadow = shadow.clone();
-            let healing = shadow.clone();
-            let key = self.key(team_id);
-            shadow_redis::submit(
-                "notifications_charge",
-                async move { shadow.eval_int_vec(CHARGE_SCRIPT, vec![key], args).await },
-                async move { healing.reconnect().await },
-            );
-        }
         Ok(res.first().copied().unwrap_or(0) > 0)
     }
 
@@ -158,20 +140,9 @@ impl TokenBucket {
     /// one.
     pub async fn refund(&self, team_id: i32) -> Result<(), CustomRedisError> {
         let args = vec![self.max.to_string(), self.ttl_seconds.to_string()];
-        let shadow_args = self.shadow.as_ref().map(|_| args.clone());
         self.redis
             .eval_int_vec(REFUND_SCRIPT, vec![self.key(team_id)], args)
             .await?;
-        if let (Some(shadow), Some(args)) = (&self.shadow, shadow_args) {
-            let shadow = shadow.clone();
-            let healing = shadow.clone();
-            let key = self.key(team_id);
-            shadow_redis::submit(
-                "notifications_refund",
-                async move { shadow.eval_int_vec(REFUND_SCRIPT, vec![key], args).await },
-                async move { healing.reconnect().await },
-            );
-        }
         Ok(())
     }
 
@@ -191,30 +162,6 @@ mod tests {
     use super::*;
     use crate::test_support::{start_redis, FakeRunner};
     use common_redis::RedisClient;
-
-    #[tokio::test]
-    async fn shadow_failure_does_not_change_charge_or_refund() {
-        shadow_redis::with_test_circuit(async {
-            let shadow = FakeRunner::failing();
-            let primary = FakeRunner::returning(vec![1]);
-            let bucket = TokenBucket::per_hour(primary.clone(), "test".into(), 1.0, 3600)
-                .with_shadow(Some(shadow.clone()));
-            assert!(bucket.charge(42).await.unwrap());
-            bucket.refund(42).await.unwrap();
-            tokio::time::timeout(std::time::Duration::from_secs(1), async {
-                while shadow.call_count() == 0 {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .unwrap();
-            let primary_calls = primary.requests();
-            let shadow_calls = shadow.requests();
-            assert_eq!(primary_calls.len(), 2);
-            assert!(shadow_calls.iter().all(|call| primary_calls.contains(call)));
-        })
-        .await;
-    }
 
     fn bucket(client: Arc<RedisClient>, prefix: &str, per_hour: f64) -> TokenBucket {
         TokenBucket::per_hour(client, prefix.to_string(), per_hour, 3600)

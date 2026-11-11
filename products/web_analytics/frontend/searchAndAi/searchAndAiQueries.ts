@@ -38,7 +38,7 @@ export const AI_VIEW = `${HUMAN_VIEW} AND session.$channel_type = 'AI'`
 export const CRAWLER =
     "`$virt_is_bot` = true AND `$virt_bot_name` != '' AND `$virt_traffic_category` IN ('ai_crawler', 'ai_assistant', 'ai_search')"
 
-const AI_CHANNEL_FILTER: WebAnalyticsPropertyFilters[number] = {
+export const AI_CHANNEL_FILTER: WebAnalyticsPropertyFilters[number] = {
     key: '$channel_type',
     value: ['AI'],
     operator: PropertyOperator.Exact,
@@ -290,14 +290,13 @@ export const buildTrendTile = (
 
 export const buildAiReferralTrendQuery = (
     filters: SearchAndAiTileFilters,
-    breakdownFilter: BreakdownFilter | undefined
+    breakdownFilter: BreakdownFilter | undefined,
+    math: BaseMathType.UniqueSessions | BaseMathType.UniqueUsers = BaseMathType.UniqueSessions
 ): InsightVizNode =>
     buildTrendTile(
         { ...filters, properties: [AI_CHANNEL_FILTER, ...filters.properties] },
         {
-            series: [
-                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview', math: BaseMathType.UniqueSessions },
-            ],
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview', math }],
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph, showLegend: true },
             breakdownFilter,
         }

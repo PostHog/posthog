@@ -972,6 +972,44 @@ const inboxReportsRetrieve = (): ToolBase<
     },
 })
 
+const InboxReportsSearchSchema = () => {
+    const SignalsReportsSearchQueryParams = orvalSchemas.SignalsReportsSearchQueryParams()
+    return SignalsReportsSearchQueryParams
+}
+
+const inboxReportsSearch = (): ToolBase<
+    ReturnType<typeof InboxReportsSearchSchema>,
+    WithPostHogUrl<Schemas.SignalReportSearchResponse>
+> => ({
+    name: 'inbox-reports-search',
+    schema: InboxReportsSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReportSearchResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/search/`,
+            query: {
+                created_after: params.created_after,
+                include_unlisted: params.include_unlisted,
+                limit: params.limit,
+                query: params.query,
+                search_mode: params.search_mode,
+                status: params.status,
+            },
+        })
+        return await withPostHogUrl(
+            context,
+            {
+                ...result,
+                results: await Promise.all(
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
+                ),
+            },
+            '/inbox'
+        )
+    },
+})
+
 const InboxReportsSetStateSchema = () => {
     const SignalsReportsStateCreateBody = orvalSchemas.SignalsReportsStateCreateBody()
     const SignalsReportsStateCreateParams = orvalSchemas.SignalsReportsStateCreateParams()
@@ -1387,6 +1425,7 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         autostart_enabled: true,
         default_autostart_priority: true,
         default_slack_notification_channel: true,
+        default_slack_notification_min_priority: true,
         default_slack_notification_integration: true,
         autostart_base_branches: true,
         issue_tracking_integration: true,
@@ -1852,6 +1891,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         }
         if (params.source_issues !== undefined) {
             body['source_issues'] = params.source_issues
+        }
+        if (params.pull_requests !== undefined) {
+            body['pull_requests'] = params.pull_requests
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -3350,6 +3392,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.source_issues !== undefined) {
             body['source_issues'] = params.source_issues
         }
+        if (params.pull_requests !== undefined) {
+            body['pull_requests'] = params.pull_requests
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -3824,6 +3869,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
     'inbox-reports-retrieve': inboxReportsRetrieve,
+    'inbox-reports-search': inboxReportsSearch,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,
     'inbox-reviewer-exclusions-create': inboxReviewerExclusionsCreate,

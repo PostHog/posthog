@@ -21,6 +21,7 @@ resulting credential on a ``UserIntegration(kind="slack")`` row in symmetry
 with the GitHub personal integration.
 """
 
+from dataclasses import field
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -36,6 +37,7 @@ from slack_sdk.errors import SlackApiError, SlackClientError
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.instance_settings import get_many_or_instance_settings
+from posthog.dataclasses import frozen
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -52,6 +54,25 @@ def _slack_links(*, slack_user_id: str, slack_team_id: str) -> QuerySet[UserInte
         config__slack_team_id=slack_team_id,
         user__is_active=True,
     ).order_by("-created_at")
+
+
+def granted_user_scopes(user_scopes: str) -> frozenset[str]:
+    return frozenset(user_scopes.replace(",", " ").split())
+
+
+@frozen
+class LinkedUserToken:
+    access_token: str = field(repr=False)
+    scopes: frozenset[str]
+
+
+def linked_user_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
+    """The user token of the most recent link, with the scopes Slack granted it."""
+    link = _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).first()
+    token = (link.sensitive_config or {}).get("user_access_token") if link else None
+    if link is None or not token:
+        return None
+    return LinkedUserToken(access_token=token, scopes=granted_user_scopes(str((link.config or {}).get("scope") or "")))
 
 
 def linked_posthog_user_ids(*, slack_user_id: str, slack_team_id: str) -> list[int]:
@@ -448,10 +469,6 @@ def _exchange_user_scopes_code(*, code: str, redirect_uri: str, client_id: str, 
         # oauth.v2 lists scopes with commas. The OIDC link stores them with spaces, so one parser reads both.
         user_scopes=" ".join(scope for scope in str(authed_user.get("scope") or "").split(",") if scope),
     )
-
-
-def granted_user_scopes(user_scopes: str) -> frozenset[str]:
-    return frozenset(user_scopes.replace(",", " ").split())
 
 
 # ---------------------------------------------------------------------------

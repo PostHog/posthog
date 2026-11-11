@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
@@ -30,6 +30,16 @@ class SkyvernEndpointConfig:
     # Fan out over every workflow: enumerate workflows via /v1/agents, then pull each workflow's runs
     # from /v1/agents/{workflow_permanent_id}/runs (the only run endpoint with a created_at filter).
     fan_out_over_workflows: bool = False
+    # Fan out over every run of every workflow (workflows -> runs -> this endpoint). The chain saves no
+    # resume state, so a retried sync starts again from the first workflow.
+    fan_out_over_runs: bool = False
+    # Whether the fan-out child endpoint takes page/page_size. Unpaginated children return everything in
+    # one response.
+    child_paginated: bool = True
+    # Copy the parent workflow's workflow_permanent_id onto each child row, for children whose rows do
+    # not carry it.
+    include_workflow_permanent_id: bool = False
+    sort_mode: Optional[Literal["asc", "desc"]] = "desc"
     # Extra query params merged into every request for this endpoint.
     extra_params: dict[str, str] = field(default_factory=dict)
 
@@ -91,6 +101,52 @@ SKYVERN_ENDPOINTS: dict[str, SkyvernEndpointConfig] = {
         path="/v1/credentials",
         primary_keys=["credential_id"],
         incremental_fields=[],
+    ),
+    "folders": SkyvernEndpointConfig(
+        name="folders",
+        path="/v1/folders",
+        primary_keys=["folder_id"],
+        partition_key="created_at",
+        incremental_fields=[],
+    ),
+    # Current tag state per workflow. The response wraps the rows ({"workflow_permanent_id", "tags"}),
+    # and a standalone label has a null key, so the key is workflow + key + value.
+    "workflow_tags": SkyvernEndpointConfig(
+        name="workflow_tags",
+        path="/v1/agents/{workflow_permanent_id}/tags",
+        data_key="tags",
+        primary_keys=["workflow_permanent_id", "key", "value"],
+        fan_out_over_workflows=True,
+        child_paginated=False,
+        include_workflow_permanent_id=True,
+        incremental_fields=[],
+    ),
+    # Every saved version of every workflow. workflow_id identifies one version.
+    "workflow_versions": SkyvernEndpointConfig(
+        name="workflow_versions",
+        path="/v1/agents/{workflow_permanent_id}/versions",
+        primary_keys=["workflow_id"],
+        partition_key="created_at",
+        fan_out_over_workflows=True,
+        child_paginated=False,
+        incremental_fields=[],
+    ),
+    # Block and thought entries of each run, flattened from the nested timeline tree. One request per
+    # run, so it is off by default. Incremental syncs bound the runs with created_at_start, like `runs`.
+    "run_timeline": SkyvernEndpointConfig(
+        name="run_timeline",
+        path="/v1/runs/{workflow_run_id}/timeline",
+        primary_keys=["workflow_run_id", "timeline_entry_id"],
+        partition_key="created_at",
+        should_sync_default=False,
+        supports_incremental=True,
+        default_incremental_field="created_at",
+        incremental_lookback=timedelta(days=3),
+        fan_out_over_runs=True,
+        child_paginated=False,
+        # Entries of different runs arrive in no global created_at order.
+        sort_mode=None,
+        incremental_fields=[_CREATED_AT_FIELD],
     ),
 }
 

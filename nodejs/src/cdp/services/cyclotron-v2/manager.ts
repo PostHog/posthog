@@ -8,6 +8,8 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
+import { QUEUE_DEPTH_SQL } from './due-rows-sql'
+import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -153,7 +155,7 @@ export class CyclotronV2Manager {
     }
 
     constructor(config: CyclotronV2ManagerConfig) {
-        this.pool = new Pool({
+        this.pool = createCyclotronPool('manager', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
@@ -790,10 +792,7 @@ export class CyclotronV2Manager {
 
     private async queryDepth(): Promise<boolean> {
         try {
-            const result = await this.pool.query(
-                `SELECT COUNT(*) AS count FROM cyclotron_jobs
-                 WHERE status = 'available' AND scheduled <= NOW()`
-            )
+            const result = await this.pool.query(QUEUE_DEPTH_SQL)
             const count = parseInt(result.rows[0].count, 10)
             const full = count >= this.depthLimit
 

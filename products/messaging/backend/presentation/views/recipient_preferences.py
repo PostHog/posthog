@@ -115,6 +115,10 @@ def report_workflows_email_tracking_consent_updated(team_id: int, identifier: st
         capture_exception(e)
 
 
+def _is_live_recipient(team_id: int | None, identifier: str | None) -> bool:
+    return bool(team_id and identifier) and Team.objects.filter(id=team_id).exists()
+
+
 @ip_restrictions_exempt
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
@@ -131,7 +135,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
 
     team_id = data.get("team_id")
     identifier = data.get("identifier")
-    if not team_id or not identifier:
+    if not _is_live_recipient(team_id, identifier):
         return render(request, "message_preferences/error.html", {"error": "Invalid recipient"}, status=400)
 
     recipient = get_or_create_recipient(team_id, identifier)
@@ -253,7 +257,7 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": "Invalid recipient token"}, status=400)
     team_id = data.get("team_id")
     identifier = data.get("identifier")
-    if not team_id or not identifier:
+    if not _is_live_recipient(team_id, identifier):
         return JsonResponse({"error": "Invalid recipient"}, status=400)
 
     try:

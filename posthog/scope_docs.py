@@ -201,7 +201,6 @@ CORE_SCOPE_DOCS: tuple[ScopeDoc, ...] = (
         plural="integrations",
         description="Project integrations with third-party services such as Slack, plus connections to other PostHog projects.",
         group="Setup & data management",
-        actions=("read",),
     ),
     ScopeDoc(
         object="llm_gateway",

@@ -50,6 +50,9 @@ from .facade.contracts import (
     TeamCreditAdded,
     TeamCreditRefused,
     TeamCreditTopUp,
+    TeamWallet,
+    TeamWalletEntry,
+    TeamWalletUnavailable,
 )
 from .facade.enums import DevTokenClient, DevTokenStatus, TeamAccessAction
 from .models import DevGatewayToken
@@ -670,3 +673,21 @@ def recent_team_credits(team_id: int, limit: int) -> list[TeamCreditTopUp]:
             )
         )
     return top_ups
+
+
+def team_wallet(team_id: int) -> TeamWallet:
+    try:
+        wallet = gateway_internal_client.get_wallet(team_id)
+    except gateway_internal_client.AIGatewayNotConfigured as exc:
+        raise TeamWalletUnavailable("The AI gateway internal API is not configured in this region.") from exc
+    except gateway_internal_client.AIGatewayInternalError as exc:
+        raise TeamWalletUnavailable(f"The wallet is unavailable: {exc}") from exc
+    return TeamWallet(
+        known=wallet.known,
+        has_ledger=wallet.has_ledger,
+        balance_usd=wallet.balance,
+        recent=[
+            TeamWalletEntry(when=entry.when, kind=entry.kind, amount=entry.amount, reference=entry.reference)
+            for entry in wallet.recent
+        ],
+    )

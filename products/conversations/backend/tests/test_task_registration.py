@@ -26,6 +26,7 @@ EXPECTED_TASK_NAMES = {
     "products.conversations.backend.tasks.process_github_event",
     "products.conversations.backend.tasks.post_reply_to_github",
     "products.conversations.backend.tasks.create_github_issue",
+    "products.conversations.backend.tasks.emit_ticket_tag_added",
 }
 
 

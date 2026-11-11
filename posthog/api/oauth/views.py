@@ -2,7 +2,7 @@ import json
 import uuid
 import hashlib
 import calendar
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
@@ -86,7 +86,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
-from posthog.ip_restrictions import enforce_ip_restrictions
+from posthog.ip_restrictions import enforce_credential_ip_restrictions, enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -1451,22 +1451,30 @@ def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
     )
 
 
-def _login_required_with_pending_connection(view):
+def login_required_with_pending_connection(
+    connection_for_request: Callable[[HttpRequest], PendingOAuthConnection | None],
+):
     """`login_required` that also sets the pending-connection cookie on the login redirect,
     so the login, signup and verification screens can name the application."""
-    base_handler = login_required(view)
 
-    @wraps(view)
-    def handler(request, *args, **kwargs):
-        response = base_handler(request, *args, **kwargs)
-        is_login_redirect = response.status_code == 302 and getattr(response, "url", "").startswith(settings.LOGIN_URL)
-        if is_login_redirect:
-            connection = _pending_connection_for_request(request)
-            if connection is not None:
-                set_pending_oauth_connection_cookie(request, response, connection)
-        return response
+    def decorator(view):
+        base_handler = login_required(view)
 
-    return handler
+        @wraps(view)
+        def handler(request, *args, **kwargs):
+            response = base_handler(request, *args, **kwargs)
+            is_login_redirect = response.status_code == 302 and getattr(response, "url", "").startswith(
+                settings.LOGIN_URL
+            )
+            if is_login_redirect:
+                connection = connection_for_request(request)
+                if connection is not None:
+                    set_pending_oauth_connection_cookie(request, response, connection)
+            return response
+
+        return handler
+
+    return decorator
 
 
 def cimd_creation_throttled(request, view, client_id: str) -> bool:
@@ -1626,7 +1634,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             },
         )
 
-    @method_decorator(_login_required_with_pending_connection)
+    @method_decorator(login_required_with_pending_connection(_pending_connection_for_request))
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
         if cimd_creation_throttled(request, self, request.query_params.get("client_id") or ""):
@@ -1747,6 +1755,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
                 credentials["scoped_teams"] = []
+                enforce_credential_ip_restrictions(
+                    request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                )
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1776,6 +1787,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     ):
                         credentials["scoped_teams"] = token.scoped_teams
                         credentials["scoped_organizations"] = token.scoped_organizations
+                        enforce_credential_ip_restrictions(
+                            request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                        )
                         # Conservative fallback: check every org the impersonated user belongs to,
                         # not just the existing token's scope. Auto-approval during impersonation
                         # is a near-dead path (those tokens are short-lived, refresh-less, and
@@ -1926,6 +1940,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            enforce_credential_ip_restrictions(
+                request, credentials["scoped_organizations"], credentials["scoped_teams"]
+            )
 
             if block := _impersonation_ai_processing_block(
                 request,

@@ -363,6 +363,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         [
             ("SELECT tiemstamp FROM events", "tiemstamp", "timestamp"),
             ("SELECT distnct_id FROM events", "distnct_id", "distinct_id"),
+            ("SELECT today FROM events", "today", "today()"),
         ]
     )
     def test_metadata_offers_a_quick_fix_for_a_misspelled_field(self, query: str, misspelling: str, expected_fix: str):

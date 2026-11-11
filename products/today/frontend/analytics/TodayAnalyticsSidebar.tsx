@@ -163,10 +163,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 ),
             }}
             customization={{
-                url: urls.ai(
-                    undefined,
-                    'Help me customize my Analytics sidebar. Show me what is in it now, then ask me what I want to see there.'
-                ),
+                prompt: 'Help me personalize my Analytics sidebar. Show me what is in it now, then ask me what I want to see there.',
                 event: 'analytics sidebar customize clicked',
             }}
             dataAttrPrefix="analytics-sidebar"

@@ -223,7 +223,7 @@ services:
             - --rpc-addr kafka:33145
             - --advertise-rpc-addr kafka:33145
             - --mode dev-container
-            - --smp 2
+            - --smp 1
             - --memory 3G
             - --reserve-memory 500M
             - --overprovisioned
@@ -287,13 +287,14 @@ services:
             - |
                 (
                     while true; do
-                        printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\n' \
+                        printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\ns3.bucket.create -name email-attachments\n' \
                                 | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1 || true
                         BUCKETS=$$(echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
                         IDENTITIES=$$(echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
                         if echo "$$BUCKETS" | grep -q posthog \
                                 && echo "$$BUCKETS" | grep -q ducklake-dev \
                                 && echo "$$BUCKETS" | grep -q ai-blobs \
+                                && echo "$$BUCKETS" | grep -q email-attachments \
                                 && echo "$$IDENTITIES" | grep -q object_storage_root_user \
                                 && echo "$$IDENTITIES" | grep -q anonymous; then
                             touch /tmp/objectstorage-ready

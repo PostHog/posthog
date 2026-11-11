@@ -5,7 +5,14 @@ import { type ChartTheme } from '@posthog/quill-charts'
 import { buildTheme } from 'lib/charts/utils/theme'
 
 import { mswDecorator } from '~/mocks/browser'
-import { MCPModelBreakdownQuery, MCPProtocolVersionBreakdownItem } from '~/queries/schema/schema-general'
+import {
+    MCPDashboardQuery,
+    MCPDashboardSection,
+    MCPDashboardSectionResult,
+    MCPModelBreakdownQuery,
+    MCPProtocolVersionBreakdownItem,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import { MCPAnalyticsDashboardOverview } from '../MCPAnalyticsDashboardOverview'
 import {
@@ -251,6 +258,29 @@ export const KeyMetricsLoading: Story = {
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading
                 usersLoading
+                showIntentClusters
+                theme={buildTheme()}
+                interval="day"
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsEmptyRange: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={{
+                    sessions: metric(0, 0, [], 'up'),
+                    toolCalls: metric(0, 0, [], 'up'),
+                    errorRatePct: metric(0, 0, [], 'down'),
+                    p95LatencyMs: metric(0, 0, [], 'down'),
+                }}
+                users={metric(0, 0, [], 'up')}
+                intentClusterCount={metric(0, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -512,44 +542,64 @@ export const FlaggedSessions: Story = {
     ),
 }
 
-export const OverviewUnknownModels: Story = {
-    decorators: [
-        mswDecorator({
-            post: {
-                '/api/environments/:team_id/query/:kind': async ({ request }) => {
-                    const { query } = (await request.json()) as { query: { kind: string } }
-                    return [
-                        200,
-                        {
-                            results:
-                                query.kind === 'MCPModelBreakdownQuery' ? [{ model: 'Unknown', total_calls: 100 }] : [],
-                        },
-                    ]
-                },
-            },
-        }),
-    ],
+export const FlaggedSessionsLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     render: () => (
-        <div className="w-[960px]">
-            <MCPAnalyticsDashboardOverview />
+        <div className="w-[680px]">
+            <NotableSessionsTable sessions={[]} loading />
         </div>
     ),
 }
 
-export const OverviewLoadError: Story = {
-    decorators: [
-        mswDecorator({
-            post: {
-                '/api/environments/:team_id/query/:kind': async ({ request }) => {
-                    const { query } = (await request.json()) as { query: { kind: string } }
-                    return query.kind === 'HogQLQuery' ? [200, { results: [] }] : [504, { detail: 'Query timed out' }]
+// The overview also sends queries of other kinds, such as the recent activity card's EventsQuery.
+function answerDashboardSections(
+    answer: (section: MCPDashboardSection) => MCPDashboardSectionResult,
+    otherQueries: [number, object]
+): Story {
+    return {
+        decorators: [
+            mswDecorator({
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const { query } = (await request.json()) as { query: MCPDashboardQuery | { kind: string } }
+                        if (query.kind !== NodeKind.MCPDashboardQuery) {
+                            return otherQueries
+                        }
+                        return [
+                            200,
+                            {
+                                results: Object.fromEntries(
+                                    (query as MCPDashboardQuery).sections.map((section) => [section, answer(section)])
+                                ),
+                            },
+                        ]
+                    },
                 },
-            },
-        }),
-    ],
-    render: () => (
-        <div className="w-[960px]">
-            <MCPAnalyticsDashboardOverview />
-        </div>
-    ),
+            }),
+        ],
+        render: () => (
+            <div className="w-[960px]">
+                <MCPAnalyticsDashboardOverview />
+            </div>
+        ),
+    }
 }
+
+export const OverviewUnknownModels: Story = answerDashboardSections(
+    (section) => ({
+        results: section === MCPDashboardSection.ModelRows ? [{ model: 'Unknown', total_calls: 100 }] : [],
+    }),
+    [200, { results: [] }]
+)
+
+const SECTIONS_THAT_LOAD = [
+    MCPDashboardSection.Kpis,
+    MCPDashboardSection.PeriodTotals,
+    MCPDashboardSection.ToolRows,
+    MCPDashboardSection.SessionRows,
+]
+
+export const OverviewLoadError: Story = answerDashboardSections(
+    (section) => (SECTIONS_THAT_LOAD.includes(section) ? { results: [] } : { error: 'Query timed out' }),
+    [504, { detail: 'Query timed out' }]
+)

@@ -57,16 +57,12 @@ import {
     AcceptedSend,
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
-    QueuedSend,
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
-    decodeAttachments,
-    fieldNotAcceptedError,
     isRecipientFormatIssue,
-    queuedSend,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
@@ -75,13 +71,11 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import { EmailAttachmentsService } from './services/messaging/email-attachments.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
-import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     HogWatcherService,
@@ -185,7 +179,7 @@ const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
-    send: QueuedSend | undefined
+    send: AcceptedSend | undefined
 ): string => {
     const templateRequest = [hogFlowId, to, distinct_id, variables]
     return IdempotencyKeys.fingerprint(
@@ -198,7 +192,7 @@ type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 const withSenderTheCallerChose = ({
     from,
     ...send
-}: QueuedSend): Omit<QueuedSend, 'from'> & { from?: CallerChosenSender } => ({
+}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
     ...send,
     from: senderTheCallerChose(from),
 })
@@ -239,11 +233,11 @@ export class CdpApi {
     private rescheduleJwt: ScopedServiceJwt
     private cancelInvocationsJwt: ScopedServiceJwt
     private cancelBatchJwt: ScopedServiceJwt
+    private manualRunJwt: ScopedServiceJwt
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private emailSuppressionService: EmailSuppressionService
-    private emailAttachmentsService: EmailAttachmentsService
     private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private emailStatusService: EmailStatusService
@@ -261,7 +255,6 @@ export class CdpApi {
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
         this.emailSuppressionService = services.emailSuppressionService
-        this.emailAttachmentsService = services.emailAttachmentsService
         this.emailValidationService = services.emailValidationService
         this.teamWorkflowsConfigService = services.teamWorkflowsConfigService
         this.hogExecutorAsync = services.hogExecutorAsync
@@ -288,17 +281,7 @@ export class CdpApi {
             jobQueues,
             new IdempotencyKeys(deps.idempotencyValkey ?? null, 'workflow-webhook')
         )
-        this.emailTrackingService = new EmailTrackingService(
-            this.hogFunctionManager,
-            this.hogFlowManager,
-            services.hogFunctionMonitoringService,
-            services.capturedEventsService,
-            services.teamWorkflowsConfigService,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
-            services.emailSuppressionService,
-            services.emailStatusService,
-            services.redis
-        )
+        this.emailTrackingService = services.emailTrackingService
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
@@ -321,6 +304,11 @@ export class CdpApi {
         )
         this.cancelBatchJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
+        // The web tier mints this token as it mints the cancel tokens, so it shares their key on its own audience.
+        this.manualRunJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_MANUAL_RUN,
             config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
         this.stepResumeJwt = new ScopedServiceJwt(
@@ -377,7 +365,6 @@ export class CdpApi {
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
             this.invocationResultsService.stop(),
-            this.emailAttachmentsService.stop(),
         ])
     }
 
@@ -400,6 +387,10 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/scheduled_invocations',
             asyncHandler(this.postHogflowScheduledInvocation)
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/manual_invocations',
+            asyncHandler(this.postHogFlowManualInvocation)
         )
         router.post(
             '/api/projects/:team_id/hog_flows/:id/batch_invocations/:parent_run_id',
@@ -1093,6 +1084,45 @@ export class CdpApi {
         }
     }
 
+    // Auth: a per-call JWT that Django mints for this team, workflow and user after it checks that
+    // the user may edit the workflow. The route is exempt from the internal API secret.
+    private postHogFlowManualInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        if (!this.manualRunJwt.enabled) {
+            return res.status(503).json({
+                error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
+            })
+        }
+        if (!this.verifyScopedWorkflowJwt(this.manualRunJwt, req, res, 'manual run', { user_id: req.body?.user_id })) {
+            return
+        }
+
+        const { id, team_id } = req.params
+        const parsed = z
+            .object({
+                user_id: z.string({ error: 'user_id is required' }).min(1, 'user_id is required'),
+                variables: z.record(z.string(), z.unknown(), { error: 'variables must be an object' }).optional(),
+            })
+            .safeParse(req.body ?? {})
+        if (!parsed.success) {
+            return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Invalid request body' })
+        }
+        const { user_id: userId, variables } = parsed.data
+
+        try {
+            const invocationId = await this.cdpSourceWebhooksConsumer.processManualTrigger(parseInt(team_id), id, {
+                userId,
+                variables: variables ?? {},
+            })
+            return res.json({ status: 'queued', invocation_id: invocationId })
+        } catch (error) {
+            if (error instanceof SourceWebhookError) {
+                return res.status(error.status).json({ error: error.message })
+            }
+            logger.error('Error handling hogflow manual invocation', { error })
+            return res.status(500).json({ error: 'Internal error' })
+        }
+    }
+
     // Rerun endpoints don't run the work — they just enqueue a wrapper job
     // onto the cyclotron-v2 'rerun' queue. The dedicated `CdpRerunWorkerConsumer`
     // picks it up, pages ClickHouse, rehydrates invocations onto the regular
@@ -1144,6 +1174,10 @@ export class CdpApi {
                     scheduledAt: now,
                     startedAt: now,
                 })
+                const { invocation_ids: invocationIds, ...filterWithoutIds } = rerunRequest.filter
+                const filterForLog = invocationIds
+                    ? { ...filterWithoutIds, invocation_id_count: invocationIds.length }
+                    : filterWithoutIds
                 this.invocationResultsService.monitoringService.queueLogs(
                     [
                         {
@@ -1153,7 +1187,7 @@ export class CdpApi {
                             instance_id: rerunJobId,
                             timestamp: DateTime.fromJSDate(now),
                             level: 'info',
-                            message: `Re-run queued. Filter: ${JSON.stringify(rerunRequest.filter)}`,
+                            message: `Re-run queued. Filter: ${JSON.stringify(filterForLog)}`,
                         },
                     ],
                     functionKind
@@ -1311,10 +1345,8 @@ export class CdpApi {
                 })
 
                 const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
-                const files = decodeAttachments(send)
-                const sendToQueue = send ? queuedSend(send, files) : undefined
-                if (sendToQueue) {
-                    invocation.state.send = sendToQueue
+                if (send) {
+                    invocation.state.send = send
                 }
                 // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
                 // worker counts it instead.
@@ -1326,7 +1358,7 @@ export class CdpApi {
                 invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
 
                 const idempotencyKeys = this.transactionalEmailIdempotencyKeys
-                const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, sendToQueue)
+                const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, send)
                 if (idempotencyKey) {
                     // Checked before the quota, so a retry of a send that went out gets its answer even
                     // when the team has hit its quota since.
@@ -1353,14 +1385,6 @@ export class CdpApi {
                     }
                 }
                 try {
-                    // After the idempotency check, so a retry of a send accepted with files still gets its answer.
-                    if (send?.attachments !== undefined && !this.config.CDP_EMAIL_ATTACHMENTS_ENABLED) {
-                        if (idempotencyKey) {
-                            stages.start('idempotency')
-                            await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
-                        }
-                        return reply('invalid_request', 400, { error: fieldNotAcceptedError('attachments') })
-                    }
                     stages.start('checks')
                     const refusal = await this.refuseTransactionalEmail(
                         team.id,
@@ -1373,10 +1397,6 @@ export class CdpApi {
                             await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
                         }
                         return reply(refusal.outcome, refusal.status, { error: refusal.outcome })
-                    }
-                    if (files.length) {
-                        stages.start('files')
-                        await this.emailAttachmentsService.store(invocation.id, team.id, files)
                     }
                     stages.start('queue_insert')
                     this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
@@ -1445,7 +1465,9 @@ export class CdpApi {
         // refusals are rare and the verdict is cached per domain.
         const suspension = this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)
         const suppressed = Promise.all(
-            recipients.map((email) => this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }))
+            recipients.map((email) =>
+                this.emailSuppressionService.isKnownSuppressed(teamId, email, { transactional: true })
+            )
         )
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.
@@ -2046,13 +2068,7 @@ export class CdpApi {
                     return res.status(400).json({ error: 'Invalid or expired token' })
                 }
 
-                return res.status(200).json({
-                    valid: result.valid,
-                    team_id: result.team_id,
-                    identifier: result.identifier,
-                    app_source_id: result.app_source_id,
-                    instance_id: result.instance_id,
-                })
+                return res.status(200).json(result)
             } catch (error) {
                 logger.error('[CdpApi] Error validating preferences token', error)
                 return res.status(500).json({ error: 'Failed to validate token' })

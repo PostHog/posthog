@@ -932,7 +932,6 @@ class TestExecuteTraceLLMJudgeActivity:
                 "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
                 return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1),
             ),
-            patch("posthog.temporal.ai_observability.judge_attachments.judge_sees_attachments", return_value=True),
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
             mock_client = mock_client_class.return_value

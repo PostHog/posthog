@@ -381,6 +381,32 @@ def _status_changed_on_this_save(
     return prior_status is not None and prior_status != instance.status
 
 
+@receiver(post_save, sender=SignalReport)
+def schedule_github_writeback_on_status_change(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Comment on the report's GitHub issues, or edit that comment, after a status transition.
+
+    A report born visible gets its first comment when its source issues are recorded (see
+    `source_issues.append_source_issues`), so only a later transition starts the writeback here.
+    """
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    from products.signals.backend.source_issues import schedule_writeback_for_status_change  # noqa: PLC0415
+
+    team_id, report_id, status = instance.team_id, str(instance.id), instance.status
+    transaction.on_commit(
+        lambda: schedule_writeback_for_status_change(team_id=team_id, report_id=report_id, status=status),
+        robust=True,
+    )
+
+
 def _pr_close_reason(
     instance: SignalReport,
     *,

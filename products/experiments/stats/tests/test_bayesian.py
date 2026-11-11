@@ -5,6 +5,7 @@ This module tests all Bayesian classes for correctness of calculations,
 validation, and edge case handling.
 """
 
+import re
 from typing import Any
 
 import pytest
@@ -28,6 +29,7 @@ from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
     RatioStatistic,
+    RelativeEffectBaseline,
     SampleMeanStatistic,
     StatisticError,
 )
@@ -349,10 +351,8 @@ class TestBayesianMethod(TestCase):
         self.assertAlmostEqual(result.chance_to_win, chance_to_win, places=10)
 
     @parameterized.expand(DEGENERATE_QUANTILE_CASES)
-    def test_rejects_quantile_with_zero_variance(self, _name, treatment, control):
-        with self.assertRaisesRegex(
-            StatisticError, "Treatment statistic validation failed: Quantile has zero variance"
-        ):
+    def test_rejects_quantile_without_usable_variance(self, _name, treatment, control, error):
+        with self.assertRaisesRegex(StatisticError, re.escape(f"Treatment statistic validation failed: {error}")):
             BayesianMethod().run_test(treatment, control)
 
 
@@ -495,8 +495,26 @@ class TestRelativeEffectSignedBaseline(TestCase):
         [
             ("frequentist", 0.0, lambda t, c: FrequentistMethod().run_test(t, c)),
             ("bayesian", 0.0, lambda t, c: BayesianMethod().run_test(t, c)),
-            ("frequentist_cuped_baseline", 2.0, lambda t, c: FrequentistMethod().run_test(t, c, unadjusted_mean=0.0)),
-            ("bayesian_cuped_baseline", 2.0, lambda t, c: BayesianMethod().run_test(t, c, unadjusted_mean=1e-12)),
+            (
+                "frequentist_cuped_baseline",
+                2.0,
+                lambda t, c: FrequentistMethod().run_test(
+                    t,
+                    c,
+                    relative_effect_baseline=RelativeEffectBaseline(mean=0.0, variance=0.0, difference_covariance=0.0),
+                ),
+            ),
+            (
+                "bayesian_cuped_baseline",
+                2.0,
+                lambda t, c: BayesianMethod().run_test(
+                    t,
+                    c,
+                    relative_effect_baseline=RelativeEffectBaseline(
+                        mean=1e-12, variance=0.0, difference_covariance=0.0
+                    ),
+                ),
+            ),
         ]
     )
     def test_zero_baseline_is_rejected(self, _name: str, control_mean: float, run_test: Any) -> None:
@@ -504,6 +522,19 @@ class TestRelativeEffectSignedBaseline(TestCase):
         control = _sample_mean_stat(n=500, mean=control_mean, variance=4.0)
 
         with pytest.raises(StatisticError, match="Baseline mean is zero"):
+            run_test(treatment, control)
+
+    @parameterized.expand(
+        [
+            ("frequentist", lambda t, c: FrequentistMethod().run_test(t, c)),
+            ("bayesian", lambda t, c: BayesianMethod().run_test(t, c)),
+        ]
+    )
+    def test_zero_treatment_without_spread_is_rejected(self, _name: str, run_test: Any) -> None:
+        treatment = _sample_mean_stat(n=100, mean=0.0, variance=0.0)
+        control = _sample_mean_stat(n=100, mean=2.5, variance=2.25)
+
+        with pytest.raises(StatisticError, match="variance must be positive"):
             run_test(treatment, control)
 
 
