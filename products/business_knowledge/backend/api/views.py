@@ -19,6 +19,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 from posthog.models.user import User
@@ -32,6 +33,7 @@ from ..constants import (
     BK_DRILLDOWN_MAX_RADIUS,
     BK_SEARCH_DEFAULT_LIMIT,
     BK_SEARCH_MAX_LIMIT,
+    MAX_URLS_PER_SOURCE,
 )
 from ..file_parse import FileParseError
 from ..github_repos import connection_status
@@ -93,6 +95,11 @@ def _requested_library_ids(team_id: int, request: Request) -> list[UUID] | None:
     except libraries.LibraryRejected as exc:
         raise exceptions.ValidationError(exc.errors) from None
     return parsed
+
+
+class SourceDocumentsPagination(BoundedLimitOffsetPagination):
+    # The frontend reads a source's whole document list in one request, and a crawl stops at this many URLs.
+    max_limit = MAX_URLS_PER_SOURCE
 
 
 class _ConflictError(exceptions.APIException):
@@ -498,6 +505,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["get"],
         url_path="documents",
         required_scopes=["business_knowledge:read"],
+        pagination_class=SourceDocumentsPagination,
     )
     def documents(self, request: Request, pk: str, **kwargs) -> Response:
         try:

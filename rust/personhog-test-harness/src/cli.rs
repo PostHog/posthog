@@ -210,7 +210,7 @@ pub struct GateArgs {
     #[arg(long, default_value = "personhog_person_tmp")]
     pub pg_target_table: String,
 
-    #[arg(long, default_value = "localhost:9092")]
+    #[arg(long, default_value = "127.0.0.1:9092")]
     pub kafka_hosts: String,
 
     #[arg(long, default_value = "http://localhost:2379")]
@@ -314,6 +314,11 @@ pub struct GateArgs {
     /// Partition count of the migration's target topic.
     #[arg(long)]
     pub migrate_to_partitions: Option<u32>,
+
+    /// Run the migration onto a second Kafka cluster at these bootstrap
+    /// servers. The writer must exit to follow it and is restarted.
+    #[arg(long)]
+    pub migrate_to_kafka_hosts: Option<String>,
 
     /// SIGKILL the coordinator router once the saga reaches Sealing. Requires --routers >= 3.
     #[arg(long, default_value_t = false)]
@@ -502,7 +507,7 @@ pub struct StackArgs {
     #[arg(long, default_value = "personhog_person_tmp")]
     pub pg_target_table: String,
 
-    #[arg(long, default_value = "localhost:9092")]
+    #[arg(long, default_value = "127.0.0.1:9092")]
     pub kafka_hosts: String,
 
     #[arg(long, default_value = "http://localhost:2379")]

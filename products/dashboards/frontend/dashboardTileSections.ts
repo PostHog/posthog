@@ -32,6 +32,10 @@ export function isTileGroupSectionKey(sectionKey: string): boolean {
     return sectionKey.startsWith(TILE_GROUP_SECTION_KEY_PREFIX)
 }
 
+export function getTileGroupSectionKey(groupKey: string): string {
+    return `${TILE_GROUP_SECTION_KEY_PREFIX}${groupKey}`
+}
+
 function tilesInLayoutOrder(tiles: DashboardTile[], layout: Layout | undefined): DashboardTile[] {
     const positions = new Map((layout ?? []).map((item) => [item.i, item]))
     const position = (tile: DashboardTile): [number, number] => {
@@ -45,15 +49,20 @@ function tilesInLayoutOrder(tiles: DashboardTile[], layout: Layout | undefined):
     })
 }
 
-/** Splits tiles into full-width bands: each group starts where its top-left tile is, other tiles fill the gaps. */
+/**
+ * Splits tiles into full-width bands: each group starts where its top-left tile is, other tiles fill the gaps.
+ * `emptyGroupKeys` are groups with no tiles yet, which go last so a new group shows at the bottom.
+ */
 export function getDashboardSections({
     tiles,
     layout,
     groups,
+    emptyGroupKeys = [],
 }: {
     tiles: DashboardTile[]
     layout: Layout | undefined
     groups: Record<string, DashboardTileGroupApi> | undefined
+    emptyGroupKeys?: string[]
 }): DashboardSection[] {
     const sections: DashboardSection[] = []
     const groupSections = new Map<string, DashboardSection>()
@@ -69,7 +78,7 @@ export function getDashboardSections({
             const group = groups && Object.hasOwn(groups, groupKey) ? groups[groupKey] : {}
             const section: DashboardSection = {
                 kind: 'group',
-                key: `${TILE_GROUP_SECTION_KEY_PREFIX}${groupKey}`,
+                key: getTileGroupSectionKey(groupKey),
                 groupKey,
                 group,
                 tiles: [tile],
@@ -88,7 +97,24 @@ export function getDashboardSections({
         }
     }
 
+    for (const groupKey of emptyGroupKeys) {
+        if (groupSections.has(groupKey)) {
+            continue
+        }
+        const group = groups && Object.hasOwn(groups, groupKey) ? groups[groupKey] : {}
+        sections.push({ kind: 'group', key: getTileGroupSectionKey(groupKey), groupKey, group, tiles: [] })
+    }
+
     return sections
+}
+
+/** Groups saved on the dashboard that no tile belongs to, such as one just added from the Add menu. */
+export function getEmptyTileGroupKeys(
+    tiles: DashboardTile[],
+    groups: Record<string, DashboardTileGroupApi> | undefined
+): string[] {
+    const usedGroupKeys = new Set(tiles.map((tile) => tile.group_key).filter(Boolean))
+    return Object.keys(groups ?? {}).filter((groupKey) => !usedGroupKeys.has(groupKey))
 }
 
 // Group keys can't hold a null character, so no real group shares this key.
@@ -263,9 +289,9 @@ export function getLayoutAfterTileMove({
 }): Layout {
     const tileKey = tileId.toString()
     if (!cell || !target) {
-        const targetTileIds = new Set(
-            (target ? target.tiles : sections.flatMap((section) => section.tiles)).map((tile) => tile.id.toString())
-        )
+        // An empty group shows after every band, so its first tile goes below every tile too.
+        const targetTiles = target?.tiles.length ? target.tiles : sections.flatMap((section) => section.tiles)
+        const targetTileIds = new Set(targetTiles.map((tile) => tile.id.toString()))
         targetTileIds.delete(tileKey)
         const bottom = Math.max(0, ...layout.filter((item) => targetTileIds.has(item.i)).map((item) => item.y + item.h))
         return layout.map((item) => (item.i === tileKey ? { ...item, y: bottom } : item))

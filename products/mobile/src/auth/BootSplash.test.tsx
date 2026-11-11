@@ -12,6 +12,9 @@ jest.mock('expo-router', () => {
     const { View } = jest.requireActual<typeof import('react-native')>('react-native')
     const segments = ['(tabs)', 'inbox']
     return {
+        DarkTheme: jest.requireActual('expo-router').DarkTheme,
+        DefaultTheme: jest.requireActual('expo-router').DefaultTheme,
+        ThemeProvider: jest.requireActual('expo-router').ThemeProvider,
         Stack: Object.assign(() => createElement(View, { testID: 'app-screens' }), { Screen: () => null }),
         useSegments: () => segments,
     }
@@ -35,7 +38,10 @@ jest.mock('@/auth/authStore', () => {
     }
 })
 jest.mock('@/auth/useAuthRedirect', () => ({ useAuthRedirect: jest.fn() }))
-jest.mock('@/demo/demoMode', () => ({ useDemoHydrated: () => true }))
+jest.mock('@/demo/demoMode', () => ({
+    useDemoHydrated: () => true,
+    useDemoMode: (selector: (state: { enabled: boolean }) => boolean) => selector({ enabled: false }),
+}))
 jest.mock('@/ui/appearanceStore', () => ({
     ...jest.requireActual('@/ui/appearanceStore'),
     useAppearanceHydrated: () => true,
@@ -43,7 +49,9 @@ jest.mock('@/ui/appearanceStore', () => ({
 jest.mock('@/features/ai/AiApprovalDialog', () => ({ AiApprovalDialog: () => null }))
 jest.mock('@/features/updates/useAutomaticUpdates', () => ({ useAutomaticUpdates: jest.fn() }))
 jest.mock('@/features/chat/draftPersistence', () => ({}))
+jest.mock('@/features/offlineCache', () => ({ installOfflineCache: jest.fn() }))
 jest.mock('@/features/hedgehog/useHedgehogWidgetSync', () => ({ useHedgehogWidgetSync: jest.fn() }))
+jest.mock('@/features/widgets/useChartWidgetSync', () => ({ useChartWidgetSync: jest.fn() }))
 jest.mock('@/features/notifications/pushRegistration', () => ({ configureNotifications: jest.fn() }))
 jest.mock('@/features/notifications/useNotificationRouting', () => ({ useNotificationRouting: jest.fn() }))
 jest.mock('@/features/notifications/usePushRegistration', () => ({ usePushRegistration: jest.fn() }))
@@ -73,6 +81,7 @@ describe('boot splash handoff', () => {
 
             expect(SplashScreen.hideAsync).toHaveBeenCalledTimes(1)
             expect(screen.getByLabelText('Loading PostHog')).toBeTruthy()
+            expect(screen.getByLabelText('ph-no-capture')).toBeTruthy()
             expect(screen.queryByTestId('app-screens')).toBeNull()
 
             act(() => useAuthStore.setState({ status: 'signed_in' }))

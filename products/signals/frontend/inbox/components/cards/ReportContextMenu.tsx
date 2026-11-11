@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useRef } from 'react'
 
+import { canResolveReport, hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 import {
     IconArrowUpRight,
     IconCheckbox,
@@ -30,7 +31,6 @@ import {
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { fullNameOrEmail } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
@@ -48,18 +48,14 @@ import {
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
-import {
-    canCreateImplementationPr,
-    canResolveReport,
-    canUnassignMe,
-    hasOpenImplementationPr,
-} from '../../utils/reportActions'
-import { isReportClaimable, reportClaimant } from '../../utils/reportClaim'
+import { canCreateImplementationPr, canUnassignMe } from '../../utils/reportActions'
+import { isReportClaimable, reportClaimant, teammateClaimHolder } from '../../utils/reportClaim'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
+import { openTakeOverReportDialog } from '../shell/TakeOverReportDialog'
 import { ReasonSubmenuItems } from './ReasonSubmenuItems'
 import { useReportCardSelection } from './useReportCardSelection'
 
@@ -170,28 +166,44 @@ function ReportContextMenuItems({
         </ContextMenuItem>
     )
 
-    // A teammate's claim shows disabled with their name, so the menu says why it can't be taken.
+    const currentUserUuid = user?.uuid ?? null
     const claimant = reportClaimant(report)
-    const isMyClaim = !!claimant && !!user?.uuid && claimant.uuid === user.uuid
-    const claimDisabledReason = claimSavingReportIds.includes(report.id)
-        ? 'Updating…'
-        : claimant && !isMyClaim
-          ? `${fullNameOrEmail(claimant)} is working on this report`
-          : null
-    const claimItem =
-        claimant || isReportClaimable(report) ? (
-            <ContextMenuItem asChild disabled={!!claimDisabledReason}>
-                <ButtonPrimitive
-                    menuItem
-                    onClick={() => setReportClaimed(report, !isMyClaim, 'context_menu')}
-                    disabledReasons={claimDisabledReason ? { [claimDisabledReason]: true } : undefined}
-                    data-attr={isMyClaim ? 'inbox-report-context-menu-unclaim' : 'inbox-report-context-menu-claim'}
-                >
-                    <IconPerson />
-                    {isMyClaim ? 'Unclaim' : 'Claim'}
-                </ButtonPrimitive>
-            </ContextMenuItem>
-        ) : null
+    const isMyClaim = !!claimant && claimant.uuid === currentUserUuid
+    const teammate = teammateClaimHolder(report, currentUserUuid)
+    const claimSaving = claimSavingReportIds.includes(report.id)
+
+    const claimItem = teammate ? (
+        <ContextMenuItem asChild disabled={claimSaving}>
+            <ButtonPrimitive
+                menuItem
+                onClick={() => {
+                    onOpenDialog()
+                    openTakeOverReportDialog({
+                        report,
+                        holder: teammate,
+                        onConfirm: () => setReportClaimed(report, true, 'context_menu', true),
+                    })
+                }}
+                disabledReasons={claimSaving ? { 'Updating…': true } : undefined}
+                data-attr="inbox-report-context-menu-takeover"
+            >
+                <IconPerson />
+                Take over
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    ) : claimant || isReportClaimable(report, currentUserUuid) ? (
+        <ContextMenuItem asChild disabled={claimSaving}>
+            <ButtonPrimitive
+                menuItem
+                onClick={() => setReportClaimed(report, !isMyClaim, 'context_menu')}
+                disabledReasons={claimSaving ? { 'Updating…': true } : undefined}
+                data-attr={isMyClaim ? 'inbox-report-context-menu-unclaim' : 'inbox-report-context-menu-claim'}
+            >
+                <IconPerson />
+                {isMyClaim ? 'Unclaim' : 'Claim'}
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    ) : null
 
     const dismissWith = (dismissal: DismissalFeedback): void => {
         const { reason, note, correctedRepository } = dismissal

@@ -51,7 +51,7 @@ class InboxSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = InboxSummarySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
-    scope_object = "task"
+    scope_object = "inbox"
     requires_resource_level_access = True
     pagination_class = None
 

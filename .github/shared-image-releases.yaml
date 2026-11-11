@@ -10,6 +10,7 @@ filters:
         # The extract worker imports the whole warehouse_sources backend
         # (models, facade, scheduling, tasks) and the data_warehouse facade.
         - 'products/warehouse_sources/backend/**'
+        - 'products/warehouse_sources/sources/**'
         - 'products/data_warehouse/backend/**'
         - 'posthog/warehouse/**'
         - Dockerfile
@@ -23,6 +24,7 @@ filters:
         - 'posthog/temporal/data_modeling/**'
         - 'products/customer_analytics/backend/**'
         - 'products/warehouse_sources/backend/**'
+        - 'products/warehouse_sources/sources/**'
         - 'posthog/temporal/common/**'
         - 'posthog/management/commands/start_temporal_worker.py'
         - pyproject.toml

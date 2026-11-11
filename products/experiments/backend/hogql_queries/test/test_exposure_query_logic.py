@@ -32,6 +32,7 @@ def _event_config(event):
 _WAREHOUSE_NATIVE_EXPOSURE = ExperimentWarehouseNativeExposureConfig(
     connection_id="00000000-0000-0000-0000-000000000000",
     query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+    unit={"unit_type": "customer", "id_namespace": "billing_customer_id"},
 )
 
 

@@ -34,7 +34,8 @@ class Command(BaseCommand):
             team, user, focus=options["focus"], dry_run=options["dry_run"], limit=options["limit"], config=config
         )
         self.stdout.write(
-            f"status: {build.status}, personalized: {build.personalized}, fallback_reason: {build.fallback_reason}"
+            f"status: {build.status}, personalized: {build.personalized}, fallback_reason: {build.fallback_reason}, "
+            f"model_called: {build.model_called}"
         )
         self.stdout.write(
             f"candidates: {len(build.candidates)}, tokens: {build.tokens_in}/{build.tokens_out}, "

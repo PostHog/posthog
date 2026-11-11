@@ -3,12 +3,14 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconInfo, IconSparkles, IconWarning } from '@posthog/icons'
+import * as researchPng from '@posthog/brand/hoggies/png/research'
+import { IconChevronDown, IconChevronRight, IconInfo, IconSparkles, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -56,6 +58,52 @@ function activityFilterLabel(mode: string): string {
         return 'Only most active'
     }
     return 'All recordings'
+}
+
+const HedgehogResearch = pngHoggie(researchPng)
+
+/** Says the overview is a draft to check, with the agent's reasoning one click away. */
+function DraftReviewHeader(): JSX.Element {
+    return (
+        <div className="flex items-start gap-3 pb-1">
+            <HedgehogResearch className="h-16 w-auto shrink-0" />
+            <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-base font-semibold">Review your draft scanner</span>
+                    <LemonTag type="highlight">Draft</LemonTag>
+                </div>
+                <div className="text-sm text-muted">
+                    The agent drafted this from your goal. Check each section and edit anything that is not right.
+                    Nothing runs until you click Create scanner.
+                </div>
+            </div>
+        </div>
+    )
+}
+
+/** The agent's reasoning as a card like the others, closed because it mostly restates the goal. */
+function RationaleSection({ rationale }: { rationale: string }): JSX.Element {
+    const [isOpen, setIsOpen] = useState(false)
+    return (
+        <div className="bg-bg-light border rounded-lg p-4 space-y-2">
+            <button
+                type="button"
+                className="flex items-center gap-1 text-xs text-tertiary uppercase tracking-wide cursor-pointer hover:text-primary"
+                onClick={() => setIsOpen(!isOpen)}
+                aria-expanded={isOpen}
+                aria-controls="vision-goal-overview-rationale-text"
+                data-attr="vision-goal-overview-rationale"
+            >
+                {isOpen ? <IconChevronDown className="text-sm" /> : <IconChevronRight className="text-sm" />}
+                <span>Why the agent chose this setup</span>
+            </button>
+            {isOpen ? (
+                <div id="vision-goal-overview-rationale-text" className="text-sm">
+                    {rationale}
+                </div>
+            ) : null}
+        </div>
+    )
 }
 
 /** One label:value row in the eligible-recordings and sampling blocks. */
@@ -235,14 +283,20 @@ function topLevelPropertyGroups(scanner: ReplayScanner): EligibleFilterGroup[] {
  */
 export function eligibleFilterGroups(
     scanner: ReplayScanner,
-    { experimentName, cohortNames }: { experimentName?: string; cohortNames?: Record<string, string> } = {}
+    {
+        experimentName,
+        cohortNames,
+        recordingsFirst,
+    }: { experimentName?: string; cohortNames?: Record<string, string>; recordingsFirst?: boolean } = {}
 ): EligibleFilterGroup[] {
+    // The recordings-first experiment arm uses the filter's own name from the recordings filter.
+    const [pageSingular, pagePlural] = recordingsFirst ? ['Visited page', 'Visited pages'] : ['Page', 'Pages']
     const kinds: [key: string, singular: string, plural: string, values: string[]][] = [
         ['experiment', 'Experiment', 'Experiments', experimentValues(scanner, experimentName)],
         ...pageValueLists(scanner).map((values, index): [string, string, string, string[]] => [
             `page:${index}`,
-            'Page',
-            'Pages',
+            pageSingular,
+            pagePlural,
             values,
         ]),
         ['event', 'Event', 'Events', namedQueryEntities(scanner, 'events')],
@@ -277,6 +331,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     } = useValues(logic)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
+    const sectionLabels = goalOverviewSectionTitles(recordingsFirst)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
@@ -296,6 +351,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     const filterGroups = eligibleFilterGroups(scanner, {
         experimentName: experimentContext?.experiment.name,
         cohortNames,
+        recordingsFirst,
     })
     // Read against the form, so an addition the person removed by hand is not credited to the AI.
     const currentFilterValues = new Set(filterGroups.flatMap((group) => group.values))
@@ -337,7 +393,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     // The recordings-first experiment arm reviews what the scanner watches before what it asks.
     const askSection = (
-        <OverviewSection label="What it will ask" editStep="configure" scannerId={scannerId}>
+        <OverviewSection label={sectionLabels.configure} editStep="configure" scannerId={scannerId}>
             <div className="space-y-3">
                 <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
                     {scannerTypeLabel(scanner.scanner_type)}
@@ -360,11 +416,20 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         </OverviewSection>
     )
 
+    const rationale = goalDraft?.rationale?.trim()
+
     return (
         <div className="flex flex-col gap-3">
-            <OverviewSection label="What it understood" scannerId={scannerId}>
-                <div className="text-sm">{goalDraft?.rationale?.trim() || scanner.description}</div>
-            </OverviewSection>
+            {recordingsFirst ? (
+                <>
+                    <DraftReviewHeader />
+                    {rationale ? <RationaleSection rationale={rationale} /> : null}
+                </>
+            ) : (
+                <OverviewSection label="What it understood" scannerId={scannerId}>
+                    <div className="text-sm">{rationale || scanner.description}</div>
+                </OverviewSection>
+            )}
 
             <OverviewSection label="Name" editStep="details" scannerId={scannerId}>
                 <div className="text-sm font-medium">{scanner.name}</div>
@@ -373,7 +438,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
             {recordingsFirst ? null : askSection}
 
-            <OverviewSection label="Eligible recordings" editStep="triggers" scannerId={scannerId}>
+            <OverviewSection label={sectionLabels.triggers} editStep="triggers" scannerId={scannerId}>
                 {filterGroups.length > 0 ? (
                     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-sm">
                         {filterGroups.map((group) => (
@@ -424,7 +489,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             {recordingsFirst ? askSection : null}
 
             <OverviewSection
-                label={recordingsFirst ? 'Sampling and limits' : 'Sampling and budget'}
+                label={sectionLabels.budget}
                 info="Estimated from your last 7 days of recordings, projected to a month. Your real volume follows your future traffic, so treat this as a guide."
                 editStep="budget"
                 scannerId={scannerId}
@@ -493,7 +558,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : overBudget ? (
                     <LemonBanner type="warning">
                         Your budget won't last the month at about <span>{monthlyObservations?.toLocaleString()}</span>{' '}
-                        recordings a month. Narrow the eligible recordings above.
+                        recordings a month. Narrow the {sectionLabels.triggers.toLowerCase()} above.
                     </LemonBanner>
                 ) : null}
             </OverviewSection>
@@ -537,7 +602,7 @@ const MESSAGE_INTERVAL_MS = 2500
 
 /** The rotating orange loading bar shown while the draft generates. */
 function DraftLoadingBar(): JSX.Element {
-    const frozen = inStorybook() || inStorybookTestRunner()
+    const frozen = inStorybook()
     const [messageIndex, setMessageIndex] = useState(() =>
         frozen ? 0 : Math.floor(Math.random() * DRAFT_LOADING_MESSAGES.length)
     )
@@ -569,11 +634,21 @@ function DraftLoadingBar(): JSX.Element {
     )
 }
 
+/** Each overview section's title. The recordings-first experiment arm uses its wizard step names. */
+export function goalOverviewSectionTitles(
+    recordingsFirst: boolean
+): Record<'configure' | 'triggers' | 'budget', string> {
+    return recordingsFirst
+        ? { triggers: 'Target recordings', configure: 'Prompt & output', budget: 'Sampling & limits' }
+        : { triggers: 'Eligible recordings', configure: 'What it will ask', budget: 'Sampling and budget' }
+}
+
 /** The overview's section titles in render order, which the recordings-first experiment arm changes. */
 export function goalOverviewSectionLabels(recordingsFirst: boolean): string[] {
+    const titles = goalOverviewSectionTitles(recordingsFirst)
     return recordingsFirst
-        ? ['What it understood', 'Name', 'Eligible recordings', 'What it will ask', 'Sampling and limits']
-        : ['What it understood', 'Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget']
+        ? ['Name', titles.triggers, titles.configure, titles.budget]
+        : ['What it understood', 'Name', titles.configure, titles.triggers, titles.budget]
 }
 
 /** The overview's shape while the draft is still generating, so navigating there reads as progress. */

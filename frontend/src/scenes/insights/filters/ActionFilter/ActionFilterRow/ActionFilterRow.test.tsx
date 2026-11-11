@@ -27,7 +27,6 @@ import { eventDefinitions, searchAndSelect, setupInsightMocks } from '~/test/ins
 import {
     AvailableFeature,
     BaseMathType,
-    FilterType,
     HogQLMathType,
     InsightType,
     PropertyFilterType,
@@ -36,7 +35,6 @@ import {
 } from '~/types'
 
 import filtersJson from '../__mocks__/filters.json'
-import { legacyFiltersToSeries } from '../legacyFilters'
 import { SeriesNode } from '../seriesNode'
 import { ActionFilterRow } from './ActionFilterRow'
 import { taxonomicGroupTypeToSeriesNodeKind } from './actionFilterRowUtils'
@@ -85,7 +83,11 @@ function setup(
     logic: ReturnType<typeof entityFilterLogic.build>
     onChange: jest.Mock
 } {
-    const series = seriesOverride ?? legacyFiltersToSeries(filtersJson as FilterType)
+    const series: SeriesNode[] = seriesOverride ?? [
+        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+        { kind: NodeKind.ActionsNode, id: 9, name: 'Users signed up' },
+    ]
     const onChange = jest.fn()
     const logic = entityFilterLogic({ onChange, series, typeKey: 'test-key', ...logicProps })
     logic.mount()

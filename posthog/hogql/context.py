@@ -157,6 +157,9 @@ class HogQLContext:
     # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
     # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
+    # Per-query cache of the team's rows for `system.integrations`, so a query that references the
+    # table more than once calls the integrations SDK once. None until the first reference resolves.
+    system_integrations_rows: Optional[list[list[Any]]] = field(default=None, compare=False, repr=False)
     # Property-level access control: (property_name, PropertyDefinition.Type, group_type_index) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
@@ -179,6 +182,10 @@ class HogQLContext:
     # Per-query event property definitions that transform loads. The transform runs once for the query and once for
     # each saved view the query inlines, so this loads each property's definition once per query.
     flag_call_property_metadata: Optional["FlagCallPropertyMetadata"] = field(default=None, compare=False, repr=False)
+    # The (start, end) of each `$feature_flag_called` literal in the query text that the flag-call union reads.
+    # `_resolve_with_swaps` in transforms/flag_calls_from_flag_evaluations.py fills it when the swap succeeds, and the
+    # SQL editor's notices read it.
+    flag_called_union_spans: set[tuple[int, int]] = field(default_factory=set)
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
     # the filter is selective, so set it only for a query shape that was measured to be faster with it.

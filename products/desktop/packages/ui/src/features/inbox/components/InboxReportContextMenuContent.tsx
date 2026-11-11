@@ -11,10 +11,7 @@ import {
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
-import {
-  canCreateImplementationPr,
-  canResolveReport,
-} from "@posthog/core/inbox/reportActions";
+import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import {
   ContextMenuContent,
   ContextMenuGroup,
@@ -24,6 +21,7 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
 } from "@posthog/quill";
+import { canResolveReport, hasOpenImplementationPr } from "@posthog/shared";
 import {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
@@ -85,9 +83,7 @@ export function InboxReportContextMenuContent({
   const isDismissed = report.status === "suppressed";
   const readOnly =
     report.status === "resolved" || (isDismissed && report.refund != null);
-  const hasOpenPr =
-    Boolean(report.implementation_pr_url) &&
-    report.implementation_pr_merged !== true;
+  const hasOpenPr = hasOpenImplementationPr(report);
   const canCreatePr = canCreateImplementationPr(report, {
     hasLiveImplementationTask: continuableTask !== null,
     isTaskLookupPending: reportTasksLoading || reportTasksFailed,

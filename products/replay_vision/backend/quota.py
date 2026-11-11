@@ -36,7 +36,7 @@ logger = structlog.get_logger(__name__)
 
 # Fallback monthly credit cap for orgs billing has never synced (self-hosted, sync gaps, malformed
 # limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
-# free-tier org; self-hosted deployments raise it via the env var.
+# free-tier org.
 MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
 
 
@@ -519,7 +519,8 @@ def _sum_active_backfill_remaining_credits(organization_id: UUID) -> BackfillCom
     """
     rows = (
         ReplayScannerBackfill.objects.unscoped()
-        .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES)
+        # A disabled scanner holds its backfills, so they owe nothing until it is turned back on.
+        .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES, scanner__enabled=True)
         .values_list(
             "total_count", "dispatched_count", "skipped_count", "credits_per_observation", "scanner__free_only"
         )

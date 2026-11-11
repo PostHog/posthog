@@ -16,7 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import acreate_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
@@ -282,8 +282,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "archived_flag" not in result_keys
 
     async def test_action_filters_exclude_deleted(self):
-        await Action.objects.acreate(team=self.team, name="active action", deleted=False, created_by=self.user)
-        await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
+        await acreate_action(team=self.team, name="active action", deleted=False, created_by=self.user)
+        await acreate_action(team=self.team, name="deleted action", deleted=True, created_by=self.user)
 
         results, _ = await self.context.search_entities({"action"}, "action")
 
@@ -325,7 +325,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             team=self.team, name="deleted insight", deleted=True, saved=True, created_by=self.user
         )
         await Dashboard.objects.acreate(team=self.team, name="deleted dashboard", deleted=True, created_by=self.user)
-        await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
+        await acreate_action(team=self.team, name="deleted action", deleted=True, created_by=self.user)
         await Cohort.objects.acreate(team=self.team, name="deleted cohort", deleted=True, created_by=self.user)
         await Survey.objects.acreate(
             team=self.team,

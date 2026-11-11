@@ -1,11 +1,7 @@
-import { INBOX_PAGE_SIZE } from '@/api/reports'
 import type { InboxItem } from '@/model/types'
 
-/** The first two pages of the list: the reports a session most likely opens. */
-export const INITIAL_PREFETCH_COUNT = 2 * INBOX_PAGE_SIZE
-export const PREFETCH_LOOKAHEAD = 5
-/** Reports in flight at once. Each report is 3 to 4 requests. */
-export const PREFETCH_CONCURRENCY = 2
+export const PREFETCH_LOOKAHEAD = 1
+export const PREFETCH_CONCURRENCY = 1
 
 export interface PrefetchRows {
     /** Report ids worth prefetching, in list order. */
@@ -27,37 +23,30 @@ export function prefetchRows(items: readonly Pick<InboxItem, 'reportId' | 'state
     return { ids, idIndexByRow }
 }
 
-/** The ids to prefetch, given the last visible index in `ids`, or `null` before the list reports what is visible. */
-export function prefetchWindow(ids: readonly string[], lastVisibleIndex: number | null): string[] {
-    const last =
-        lastVisibleIndex === null
-            ? INITIAL_PREFETCH_COUNT - 1
-            : Math.max(INITIAL_PREFETCH_COUNT - 1, lastVisibleIndex + PREFETCH_LOOKAHEAD)
-    return ids.slice(0, last + 1)
+export function prefetchWindow(rows: PrefetchRows, visible: { first: number; last: number } | null): string[] {
+    if (!visible) return []
+    const first = visible.first === 0 ? 0 : (rows.idIndexByRow[visible.first - 1] ?? -1) + 1
+    const last = rows.idIndexByRow[visible.last] ?? -1
+    return last < first ? [] : rows.ids.slice(first, last + PREFETCH_LOOKAHEAD + 1)
 }
 
 export interface PrefetchQueue {
-    /** Queues the ids that are not already pending or running. An id runs again once its last run settles. */
+    /** Replaces pending ids with this window, keeping any run already in flight. */
     enqueue(ids: readonly string[]): void
     /** Drops the pending ids. Runs in flight finish and still count toward the limit. */
     reset(): void
 }
 
-// Dedupes only queued and running ids: the prefetch stale time makes a repeat run of a fresh report a no-op, and a
-// report the cache dropped while idle is fetched again when it comes back into view.
 export function createPrefetchQueue(run: (id: string) => Promise<void>): PrefetchQueue {
-    let active = new Set<string>()
+    const running = new Set<string>()
     let pending: string[] = []
-    let inFlight = 0
 
     const pump = (): void => {
-        while (inFlight < PREFETCH_CONCURRENCY && pending.length > 0) {
+        while (running.size < PREFETCH_CONCURRENCY && pending.length > 0) {
             const id = pending.shift() as string
-            const owner = active
-            inFlight += 1
+            running.add(id)
             const settle = (): void => {
-                inFlight -= 1
-                owner.delete(id)
+                running.delete(id)
                 pump()
             }
             let result: Promise<void>
@@ -73,17 +62,10 @@ export function createPrefetchQueue(run: (id: string) => Promise<void>): Prefetc
 
     return {
         enqueue(ids: readonly string[]): void {
-            for (const id of ids) {
-                if (!active.has(id)) {
-                    active.add(id)
-                    pending.push(id)
-                }
-            }
+            pending = [...new Set(ids)].filter((id) => !running.has(id))
             pump()
         },
         reset(): void {
-            // A new set, so a run from before the reset does not clear an id queued after it.
-            active = new Set()
             pending = []
         },
     }

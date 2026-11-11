@@ -267,6 +267,20 @@ class TestLoadFlagHistory(BaseTest):
         assert isinstance(history, FlagHistory)
         self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
 
+    def test_split_history_after_a_split_change_after_the_end_queries_no_exposures(self) -> None:
+        ended_at = self.launched_at + timedelta(days=1)
+        self.experiment.end_date = ended_at
+        self.experiment.save()
+        changed_at = self._log_split_changes(
+            [_split(50, 50), _split(60, 40), _split(70, 30)], first_at=ended_at - timedelta(minutes=30)
+        )
+
+        history, query = self._load([True], load=load_split_history)
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual([change.changed_at for change in history.of_kind(SplitChange)], changed_at)
+        self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
+
     def test_a_count_is_cached_apart_from_the_exposure_answer_of_the_same_window(self) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40)])
         first, _ = self._load([True], units=[3])

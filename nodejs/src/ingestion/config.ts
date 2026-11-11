@@ -17,6 +17,7 @@ import {
 } from '~/common/config/kafka-topics'
 import type { PostgresRouterConfig } from '~/common/utils/db/postgres'
 import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
+import { AI_MEDIA_OFFLOAD_MIN_BYTES } from '~/ingestion/common/ai-event-limits'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
@@ -235,6 +236,7 @@ export type IngestionConsumerConfig = {
     // Stateful overflow config
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: number
 
     // Per-token/distinct_id restrictions
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
@@ -406,6 +408,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Stateful overflow config
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
+        INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: 50_000,
 
         // Per-token/distinct_id restrictions
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
@@ -461,7 +464,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         AI_BLOB_S3_TIMEOUT_MS: 30000,
         AI_BLOB_OFFLOAD_TEAMS: '',
         // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
-        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 20480,
+        // The shortest base64 that decodes to AI_MEDIA_OFFLOAD_MIN_BYTES, so no media of that size stays inline.
+        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: Math.ceil(AI_MEDIA_OFFLOAD_MIN_BYTES / 3) * 4,
         AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
         // Chunk-wide cap on concurrent blob uploads, so blob-heavy traffic
         // can't monopolize the S3 socket pool.

@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 
@@ -33,6 +35,20 @@ describe('inviteLogic', () => {
             existingMemberInviteRows: [isExistingMember],
             canSubmit: !isExistingMember,
         })
+    })
+
+    it('keeps the rows and shows no success toast when a blocked invite is submitted', async () => {
+        const successToast = jest.spyOn(lemonToast, 'success')
+        logic.actions.updateInviteAtIndex({ target_email: 'rose.dawson@posthog.com', isValid: true }, 0)
+
+        await expectLogic(logic, () => {
+            logic.actions.inviteTeamMembers()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                invitesToSend: [expect.objectContaining({ target_email: 'rose.dawson@posthog.com' })],
+            })
+        expect(successToast).not.toHaveBeenCalled()
     })
 
     it('shows a message validation error under the field until the message changes', async () => {

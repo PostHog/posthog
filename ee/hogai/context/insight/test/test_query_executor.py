@@ -452,16 +452,30 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(context.exception.error_code, "query_result_error")
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
+    @parameterized.expand(
+        [
+            ("finished_by_first_poll", 0, [0.05]),
+            ("still_running_until_the_cap", 7, [0.05, 0.075, 0.1125, 0.1688, 0.2531, 0.3797, 0.5, 0.5]),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_polling_success(self, mock_get_query_status, mock_process_query):
+    async def test_async_query_polling_success(
+        self,
+        _name: str,
+        running_polls: int,
+        expected_waits_s: list[float],
+        mock_get_query_status: Mock,
+        mock_process_query: Mock,
+    ) -> None:
         """Test successful async query polling"""
         # Initial response with incomplete query
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
         # Mock polling responses
+        still_running = Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False})
         mock_get_query_status.side_effect = [
-            Mock(model_dump=lambda mode: {"id": "test-query-id", "complete": False}),  # Still running
+            *[still_running] * running_polls,  # Still running
             Mock(
                 model_dump=lambda mode: {
                     "id": "test-query-id",
@@ -479,8 +493,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertIsInstance(result, str)
         self.assertFalse(used_fallback)
         self.assertIn("Date|test", result)
-        self.assertEqual(mock_get_query_status.call_count, 2)
-        self.assertEqual(mock_sleep.call_count, 2)
+        self.assertEqual(mock_get_query_status.call_count, running_polls + 1)
+        self.assertEqual([round(wait.args[0], 4) for wait in mock_sleep.await_args_list], expected_waits_s)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
@@ -816,13 +830,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "days": [1, 2, 3],
                     "labels": ["1 day", "2 days", "3 days"],
                     "label": "$pageview",
-                    "action": {
-                        "order": 0,
-                        "type": "events",
-                        "name": "$pageview",
-                        "id": "$pageview",
-                        "custom_name": None,
-                    },
+                    "order": 0,
                 }
             ]
         }
@@ -840,7 +848,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - new",
                     "status": "new",
-                    "action": {},
+                    "order": 0,
                 },
                 {
                     "data": [120.0, 105.0],
@@ -848,7 +856,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - returning",
                     "status": "returning",
-                    "action": {},
+                    "order": 0,
                 },
                 {
                     "data": [15.0, 22.0],
@@ -856,7 +864,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - resurrecting",
                     "status": "resurrecting",
-                    "action": {},
+                    "order": 0,
                 },
                 {
                     "data": [-30.0, -45.0],
@@ -864,7 +872,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                     "labels": ["20-Jan", "21-Jan"],
                     "label": "$pageview - dormant",
                     "status": "dormant",
-                    "action": {},
+                    "order": 0,
                 },
             ]
         }

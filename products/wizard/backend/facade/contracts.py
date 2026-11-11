@@ -241,16 +241,9 @@ class WizardInstallStatusDTO:
 @frozen
 class ListWizardRunsInput:
     team_id: int
-    offset: int
-    limit: int
     statuses: tuple[WizardRunStatus, ...] = ()
     created_after: datetime | None = None
-
-
-@frozen
-class WizardRunPage:
-    results: tuple[WizardRunDTO, ...]
-    count: int
+    created_by_id: int | None = None
 
 
 @frozen

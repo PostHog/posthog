@@ -22,7 +22,8 @@ from posthog.hogql.property import action_to_expr, operator_is_negative, propert
 
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -341,9 +342,9 @@ def _get_event_name_from_config(
 def _build_action_filter(action_id: int, team: Team) -> ast.Expr:
     """Build filter expression for an action, returning False if action not found."""
     try:
-        action = Action.objects.get(pk=action_id, team=team)
+        action = get_action(action_id=action_id, team_id=team.pk)
         return action_to_expr(action)
-    except Action.DoesNotExist:
+    except ActionNotFound:
         logger.warning(f"Action {action_id} not found for team {team.id}. Exposure query will return no results.")
         return ast.Constant(value=False)
 

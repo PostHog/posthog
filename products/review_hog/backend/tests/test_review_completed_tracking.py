@@ -53,7 +53,7 @@ from products.review_hog.backend.temporal.activities import (
     _track_review_started,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_STAMPHOG
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 
 _PR_URL = "https://github.com/o/r/pull/7"
 
@@ -380,15 +380,7 @@ class TestTrackReviewCompleted(BaseTest):
                 pr_comments=[],
                 pr_files=[],
             )
-        decision = PushGateDecision(
-            skip=True,
-            would_skip=True,
-            reason="system_one_below_threshold",
-            probability=0.03,
-            model="jevk5",
-            own_commits=2,
-            own_code_lines=14,
-        )
+        decision = PushGateDecision(skip=True, would_skip=True, reason="merge_only", own_commits=2, own_code_lines=14)
 
         with (
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
@@ -396,7 +388,6 @@ class TestTrackReviewCompleted(BaseTest):
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             gate.return_value.decide.return_value = decision
-            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
             results = [
                 _gate_push(
                     GatePushInput(
@@ -413,29 +404,21 @@ class TestTrackReviewCompleted(BaseTest):
             ]
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
-        assert [(result.skip, result.reason) for result in results] == [(True, "system_one_below_threshold")] * 2
-        recorded = gate.return_value.record_small_change_streak.call_args_list
-        assert [call.args[0] for call in recorded] == results
+        assert [(result.skip, result.reason) for result in results] == [(True, "merge_only")] * 2
         first, second = capture.call_args_list
         assert first.kwargs["event"] == "reviewhog_push_gate_decided"
         props = first.kwargs["properties"]
-        assert (props["skipped"], props["reason"], props["system_one_probability"], props["own_code_lines"]) == (
-            True,
-            "system_one_below_threshold",
-            0.03,
-            14,
-        )
+        assert (props["skipped"], props["reason"], props["own_code_lines"]) == (True, "merge_only", 14)
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
-        # Each push reports the draft state of its own head, and only a ready PR gets a next push chance.
+        # Each push reports the draft state of its own head.
         assert (props["pr_draft"], second.kwargs["properties"]["pr_draft"]) == (True, False)
-        assert (props["next_push_probability"], second.kwargs["properties"]["next_push_probability"]) == (None, 0.559)
 
     @parameterized.expand(
         [
             ("quiet_previous_review", False, False, (True, "quiet_small_push", 0, 400)),
-            ("previous_review_found_a_bug", True, False, (False, "system_one_above_threshold", 1, 400)),
+            ("previous_review_found_a_bug", True, False, (False, "no_rule_matched", 1, 400)),
             # A retry after a failed publish runs one run_index higher at the head its first attempt finalized.
-            ("retry_of_a_finalized_head", False, True, (False, "system_one_above_threshold", None, None)),
+            ("retry_of_a_finalized_head", False, True, (False, "no_rule_matched", None, None)),
         ]
     )
     def test_the_gate_reads_the_previous_turns_findings_and_the_pr_size(
@@ -471,9 +454,7 @@ class TestTrackReviewCompleted(BaseTest):
             finalize_review_report(
                 team_id=self.team.id, report_id=report_id, body_markdown="# r", run_index=1, head_sha="sha1"
             )
-        decision = PushGateDecision(
-            skip=False, would_skip=False, reason="system_one_above_threshold", probability=0.8, own_code_lines=12
-        )
+        decision = PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched", own_code_lines=12)
 
         with (
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
@@ -482,7 +463,6 @@ class TestTrackReviewCompleted(BaseTest):
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             gate.return_value.decide.return_value = decision
-            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
             result = _gate_push(
                 GatePushInput(
                     team_id=self.team.id,
@@ -508,15 +488,15 @@ class TestTrackReviewCompleted(BaseTest):
                 "limit = 10",
                 ["pnpm-lock.yaml"],
                 True,
-                (False, "system_one_above_threshold", 0, False),
+                (False, "no_rule_matched", 0, False),
             ),
-            ("small_code_change", "limit = 20", [], True, (False, "system_one_above_threshold", 2, True)),
+            ("small_code_change", "limit = 20", [], True, (False, "no_rule_matched", 2, True)),
             (
                 "small_code_change_with_a_lockfile_in_the_pr",
                 "limit = 20",
                 ["pnpm-lock.yaml"],
                 True,
-                (False, "system_one_above_threshold", 2, False),
+                (False, "no_rule_matched", 2, False),
             ),
         ]
     )
@@ -558,9 +538,7 @@ class TestTrackReviewCompleted(BaseTest):
                 review_design=REVIEW_DESIGN_SINGLE_AGENT,
                 skipped_paths=skipped_paths,
             )
-        decision = PushGateDecision(
-            skip=False, would_skip=False, reason="system_one_above_threshold", own_code_lines=100
-        )
+        decision = PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched", own_code_lines=100)
 
         with (
             patch("products.review_hog.backend.temporal.activities._installation_auth", return_value=("tok", None)),
@@ -569,7 +547,6 @@ class TestTrackReviewCompleted(BaseTest):
             patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture,
         ):
             gate.return_value.decide.return_value = decision
-            gate.return_value.record_small_change_streak.side_effect = lambda decision, **_: decision
             result = _gate_push(
                 GatePushInput(
                     team_id=self.team.id,

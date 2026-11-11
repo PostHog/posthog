@@ -1,6 +1,9 @@
 import type {
     AEOPromptApi,
     AEOPromptCheckApi,
+    AEOPromptSetCountsApi,
+    AEOPromptSetOverviewApi,
+    AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
@@ -173,6 +176,7 @@ export const EXAMPLE_OPPORTUNITIES: ContentAutopilotOpportunityApi[] = [
         profile_id: EXAMPLE_PROFILE.id,
         run_id: null,
         proposal_id: null,
+        aeo_prompt_id: '00000000-0000-4000-8000-000000000302',
         kind: 'ai_visibility_gap',
         title: 'What is the best open source session replay tool?',
         score: 1,
@@ -190,6 +194,7 @@ export const EXAMPLE_OPPORTUNITIES: ContentAutopilotOpportunityApi[] = [
         profile_id: EXAMPLE_PROFILE.id,
         run_id: EXAMPLE_RUN.id,
         proposal_id: EXAMPLE_PROPOSAL.id,
+        aeo_prompt_id: null,
         kind: 'ai_visibility_gap',
         title: 'Does web analytics work without cookies?',
         score: 0.64,
@@ -232,6 +237,7 @@ export const EXAMPLE_FAILED_DRAFT_OPPORTUNITY: ContentAutopilotOpportunityApi = 
     ...EXAMPLE_OPPORTUNITIES[0],
     id: '00000000-0000-4000-8000-000000000303',
     proposal_id: EXAMPLE_FAILED_PROPOSAL_LIST.id,
+    aeo_prompt_id: null,
     run_id: EXAMPLE_RUN.id,
     title: 'How do I track AI crawler traffic on my website?',
     status: 'drafted',
@@ -252,9 +258,33 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     current_version: 1,
     version_count: 1,
     latest_checks: [
-        { engine: 'claude-web-search', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
-        { engine: 'openai-web-search', cited: false, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
-        { engine: 'exa-answer', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
+        {
+            engine: 'claude-web-search',
+            cited: true,
+            check_failed: false,
+            target_best_position: 1,
+            search_queries: [
+                'best open source product analytics for startups 2026',
+                'open source product analytics comparison',
+            ],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'openai-web-search',
+            cited: false,
+            check_failed: false,
+            target_best_position: null,
+            search_queries: ['best open source product analytics for startups 2026'],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'exa-answer',
+            cited: true,
+            check_failed: false,
+            target_best_position: 3,
+            search_queries: [],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
     ],
 }
 
@@ -265,9 +295,30 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         id: '00000000-0000-4000-8000-000000000302',
         prompt: 'How do I track funnels without writing SQL, and can I break the results down by country and browser?',
         latest_checks: [
-            { engine: 'claude-web-search', cited: false, check_failed: false, checked_at: '2026-09-28T09:00:00Z' },
-            { engine: 'openai-web-search', cited: false, check_failed: true, checked_at: '2026-09-28T09:00:00Z' },
-            { engine: 'gemini-google-search', cited: true, check_failed: false, checked_at: '2026-09-28T09:00:00Z' },
+            {
+                engine: 'claude-web-search',
+                cited: false,
+                check_failed: false,
+                target_best_position: null,
+                search_queries: ['funnel analysis without SQL breakdown by country'],
+                checked_at: '2026-09-28T09:00:00Z',
+            },
+            {
+                engine: 'openai-web-search',
+                cited: false,
+                check_failed: true,
+                target_best_position: null,
+                search_queries: [],
+                checked_at: '2026-09-28T09:00:00Z',
+            },
+            {
+                engine: 'gemini-google-search',
+                cited: true,
+                check_failed: false,
+                target_best_position: 2,
+                search_queries: [],
+                checked_at: '2026-09-28T09:00:00Z',
+            },
         ],
         last_checked_at: '2026-09-28T09:00:00Z',
     },
@@ -286,7 +337,14 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         prompt: 'Is there a free alternative to paid feature flag services?',
         topic: '',
         latest_checks: [
-            { engine: 'exa-answer', cited: false, check_failed: false, checked_at: '2026-09-27T09:00:00Z' },
+            {
+                engine: 'exa-answer',
+                cited: false,
+                check_failed: false,
+                target_best_position: null,
+                search_queries: [],
+                checked_at: '2026-09-27T09:00:00Z',
+            },
         ],
         last_checked_at: '2026-09-27T09:00:00Z',
     },
@@ -298,7 +356,14 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         active: false,
         archived_at: '2026-09-20T12:00:00Z',
         latest_checks: [
-            { engine: 'claude-web-search', cited: false, check_failed: false, checked_at: '2026-09-19T09:00:00Z' },
+            {
+                engine: 'claude-web-search',
+                cited: false,
+                check_failed: false,
+                target_best_position: null,
+                search_queries: [],
+                checked_at: '2026-09-19T09:00:00Z',
+            },
         ],
         last_checked_at: '2026-09-19T09:00:00Z',
     },
@@ -423,6 +488,7 @@ const EXAMPLE_PROMPT_DAILY: AEOPromptStatsApi['daily'] = Object.entries(EXAMPLE_
                 cited: status === 'cited' ? 1 : 0,
                 mentioned: status === 'cited' || status === 'mentioned' ? 1 : 0,
                 failed: status === 'failed' ? 1 : 0,
+                avg_position: status === 'cited' ? (index % 3) + 1 : null,
             }))
 )
 
@@ -437,6 +503,9 @@ const exampleEngineStats = (engine: string): AEOPromptStatsApi['engines'][number
         cited: sum('cited'),
         mentioned: sum('mentioned'),
         failed: sum('failed'),
+        avg_position: sum('cited')
+            ? days.reduce((total, row) => total + (row.avg_position ?? 0) * row.cited, 0) / sum('cited')
+            : null,
         citation_rate: answered ? sum('cited') / answered : null,
         mention_rate: answered ? sum('mentioned') / answered : null,
         first_checked_at: `${days[0].date}T09:00:00Z`,
@@ -478,5 +547,222 @@ export const EXAMPLE_PROMPT_STATS: AEOPromptStatsApi = {
         { word: 'open', count: 22 },
         { word: 'source', count: 22 },
         { word: 'startups', count: 11 },
+    ],
+}
+
+const setCounts = (
+    counts: Pick<AEOPromptSetCountsApi, 'checks' | 'failed' | 'cited' | 'mentioned' | 'prompts' | 'prompts_cited'>,
+    avgPosition: number | null = null
+): AEOPromptSetCountsApi => {
+    const answered = counts.checks - counts.failed
+    return {
+        ...counts,
+        avg_position: counts.cited ? avgPosition : null,
+        citation_rate: answered ? counts.cited / answered : null,
+        mention_rate: answered ? counts.mentioned / answered : null,
+    }
+}
+
+export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
+    days: 30,
+    window_from: '2026-09-01',
+    window_to: '2026-09-30',
+    prompts_tracked: 42,
+    target_domains: ['example.com'],
+    brand_names: ['example'],
+    current: setCounts({ checks: 2520, failed: 60, cited: 984, mentioned: 1476, prompts: 44, prompts_cited: 31 }, 2.3),
+    previous: setCounts({ checks: 2400, failed: 40, cited: 826, mentioned: 1416, prompts: 40, prompts_cited: 27 }, 2.8),
+    engines: [
+        {
+            engine: 'claude-web-search',
+            ...setCounts({ checks: 900, failed: 10, cited: 445, mentioned: 623, prompts: 44, prompts_cited: 30 }),
+        },
+        {
+            engine: 'exa-answer',
+            ...setCounts({ checks: 720, failed: 20, cited: 140, mentioned: 280, prompts: 44, prompts_cited: 18 }),
+        },
+        {
+            engine: 'openai-web-search',
+            ...setCounts({ checks: 900, failed: 30, cited: 399, mentioned: 573, prompts: 44, prompts_cited: 28 }),
+        },
+    ],
+    topics: [
+        {
+            topic: '',
+            active_prompts: 1,
+            ...setCounts({ checks: 60, failed: 0, cited: 6, mentioned: 12, prompts: 1, prompts_cited: 1 }),
+        },
+        {
+            topic: 'Experiments',
+            active_prompts: 6,
+            ...setCounts({ checks: 360, failed: 10, cited: 70, mentioned: 140, prompts: 6, prompts_cited: 3 }),
+        },
+        {
+            topic: 'Feature flags',
+            active_prompts: 8,
+            ...setCounts({ checks: 480, failed: 10, cited: 188, mentioned: 329, prompts: 8, prompts_cited: 7 }),
+        },
+        {
+            topic: 'Product analytics',
+            active_prompts: 15,
+            ...setCounts({ checks: 900, failed: 20, cited: 528, mentioned: 704, prompts: 16, prompts_cited: 14 }),
+        },
+        {
+            topic: 'Session replay',
+            active_prompts: 12,
+            ...setCounts({ checks: 720, failed: 20, cited: 192, mentioned: 291, prompts: 13, prompts_cited: 6 }),
+        },
+        {
+            topic: 'Surveys',
+            active_prompts: 2,
+            ...setCounts({ checks: 0, failed: 0, cited: 0, mentioned: 0, prompts: 0, prompts_cited: 0 }),
+        },
+    ],
+    top_domains: [
+        { domain: 'analytics-review.example.com', answers: 1180, share_of_answers: 0.48, is_target: false },
+        { domain: 'example.com', answers: 984, share_of_answers: 0.4, is_target: true },
+        { domain: 'community.example.org', answers: 590, share_of_answers: 0.24, is_target: false },
+    ],
+    top_searches: [
+        {
+            query: 'open source product analytics',
+            prompts: 9,
+            answers: 214,
+            cited: 131,
+            engines: ['claude-web-search', 'exa-answer', 'openai-web-search'],
+            top_prompts: [
+                {
+                    id: '00000000-0000-4000-8000-000000000301',
+                    text: 'What is the best open source product analytics tool for a small startup?',
+                },
+                {
+                    id: '00000000-0000-4000-8000-000000000302',
+                    text: 'How do I track funnels without writing SQL, and can I break the results down by country and browser?',
+                },
+            ],
+        },
+        {
+            query: 'session replay mask inputs',
+            prompts: 4,
+            answers: 88,
+            cited: 12,
+            engines: ['claude-web-search', 'openai-web-search'],
+            top_prompts: [
+                {
+                    id: '00000000-0000-4000-8000-000000000303',
+                    text: 'Which session replay tools let me mask sensitive inputs by default?',
+                },
+            ],
+        },
+        {
+            query: 'free feature flag service',
+            prompts: 3,
+            answers: 61,
+            cited: 0,
+            engines: ['exa-answer'],
+            top_prompts: [
+                {
+                    id: '00000000-0000-4000-8000-000000000304',
+                    text: 'Is there a free alternative to paid feature flag services?',
+                },
+            ],
+        },
+    ],
+}
+
+const RANKED_BRANDS: AEOPromptSetRankingsApi['brands'] = [
+    {
+        domain: 'example.com',
+        name: 'example',
+        is_target: true,
+        answers_mentioning: 1012,
+        visibility: 0.41,
+        previous_visibility: 0.371,
+        positive_share: 0.82,
+    },
+    {
+        domain: 'rival.example.org',
+        name: 'rival',
+        is_target: false,
+        answers_mentioning: 457,
+        visibility: 0.185,
+        previous_visibility: 0.158,
+        positive_share: null,
+    },
+    {
+        domain: 'metrics.example.net',
+        name: 'metrics',
+        is_target: false,
+        answers_mentioning: 425,
+        visibility: 0.172,
+        previous_visibility: 0.154,
+        positive_share: null,
+    },
+    {
+        domain: 'flagship.example.io',
+        name: 'flagship',
+        is_target: false,
+        answers_mentioning: 306,
+        visibility: 0.124,
+        previous_visibility: 0.141,
+        positive_share: null,
+    },
+]
+
+// Thirty days ending on the mocked date, each brand wobbling around its window visibility.
+const RANKED_DAYS = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 8, 1 + index))
+    return date.toISOString().slice(0, 10)
+})
+
+export const EXAMPLE_PROMPT_SET_RANKINGS: AEOPromptSetRankingsApi = {
+    days: 30,
+    window_from: RANKED_DAYS[0],
+    window_to: RANKED_DAYS[RANKED_DAYS.length - 1],
+    answers: 2468,
+    brands: RANKED_BRANDS,
+    daily: RANKED_DAYS.flatMap((date, index) =>
+        RANKED_BRANDS.map((brand, brandIndex) => ({
+            date,
+            domain: brand.domain,
+            answers: 82,
+            visibility: Math.round(((brand.visibility ?? 0) + Math.sin(index / 3 + brandIndex) * 0.02) * 1000) / 1000,
+        }))
+    ),
+    top_domains: [
+        {
+            domain: 'example.com',
+            answers: 509,
+            share_of_answers: 0.206,
+            urls: 131,
+            is_target: true,
+            is_competitor: false,
+        },
+        {
+            domain: 'forum.example.org',
+            answers: 294,
+            share_of_answers: 0.119,
+            urls: 287,
+            is_target: false,
+            is_competitor: false,
+        },
+        {
+            domain: 'rival.example.org',
+            answers: 220,
+            share_of_answers: 0.089,
+            urls: 82,
+            is_target: false,
+            is_competitor: true,
+        },
+    ],
+    top_pages: [
+        { url: 'https://example.com/', answers: 106, share_of_answers: 0.043, is_target: true },
+        {
+            url: 'https://forum.example.org/best-session-replay-tools',
+            answers: 68,
+            share_of_answers: 0.028,
+            is_target: false,
+        },
+        { url: 'https://example.com/pricing', answers: 47, share_of_answers: 0.019, is_target: true },
     ],
 }

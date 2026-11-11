@@ -24,6 +24,7 @@ class TestGetSdkVersionsForTeam(SimpleTestCase):
             ("posthog-edge",),
             ("posthog-convex",),
             ("posthog-rails",),
+            ("posthog-laravel",),
             ("posthog-aspnetcore",),
             ("posthog-rs",),
             ("posthog-rs-mcp",),

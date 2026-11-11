@@ -24,6 +24,7 @@ function sections(
     return {
         monitoring: [],
         'needs-decision': [],
+        'outcome-monitoring': [],
         resolved: [],
         closed: [],
         dismissed: [],

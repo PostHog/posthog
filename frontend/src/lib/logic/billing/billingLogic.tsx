@@ -18,6 +18,7 @@ import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { sceneRenderedLogic } from 'lib/logic/sceneRenderedLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -46,6 +47,7 @@ import {
     isMemberUsageSpendReadAccessEnabled,
 } from './billingAccess'
 import { isCompanionProduct } from './companionProducts'
+import { eventsRetentionMonths } from './eventsRetentionMonths'
 import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitReachedMessage,
@@ -54,6 +56,9 @@ import {
 } from './usageLimits'
 
 export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
+
+// in sync with GRANDFATHERED_EVENTS_RETENTION_PLAN in billing
+export const GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY = 'paid-20240404'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.8 // Threshold to show warning of event usage near limit (aligned with the 80% billing warning email)
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -206,6 +211,7 @@ export interface billingLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     currentOrganizationId: string // organizationLogic
     preflight: PreflightStatus | null // preflightLogic
+    sceneHasRendered: boolean // sceneRenderedLogic
     fakeBillingAlert: FakeBillingAlert // superpowersLogic
     accountOwner: {
         email?: string
@@ -284,9 +290,12 @@ export interface billingLogicValues {
         status: string
     }
     creditOverviewLoading: boolean
+    currentEventsRetentionMonths: number | null
     currentPlatformAddon: BillingProductV2AddonType | null
+    currentPlatformAddonPlan: BillingPlanType | null
     effectiveBillingAlert: BillingAlertConfig | null
     estimatedMonthlyCreditAmountUsd: number | null
+    hasGrandfatheredEventsRetention: boolean
     hasSupportAddonPlan: boolean
     isActivateLicenseSubmitting: boolean
     isActivateLicenseValid: boolean
@@ -307,6 +316,10 @@ export interface billingLogicValues {
     openInvoices: OpenInvoices | null
     openInvoicesLoading: boolean
     platformAddons: BillingProductV2AddonType[]
+    productAnalyticsFreePlan: BillingPlanType | null
+    productAnalyticsPlanAfterPackageDowngrade: BillingPlanType | null
+    productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
+    productAnalyticsPlans: BillingPlanType[]
     productSpecificAlert: BillingAlertConfig | null
     products: BillingProductV2Type[]
     productsLoading: boolean
@@ -346,6 +359,9 @@ export interface billingLogicActions {
         value: true
     } // lemonBannerLogic
     loadCurrentOrganization: () => any // organizationLogic
+    sceneRendered: () => {
+        value: true
+    } // sceneRenderedLogic
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
@@ -667,6 +683,17 @@ export interface billingLogicMeta {
         hasSupportAddonPlan: (billing: BillingType | null) => boolean
         platformAddons: (billing: BillingType | null) => BillingProductV2AddonType[]
         currentPlatformAddon: (billing: BillingType | null) => BillingProductV2AddonType | null
+        currentPlatformAddonPlan: (currentPlatformAddon: BillingProductV2AddonType | null) => BillingPlanType | null
+        productAnalyticsPlans: (billing: BillingType | null) => BillingPlanType[]
+        productAnalyticsFreePlan: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
+        productAnalyticsPlanReplacingGrandfathered: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
+        hasGrandfatheredEventsRetention: (productAnalyticsPlans: BillingPlanType[]) => boolean
+        productAnalyticsPlanAfterPackageDowngrade: (
+            productAnalyticsPlans: BillingPlanType[],
+            hasGrandfatheredEventsRetention: boolean,
+            productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
+        ) => BillingPlanType | null
+        currentEventsRetentionMonths: (currentOrganization: OrganizationType | null) => number | null
         unusedPlatformAddonAmount: (
             currentPlatformAddon: BillingProductV2AddonType | null,
             timeRemainingInSeconds: number,
@@ -795,8 +822,12 @@ export const billingLogic = kea<billingLogicType>([
             ['currentOrganization', 'currentOrganizationId'],
             superpowersLogic,
             ['fakeBillingAlert'],
+            sceneRenderedLogic,
+            ['sceneHasRendered'],
         ],
         actions: [
+            sceneRenderedLogic,
+            ['sceneRendered'],
             userLogic,
             ['loadUser'],
             organizationLogic,
@@ -1246,6 +1277,57 @@ export const billingLogic = kea<billingLogicType>([
                 return platformProduct?.addons?.find((addon: BillingProductV2AddonType) => !!addon.subscribed) || null
             },
         ],
+        currentPlatformAddonPlan: [
+            (s) => [s.currentPlatformAddon],
+            (currentPlatformAddon: BillingProductV2AddonType | null): BillingPlanType | null =>
+                currentPlatformAddon?.plans?.find((plan) => plan.current_plan) ??
+                currentPlatformAddon?.plans?.[0] ??
+                null,
+        ],
+        productAnalyticsPlans: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingPlanType[] =>
+                billing?.products?.find((product) => product.type === ProductKey.PRODUCT_ANALYTICS)?.plans ?? [],
+        ],
+        productAnalyticsFreePlan: [
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): BillingPlanType | null =>
+                productAnalyticsPlans.find((plan) => !!plan.free_allocation && !plan.tiers) ?? null,
+        ],
+        productAnalyticsPlanReplacingGrandfathered: [
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): BillingPlanType | null =>
+                productAnalyticsPlans.find(
+                    (plan) => !!plan.tiers && plan.plan_key !== GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
+                ) ?? null,
+        ],
+        hasGrandfatheredEventsRetention: [
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): boolean =>
+                productAnalyticsPlans.some(
+                    (plan) => !!plan.current_plan && plan.plan_key === GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
+                ),
+        ],
+        productAnalyticsPlanAfterPackageDowngrade: [
+            (s) => [
+                s.productAnalyticsPlans,
+                s.hasGrandfatheredEventsRetention,
+                s.productAnalyticsPlanReplacingGrandfathered,
+            ],
+            (
+                productAnalyticsPlans: BillingPlanType[],
+                hasGrandfatheredEventsRetention: boolean,
+                productAnalyticsPlanReplacingGrandfathered: BillingPlanType | null
+            ): BillingPlanType | null =>
+                hasGrandfatheredEventsRetention
+                    ? productAnalyticsPlanReplacingGrandfathered
+                    : (productAnalyticsPlans.find((plan) => !!plan.current_plan) ?? null),
+        ],
+        currentEventsRetentionMonths: [
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null): number | null =>
+                eventsRetentionMonths(currentOrganization?.available_product_features),
+        ],
         unusedPlatformAddonAmount: [
             (s) => [s.currentPlatformAddon, s.timeRemainingInSeconds, s.timeTotalInSeconds],
             (
@@ -1610,7 +1692,7 @@ export const billingLogic = kea<billingLogicType>([
             }),
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         reportBillingShown: () => {
             posthog.capture('billing v2 shown')
         },
@@ -1647,6 +1729,12 @@ export const billingLogic = kea<billingLogicType>([
         switchFlatrateSubscriptionPlan: async (payload) => {
             actions.setSwitchPlanLoading(payload.to_product_key)
         },
+        sceneRendered: () => {
+            if (cache.loadCreditOverviewAfterScene) {
+                cache.loadCreditOverviewAfterScene = false
+                actions.loadCreditOverview()
+            }
+        },
         loadBillingSuccess: async ({ payload }, breakpoint) => {
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
@@ -1655,7 +1743,12 @@ export const billingLogic = kea<billingLogicType>([
             if (payload) {
                 return
             }
-            actions.loadCreditOverview()
+            // Only billing views show credits, so this request waits for the scene's own requests.
+            if (values.sceneHasRendered) {
+                actions.loadCreditOverview()
+            } else {
+                cache.loadCreditOverviewAfterScene = true
+            }
 
             // If the activation is successful, we reload the user/organization to get the updated available features
             // activation can be triggered from the billing page or onboarding

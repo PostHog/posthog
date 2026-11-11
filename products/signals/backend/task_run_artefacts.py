@@ -19,6 +19,8 @@ from enum import StrEnum
 
 from django.db import transaction
 
+from pydantic import ValidationError
+
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_DISCUSSION,
@@ -339,7 +341,40 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     claim = _implementation_slot_claim(team_id=team_id, report_id=report_id, exclude_task_id=task_id)
     if claim is not None:
         raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
-    claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+    claim_report_for_task(
+        team_id=team_id,
+        report_id=report_id,
+        task_id=task_id,
+        for_task_creator=implementation_started_by_person(team_id=team_id, report_id=report_id, task_id=task_id),
+    )
+
+
+def implementation_started_by_person(*, team_id: int, report_id: str, task_id: str) -> bool:
+    """Whether a person started this implementation task by hand, rather than auto-start.
+
+    Auto-start stamps its generated branch on the run artefact of every run it starts, and the
+    manual start-task API leaves it unset. One stamped run makes the task automatic, because
+    auto-start runs a task as a suggested reviewer who never took the work on. A row that does not
+    parse also counts as automatic, so that no claim names a person without evidence.
+    """
+    rows = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.TASK_RUN,
+        task_id=task_id,
+    ).values_list("content", flat=True)
+    found = False
+    for content in rows:
+        try:
+            artefact = TaskRunArtefact.model_validate_json(content)
+        except ValidationError:
+            return False
+        if artefact.type != TASK_RUN_TYPE_IMPLEMENTATION:
+            continue
+        if artefact.automation_branch is not None:
+            return False
+        found = True
+    return found
 
 
 def record_implementation_task(
@@ -387,7 +422,12 @@ def record_implementation_task(
         attribution=ArtefactAttribution.from_task(task_id),
     )
     try:
-        claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+        claim_report_for_task(
+            team_id=team_id,
+            report_id=report_id,
+            task_id=task_id,
+            for_task_creator=implementation_started_by_person(team_id=team_id, report_id=report_id, task_id=task_id),
+        )
     except ReportClaimConflict as error:
         raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=str(error)) from error
     return artefact

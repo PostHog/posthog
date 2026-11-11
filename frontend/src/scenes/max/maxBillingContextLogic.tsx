@@ -1,10 +1,10 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
-import { objectsEqual } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { isUsageAtOrOverLimit } from 'lib/logic/billing/usageLimits'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { isAddonVisible } from 'scenes/billing/billing-utils'
 import { BillingSpendResponse, billingSpendLogic } from 'scenes/billing/billingSpendLogic'
 import { BillingUsageResponse, billingUsageLogic } from 'scenes/billing/billingUsageLogic'

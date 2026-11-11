@@ -1,10 +1,22 @@
+import { useActions } from 'kea'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
+import { RecommendationsActionLocation } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
+import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
 import { RecommendationDataGap } from './recommendations'
+import { recommendationsLogic } from './recommendationsLogic'
 
-export function RecommendationDataGapList({ gaps }: { gaps: RecommendationDataGap[] }): JSX.Element {
+export function RecommendationDataGapList({
+    gaps,
+    location,
+}: {
+    gaps: RecommendationDataGap[]
+    location: RecommendationsActionLocation
+}): JSX.Element {
+    const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const sourceIds = [...new Set(gaps.map((gap) => gap.sourceId))]
     return (
         <div className="flex w-[28rem] max-w-[90vw] flex-col gap-2 p-1">
@@ -23,13 +35,16 @@ export function RecommendationDataGapList({ gaps }: { gaps: RecommendationDataGa
                                 type="secondary"
                                 to={urls.dataWarehouseSource(`managed-${sourceId}`)}
                                 data-attr="marketing-recommendations-data-gap-manage-source"
+                                onClick={() => reportRecommendationsActionClicked('manage_source', location)}
                             >
                                 Manage source
                             </LemonButton>
                         </div>
                         <ul className="m-0 flex list-disc flex-col gap-1 pl-4 text-xs text-secondary">
                             {sourceGaps.map((gap) => (
-                                <li key={gap.table}>{gap.description}</li>
+                                <li key={gap.table}>
+                                    <RecommendationDataGapDescription gap={gap} />
+                                </li>
                             ))}
                         </ul>
                     </div>

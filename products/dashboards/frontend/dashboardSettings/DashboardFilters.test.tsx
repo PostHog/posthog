@@ -7,7 +7,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { SEARCH_PARAM_FILTERS_KEY } from 'scenes/dashboard/dashboardUtils'
@@ -15,6 +14,8 @@ import { SEARCH_PARAM_FILTERS_KEY } from 'scenes/dashboard/dashboardUtils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardPlacement, DashboardType, InsightModel } from '~/types'
+
+import { DashboardFilterBar } from '../DashboardFilters'
 
 const MOCK_DASHBOARD: DashboardType = {
     id: 5,

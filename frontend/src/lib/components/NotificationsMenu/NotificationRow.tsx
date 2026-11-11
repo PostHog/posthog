@@ -86,8 +86,12 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         description: 'When a suggestion for a view or table is assigned to you',
     },
     first_report_completed: {
-        label: 'First Self-Driving investigation',
-        description: 'When your first Self-Driving investigation finishes, including when it has no report.',
+        label: 'First Self-driving investigation',
+        description: 'When your first Self-driving investigation finishes, including when it has no report.',
+    },
+    report_claim_taken_over: {
+        label: 'Self-driving report takeovers',
+        description: 'When someone takes over a Self-driving report you were working on',
     },
     feature_flag_failure: {
         label: 'Feature flag failures',

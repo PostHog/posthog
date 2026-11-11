@@ -7,7 +7,6 @@ import { router } from 'kea-router'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
@@ -20,6 +19,8 @@ import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
 import { BulkSelectionBar } from './BulkSelectionBar'
+import { BulkSelectionCheckbox } from './BulkSelectionCheckbox'
+import { bulkSelectionContext } from './bulkSelectionContext'
 import {
     determineColumnKey,
     getColumnWidthCap,
@@ -37,6 +38,7 @@ import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBu
 /** Sentinel passed to `useBulkSelection` when `bulkSelection` is undefined — the hook still runs
  *  unconditionally so hook order is stable, but its result is never read. */
 const UNUSED_ROW_KEY = (): string | number => 0
+const DEFAULT_NOUNS: [string, string] = ['entry', 'entries']
 
 /** Text extracted from a cell for "Copy cell contents". Joins the cell's direct child nodes with a
  *  space — using `textContent` on the whole cell would both smush visually-separated children
@@ -110,6 +112,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
+    /** Called with every row in display order, on mount and whenever those rows change. */
+    onSortedRowsChange?: (rows: T[]) => void
     /** Defaults to true. Used if you don't want to use the URL to store sort order **/
     useURLForSorting?: boolean
     /** How many skeleton rows should be used for the empty loading state. The default value is 1. */
@@ -191,10 +195,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     defaultSorting = null,
     sorting,
     onSort,
+    onSortedRowsChange,
     useURLForSorting = true,
     loadingSkeletonRows = 1,
     emptyState,
-    nouns = ['entry', 'entries'],
+    nouns = DEFAULT_NOUNS,
     className,
     style,
     tableStyle,
@@ -316,6 +321,20 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         return dataSource
     }, [dataSource, currentSorting, baseColumns])
 
+    // Inline columns give sortedDataSource a new identity on each render, so compare the rows themselves. Otherwise a
+    // parent that stores them would render again and report again without end.
+    const reportedRowsRef = useRef<T[] | null>(null)
+    useEffect(() => {
+        const reported = reportedRowsRef.current
+        const isUnchanged =
+            reported?.length === sortedDataSource.length &&
+            sortedDataSource.every((row, index) => row === reported[index])
+        if (onSortedRowsChange && !isUnchanged) {
+            reportedRowsRef.current = sortedDataSource
+            onSortedRowsChange(sortedDataSource)
+        }
+    }, [sortedDataSource, onSortedRowsChange])
+
     const paginationState = usePagination(sortedDataSource, pagination, id)
     const virtualizeRows = virtualized && allowContentScroll && !expandable
     const scrollMargin = tableRef.current?.tHead?.offsetHeight ?? 0
@@ -382,6 +401,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         clearSelectionKey: bulkSelection?.clearSelectionKey,
     })
 
+    const { toggleRow, toggleAllOnPage, pageHasSelectableRows } = bulk
     const effectiveNoun = bulkSelection?.noun ?? nouns
     const selectionColumn = useMemo<LemonTableColumn<T, undefined> | null>(() => {
         if (!bulkSelection) {
@@ -391,12 +411,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
             key: '__bulk-selection__',
             width: 32,
             title: (
-                <LemonCheckbox
-                    checked={bulk.isSomeOnPageSelected ? 'indeterminate' : bulk.isAllOnPageSelected}
-                    onChange={bulk.toggleAllOnPage}
+                <BulkSelectionCheckbox
+                    onChange={toggleAllOnPage}
                     aria-label={bulkSelection.headerAriaLabel ?? `Select all ${effectiveNoun[1]} on this page`}
                     disabledReason={
-                        !bulk.pageHasSelectableRows ? `No ${effectiveNoun[1]} on this page can be selected` : null
+                        !pageHasSelectableRows ? `No ${effectiveNoun[1]} on this page can be selected` : null
                     }
                 />
             ),
@@ -411,10 +430,10 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                           ? gate.disabledReason
                           : null
                 return (
-                    <LemonCheckbox
-                        checked={bulk.selectedKeysSet.has(key)}
+                    <BulkSelectionCheckbox
+                        selectionKey={key}
                         onChange={(_value, event) =>
-                            bulk.toggleRow(key, pageIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
+                            toggleRow(key, pageIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
                         }
                         disabledReason={disabledReason}
                         aria-label={bulkSelection.rowAriaLabel?.(record)}
@@ -422,7 +441,15 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                 )
             },
         }
-    }, [bulkSelection, bulk, resolveRowKey, paginationState.currentStartIndex, effectiveNoun])
+    }, [
+        bulkSelection,
+        toggleRow,
+        toggleAllOnPage,
+        pageHasSelectableRows,
+        resolveRowKey,
+        paginationState.currentStartIndex,
+        effectiveNoun,
+    ])
 
     const columnGroups = useMemo<LemonTableColumnGroup<T>[]>(() => {
         if (!selectionColumn) {
@@ -583,7 +610,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     )
 
     return (
-        <>
+        <bulkSelectionContext.Provider value={bulk}>
             {bulkSelection && <BulkSelectionBar context={bulk.context} config={bulkSelection} noun={effectiveNoun} />}
             <div
                 id={id}
@@ -1085,7 +1112,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                 </ScrollableShadows>
             </div>
             {enableCellCopy && copyMenu}
-        </>
+        </bulkSelectionContext.Provider>
     )
 }
 

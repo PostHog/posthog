@@ -9,14 +9,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { isDisplayTabSupported } from '~/queries/nodes/DataVisualization/Components/SideBar'
-import { VisualizationNode, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNodeWithHogQLQuery,
     isInsightVizNode,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { VisualizationNode, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightType, RetentionDashboardDisplayType } from '~/types'
 
 import { RetentionChartPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker'

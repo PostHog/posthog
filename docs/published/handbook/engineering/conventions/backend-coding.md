@@ -5,6 +5,10 @@ sidebar: Handbook
 
 #### Query trace correlation
 
+`ServerTimingsGathered` includes endpoint timings and the 20 slowest HogQL timings in its `Server-Timing` header.
+The header stops at complete entries within 10,000 characters to stay below load balancer limits.
+Truncation emits the structured info log `server_timing_header_truncated` and does not report an exception or affect the response body.
+
 The `query.client_query_id` attribute on `posthog.query.process_query_model` matches the browser `query completed` event's `queryId` and the API response event's `client_query_id`.
 Only UUID-shaped IDs are added to spans; other client IDs remain valid API inputs.
 A matching ID links a request to its processing span. It does not prove that the request delayed page rendering.
@@ -13,6 +17,9 @@ Check request timing against browser performance metrics, and inspect child span
 
 Query API responses expose a validated HTTP request UUID through `X-Request-ID` and the `Server-Timing` metric named `request_id`.
 Query analytics include the same UUID as `http_request_id`.
+When server timing is enabled, `pg` and `ch` report cumulative client query time in milliseconds.
+The matching `_max` metrics report the longest query, `_count` metrics count query attempts, and `_slow` metrics count attempts longer than 50 milliseconds.
+Failed queries contribute to these metrics too.
 The browser records response wait, body read, JSON parsing, and available resource phases on existing query outcome events.
 Resource phases require one matching response UUID; missing, ambiguous, or truncated evidence remains explicit.
 Cross-origin resource details also require `Timing-Allow-Origin`.
@@ -137,6 +144,8 @@ Escalating to the next rung is the last resort, not the default.
 - Use `parameterized` for cases known before execution. Reserve `self.subTest` for runtime cases, such as query results. Our pytest configuration makes `self.subTest` fail fast so CI can retry the test. Avoid the pytest `subtests` fixture: a successful retry can leave a failure in JUnit XML.
 - Frontend: prefer a kea logic test (`logic.actions` / `logic.values`) over a full component render whenever the behavior lives in the logic, and don't snapshot large rendered trees — assert specific fields instead.
 - Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `time_machine.travel(..., tick=False)` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
+  Prefer an event, future, or process output to confirm readiness. Use `posthog.test.waiting.wait_until` for bounded polling when the dependency only exposes a condition to check.
+  The `no-fixed-sleeps-in-tests` Semgrep rule blocks new `time.sleep` and non-zero `asyncio.sleep` calls in CI, including import aliases and calls with `noqa` comments. Calls already on the base branch stay allowed. When elapsed time is the behavior under test, explain why next to a specific `# nosemgrep: no-fixed-sleeps-in-tests` exemption.
 - **An absolute date in a test is a time bomb until you pin the clock.** A fixture date holds its meaning only while the real clock stays where you left it, so a test that measures that date against `now` — an age, a window, a "recent" flag, an expiry — passes today and fails weeks later on every open branch. Pin the process clock to the same instant (`time_machine.travel(..., tick=False)`, or `jest.useFakeTimers()` with `jest.setSystemTime()`), or write the fixture relative to `now`. Pinning covers only what reads the clock inside your process: anything outside it, such as a ClickHouse TTL or an S3 lifecycle rule, still runs on the real one.
 
 #### Fast developer ("unit") tests

@@ -6,6 +6,7 @@ and every other unfolded candidate follows in model order.
 """
 
 import json
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
@@ -58,8 +59,12 @@ class ValidationCounts:
     # Ranked entries past `rank_top`. They follow in model order too.
     beyond_rank_top: int = 0
     tier_corrections: int = 0
+    # Entries past the cap of their tier. Each moves down to the next tier with room and keeps its rank.
+    tier_demotions: int = 0
     # Folds of an unknown ref, into an unknown or folded ref, or into the ref itself.
     invalid_folds: int = 0
+    # Ranked entries that claim a needs-you kind the facts do not hold. The kind drops and the reason is replaced.
+    false_needs_you: int = 0
 
 
 @frozen
@@ -165,6 +170,10 @@ def _folds(items: list[Any], known: set[str], limits: ReasonLimits) -> tuple[dic
     return valid, invalid + len(proposed) - len(valid)
 
 
+def _theme_reason(theme: str) -> str:
+    return f"Matches your recent work: {theme}."
+
+
 def model_order(refs: Sequence[str], model_reasons: Mapping[str, str], limit: int) -> tuple[RankedEntry, ...]:
     """The fallback list: every candidate in model order, the first `limit` as worth a look."""
     return tuple(
@@ -186,12 +195,18 @@ def validate_ranking(
     *,
     refs: Sequence[str],
     model_reasons: Mapping[str, str],
+    needs_you: Mapping[str, Sequence[NeedsYouKind]],
     limit: int,
     rank_top: int,
+    top_max: int,
+    worth_a_look_max: int,
     reason_limits: ReasonLimits,
     next_step_max_chars: int,
 ) -> ValidatedRanking:
-    """`refs` are the candidates in model order. Raises `MalformedRankingError` when the answer cannot be used at all."""
+    """`refs` are the candidates in model order, and `needs_you` holds each one's real needs-you facts.
+
+    Raises `MalformedRankingError` when the answer cannot be used at all.
+    """
     raw, folded_items = _parse(content)
     known = set(refs)
     folds, invalid_folds = _folds(folded_items, known, reason_limits)
@@ -212,16 +227,32 @@ def validate_ranking(
     top = kept[:rank_top]
     ranked_refs = {entry.ref for entry in top}
 
+    caps: dict[Tier, int] = {"top": top_max, "worth_a_look": worth_a_look_max}
+    tier_sizes: Counter[Tier] = Counter()
     entries: list[RankedEntry] = []
-    renumbered = tier_corrections = 0
-    worst_tier = 0
+    renumbered = tier_corrections = tier_demotions = false_needs_you = 0
+    # Corrections follow the model's own tiers, so a demotion is not counted again as a correction.
+    worst_corrected = worst_tier = 0
     for rank, entry in enumerate(top, start=1):
         renumbered += entry.rank != rank
-        tier_index = max(TIERS.index(entry.tier), worst_tier)
-        tier_corrections += tier_index != TIERS.index(entry.tier)
+        corrected_index = max(TIERS.index(entry.tier), worst_corrected)
+        tier_corrections += corrected_index != TIERS.index(entry.tier)
+        worst_corrected = corrected_index
+        tier_index = max(corrected_index, worst_tier)
+        while TIERS[tier_index] in caps and tier_sizes[TIERS[tier_index]] >= caps[TIERS[tier_index]]:
+            tier_index += 1
+        tier_demotions += tier_index != corrected_index
         worst_tier = tier_index
         tier = TIERS[tier_index]
+        tier_sizes[tier] += 1
         reason = entry.reason.strip() or model_reasons[entry.ref]
+        matched = entry.matched
+        facts = needs_you.get(entry.ref, ())
+        if matched is not None and any(kind not in facts for kind in matched.needs_you):
+            false_needs_you += 1
+            matched = Matched(theme=matched.theme, needs_you=tuple(kind for kind in matched.needs_you if kind in facts))
+            # The model's reason may repeat the false claim. A real needs-you fact outranks the theme.
+            reason = _theme_reason(matched.theme) if matched.theme and not facts else model_reasons[entry.ref]
         entries.append(
             RankedEntry(
                 ref=entry.ref,
@@ -229,7 +260,7 @@ def validate_ranking(
                 tier=tier,
                 reason=cap(reason, _reason_limit(tier, reason_limits)),
                 next_step=cap(entry.next_step, next_step_max_chars) if entry.next_step and rank <= limit else None,
-                matched=entry.matched,
+                matched=matched,
                 ranked_by="llm",
             )
         )
@@ -257,6 +288,8 @@ def validate_ranking(
             missing_refs=len(missing) - (len(kept) - len(top)),
             beyond_rank_top=len(kept) - len(top),
             tier_corrections=tier_corrections,
+            tier_demotions=tier_demotions,
             invalid_folds=invalid_folds,
+            false_needs_you=false_needs_you,
         ),
     )

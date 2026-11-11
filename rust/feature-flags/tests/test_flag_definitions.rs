@@ -3199,6 +3199,276 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
     }
 }
 
+/// A 304 lands on the not-modified counter and leaves the full local evaluation
+/// counter untouched. It stays unbilled for definitions that hold only survey or
+/// product tour flags, and when `skip_writes` is on.
+#[rstest::rstest]
+#[case::billable_flag("billable-flag", false, true)]
+#[case::survey_only("survey-targeting-only", false, false)]
+#[case::skip_writes("billable-flag", true, false)]
+#[tokio::test]
+async fn test_flag_definitions_304_records_not_modified_billing_counter(
+    #[case] flag_key: &str,
+    #[case] skip_writes: bool,
+    #[case] expect_billed: bool,
+) {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
+    use serde_json::json;
+
+    let mut config = feature_flags::config::Config::default_test_config();
+    config.skip_writes = FlexBool(skip_writes);
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "billed304etag0001";
+    context
+        .populate_cache_for_team_with_flags_and_etag(
+            team.id,
+            json!({
+                "flags": [{"key": flag_key, "active": true}],
+                "group_type_mapping": {},
+                "cohorts": {},
+            }),
+            etag_value,
+        )
+        .await
+        .unwrap();
+
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let not_modified_key =
+        get_team_request_key(team.id, FlagRequestType::FlagDefinitionsNotModified);
+    let full_response_key = get_team_request_key(team.id, FlagRequestType::FlagDefinitions);
+    redis.del(not_modified_key.clone()).await.unwrap();
+    redis.del(full_response_key.clone()).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config).await;
+    let http = reqwest::Client::new();
+
+    let bucket_before = current_bucket();
+    let response = http
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag_value}\""))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 304);
+    let bucket_after = current_bucket();
+
+    if expect_billed {
+        let counter = common::poll_for_billing_counter_across_buckets(
+            &redis,
+            &not_modified_key,
+            bucket_before,
+            bucket_after,
+        )
+        .await;
+        assert_eq!(
+            counter, "1",
+            "304 should be recorded once on the not-modified billing counter"
+        );
+    } else {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        for bucket in bucket_before..=bucket_after {
+            let counter = redis
+                .hget(not_modified_key.clone(), bucket.to_string())
+                .await;
+            assert!(
+                counter.is_err(),
+                "304 for non-billable flags must not be billed, got {counter:?}"
+            );
+        }
+    }
+    for bucket in bucket_before..=bucket_after {
+        let full = redis
+            .hget(full_response_key.clone(), bucket.to_string())
+            .await;
+        assert!(
+            full.is_err(),
+            "304 must not increment the full local evaluation counter, got {full:?}"
+        );
+    }
+}
+
+/// Only a payload served from Redis decides whether a 304 is billed. With the
+/// ETag in Redis but the payload only in S3, neither the full response that
+/// precedes the poll nor the poll's own read may memoize S3's answer, so the
+/// 304 stays unbilled even though S3 says the definitions are billable.
+#[tokio::test]
+async fn test_flag_definitions_304_is_not_billed_from_an_s3_payload() {
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::utils::test_utils::{setup_redis_client, static_s3_client, TestContext};
+    use serde_json::json;
+
+    let config = feature_flags::config::Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let payload = json!({
+        "flags": [{"key": "billable-flag", "active": true}],
+        "group_type_mapping": {},
+        "cohorts": {},
+    });
+    let etag_value = "s3only304etag0001";
+    context
+        .populate_cache_for_team_with_flags_and_etag(team.id, payload.clone(), etag_value)
+        .await
+        .unwrap();
+
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    // Leave the ETag in Redis and the payload only in S3.
+    redis
+        .del(format!(
+            "posthog:1:cache/teams/{}/feature_flags/flags_with_cohorts.json",
+            team.id
+        ))
+        .await
+        .unwrap();
+    let not_modified_key =
+        get_team_request_key(team.id, FlagRequestType::FlagDefinitionsNotModified);
+    redis.del(not_modified_key.clone()).await.unwrap();
+
+    let server = common::ServerHandle::for_config_with_s3(
+        config,
+        // S3 serves the same billable payload for every key, standing in for a copy
+        // that may lag the ETag Redis holds by a version.
+        Some(static_s3_client(&payload.to_string())),
+    )
+    .await;
+    let http = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    let bucket_before = current_bucket();
+    let response = http
+        .get(&url)
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    let response = http
+        .get(&url)
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag_value}\""))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 304);
+    let bucket_after = current_bucket();
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    for bucket in bucket_before..=bucket_after {
+        let counter = redis
+            .hget(not_modified_key.clone(), bucket.to_string())
+            .await;
+        assert!(
+            counter.is_err(),
+            "304 must not be billed from an S3 payload, got {counter:?}"
+        );
+    }
+}
+
+/// A full response served from Redis memoizes whether its ETag is billable, so
+/// a later 304 for that ETag is billed from the memo even after the Redis
+/// payload is gone and the 304's own read would find nothing.
+#[tokio::test]
+async fn test_flag_definitions_304_is_billed_from_the_full_response_memo() {
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
+    use serde_json::json;
+
+    let config = feature_flags::config::Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "memo304etag00001";
+    context
+        .populate_cache_for_team_with_flags_and_etag(
+            team.id,
+            json!({
+                "flags": [{"key": "billable-flag", "active": true}],
+                "group_type_mapping": {},
+                "cohorts": {},
+            }),
+            etag_value,
+        )
+        .await
+        .unwrap();
+
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let not_modified_key =
+        get_team_request_key(team.id, FlagRequestType::FlagDefinitionsNotModified);
+    redis.del(not_modified_key.clone()).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config).await;
+    let http = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    let response = http
+        .get(&url)
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // Keep the ETag in Redis but drop the payload, so only the memo can bill the 304.
+    redis
+        .del(format!(
+            "posthog:1:cache/teams/{}/feature_flags/flags_with_cohorts.json",
+            team.id
+        ))
+        .await
+        .unwrap();
+
+    let bucket_before = current_bucket();
+    let response = http
+        .get(&url)
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag_value}\""))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 304);
+    let bucket_after = current_bucket();
+
+    let counter = common::poll_for_billing_counter_across_buckets(
+        &redis,
+        &not_modified_key,
+        bucket_before,
+        bucket_after,
+    )
+    .await;
+    assert_eq!(
+        counter, "1",
+        "304 should be billed from the memo the full response wrote"
+    );
+}
+
 /// Poll the self-heal rebuild-requests set until it contains `team_id`, or return
 /// false after ~2s. The enqueue runs in a background task, so a bounded retry is
 /// needed rather than a single read.

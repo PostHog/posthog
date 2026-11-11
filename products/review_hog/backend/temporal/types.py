@@ -10,8 +10,8 @@ from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
 
 # How a review run was triggered. Gates are trigger-aware: inbox → `review_inbox_prs`, automatic →
 # the repository rules; stamphog (a Stamphog refusal of a self-driving PR), manual (CLI/eval), ui
-# (an explicit human ask from the Code review scene) and comment (an `@posthog review` pull request
-# comment) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
+# (an explicit human ask from the Code review scene), comment (an `@posthog review` pull request
+# comment) and review_request (a review request for the `posthog-review` team) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
 # across deploys.
 TRIGGER_STAMPHOG = "stamphog"
 # No new run uses it. Label runs started before the label trigger was removed still replay with it.
@@ -20,10 +20,13 @@ TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
 TRIGGER_COMMENT = "comment"
+TRIGGER_REVIEW_REQUEST = "review_request"
 TRIGGER_AUTOMATIC = "automatic"
 # The triggers that ask for a review and then wait on an answer. A Stamphog handoff counts, because
 # Inbox triage reads the answer. An inbox review comes from the signals agent, so it is not one of them.
-REQUESTED_TRIGGERS = frozenset({TRIGGER_STAMPHOG, TRIGGER_LABEL, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT})
+REQUESTED_TRIGGERS = frozenset(
+    {TRIGGER_STAMPHOG, TRIGGER_LABEL, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT, TRIGGER_REVIEW_REQUEST}
+)
 
 
 @frozen

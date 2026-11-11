@@ -121,6 +121,7 @@ class TestSdkOutdatedCheck(BaseTest):
     @parameterized.expand(
         [
             ("posthog-server",),
+            ("posthog-laravel",),
             ("posthog-rs",),
             ("posthog-rs-mcp",),
             ("posthog-godot",),

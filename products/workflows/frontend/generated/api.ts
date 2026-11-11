@@ -80,6 +80,10 @@ import type {
     PatchedWorkflowSendingRulesApi,
     PeopleImportApi,
     PeopleImportCreateApi,
+    PushTokenImportApi,
+    PushTokenImportCreateApi,
+    PushTokenImportLatestApi,
+    PushTokenImportsLatestRetrieveParams,
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
@@ -1202,12 +1206,13 @@ export const getHogFlowsRunCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+ * Run a workflow with a `schedule` or `manual` trigger now, once.
  *
- * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
- * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
- * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
- * the scheduler itself applies in `internal_process_due_schedules`.
+ * A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+ * workflow runs for the calling user, as the trigger button in the editor does. Other
+ * triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+ * trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+ * active, same gate the scheduler itself applies in `internal_process_due_schedules`.
  *
  * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
  * after a timed-out request): a repeat with the same key returns the first call's result
@@ -1516,6 +1521,121 @@ export const hogFlowsUserBlastRadiusCreate = async (
     })
 }
 
+export const getPushTokenImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/push_token_imports/`
+}
+
+/**
+ * Reads the file and imports its devices into the push channel in the background. Poll the import to follow its progress.
+ * @summary Import a CSV file of push device tokens
+ */
+export const pushTokenImportsCreate = async (
+    projectId: string,
+    pushTokenImportCreateApi: PushTokenImportCreateApi,
+    options?: RequestInit
+): Promise<PushTokenImportApi> => {
+    const formData = new FormData()
+    formData.append(`integration_id`, pushTokenImportCreateApi.integration_id.toString())
+    formData.append(`device_token_file`, pushTokenImportCreateApi.device_token_file)
+    if (pushTokenImportCreateApi.create_missing_persons !== undefined) {
+        formData.append(`create_missing_persons`, pushTokenImportCreateApi.create_missing_persons.toString())
+    }
+
+    return apiMutator<PushTokenImportApi>(getPushTokenImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getPushTokenImportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/push_token_imports/${id}/`
+}
+
+/**
+ * @summary Read a push token import
+ */
+export const pushTokenImportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PushTokenImportApi> => {
+    return apiMutator<PushTokenImportApi>(getPushTokenImportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPushTokenImportsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/push_token_imports/${id}/cancel/`
+}
+
+/**
+ * @summary Stop a running push token import
+ */
+export const pushTokenImportsCancelCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PushTokenImportApi> => {
+    return apiMutator<PushTokenImportApi>(getPushTokenImportsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPushTokenImportsImportUnknownPersonsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/push_token_imports/${id}/import_unknown_persons/`
+}
+
+/**
+ * Starts a new import of the devices whose distinct ID had no person, creating those persons.
+ * @summary Import the devices of unknown people with new persons
+ */
+export const pushTokenImportsImportUnknownPersonsCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PushTokenImportApi> => {
+    return apiMutator<PushTokenImportApi>(getPushTokenImportsImportUnknownPersonsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPushTokenImportsLatestRetrieveUrl = (
+    projectId: string,
+    params: PushTokenImportsLatestRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/push_token_imports/latest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/push_token_imports/latest/`
+}
+
+/**
+ * @summary Read the newest push token import of a channel
+ */
+export const pushTokenImportsLatestRetrieve = async (
+    projectId: string,
+    params: PushTokenImportsLatestRetrieveParams,
+    options?: RequestInit
+): Promise<PushTokenImportLatestApi> => {
+    return apiMutator<PushTokenImportLatestApi>(getPushTokenImportsLatestRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {
     return `/api/projects/${projectId}/workflow_data_suggestions/build/`
 }
@@ -1768,7 +1888,8 @@ export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batc
  * terminal status, returns 200 without re-writing — the resolver retries
  * this call via cyclotron retry semantics, so safe repeats are required.
  *
- * Accepts: { status: "completed" | "failed" }
+ * Accepts: { status: "completed" | "failed" }. A completed run can later move to
+ * failed or partially_failed, once its child runs show errored sends.
  */
 export const internalHogFlowsBatchJobsStatusUpdate = async (
     teamId: string,

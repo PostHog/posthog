@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Literal, Optional
@@ -38,6 +37,7 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.insight_queries import browser_filtered_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -112,7 +112,7 @@ class TestExports(APIBaseTest):
     def test_screenshot_heatmap_export_requires_same_origin_url(
         self, _name: str, site_url: str, heatmap_url: str, expected_status: int, mock_exporter_task
     ) -> None:
-        with self.settings(SITE_URL=site_url):
+        with self.settings(SITE_URL=site_url), mock_anti_ssrf_dns_lookup():
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports/",
                 {
@@ -2037,10 +2037,9 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
     )
     def test_accepts_valid_heatmap_url(self, _name: str, url: str) -> None:
         with (
-            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            mock_anti_ssrf_dns_lookup(),
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
-            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
                 {
@@ -2059,10 +2058,9 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
     def test_accepts_screenshot_url_with_default_site_port(self, _name: str, site_url: str, heatmap_url: str) -> None:
         with (
             self.settings(SITE_URL=site_url),
-            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            mock_anti_ssrf_dns_lookup(),
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
-            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
                 {

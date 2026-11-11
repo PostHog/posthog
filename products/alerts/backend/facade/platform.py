@@ -17,6 +17,7 @@ from products.alerts.backend.platform_ownership import (
     close_moved_alert_firings,
     delete_moved_alert_copy,
     hand_over_new_alert,
+    platform_takes_new_alert_with,
     write_moved_alert_edit,
 )
 
@@ -37,5 +38,6 @@ __all__ = [
     "moved_alert_check_page",
     "moved_alert_fired_checks",
     "moved_alert_statuses",
+    "platform_takes_new_alert_with",
     "write_moved_alert_edit",
 ]

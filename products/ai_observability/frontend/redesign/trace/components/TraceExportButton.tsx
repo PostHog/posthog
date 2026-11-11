@@ -16,8 +16,6 @@ export function TraceExportButton({ loading, onExport }: TraceExportButtonProps)
             onClick={onExport}
             tooltip="Export this trace as a JSON file"
             data-attr="trace-view-export"
-        >
-            Export
-        </LemonButton>
+        />
     )
 }

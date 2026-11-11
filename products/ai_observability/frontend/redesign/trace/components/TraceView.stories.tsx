@@ -17,7 +17,7 @@ import {
     FIXTURE_TRACE,
     withWidth,
 } from '../storyFixtures'
-import { EvalRollupOutcome, EvalsChipData, NodeDetailTab, TraceMode } from '../types'
+import { EvalRollupOutcome, EvalsChipData, MessagesOpening, NodeDetailTab, TraceMode } from '../types'
 import { TraceView } from './TraceView'
 
 function findNode(nodes: TraceNodeApi[], id: string): TraceNodeApi | null {
@@ -83,6 +83,7 @@ function Playground({
     const [mode, setMode] = useState<TraceMode>(initialMode)
     const [selectedNodeId, setSelectedNodeId] = useState(initialNodeId ?? fixture.initialNodeId)
     const [tab, setTab] = useState<NodeDetailTab>('messages')
+    const [opening, setOpening] = useState<MessagesOpening>('lastTurn')
     const node = findNode(fixture.tree, selectedNodeId) ?? fixture.tree[0]
     const selectAndShowSpans = (id: string): void => {
         setSelectedNodeId(id)
@@ -109,6 +110,8 @@ function Playground({
                 node,
                 tab,
                 onTabChange: setTab,
+                messagesOpening: opening,
+                onMessagesOpeningChange: setOpening,
                 onViewInThread: node.kind === 'generation' ? () => setMode('thread') : null,
             }}
             thread={fixture.thread}
@@ -186,6 +189,17 @@ export const SampleAnthropicThinkingToolUse: Story = {
     args: { fixture: anthropicMessagesThinkingToolUse, initialMode: 'spans' },
 }
 export const SampleClaudeCodeSession: Story = { args: { fixture: claudeCodePluginSession, initialMode: 'spans' } }
+export const FillsShortHost: Story = {
+    args: { fixture: claudeCodePluginSession, initialMode: 'spans' },
+    decorators: [
+        (Story) => (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div className="flex flex-col border border-dashed border-primary" style={{ width: 1100, height: 480 }}>
+                <Story />
+            </div>
+        ),
+    ],
+}
 export const SampleLangChainImageError: Story = {
     args: { fixture: langchainCerebrasImageError, initialMode: 'spans' },
 }

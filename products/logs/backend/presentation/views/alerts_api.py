@@ -1,20 +1,20 @@
 import datetime as dt
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from functools import cached_property
 from typing import Any, Final, Literal, TypedDict, cast, overload
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import F, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -22,7 +22,6 @@ from rest_framework.response import Response
 from posthog.schema import LogsAlertFilters
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
-from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
@@ -32,6 +31,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
+from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.destinations import (
@@ -48,19 +49,22 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts_platform.backend.facade.api import (
-    history_by_legacy_id,
+    history_by_public_id,
     recent_destination_sends,
     reset_broken,
-    runtime_by_legacy_id,
+    runtime_by_public_id,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
     Grouping,
+    GroupingMode,
     InvalidPlatformAlertEdit,
     PagerDutyRegion,
     PagerDutySeverity,
+    PlatformAlertConfigurationView,
+    PlatformAlertCreateRefused,
     PlatformAlertHistory,
     PlatformAlertRuntime,
 )
@@ -107,7 +111,18 @@ from products.logs.backend.facade.api import (
     next_allowed_check_at,
     platform_check_rows,
 )
-from products.logs.backend.facade.platform_ownership import delete_alert, on_created, on_updated
+from products.logs.backend.facade.platform_ownership import (
+    create_native,
+    creates_native_alert,
+    delete_alert,
+    delete_native,
+    native_alert_keys,
+    native_alert_view,
+    native_alert_views,
+    on_created,
+    on_updated,
+    update_native,
+)
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 MAX_SIMULATE_LOOKBACK_DAYS = 30
@@ -130,6 +145,8 @@ DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 _SINGLE_INSTANCE: Final = Grouping()
+LOGS_ALERTS_GROUPING_FLAG: Final = "logs-alerts-grouping"
+GROUPING_NOT_ENABLED: Final = "Grouping isn't available for this project yet. Set the mode to single to save the alert."
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -237,7 +254,7 @@ def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, Pla
     owned = [alert for alert in alerts if alert.platform_owned]
     if not owned:
         return {}
-    return runtime_by_legacy_id(team_id=owned[0].team_id, legacy_configuration_ids=[alert.id for alert in owned])
+    return runtime_by_public_id(team_id=owned[0].team_id, public_ids=[alert.id for alert in owned])
 
 
 def _platform_history_of(
@@ -249,9 +266,9 @@ def _platform_history_of(
     if not owned:
         return {}
     try:
-        return history_by_legacy_id(
+        return history_by_public_id(
             team_id=owned[0].team_id,
-            legacy_configuration_ids=[alert.id for alert in owned],
+            public_ids=[alert.id for alert in owned],
             since=window[0],
             until=window[1],
         )
@@ -779,7 +796,25 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             except ValueError as e:
                 raise ValidationError({"schedule_restriction": str(e)}) from e
 
+        grouping: Grouping | None = attrs.get("grouping")
+        if grouping is not None and grouping.mode != GroupingMode.SINGLE and not self._may_group(grouping):
+            raise ValidationError({"grouping": GROUPING_NOT_ENABLED})
+
         return attrs
+
+    def _may_group(self, grouping: Grouping) -> bool:
+        team = self.context["get_team"]()
+        if posthog_feature_flag_enabled(
+            LOGS_ALERTS_GROUPING_FLAG,
+            str(cast(User, self.context["request"].user).distinct_id),
+            organization_id=team.organization_id,
+            team_id=team.id,
+        ):
+            return True
+        # An alert that already groups keeps its keys with the flag off, so it can still change its
+        # group limit or be ungrouped.
+        runtime = _platform_runtime_of([self.instance]).get(self.instance.id) if self.instance else None
+        return runtime is not None and runtime.grouping.splits_like(grouping)
 
     def update(self, instance: LogsAlertConfiguration, validated_data: dict) -> LogsAlertConfiguration:
         if "name" in validated_data and not validated_data.get("name", "").strip():
@@ -787,6 +822,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
         snooze_data = validated_data.pop("snooze_until", _SENTINEL)
         grouping: Grouping | None = validated_data.pop("grouping", None)
+        if instance.has_no_logs_row:
+            return self._update_native(instance, validated_data, grouping=grouping, snooze_data=snooze_data)
 
         threshold_or_filter_fields = {
             "threshold_count",
@@ -879,6 +916,24 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 )
             return updated
 
+    def _update_native(
+        self, instance: LogsAlertConfiguration, validated_data: dict, *, grouping: Grouping | None, snooze_data: object
+    ) -> LogsAlertConfiguration:
+        snooze_changed = snooze_data is not _SENTINEL
+        updated = _write_platform_edit(
+            lambda: update_native(
+                team_id=instance.team_id,
+                alert_id=instance.id,
+                changes=validated_data,
+                grouping=grouping,
+                snooze_until=cast(datetime | None, snooze_data) if snooze_changed else None,
+                snooze_changed=snooze_changed,
+            )
+        )
+        if updated is None:
+            raise NotFound()
+        return _listed_alert(updated, team_id=instance.team_id)
+
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -889,6 +944,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if validated_data.get("enabled", True):
             validated_data["first_enabled_at"] = timezone.now()
         grouping: Grouping | None = validated_data.pop("grouping", None)
+        if creates_native_alert(validated_data["team_id"]):
+            return _write_platform_edit(lambda: _create_native_alert(validated_data, grouping))
 
         with transaction.atomic():
             try:
@@ -908,6 +965,44 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
             return created
+
+
+def _create_native_alert(validated_data: dict, grouping: Grouping | None) -> LogsAlertConfiguration:
+    team_id = validated_data["team_id"]
+    snooze_until = validated_data.get("snooze_until")
+    # Settings only: the creator travels as an id, and the team as the call's own argument.
+    fields = {name: value for name, value in validated_data.items() if name not in ("team_id", "created_by")}
+    # One transaction, so no check sees the alert before its snooze holds.
+    with transaction.atomic():
+        try:
+            created = create_native(
+                team_id=team_id, fields=fields, grouping=grouping, created_by_id=validated_data["created_by"].id
+            )
+        except PlatformAlertCreateRefused as error:
+            raise ValidationError(str(error)) from error
+        if snooze_until is not None:
+            created = (
+                update_native(
+                    team_id=team_id,
+                    alert_id=created.id,
+                    changes={},
+                    grouping=None,
+                    snooze_until=snooze_until,
+                    snooze_changed=True,
+                )
+                or created
+            )
+    return _listed_alert(created, team_id=team_id)
+
+
+def _listed_alert(view: PlatformAlertConfigurationView, *, team_id: int) -> LogsAlertConfiguration:
+    """An alert with no logs row, in the shape the serializer reads from a listed logs row."""
+    alert = LogsAlertConfiguration.from_platform_view(view, team_id=team_id, now=timezone.now())
+    # What the viewset annotates on a logs row. No logs check ever ran, so there is no logs event.
+    alert._state_timeline_events = []  # type: ignore[attr-defined]
+    alert._latest_error_message = None  # type: ignore[attr-defined]
+    alert._pre_window_toggle_kind = None  # type: ignore[attr-defined]
+    return alert
 
 
 def _write_platform_edit[T](write: Callable[[], T]) -> T:
@@ -1340,12 +1435,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return LogsAlertConfigurationSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        if self.action == "list":
-            query_serializer = LogsAlertListQuerySerializer(data=self.request.query_params)
-            query_serializer.is_valid(raise_exception=True)
-            created_by = query_serializer.validated_data.get("created_by")
-            if created_by:
-                queryset = queryset.filter(created_by__uuid=created_by)
+        if self.action == "list" and (created_by := self._list_created_by):
+            queryset = queryset.filter(created_by__uuid=created_by)
 
         # Correlated subquery so list/retrieve can surface `last_error_message` in a
         # single round-trip instead of one extra query per alert.
@@ -1399,12 +1490,64 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return context
 
+    @cached_property
+    def _list_created_by(self) -> UUID | None:
+        query = LogsAlertListQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        return query.validated_data.get("created_by")
+
+    def list(self, request: Request, *args: object, **kwargs: object) -> Response:
+        # An alert with no logs row has no row in the queryset, so the page is merged here. Both kinds
+        # page on their sort keys alone, and only the page's alerts are loaded.
+        rows = self.filter_queryset(self.get_queryset())
+        keys: list[tuple[datetime, UUID, bool]] = [
+            *((created_at, alert_id, False) for created_at, alert_id in rows.values_list("created_at", "id")),
+            *(
+                (created_at, alert_id, True)
+                for created_at, alert_id in native_alert_keys(self.team_id, created_by_uuid=self._list_created_by)
+            ),
+        ]
+        keys.sort(key=lambda key: (key[0], key[1]), reverse=True)
+        page = self.paginate_queryset(keys)
+        listed = keys if page is None else page
+        loaded: dict[UUID, LogsAlertConfiguration] = {
+            row.id: row for row in rows.filter(id__in=[alert_id for _, alert_id, native in listed if not native])
+        }
+        native_ids = [alert_id for _, alert_id, native in listed if native]
+        native_views = native_alert_views(self.team_id, native_ids)
+        # An alert built from a view has no queryset to prefetch its creator with.
+        creators = User.objects.in_bulk({view.created_by_id for view in native_views if view.created_by_id})
+        for view in native_views:
+            alert = _listed_alert(view, team_id=self.team_id)
+            alert.created_by = creators.get(view.created_by_id) if view.created_by_id else None
+            loaded[view.id] = alert
+        # An alert deleted since its key was read drops out of the page rather than failing it.
+        alerts = [loaded[alert_id] for _, alert_id, _ in listed if alert_id in loaded]
+        data = self.get_serializer(alerts, many=True).data
+        return Response(data) if page is None else self.get_paginated_response(data)
+
+    def safely_get_object(self, queryset: QuerySet) -> LogsAlertConfiguration | None:
+        return self._row_or_native(queryset, lock=False)
+
     def _get_locked_alert(self) -> LogsAlertConfiguration:
-        queryset = self.filter_queryset(self.get_queryset()).select_for_update()
-        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
-        alert = get_object_or_404(queryset, **{self.lookup_field: self.kwargs[lookup_url_kwarg]})
+        alert = self._row_or_native(self.filter_queryset(self.get_queryset()).select_for_update(), lock=True)
+        if alert is None:
+            raise NotFound()
         self.check_object_permissions(self.request, alert)
         return alert
+
+    def _row_or_native(self, queryset: QuerySet, *, lock: bool) -> LogsAlertConfiguration | None:
+        """The alert under the URL's id: its logs row, or the platform's alert with no logs row. With
+        `lock`, call it inside a transaction."""
+        try:
+            alert_id = UUID(str(self.kwargs[self.lookup_url_kwarg or self.lookup_field]))
+        except ValueError:
+            return None
+        row = queryset.filter(id=alert_id).first()
+        if row is not None:
+            return row
+        view = native_alert_view(team_id=self.team_id, alert_id=alert_id, lock=lock)
+        return None if view is None else _listed_alert(view, team_id=self.team_id)
 
     def update(self, request: Request, *args: object, **kwargs: Any) -> Response:
         partial = kwargs.pop("partial", False)
@@ -1557,7 +1700,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def events(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         queryset = (
-            LogsAlertEvent.objects.filter(alert=alert)
+            LogsAlertEvent.objects.filter(alert_id=alert.id)
             .filter(
                 ~Q(kind=LogsAlertEvent.Kind.CHECK) | Q(error_message__isnull=False) | ~Q(state_before=F("state_after"))
             )
@@ -1599,32 +1742,12 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if alert.platform_owned:
                 # The platform skips a broken alert, so the reset has to reach its copy. Its state
                 # decides, because the logs row stops moving once the shadow ends.
-                platform_failures = reset_broken(
-                    team_id=alert.team_id, legacy_configuration_id=alert.id, at=timezone.now()
-                )
+                platform_failures = reset_broken(team_id=alert.team_id, public_id=alert.id, at=timezone.now())
                 if platform_failures is None:
                     raise ValidationError({"state": "Only broken alerts can be reset."})
                 previous_failures = platform_failures
-            try:
-                outcome = apply_user_reset(alert.to_snapshot())
-            except InvalidTransition:
-                if not alert.platform_owned:
-                    raise ValidationError({"state": "Only broken alerts can be reset."})
-                outcome = None
-            if outcome is not None:
-                update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
-                update_fields.extend(alert.clear_next_check())
-                alert.save(update_fields=update_fields)
-            else:
-                # The logs row did not move, so nothing else records the reset that the alert's
-                # timeline needs. The platform's history writes no row for it either.
-                LogsAlertEvent.objects.create(
-                    alert=alert,
-                    kind=LogsAlertEvent.Kind.RESET,
-                    threshold_breached=False,
-                    state_before=LogsAlertConfiguration.State.BROKEN,
-                    state_after=LogsAlertConfiguration.State.NOT_FIRING,
-                )
+            if not alert.has_no_logs_row:
+                self._reset_logs_row(alert)
             # The model's auto-signal skips these fields (signal_exclusions silences
             # engine-driven churn) so we log the user-initiated reset explicitly.
             log_activity(
@@ -1657,6 +1780,29 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         report_user_action(request.user, "logs alert reset", {"alert_id": str(alert.id)}, request=request)
         return Response(self.get_serializer(alert).data)
+
+    @staticmethod
+    def _reset_logs_row(alert: LogsAlertConfiguration) -> None:
+        try:
+            outcome = apply_user_reset(alert.to_snapshot())
+        except InvalidTransition:
+            if not alert.platform_owned:
+                raise ValidationError({"state": "Only broken alerts can be reset."})
+            outcome = None
+        if outcome is not None:
+            update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
+            update_fields.extend(alert.clear_next_check())
+            alert.save(update_fields=update_fields)
+        else:
+            # The logs row did not move, so nothing else records the reset that the alert's
+            # timeline needs. The platform's history writes no row for it either.
+            LogsAlertEvent.objects.create(
+                alert=alert,
+                kind=LogsAlertEvent.Kind.RESET,
+                threshold_breached=False,
+                state_before=LogsAlertConfiguration.State.BROKEN,
+                state_after=LogsAlertConfiguration.State.NOT_FIRING,
+            )
 
     @extend_schema(
         request=LogsAlertSimulateRequestSerializer,
@@ -1828,6 +1974,11 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
-        if delete_alert(team_id=instance.team_id, alert_id=instance.id):
+        deleted = (
+            delete_native(team_id=instance.team_id, alert_id=instance.id)
+            if instance.has_no_logs_row
+            else delete_alert(team_id=instance.team_id, alert_id=instance.id)
+        )
+        if deleted:
             # Robust, so an analytics failure, such as a malformed Referer, cannot fail a committed delete.
             transaction.on_commit(lambda: self._track("deleted", instance), robust=True)

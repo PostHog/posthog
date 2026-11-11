@@ -1,5 +1,19 @@
 # posthog-cli
 
+## 0.19.1 — 2026-11-10
+
+### Patch changes
+
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Return a credentials error that names `POSTHOG_HOME` and the env credential variables, instead of panicking, when no home directory can be found — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Allow sourcemap uploads without a release when Git metadata cannot complete the release coordinates — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Remove the `--env-file` alias of `--dotenv-file`. Use `--dotenv-file` or `POSTHOG_CLI_DOTENV_FILE` instead. `posthog-cli api` now starts the API tools with `node --`. — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Do not write through a symlink in the output directory of `symbol-sets extract` and `symbol-sets download` — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Keep all files from `symbol-sets extract` and `symbol-sets download` inside the output directory — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Keep the release that `hermes inject` stamped when `hermes clone` runs in symbol-set mode without release flags — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Open only http and https server URLs with expected characters, and open them on Windows without `cmd` — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Stop shipping an npm-shrinkwrap.json in the npm package, so installing `@posthog/cli` no longer adds its own `prettier` to the project's `node_modules` and `package-lock.json` — Thanks @ioannisj!
+- [781721f2218](https://github.com/PostHog/posthog/commit/781721f2218c57a31380dfdb4203bbf3646e2511) Stop reporting Next.js Turbopack server page stubs as a possible bundler misconfiguration when `sourcemap upload` skips their empty source maps — Thanks @ioannisj!
+
 ## 0.19.0 — 2026-10-28
 
 ### Minor changes

@@ -19,7 +19,13 @@
         },
         "limit": {
             "description": "Number of results to return per page.",
+            "maximum": 1000,
             "type": "number"
+        },
+        "needs_improvement": {
+            "default": false,
+            "description": "Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.",
+            "type": "boolean"
         },
         "offset": {
             "description": "The initial index from which to return the results.",

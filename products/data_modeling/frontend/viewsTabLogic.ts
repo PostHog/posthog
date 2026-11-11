@@ -86,6 +86,9 @@ export interface viewsTabLogicActions {
         force?: boolean
         shallow?: boolean
     } // databaseTableListLogic
+    refreshDatabaseSchema: () => {
+        value: true
+    } // databaseTableListLogic
     closeAccessControlModal: () => {
         value: true
     }
@@ -191,7 +194,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                 'loadDataWarehouseSavedQueriesSuccess',
             ],
             databaseTableListLogic,
-            ['loadDatabase'],
+            ['loadDatabase', 'refreshDatabaseSchema'],
         ],
     })),
     actions({
@@ -372,6 +375,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                 actions.addMaterializingViews([viewId])
             }
             actions.loadDataWarehouseSavedQueries()
+            actions.refreshDatabaseSchema()
         },
         loadDataWarehouseSavedQueriesSuccess: () => {
             const lastPage = Math.max(1, Math.ceil(values.filteredViews.length / PAGE_SIZE))

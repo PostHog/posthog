@@ -94,24 +94,38 @@ def test_person_label(_name: str, person: PersonRow | None, expected: str | None
 @parameterized.expand(
     [
         (
-            "a trace event makes the root the default",
-            [{"event": "$ai_trace"}, {"event": "$ai_generation"}],
+            "a trace event with state makes the root the default",
+            [{"event": "$ai_trace", "has_state": True}, {"event": "$ai_generation"}],
             "trace-1",
         ),
         (
-            "otherwise the first top-level generation",
+            "a trace event without state gives way to the user-visible generation",
             [
-                {"event": "$ai_span", "timestamp": T0},
+                {"event": "$ai_trace", "timestamp": T0},
                 {"event": "$ai_generation", "timestamp": T0 + timedelta(seconds=1)},
                 {"event": "$ai_generation", "timestamp": T0 + timedelta(seconds=2)},
             ],
+            "e2",
+        ),
+        (
+            "the user-visible generation wins even when nested",
+            [
+                {"event": "$ai_generation", "timestamp": T0},
+                {"event": "$ai_span", "span_id": "s", "timestamp": T0 + timedelta(seconds=1)},
+                {"event": "$ai_generation", "parent_id": "s", "timestamp": T0 + timedelta(seconds=2)},
+            ],
+            "e2",
+        ),
+        (
+            "a trace event without state and without generations gives way to the first top-level node",
+            [{"event": "$ai_trace", "timestamp": T0}, {"event": "$ai_span", "timestamp": T0 + timedelta(seconds=1)}],
             "e1",
         ),
         (
             "otherwise the first top-level node",
             [
                 {"event": "$ai_span", "span_id": "s", "timestamp": T0},
-                {"event": "$ai_generation", "parent_id": "s", "timestamp": T0 + timedelta(seconds=1)},
+                {"event": "$ai_span", "parent_id": "s", "timestamp": T0 + timedelta(seconds=1)},
             ],
             "e0",
         ),

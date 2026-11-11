@@ -32,7 +32,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { retryImport } from 'lib/utils/retryImport'
+import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -90,6 +90,7 @@ import {
     featureFlagConfigFormatLabel,
     isRulesV2EditableConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagDeletedBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedBanner'
 import { FeatureFlagDeletedCohortBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedCohortBanner'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -124,6 +125,11 @@ const RESOURCE_TYPE = 'feature_flag'
 // instead of the click blocking the main thread for seconds and reading as a dead click.
 const FeatureFlagForm = lazy(() =>
     retryImport(() => import('./FeatureFlagForm').then((m) => ({ default: m.FeatureFlagForm })))
+)
+
+// Only teams with code analysis see the Code tab, so its code stays out of the flag page's chunk.
+const FeatureFlagCodeTab = lazyWithRetry(() =>
+    import('products/feature_flags/frontend/FeatureFlagCodeTab').then((m) => ({ default: m.FeatureFlagCodeTab }))
 )
 
 function FeatureFlagFormSkeleton(): JSX.Element {
@@ -397,16 +403,20 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 content: <ExperimentsTab featureFlag={featureFlag} />,
             },
             {
-                label: (
-                    <div className="flex flex-row">
-                        <div>Testing</div>
-                        <LemonTag className="ml-2 float-right uppercase" type="primary">
-                            New
-                        </LemonTag>
-                    </div>
-                ),
+                label: 'Testing',
                 key: FeatureFlagsTab.TESTING,
                 content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
+            },
+            {
+                label: 'Code',
+                key: FeatureFlagsTab.CODE,
+                content: featureFlag.id ? (
+                    <ChunkLoadErrorBoundary>
+                        <Suspense fallback={<LemonSkeleton className="h-24" />}>
+                            <FeatureFlagCodeTab id={featureFlag.id} featureFlag={featureFlag} />
+                        </Suspense>
+                    </ChunkLoadErrorBoundary>
+                ) : null,
             },
         ] as LemonTab<FeatureFlagsTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))
@@ -571,29 +581,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
                     )}
 
-                    {featureFlag.deleted && (
-                        <LemonBanner
-                            type="error"
-                            action={
-                                featureFlag.can_edit && canRestore
-                                    ? {
-                                          children: 'Restore',
-                                          onClick: () => restoreFeatureFlag(featureFlag),
-                                          loading: featureFlagRestoreLoading,
-                                          disabledReason: restoreBlockedReason,
-                                          'data-attr': 'restore-feature-flag-banner',
-                                      }
-                                    : undefined
-                            }
-                        >
-                            This feature flag is deleted. It's hidden from the flag list and can't be evaluated.{' '}
-                            {!canRestore
-                                ? RESTORE_UNAVAILABLE_DISABLED_REASON
-                                : featureFlag.can_edit
-                                  ? 'Restore it to use it again.'
-                                  : 'Ask someone with edit access to restore it.'}
-                        </LemonBanner>
-                    )}
+                    <FeatureFlagDeletedBanner
+                        flag={featureFlag}
+                        onRestore={() => restoreFeatureFlag(featureFlag)}
+                        restoreLoading={featureFlagRestoreLoading}
+                    />
                     {featureFlag.archived && (
                         <LemonBanner
                             type="warning"

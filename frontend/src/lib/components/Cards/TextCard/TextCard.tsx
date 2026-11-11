@@ -1,21 +1,16 @@
 import './TextCard.scss'
 
-import { EditorContent } from '@tiptap/react'
 import clsx from 'clsx'
-import React, { memo, useEffect, useMemo } from 'react'
+import React from 'react'
 
 import 'lib/components/Cards/CardMeta.scss'
-import 'lib/components/MarkdownEditor/shared/RichMarkdownEditor.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
-import { useRichContentEditor } from 'lib/components/RichContentEditor'
+import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { DashboardPlacement, DashboardTile } from '~/types'
-
-import { TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS, textCardConverter } from './textCardMarkdown'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     textTile: DashboardTile
@@ -31,44 +26,6 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
 }
-
-interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
-    text: string
-    closeDetails?: () => void
-}
-
-function TextContentImpl({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
-    const initialDoc = useMemo(() => textCardConverter.markdownToDoc(text), [text])
-
-    const editor = useRichContentEditor({
-        extensions: TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS,
-        initialContent: initialDoc,
-        disabled: true,
-    })
-
-    useEffect(() => {
-        if (!editor) {
-            return
-        }
-
-        editor.commands.setContent(initialDoc, { emitUpdate: false })
-    }, [editor, initialDoc])
-
-    return (
-        <div className={clsx('w-full', className)} onClick={() => closeDetails?.()}>
-            {editor ? (
-                <div className="RichMarkdownEditor overflow-auto">
-                    <EditorContent editor={editor} className="RichMarkdownEditor__content px-0 py-0" />
-                </div>
-            ) : (
-                <LemonMarkdown className="overflow-auto">{text}</LemonMarkdown>
-            )}
-        </div>
-    )
-}
-
-export const TextContent = memo(TextContentImpl)
-TextContent.displayName = 'TextContent'
 
 function TextCardInternal(
     {
@@ -120,7 +77,7 @@ function TextCardInternal(
                 )}
                 onMouseDown={onDragHandleMouseDown}
             >
-                <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
+                <LazyTextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
             </div>
 
             {(canEnterEditModeFromEdge || showResizeHandles) && onEnterEditModeFromEdge && (

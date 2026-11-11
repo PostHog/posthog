@@ -29,6 +29,7 @@ import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isObject } from 'lib/utils/guards'
+import { HogQLQueryString } from 'lib/utils/hogql'
 import { hasFormErrors, objectClean } from 'lib/utils/objects'
 import { allOperatorsMapping } from 'lib/utils/operators'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
@@ -61,7 +62,6 @@ import {
     ProductKey,
 } from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
-import { HogQLQueryString } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,

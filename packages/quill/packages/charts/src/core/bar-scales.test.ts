@@ -253,6 +253,15 @@ describe('hog-charts bar scales', () => {
             expect(isFinite(max)).toBe(true)
             expect(min).toBeLessThan(max)
         })
+
+        it('keeps a log scale when both ends are positive', () => {
+            const series = [makeSeries({ key: 's1', data: [1, 10, 100] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
+                scaleType: 'log',
+                valueDomain: { min: 1, max: 100 },
+            })
+            expect(value(10)).toBeCloseTo((value(1) + value(100)) / 2)
+        })
     })
 
     describe('createBarScales — log scale', () => {

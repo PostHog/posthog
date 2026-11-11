@@ -8,6 +8,12 @@ import { ActivityScope, ProductManifest, RecordingUniversalFilters, ReplayTabs }
 
 export const manifest: ProductManifest = {
     name: 'Replay',
+    globalModals: {
+        SessionPlayerModal: () =>
+            import('scenes/session-recordings/player/modal/SessionPlayerModalHost').then(
+                (module) => module.SessionPlayerModalHost
+            ),
+    },
     activityDescribers: {
         [ActivityScope.REPLAY]: () =>
             import('scenes/session-recordings/activityDescription').then((module) => module.replayActivityDescriber),
@@ -57,7 +63,7 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             href: urls.replay(ReplayTabs.Home),
-            searchKeywords: ['recordings', 'session recording'],
+            searchKeywords: ['replay', 'sessions', 'recordings', 'session recording'],
             searchTabs: [
                 { name: 'Collections', href: urls.replay(ReplayTabs.Playlists), searchKeywords: ['playlists'] },
             ],

@@ -3,17 +3,18 @@ import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 import { Meta, StoryObj, type Decorator } from '@storybook/react'
 import { useEffect } from 'react'
 
-import __dashboard_template_schema from 'scenes/dashboard/__mocks__/dashboard_template_schema.json'
-import __dashboard_templates from 'scenes/dashboard/__mocks__/dashboard_templates.json'
-import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
-import { dashboardTemplateModalLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplateModalLogic'
-import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
-import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { InsightColor, type DashboardTemplateEditorType, type DashboardTemplateType } from '~/types'
+
+import __dashboard_template_schema from '../../__mocks__/dashboard_template_schema.json'
+import __dashboard_templates from '../../__mocks__/dashboard_templates.json'
+import { DashboardTemplateModal } from '../../dashboards/templates/DashboardTemplateModal'
+import { dashboardTemplateModalLogic } from '../../dashboards/templates/dashboardTemplateModalLogic'
+import { DashboardTemplateEditor } from '../../DashboardTemplateEditor'
+import { dashboardTemplateEditorLogic } from '../../dashboardTemplateEditorLogic'
 
 type ViewerMode = 'staff' | 'nonStaff'
 

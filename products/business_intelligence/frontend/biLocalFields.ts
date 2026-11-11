@@ -1,5 +1,6 @@
+import { escapeHogQLString } from 'lib/utils/hogql'
+
 import { BIConfig, BIField, BILocalFieldDefinition } from '~/queries/schema/schema-business-intelligence'
-import { escapeHogQLString } from '~/queries/utils'
 
 export function localFieldError(definition: BILocalFieldDefinition): string | undefined {
     if (!definition || typeof definition.expression !== 'string' || !definition.expression.trim()) {

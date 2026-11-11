@@ -1,7 +1,11 @@
-import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { retryImport } from 'lib/utils/retryImport'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -54,6 +58,9 @@ export interface payGateMiniLogicActions {
     }
     setGateVariant: (gateVariant: GateVariantType) => {
         gateVariant: GateVariantType
+    }
+    startPaymentEntryFlow: () => {
+        value: true
     }
 }
 
@@ -154,6 +161,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         setBypassPaywall: (bypassPaywall: boolean) => ({ bypassPaywall }),
         openAddonTrialModal: true,
         closeAddonTrialModal: true,
+        startPaymentEntryFlow: true,
     }),
     selectors(({ values, props }) => ({
         productWithFeature: [
@@ -321,5 +329,30 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 bypassPaywall: boolean
             ): boolean => !!gateVariant && !!productWithFeature && !!featureInfo && !bypassPaywall,
         ],
+    })),
+    listeners(({ values }) => ({
+        startPaymentEntryFlow: async () => {
+            // The upgrade modal closes on click, so this gate can unmount before the import resolves.
+            const product = values.productWithFeature as BillingProductV2Type
+            const redirectPath = window.location.pathname + window.location.search
+            let paymentEntryModule: typeof import('scenes/billing/paymentEntryLogic')
+            try {
+                // The billing scene's payment logic is large, so it loads only when someone clicks to upgrade.
+                paymentEntryModule = await retryImport(() => import('scenes/billing/paymentEntryLogic'))
+            } catch (error) {
+                if (!isChunkLoadError(error)) {
+                    posthog.captureException(error)
+                }
+                lemonToast.error("Couldn't open the payment form. Reload the page and try again.", {
+                    button: { label: 'Reload', action: () => window.location.reload() },
+                })
+                return
+            }
+            const { paymentEntryLogic } = paymentEntryModule
+            // Not tied to this gate's lifetime: the payment modal is global and outlives the gate.
+            // GlobalModals keeps this logic mounted for the session too, so the extra mount holds nothing new.
+            paymentEntryLogic.mount()
+            paymentEntryLogic.actions.startPaymentEntryFlow(product, redirectPath)
+        },
     })),
 ])

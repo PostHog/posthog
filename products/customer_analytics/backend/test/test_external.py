@@ -14,6 +14,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.utils import generate_random_token_secret
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
@@ -142,6 +143,34 @@ class TestExternalAccountAPI(APIBaseTest):
         response = self._get(token=self._create_psak_token(scopes=["account:read"]))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.account.id))
+
+    @parameterized.expand(
+        [
+            ("legacy_allowed", False, "203.0.113.7", 200),
+            ("legacy_denied", False, "198.51.100.7", 403),
+            ("psak_allowed", True, "203.0.113.7", 200),
+            ("psak_denied", True, "198.51.100.7", 403),
+        ]
+    )
+    def test_account_credentials_check_organization_ip_policy(
+        self, _name: str, use_psak: bool, ip: str, expected_status: int
+    ) -> None:
+        token = self._create_psak_token(["account:write"]) if use_psak else self.team.secret_api_token
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+
+        read = self.client.get(self.url, {"external_id": "acme-1"}, REMOTE_ADDR=ip, **self._auth_headers(token))
+        write = self.client.patch(
+            self.url,
+            {"external_id": "acme-1", "churned_at": "2026-08-01"},
+            format="json",
+            REMOTE_ADDR=ip,
+            **self._auth_headers(token),
+        )
+
+        assert read.status_code == expected_status, read.content
+        assert write.status_code == expected_status, write.content
+        self.account.refresh_from_db()
+        assert (self.account.churned_at is not None) == (expected_status == 200)
 
     def test_get_rejects_project_secret_api_key_without_account_scope(self):
         response = self._get(token=self._create_psak_token(scopes=["endpoint:read"]))
@@ -836,7 +865,11 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        active = CustomPropertyValue.objects.for_team(self.team.id).filter(account=self.account, is_deleted=False)
+        active = (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, is_deleted=False)
+            .select_related("definition")
+        )
         self.assertEqual(
             {(v.definition.name, v.value_str, v.value_num) for v in active},
             {

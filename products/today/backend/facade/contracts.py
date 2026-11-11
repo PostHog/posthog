@@ -22,6 +22,7 @@ from .enums import (
     HighlightUnit,
     ImpactNumberKey,
     KeyClauseRole,
+    PulseSlotStatus,
 )
 
 if TYPE_CHECKING:
@@ -217,14 +218,36 @@ class PulsePin:
 
 
 @dataclass(frozen=True)
+class HiddenPulseNumber:
+    key: str
+    name: str
+
+
+@dataclass(frozen=True)
 class PulsePins:
     pins: list[PulsePin]
+    hidden: list[HiddenPulseNumber] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class HiddenPulseNumbers:
+    hidden: list[HiddenPulseNumber]
 
 
 @dataclass(frozen=True)
 class HighlightPin:
     key: str
     status: HighlightPinStatus
+
+
+@frozen
+class PulseSlot:
+    key: str
+    name: str
+    reason: HighlightMetricReason | None = None
+    status: PulseSlotStatus = PulseSlotStatus.PENDING
+    url: str | None = None
+    interval: HighlightInterval | None = None
 
 
 @dataclass(frozen=True)
@@ -236,6 +259,7 @@ class Highlights:
     pulse: list[HighlightMetric]
     items: list[HighlightItem]
     pins: list[HighlightPin] = field(default_factory=list)
+    pulse_slots: list[PulseSlot] | None = None
 
 
 class DailyValueNotReady(Exception):

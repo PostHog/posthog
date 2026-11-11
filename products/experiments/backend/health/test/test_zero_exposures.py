@@ -92,11 +92,25 @@ class TestZeroExposures(TestCase):
                 "flag_called_by_test_accounts_only",
                 {"flag_called_during_run": True, "exposures": TEST_ACCOUNTS_ONLY},
                 CALLS_NOT_COUNTED,
-                (Action.EDIT_EXPOSURE_CRITERIA,),
+                (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
                 WARNING,
             ),
             ("calls_unknown", {"flag_called_during_run": None}, None, (Action.EDIT_EXPOSURE_CRITERIA,), WARNING),
             ("paused", {"is_paused": True, "flag_called_during_run": True}, EXPERIMENT_PAUSED, (), INFO),
+            (
+                "paused_flag_not_called",
+                {"is_paused": True, "flag_called_during_run": False},
+                FLAG_NOT_CALLED,
+                (),
+                WARNING,
+            ),
+            (
+                "paused_custom_event",
+                {"is_paused": True, "exposure_events": CUSTOM_EVENT, "flag_called_during_run": False},
+                EXPERIMENT_PAUSED,
+                (),
+                INFO,
+            ),
             (
                 "custom_event_whatever_the_flag_calls",
                 {"exposure_events": CUSTOM_EVENT, "flag_called_during_run": False},
@@ -173,6 +187,10 @@ class TestZeroExposures(TestCase):
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.subcode, finding.actions, finding.severity), (subcode, actions, severity))
         self.assertEqual(finding.detail.startswith("No users were exposed while the experiment ran"), ctx.has_ended)
+        self.assertEqual(
+            finding.detail.endswith("resuming it exposes nobody until your code reads the flag."),
+            ctx.is_paused and subcode == FLAG_NOT_CALLED,
+        )
 
     @parameterized.expand(
         [
@@ -221,8 +239,11 @@ class TestZeroExposures(TestCase):
                 "No users exposed: the test account filter removes all of them",
                 "The exposure criteria filter out test accounts, and the project's test account filters match all 1,200 "
                 'users that got a variant of the feature flag "checkout-test" during the experiment, so nobody is '
-                'counted as exposed. Turn off "Filter out internal and test users" in the exposure criteria, or change '
-                "the project's test account filters so that they don't match your users.",
+                "counted as exposed. If these are your own team's users, the experiment hasn't reached other users "
+                "yet. The code that reads the flag may only run in development, or the release conditions may include "
+                "only your team. Otherwise change the project's test account filters so "
+                'that they don\'t match your users, or turn off "Filter out internal and test users" in the exposure '
+                "criteria.",
             ),
             (
                 "ended_one_user",
@@ -233,8 +254,9 @@ class TestZeroExposures(TestCase):
                 "No users exposed: the test account filter removed all of them",
                 "No users were exposed while the experiment ran, because the exposure criteria filter out test "
                 "accounts, and the project's test account filters matched the only user that got a variant of the "
-                'feature flag "checkout-test". Turn off "Filter out internal and test users" in the exposure criteria '
-                "to count them.",
+                "feature flag \"checkout-test\". If these were your own team's users, the experiment didn't reach "
+                'other users. Otherwise turn off "Filter out internal and test users" in the exposure criteria to '
+                "count them.",
             ),
             (
                 "nobody_without_the_filter",
@@ -353,10 +375,19 @@ class TestFlagCalledDuringRun(BaseTest):
                 False,
             ),
             (
-                "ended_called_after_the_end",
+                "ended_called_after_the_end_but_not_lately",
                 LAUNCHED_AT,
                 ENDED_AT,
                 datetime(2026, 10, 15, tzinfo=UTC),
+                FlagEvaluationsMode.EVENTS,
+                None,
+                False,
+            ),
+            (
+                "ended_called_lately",
+                LAUNCHED_AT,
+                ENDED_AT,
+                datetime(2026, 10, 19, tzinfo=UTC),
                 FlagEvaluationsMode.EVENTS,
                 None,
                 True,

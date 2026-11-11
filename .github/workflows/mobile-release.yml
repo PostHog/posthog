@@ -97,6 +97,33 @@ jobs:
               with:
                   eas-version: 24.8.0
                   token: ${{ secrets.MOBILE_PRODUCTION_EXPO_TOKEN }}
+            - name: Get release tagging token
+              id: release-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+                  permission-contents: write
+                  permission-workflows: write
+            - name: Pin the exact tested source
+              env:
+                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
+                  RELEASE_SHA: ${{ github.sha }}
+              run: |
+                  # A ref lets GITHUB_TOKEN create the receipt even if master changes
+                  # workflow files. Native builds can outlive the App token's lifetime.
+                  tag="mobile-source/$RELEASE_SHA"
+                  existing_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" \
+                    --jq ".[] | select(.ref == \"refs/tags/$tag\") | .object.sha")
+                  if [[ -n "$existing_sha" ]]; then
+                    if [[ "$existing_sha" != "$RELEASE_SHA" ]]; then
+                      echo "::error::The mobile source tag does not match the tested commit"
+                      exit 1
+                    fi
+                  else
+                    gh api "repos/$GITHUB_REPOSITORY/git/refs" --method POST \
+                      -f "ref=refs/tags/$tag" -f "sha=$RELEASE_SHA" > /dev/null
+                  fi
             - name: Stage and publish the exact tested source
               env:
                   GH_TOKEN: ${{ github.token }}

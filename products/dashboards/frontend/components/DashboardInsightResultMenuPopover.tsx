@@ -8,8 +8,8 @@ import { getPersonsRecordingFilters } from 'scenes/trends/persons-modal/getPerso
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
+import { isActorsQuery } from '~/queries/schema/node-guards'
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { isActorsQuery } from '~/queries/utils'
 import { ReplayTabs } from '~/types'
 
 import { dashboardInsightResultMenuLogic } from './dashboardInsightResultMenuLogic'

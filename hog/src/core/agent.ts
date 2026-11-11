@@ -35,6 +35,8 @@ export interface Mode {
     format: OutputFormat
     color: boolean
     columns: number | undefined
+    // Set from the CI variable most CI services export.
+    ci: boolean
 }
 
 export interface Terminal {
@@ -66,6 +68,10 @@ function detectAgent(env: Env): { agent: string | undefined; reason: string } {
     return { agent: undefined, reason: 'no agent env var is set' }
 }
 
+function isTruthy(value: string | undefined): boolean {
+    return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false'
+}
+
 export function resolveMode(env: Env, terminal: Terminal, requestedFormat: OutputFormat | undefined): Mode {
     const { agent, reason } = detectAgent(env)
     // Agents and pipes get JSON by default, people at a terminal get text.
@@ -73,5 +79,5 @@ export function resolveMode(env: Env, terminal: Terminal, requestedFormat: Outpu
     const colorForced = env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== '0'
     const color =
         colorForced || (format === 'text' && terminal.hasColors && agent === undefined && env.NO_COLOR === undefined)
-    return { agent, agentReason: reason, format, color, columns: terminal.columns }
+    return { agent, agentReason: reason, format, color, columns: terminal.columns, ci: isTruthy(env.CI) }
 }

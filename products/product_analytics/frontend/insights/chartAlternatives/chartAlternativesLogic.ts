@@ -7,17 +7,17 @@ import {
     hasTrendsFormula,
 } from 'lib/components/ChartFilter/chartDisplayOptions'
 import type { ChartDisplayOption, ChartDisplayOptionGroup } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
+import { isTrendsQuery } from '~/queries/schema/node-guards'
 import type { Node, TrendsQuery } from '~/queries/schema/schema-general'
-import { isTrendsQuery } from '~/queries/utils'
 import type { InsightLogicProps } from '~/types'
 import { ChartDisplayType } from '~/types'
 

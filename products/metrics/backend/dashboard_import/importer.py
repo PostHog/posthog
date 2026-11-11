@@ -109,8 +109,15 @@ from products.metrics.backend.facade.enums import (
     PanelImportOutcome,
     PanelProgressState,
 )
+from products.metrics.backend.task_profiles import (
+    AGENT_HIDDEN_TOOLS,
+    AGENT_MCP_SCOPES,
+    DASHBOARD_IMPORT,
+    MAX_RUNNING_IMPORTS,
+)
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO, TaskRunInputFile
+from products.tasks.backend.facade.profiles import TaskRunOptions
 
 logger = structlog.get_logger(__name__)
 
@@ -118,37 +125,6 @@ IMPORT_STATE_KEY = "metrics_dashboard_import"
 SANDBOX_ENVIRONMENT_NAME = "METRICS_DASHBOARD_IMPORT"
 AGENT_MODEL = "claude-sonnet-5"
 AGENT_RUNTIME_ADAPTER = "claude"
-# The PostHog MCP server reads the user and the project to start a session, so it needs user:read and
-# project:read. The rest lets the agent read metrics, logs and traces. Nothing lets it write.
-AGENT_MCP_SCOPES = ["metrics:read", "logs:read", "tracing:read", "user:read", "project:read"]
-# Read tools that the internal scopes unlock but the conversion never needs. The input can carry planted
-# instructions, so hide every tool that reads other data of the user.
-AGENT_HIDDEN_TOOLS = [
-    "docs-search",
-    "user-get",
-    "user-home-settings-get",
-    "llma-personal-spend",
-    "reminder-get",
-    "reminders-list",
-    "mcp-connections-list",
-    "mcp-connection-tools-list",
-    "tasks-list",
-    "tasks-retrieve",
-    "tasks-runs-list",
-    "tasks-runs-retrieve",
-    "tasks-runs-session-logs-retrieve",
-    "tasks-artifacts-list",
-    "tasks-config-list",
-    "tasks-me-config-list",
-    "tasks-models-retrieve",
-    "channel-list",
-    "channel-retrieve",
-    "channel-instructions-retrieve",
-    "inbox-reports-list",
-    "inbox-reports-retrieve",
-    "task-context-wiki-channel-resolve",
-    "task-context-wiki-page-retrieve",
-]
 START_CHECK_SECONDS = 20.0
 FINAL_CHECK_SECONDS = 60.0
 # A finalizer that holds the claim longer than this died before it saved a result, so another may take over.
@@ -163,7 +139,6 @@ STORAGE_TTL_DAYS = "30"
 DEFAULT_SCREENSHOT_LAYOUT = GridLayout(x=0, y=0, w=6, h=4)
 _QUERY_KINDS = frozenset({"timeseries", "stat", "gauge", "bargauge", "table", "heatmap"})
 _AGENT_FAILED_MESSAGE = "The import agent stopped before it finished. Try again."
-MAX_RUNNING_IMPORTS = 3
 RECENT_IMPORTS_WINDOW = dt.timedelta(days=7)
 MAX_RECENT_IMPORTS = 20
 MAX_LAYOUT_ROUNDS = 3
@@ -566,29 +541,30 @@ class DashboardImporter:
 
         with transaction.atomic():
             self._admit()
+            network = DASHBOARD_IMPORT.network
             environment_id = tasks_facade.upsert_internal_sandbox_env(
                 self._team.id,
                 SANDBOX_ENVIRONMENT_NAME,
-                tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+                tasks_facade.SandboxNetworkAccessLevel(network.levels[0]),
                 private=False,
                 internal=True,
-                allowed_domains=[],
-                include_default_domains=False,
+                allowed_domains=list(network.allowed_domains),
+                include_default_domains=network.include_default_domains,
             )
             created = tasks_facade.create_and_run_task(
                 team=self._team,
                 title=f"Import dashboard: {state.dashboard_name}"[:255],
                 description=prompt,
-                origin_product=tasks_facade.TaskOriginProduct.METRICS_IMPORT,
+                profile=DASHBOARD_IMPORT,
                 user_id=self._user.id,
-                repository=None,
+                options=TaskRunOptions(
+                    adapter=AGENT_RUNTIME_ADAPTER,
+                    model=AGENT_MODEL,
+                    mcp_scopes=AGENT_MCP_SCOPES,
+                    output_schema=AgentImportOutput.model_json_schema(),
+                ),
                 create_pr=False,
-                internal=True,
                 sandbox_environment_id=str(environment_id),
-                posthog_mcp_scopes=AGENT_MCP_SCOPES,
-                model=AGENT_MODEL,
-                runtime_adapter=AGENT_RUNTIME_ADAPTER,
-                output_schema=AgentImportOutput,
                 extra_run_state={
                     "mcp_exclude_tools": AGENT_HIDDEN_TOOLS,
                     "config_snapshot": {"connectors": {"mcp_installation_ids": []}},

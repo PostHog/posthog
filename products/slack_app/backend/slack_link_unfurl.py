@@ -43,8 +43,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.canvas.backend.facade import access as canvas_access
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
 from products.error_tracking.backend.facade import api as error_tracking_facade
 from products.experiments.backend.facade import (
     api as experiments_facade,
@@ -56,9 +55,9 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.models import SignalReport
-from products.signals.backend.report_access import may_read_reports
+from products.signals.backend.facade.reports import get_report_card, may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -782,19 +781,17 @@ def _adhoc_insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard 
 
 
 def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
-    dashboard = Dashboard.objects.filter(pk=ref, team_id=ctx.team.pk).first() if ref.isdigit() else None
+    dashboard = dashboards_api.get_dashboard(team_id=ctx.team.pk, dashboard_id=int(ref)) if ref.isdigit() else None
     if not dashboard:
         return "not_found"
-    level = ctx.uac.get_user_access_level(dashboard)
-    if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
+    if not dashboards_api.can_access_dashboard(dashboard, user_access_control=ctx.uac):
         return "no_access"
-    tiles = (
-        DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
-        .exclude(deleted=True)
-        .select_related("insight")
-        .order_by("id")
-    )
-    insights = [tile.insight for tile in tiles if tile.insight]
+    insight_ids = [tile.insight_id for tile in dashboards_api.insight_tiles(dashboard_id=dashboard.id)]
+    insights_by_id = {
+        insight.id: insight
+        for insight in insights_including_soft_deleted_for_team(team_id=dashboard.team_id, insight_ids=insight_ids)
+    }
+    insights = [insights_by_id[insight_id] for insight_id in insight_ids if insight_id in insights_by_id]
     ctx.uac.preload_object_access_controls(cast(list, insights))
     names = [
         insight.name or insight.derived_name or "Untitled"
@@ -804,7 +801,7 @@ def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _S
     return _UnfurlCard(
         label="Dashboard",
         title=dashboard.name or "Untitled",
-        details=(_count(len(names), "insight"), *_by(dashboard.created_by)),
+        details=(_count(len(names), "insight"), *_by(_user(dashboard.created_by_id))),
         chart=_tile_grid(names),
         body=dashboard.description,
     )
@@ -1151,11 +1148,7 @@ def _error_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipR
 
 
 def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
-    report = (
-        SignalReport.objects.filter(team_id=ctx.team.pk, pk=ref).exclude(status=SignalReport.Status.DELETED).first()
-        if _uuid(ref)
-        else None
-    )
+    report = get_report_card(team_id=ctx.team.pk, report_id=ref) if _uuid(ref) else None
     if not report:
         return "not_found"
     if not may_read_reports(user=ctx.user, team=ctx.team):

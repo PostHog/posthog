@@ -172,6 +172,7 @@ class TestDashboardImportAPI(APIBaseTest):
         task = Task.objects.get(id=body["id"])
         run = TaskRun.objects.get(task=task)
         assert (task.origin_product, task.internal, task.repository) == (Task.OriginProduct.METRICS_IMPORT, True, None)
+        assert task.profile == "metrics.dashboard_import"
         assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == AGENT_MCP_SCOPES
         assert "docs-search" in run.state["mcp_exclude_tools"]
         assert {artifact["name"] for artifact in run.artifacts} == {"brief.json", "grafana-dashboard.json"}

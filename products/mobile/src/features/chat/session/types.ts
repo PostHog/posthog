@@ -49,6 +49,8 @@ export interface SessionUserItem {
 }
 
 export interface SessionAssistantItem {
+    traceId?: string
+    projectUrl?: string
     kind: 'assistant'
     id: string
     text: string
@@ -73,6 +75,8 @@ export interface SessionToolItem {
 export interface SessionTurnEndItem {
     kind: 'turn_end'
     id: string
+    traceId?: string
+    runId?: string
 }
 
 export interface SessionErrorItem {
@@ -189,6 +193,7 @@ export interface Session {
     answer: (input: DecisionAnswerInput) => Promise<void>
     /** Asks the agent to stop the current turn. Only while `phase` is not `idle`. */
     stop: () => void
+    reconnect?: () => void
     reloadHistory: () => Promise<void>
     reset: () => void
     dismissNotice: () => void

@@ -239,6 +239,8 @@ export const inviteLogic = kea<inviteLogicType>([
             [] as OrganizationInviteType[],
             {
                 inviteTeamMembers: async () => {
+                    // A sent request always returns at least one invite, so the success handlers
+                    // treat this empty result as "nothing was sent" and keep the form as it is.
                     if (!values.canSubmit) {
                         return []
                     }
@@ -334,7 +336,8 @@ export const inviteLogic = kea<inviteLogicType>([
                 },
                 appendInviteRow: (state) => [...state, EMPTY_INVITE],
                 resetInviteRows: () => [EMPTY_INVITE],
-                inviteTeamMembersSuccess: () => [EMPTY_INVITE],
+                inviteTeamMembersSuccess: (state, { invitedTeamMembersInternal }) =>
+                    invitedTeamMembersInternal.length > 0 ? [EMPTY_INVITE] : state,
                 addProjectAccess: (state, { inviteIndex, projectId, level }) => {
                     const newState = [...state]
                     const invite = { ...newState[inviteIndex] }
@@ -382,7 +385,8 @@ export const inviteLogic = kea<inviteLogicType>([
                     INLINE_ERROR_FIELDS.has(errorObject?.attr) && errorObject?.detail
                         ? { attr: errorObject.attr, detail: errorObject.detail }
                         : null,
-                inviteTeamMembersSuccess: () => null,
+                inviteTeamMembersSuccess: (state, { invitedTeamMembersInternal }) =>
+                    invitedTeamMembersInternal.length > 0 ? null : state,
                 updateMessage: (state) => (state?.attr === 'message' ? null : state),
                 updateInviteAtIndex: (state, { payload }) =>
                     state?.attr === 'first_name' && 'first_name' in payload ? null : state,
@@ -459,8 +463,11 @@ export const inviteLogic = kea<inviteLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        inviteTeamMembersSuccess: (): void => {
-            const inviteCount = values.invitedTeamMembersInternal.length
+        inviteTeamMembersSuccess: ({ invitedTeamMembersInternal }): void => {
+            if (invitedTeamMembersInternal.length === 0) {
+                return
+            }
+            const inviteCount = invitedTeamMembersInternal.length
             if (values.preflight?.email_service_available) {
                 lemonToast.success(`Invited ${pluralize(inviteCount, 'new team member')}`)
             } else {

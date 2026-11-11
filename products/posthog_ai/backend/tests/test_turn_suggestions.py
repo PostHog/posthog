@@ -983,7 +983,9 @@ class TestDraftScout(SimpleTestCase):
     def _draft(self, content: str) -> tuple[ScoutDraft | None, MagicMock]:
         client = _gateway_reply({})
         client.chat.completions.create.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
-        with patch("products.posthog_ai.backend.turn_suggestions.drafter.build_openai_client", return_value=client):
+        with patch(
+            "products.posthog_ai.backend.turn_suggestions.drafter.build_ai_gateway_openai_client", return_value=client
+        ):
             draft = draft_scout(
                 build_turn_transcript(_metric_turn()),
                 team_id=1,
@@ -1022,26 +1024,11 @@ class TestDraftScout(SimpleTestCase):
 
         assert draft is None
 
-    @parameterized.expand(
-        [
-            (
-                "go_gateway",
-                {"AI_GATEWAY_URL": "https://ai-gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"},
-                "https://ai-gateway.example.com/v1/",
-            ),
-            # The posthog_ai route bills the customer's AI credits, so the fallback must use an unbilled one.
-            (
-                "python_fallback",
-                {"LLM_GATEWAY_URL": "http://llm-gateway.example.com", "LLM_GATEWAY_API_KEY": "phx_test"},
-                "http://llm-gateway.example.com/growth/v1/",
-            ),
-        ]
-    )
-    def test_drafts_are_billed_to_posthog_on_either_gateway(self, _name: str, gateway: dict, base_url: str):
-        unset = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": "", "LLM_GATEWAY_URL": "", "LLM_GATEWAY_API_KEY": ""}
+    def test_drafts_are_billed_to_posthog_on_the_go_gateway(self):
+        gateway = {"AI_GATEWAY_URL": "https://ai-gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
         reply = MagicMock(choices=[MagicMock(message=MagicMock(content="{}"))])
         with (
-            override_settings(**{**unset, **gateway}),
+            override_settings(**gateway),
             patch.object(Completions, "create", autospec=True, return_value=reply) as create,
         ):
             draft_scout(
@@ -1053,12 +1040,24 @@ class TestDraftScout(SimpleTestCase):
             )
 
         client = create.call_args.args[0]._client
-        assert str(client.base_url) == base_url
+        assert str(client.base_url) == "https://ai-gateway.example.com/v1/"
         assert create.call_args.kwargs["user"] == "team-7"
 
-    def test_an_unconfigured_gateway_returns_none(self):
+    @parameterized.expand(
+        [
+            ("no_gateway", {}),
+            (
+                "python_gateway_only",
+                {"LLM_GATEWAY_URL": "http://llm-gateway.example.com", "LLM_GATEWAY_API_KEY": "phx_test"},
+            ),
+        ]
+    )
+    def test_an_unconfigured_go_gateway_returns_none(self, _name: str, gateway: dict):
         unset = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": "", "LLM_GATEWAY_URL": "", "LLM_GATEWAY_API_KEY": ""}
-        with override_settings(**unset):
+        with (
+            override_settings(**{**unset, **gateway}),
+            patch.object(Completions, "create", autospec=True) as create,
+        ):
             draft = draft_scout(
                 build_turn_transcript(_metric_turn()),
                 team_id=1,
@@ -1068,6 +1067,7 @@ class TestDraftScout(SimpleTestCase):
             )
 
         assert draft is None
+        create.assert_not_called()
 
 
 class TestEnqueueTurnSuggestion(BaseTest):

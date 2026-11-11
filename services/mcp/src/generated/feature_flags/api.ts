@@ -96,6 +96,12 @@ export const FeatureFlagsListQueryParams = () => zod.object({
         .describe(
             'Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded \/ comma-separated list of user IDs to match any of them.'
         ),
+    deleted: zod
+        .enum(['false', 'true'])
+        .optional()
+        .describe(
+            'Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.'
+        ),
     eligible_for_experiment: zod
         .enum(['true'])
         .optional()

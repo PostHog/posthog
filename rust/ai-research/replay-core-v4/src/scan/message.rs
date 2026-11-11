@@ -197,6 +197,14 @@ fn read_inner(inner: Vec<u8>, max_events: usize) -> Result<Message, ReadError> {
     {
         return Err(ReadError::Malformed("$window_id is too long"));
     }
+    // Each moment in an index row repeats the ID, and JSON writes a control character as six bytes. Without them, the
+    // longest ID keeps a row under the producer's message limit.
+    if window_id
+        .as_ref()
+        .is_some_and(|id| id.bytes().any(|byte| byte < b' '))
+    {
+        return Err(ReadError::Malformed("$window_id has a control character"));
+    }
     let mut events = Vec::new();
     for item in scan::array_items(&inner, items)? {
         if events.len() >= max_events {
@@ -373,6 +381,10 @@ mod tests {
         assert_eq!(
             read("w".repeat(MAX_WINDOW_ID_BYTES + 1)).unwrap_err(),
             ReadError::Malformed("$window_id is too long")
+        );
+        assert_eq!(
+            read("w\u{1}".to_owned()).unwrap_err(),
+            ReadError::Malformed("$window_id has a control character")
         );
     }
 

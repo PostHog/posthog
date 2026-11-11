@@ -3,6 +3,7 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
+import { defaultConfig } from '~/common/config/config'
 import {
     KAFKA_INGESTION_WARNINGS,
     KAFKA_PERSON,
@@ -21,7 +22,7 @@ import { PostgresPersonRepository } from '~/common/persons/repositories/postgres
 import { fetchDistinctIdValues } from '~/common/persons/repositories/test-helpers'
 import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { defaultRetryConfig } from '~/common/utils/retries'
 import { UUIDT } from '~/common/utils/utils'
@@ -2750,37 +2751,58 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toMatchObject({ id: target.id, properties: { a: 1, b: 2, late: 'yes' } })
         })
 
-        it(`joins both ids when another writer creates the anon person during a neither-exists merge`, async () => {
-            // The anon person lands on another pod before this merge's two-id create.
-            let raced = false
-            jest.spyOn(personRepository, 'createPerson').mockImplementation(async (...args) => {
-                if (!raced) {
-                    raced = true
-                    await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, {
-                        distinctId: newUserDistinctId,
+        it.each([
+            { pool: 'the shared persons pool', poolSize: undefined },
+            // The merge's transaction holds the only connection, so a conflict re-read on the pool never starts.
+            { pool: 'a one-connection persons pool', poolSize: 1 },
+        ])(
+            `joins both ids when another writer creates the anon person during a neither-exists merge on $pool`,
+            async ({ poolSize }) => {
+                const mergePostgres = poolSize
+                    ? new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: poolSize })
+                    : hub.postgres
+                const mergeRepository = poolSize ? new PostgresPersonRepository(mergePostgres) : personRepository
+                try {
+                    // The anon person lands on another pod before this merge's two-id create.
+                    let raced = false
+                    jest.spyOn(mergeRepository, 'createPerson').mockImplementation(async (...args) => {
+                        if (!raced) {
+                            raced = true
+                            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, {
+                                distinctId: newUserDistinctId,
+                            })
+                        }
+                        return await PostgresPersonRepository.prototype.createPerson.apply(mergeRepository, args)
                     })
+
+                    const mergeService = personMergeService(
+                        {
+                            event: '$identify',
+                            distinct_id: oldUserDistinctId,
+                            properties: { $anon_distinct_id: newUserDistinctId },
+                        },
+                        undefined,
+                        mergeRepository
+                    )
+                    const result = await mergeService.handleIdentifyOrAlias()
+                    expect(result.success).toBe(true)
+                    if (!result.success) {
+                        throw new Error('Expected successful merge result')
+                    }
+                    await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+                    const persons = sortPersons(await fetchPostgresPersonsH())
+                    expect(persons.length).toEqual(1)
+                    expect(persons[0].uuid).toEqual(newUserUuid)
+                    const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
+                    expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+                } finally {
+                    if (poolSize) {
+                        await mergePostgres.end()
+                    }
                 }
-                return await PostgresPersonRepository.prototype.createPerson.apply(personRepository, args)
-            })
-
-            const mergeService = personMergeService({
-                event: '$identify',
-                distinct_id: oldUserDistinctId,
-                properties: { $anon_distinct_id: newUserDistinctId },
-            })
-            const result = await mergeService.handleIdentifyOrAlias()
-            expect(result.success).toBe(true)
-            if (!result.success) {
-                throw new Error('Expected successful merge result')
             }
-            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
-
-            const persons = sortPersons(await fetchPostgresPersonsH())
-            expect(persons.length).toEqual(1)
-            expect(persons[0].uuid).toEqual(newUserUuid)
-            const distinctIds = await fetchDistinctIdValues(hub.postgres, persons[0])
-            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
-        })
+        )
 
         it(`does not retry a neither-exists merge when the uuid's holder owns neither id`, async () => {
             // A live person holds the target's uuid under a third id, so no retry can attach.

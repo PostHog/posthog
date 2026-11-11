@@ -114,6 +114,25 @@ jobs:
         if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      **/package.json
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /.husky/
+                      /bin/fix-rdkafka-paths
+                      /patches/
+                      /services/mcp/
+                      /packages/llm-normalizer/
+                      /packages/quill/packages/
+                      /tools/openapi-codegen/
+                      /products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
+                      /products/ai_observability/backend/prompts/parser_recipe_examples.yaml
+                      /products/notebooks/
+                      /products/product_analytics/mcp/apps/explainChart/
+                  sparse-checkout-cone-mode: false
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install

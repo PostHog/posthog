@@ -60,7 +60,7 @@ export function AccountViewComponent({
             )
         case 'users':
             return isUsersTableEnabled ? (
-                <AccountUsersTable accountId={accountId} embedded={embedded} {...tileProps} />
+                <AccountUsersTable accountId={accountId} externalId={externalId} embedded={embedded} {...tileProps} />
             ) : (
                 <AccountRelatedUsersExpansion externalId={externalId} embedded={embedded} {...tileProps} />
             )

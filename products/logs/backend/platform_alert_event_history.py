@@ -11,7 +11,7 @@ from uuid import UUID, uuid5
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.api import notable_checks_by_legacy_id
+from products.alerts_platform.backend.facade.api import notable_checks_by_public_id
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEvent
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.logs.backend.alert_source_cycle import LogsAlertCondition
@@ -51,7 +51,7 @@ def platform_check_rows(*, team_id: int, alert_id: UUID, since: datetime, limit:
 
     Raises when ClickHouse fails, so the caller can fall back to the logs rows.
     """
-    page = notable_checks_by_legacy_id(team_id=team_id, legacy_configuration_id=alert_id, since=since, limit=limit)
+    page = notable_checks_by_public_id(team_id=team_id, public_id=alert_id, since=since, limit=limit)
     if page is None:
         return None
     return PlatformCheckRows(rows=tuple(_as_row(alert_id, check) for check in page.events), total=page.total)

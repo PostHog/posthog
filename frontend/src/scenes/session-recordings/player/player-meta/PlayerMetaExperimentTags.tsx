@@ -23,8 +23,8 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
         sessionRecordingExperimentContextLogic({ sessionRecordingId: logicProps.sessionRecordingId })
     )
     const { setTab } = useActions(playerSidebarLogic)
-    const { setSidebarOpen, toggleWatchPanelSection } = useActions(playerSettingsLogic)
-    const { replayLayout, watchPanelOpenSections } = useValues(playerSettingsLogic)
+    const { setSidebarOpen, setWatchPanelTab } = useActions(playerSettingsLogic)
+    const { replayLayout } = useValues(playerSettingsLogic)
 
     // Only surface the chip when something experiment-related happened *in this recording*.
     // Enrollments without an in-session exposure event have nothing visible to watch, so they
@@ -34,11 +34,9 @@ export function PlayerMetaExperimentTags(): JSX.Element | null {
     }
 
     const openOverview = (): void => {
-        // In the watch layout the overview is a disclosure under the player, and the sidebar state means Debug mode.
+        // In the watch layout the overview is a tab under the player, and the sidebar state means Debug mode.
         if (playerUsesWatchLayout(replayLayout, logicProps)) {
-            if (!watchPanelOpenSections.includes('overview')) {
-                toggleWatchPanelSection('overview')
-            }
+            setWatchPanelTab('overview')
             return
         }
         setSidebarOpen(true)

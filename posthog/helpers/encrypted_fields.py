@@ -5,7 +5,6 @@ import json
 import base64
 
 from django.conf import settings
-from django.core.checks import Error, register
 from django.db import models
 from django.utils.functional import cached_property
 
@@ -237,24 +236,3 @@ class EncryptedJSONStringField(EncryptedFieldMixin, models.JSONField):
                 pass
 
         return value
-
-
-@register()
-def check_encryption_salt_keys(app_configs, **kwargs):
-    # Each ENCRYPTION_SALT_KEYS entry is used directly as a Fernet key, which must be exactly 32 bytes.
-    # A wrong-length key otherwise fails lazily with an opaque error on the first encrypt/decrypt — and
-    # during a SECRET_KEY / ENCRYPTION_SALT_KEYS rotation that surfaces as a confusing runtime crash
-    # instead of a clear config error. SECRET_KEY / SALT_KEY are exempt: they run through PBKDF2, which
-    # normalizes any input length to 32 bytes.
-    errors = []
-    for index, key in enumerate(settings.ENCRYPTION_SALT_KEYS):
-        byte_length = len(key.encode("utf-8"))
-        if byte_length != 32:
-            errors.append(
-                Error(
-                    f"ENCRYPTION_SALT_KEYS[{index}] must be exactly 32 bytes, got {byte_length}.",
-                    hint="Generate one with `openssl rand -hex 16` (produces 32 characters).",
-                    id="posthog.E004",
-                )
-            )
-    return errors

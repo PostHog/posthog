@@ -26,3 +26,9 @@ Precomputation and the query runner do not cancel cooperatively, so the thread c
 Result-write protection must remain independent of cancellation delivery.
 
 See the [workflow architecture](../../products/experiments/backend/temporal/ARCHITECTURE.md) and [Temporal's cancellation contract](https://github.com/temporalio/sdk-python#heartbeating-and-cancellation).
+
+## Superseded timeseries backfills
+
+A request with the same metric and calculation key reuses the active backfill. A different key cancels the old request and starts a replacement. Each daily write locks the experiment and checks the request status in the same transaction, preventing a superseded worker from overwriting the replacement's days. Queries run outside the transaction.
+
+The request stores the metric's current definition and key, and ignores a definition or key in the request body. Until backfills consume a frozen calculation config, each day's runner must give the request's key, in the key version of that key, before executing. Settings drift cancels the request instead of storing a result under settings it did not use.

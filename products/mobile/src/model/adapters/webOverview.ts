@@ -70,11 +70,13 @@ export function webOverviewSnapshot(
             nextAllowedRefreshAt: null,
             readAt,
             refreshFailed: failed,
+            dataReadAt: 0,
         }
     }
     const range = response.resolved_date_range
     return {
         metrics: (response.results ?? []).map(metricOf),
+        dataReadAt: readAt,
         resolvedRange: range?.date_from && range.date_to ? { from: range.date_from, to: range.date_to } : null,
         timezone: response.timezone ?? null,
         computed: response.is_cached === false,

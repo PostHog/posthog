@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -149,6 +150,9 @@ export function MaterializationStatusPanel({
         incrementalDraft,
         syncFrequencyDraft,
         savingMaterialization,
+        cadencePin,
+        nodeFrequency,
+        nodeFrequencyLoading,
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
@@ -159,6 +163,7 @@ export function MaterializationStatusPanel({
         setInitialSyncFrequency,
         setIncrementalDraft,
         setSyncFrequencyDraft,
+        setPinDraft,
     } = useActions(jobsLogic)
 
     const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
@@ -278,7 +283,10 @@ export function MaterializationStatusPanel({
                                     </div>
                                 )}
                                 <div className="flex flex-col gap-2 items-start mt-2">
-                                    {kind !== 'endpoint' && (
+                                    {kind !== 'endpoint' && nodeFrequencyLoading && !nodeFrequency ? (
+                                        // Without the pin state the bar would first render as unpinned, then jump.
+                                        <LemonSkeleton className="h-8 w-80" />
+                                    ) : kind !== 'endpoint' ? (
                                         <SyncFrequencySelect
                                             bounds={savedQuery.sync_frequency_bounds}
                                             disabledReason={
@@ -295,9 +303,15 @@ export function MaterializationStatusPanel({
                                                 'never'
                                             }
                                             onChange={setSyncFrequencyDraft}
-                                            loading={updatingDataWarehouseSavedQuery || materializationActionLoading}
+                                            loading={
+                                                savingMaterialization ||
+                                                updatingDataWarehouseSavedQuery ||
+                                                materializationActionLoading
+                                            }
+                                            pin={cadencePin}
+                                            onUnpin={() => setPinDraft(false)}
                                         />
-                                    )}
+                                    ) : null}
                                     {showRunActions && (
                                         <div className="flex flex-wrap items-center gap-2">
                                             <MaterializationRunActions viewId={viewId} kind={kind} />
@@ -496,15 +510,17 @@ export function MaterializationStatusPanel({
                                 }
                                 if (run_mode === 'full_refresh') {
                                     return full_refresh_reason ? (
-                                        <Tooltip title={`Full refresh. Reason: ${full_refresh_reason}.`}>
-                                            <span
-                                                className="border-b border-dotted cursor-help"
-                                                tabIndex={0}
-                                                aria-label={`Full refresh. Reason: ${full_refresh_reason}.`}
-                                            >
-                                                Full refresh
-                                            </span>
-                                        </Tooltip>
+                                        <div className="max-w-28 @min-[48rem]/materialization:max-w-60">
+                                            <div>Full refresh</div>
+                                            <Tooltip title={capitalizeFirstLetter(full_refresh_reason)}>
+                                                <span
+                                                    className="block truncate text-xs text-secondary"
+                                                    data-attr="materialization-run-full-refresh-reason"
+                                                >
+                                                    {capitalizeFirstLetter(full_refresh_reason)}
+                                                </span>
+                                            </Tooltip>
+                                        </div>
                                     ) : (
                                         'Full refresh'
                                     )
