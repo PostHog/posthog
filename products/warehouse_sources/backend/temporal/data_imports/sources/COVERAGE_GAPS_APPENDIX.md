@@ -12173,10 +12173,10 @@ Today (8): `attendances`, `customer_memberships`, `customers`, `events`, `instru
 
 Diffed against: <https://docs.goteamup.com/llms.txt>
 
-- [ ] `Offering types (GET /api/v2/offering_types)` — resolve offering_type IDs in events to class and appointment definitions (high)
-- [ ] `Membership categories (GET /api/v2/membership_categories)` — resolve category IDs in memberships for membership mix and revenue analysis (high)
-- [ ] `Lead sources (GET /api/v2/crm/lead_sources)` — resolve lead_source IDs in customers to acquisition channels (high)
-- [ ] `Payment subscriptions (GET /api/v2/payment_subscriptions)` — resolve payment_subscription IDs in customer memberships to recurring billing records (high)
+- [x] `Offering types (GET /api/v2/offering_types)` — resolve offering_type IDs in events to class and appointment definitions (high) → `offering_types` (full refresh)
+- [x] `Membership categories (GET /api/v2/membership_categories)` — resolve category IDs in memberships for membership mix and revenue analysis (high) → `membership_categories` (full refresh)
+- [x] `Lead sources (GET /api/v2/crm/lead_sources)` — resolve lead_source IDs in customers to acquisition channels (high) → `lead_sources` (full refresh)
+- [x] `Payment subscriptions (GET /api/v2/payment_subscriptions)` — resolve payment_subscription IDs in customer memberships to recurring billing records (high) → `payment_subscriptions` (full refresh)
 - [ ] `Membership payment plans (GET /api/v2/membership_payment_plans)` — expand membership plan links into prices, billing intervals, and commitment terms (high)
 - [ ] `Customer membership holds (GET /api/v2/customer_membership_holds)` — resolve active_hold IDs and measure membership pauses and their causes (high)
 - [ ] `Discount codes (GET /api/v2/discount_codes)` — resolve discount_code IDs in customer memberships for promotion analysis (high)
