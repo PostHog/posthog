@@ -547,8 +547,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
 
     def _ensure_can_change_workflow_files(self, files: QuerySet) -> None:
-        workflow_files = self._filter_by_access_control(self._scope_by_project_and_environment(files)).filter(
-            type__in=WORKFLOW_FILE_SYSTEM_TYPES, shortcut=False
+        workflow_files = (
+            self._filter_by_access_control(self._scope_by_project_and_environment(files))
+            .filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
+            .exclude(shortcut=True)
         )
         self._ensure_can_delete_objects(
             [

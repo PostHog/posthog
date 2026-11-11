@@ -142,7 +142,9 @@ class TestWorkflowFolders(APIBaseTest):
         files_url = f"/api/projects/{self.team.id}/file_system/"
         entry = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"][0]
         copy = {"path": "Copies/Shared email", "type": "message_template", "ref": template["id"]}
-        self.assertEqual(self.client.post(files_url, copy, format="json").status_code, 201)
+        placed_copy = self.client.post(files_url, copy, format="json")
+        self.assertEqual(placed_copy.status_code, 201, placed_copy.content)
+        FileSystem.objects.filter(pk=placed_copy.json()["id"]).update(shortcut=None)
         viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "invented-password")
         membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
         create_access_control(
@@ -158,11 +160,14 @@ class TestWorkflowFolders(APIBaseTest):
             f"{files_url}{folder.json()['id']}/", {"type": "message_template", "ref": template["id"]}, format="json"
         )
         unlinked = self.client.delete(f"{files_url}{entry['id']}/")
+        moved = self.client.post(
+            f"{files_url}{placed_copy.json()['id']}/move/", {"new_path": "Viewer/Moved email"}, format="json"
+        )
 
         self.assertEqual(
-            [placed.status_code, promoted.status_code, retyped.status_code, unlinked.status_code],
-            [403, 403, 403, 403],
-            [placed.content, promoted.content, retyped.content, unlinked.content],
+            [placed.status_code, promoted.status_code, retyped.status_code, unlinked.status_code, moved.status_code],
+            [403, 403, 403, 403, 403],
+            [placed.content, promoted.content, retyped.content, unlinked.content, moved.content],
         )
         rows = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"]
         self.assertEqual(
