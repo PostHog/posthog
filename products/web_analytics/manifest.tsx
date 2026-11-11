@@ -73,7 +73,10 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.WEB_ANALYTICS],
             category: ProductItemCategory.ANALYTICS,
             iconType: 'web_analytics',
-            iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-web-analytics-light)',
+                'var(--color-product-web-analytics-dark)',
+            ] as FileSystemIconColor,
             href: urls.webAnalytics(),
             searchKeywords: ['traffic', 'pageviews', 'visitors', 'bounce rate', 'referrers'],
             searchTabs: [

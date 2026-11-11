@@ -99,7 +99,7 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.featureFlag(ref),
             listHref: () => urls.featureFlags(),
             listSearchParam: 'search',
-            iconColor: ['var(--color-product-feature-flags-light)'],
+            iconColor: ['var(--color-product-feature-flags-light)', 'var(--color-product-feature-flags-dark)'],
             filterKey: 'feature_flag',
         },
     },
@@ -109,7 +109,10 @@ export const manifest: ProductManifest = {
             type: 'feature_flag',
             href: urls.featureFlag('new'),
             iconType: 'feature_flag',
-            iconColor: ['var(--color-product-feature-flags-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-feature-flags-light)',
+                'var(--color-product-feature-flags-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [

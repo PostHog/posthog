@@ -114,7 +114,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     dashboard: {
         icon: <IconDashboard />,
-        iconColor: ['var(--color-product-dashboards-light)'],
+        iconColor: ['var(--color-product-dashboards-light)', 'var(--color-product-dashboards-dark)'],
     },
     canvas: {
         icon: <IconPalette />,
@@ -122,11 +122,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     llm_analytics: {
         icon: <IconLlmAnalytics />,
-        iconColor: ['var(--color-product-llm-analytics-light)'],
+        iconColor: ['var(--color-product-llm-analytics-light)', 'var(--color-product-llm-analytics-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,
-        iconColor: ['var(--color-product-product-analytics-light)'],
+        iconColor: ['var(--color-product-product-analytics-light)', 'var(--color-product-product-analytics-dark)'],
     },
     revenue_analytics: {
         icon: <IconPiggyBank />,
@@ -169,7 +169,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     sql_editor: {
         icon: <IconServer />,
-        iconColor: ['var(--color-product-data-warehouse-light)'],
+        iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
     },
     data_modeling: {
         icon: <IconStack />,
@@ -197,7 +197,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     survey: {
         icon: <IconMessage />,
-        iconColor: ['var(--color-product-surveys-light)'],
+        iconColor: ['var(--color-product-surveys-light)', 'var(--color-product-surveys-dark)'],
     },
     product_tour: {
         icon: <IconSpotlight />,
@@ -231,11 +231,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     experiment: {
         icon: <IconFlask />,
-        iconColor: ['var(--color-product-experiments-light)'],
+        iconColor: ['var(--color-product-experiments-light)', 'var(--color-product-experiments-dark)'],
     },
     feature_flag: {
         icon: <IconToggle className="mt-[2px]" />,
-        iconColor: ['var(--color-product-feature-flags-light)'],
+        iconColor: ['var(--color-product-feature-flags-light)', 'var(--color-product-feature-flags-dark)'],
     },
     feature_flag_off: {
         icon: <IconToggleOff className="mt-[2px]" />,
