@@ -107,7 +107,8 @@ def resolved_hogql_group_key_expr(
 
     return _resolved_key_in(
         team,
-        prop.key,
+        # The expression can carry literal values, so only its group type reaches the logs.
+        f"hogql:group_{group_type_index}",
         group_type_index,
         ["hogql", group_type_index, prop.key],
         lambda: _GroupPrefixStripper().visit(expr),
