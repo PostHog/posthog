@@ -824,6 +824,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             ("a user without cohort access", {"cohort_access": False}, "edit access to cohorts"),
             ("a project without realtime cohorts", {"realtime": False}, "Realtime cohorts aren't available"),
             ("an organization without cohort triggers", {"cohort_triggers": False}, "Cohort triggers aren't available"),
+            ("an import past its cohort budget", {"cohort_budget": 0}, "creates at most 0 cohorts"),
         ]
     )
     def test_segment_that_cannot_become_a_cohort_keeps_the_note(
@@ -854,6 +855,10 @@ class TestWorkflowImportAPI(APIBaseTest):
             patch(
                 "products.workflows.backend.presentation.views.workflow_import_drafts._cohort_conditions_rolled_out",
                 return_value=cohort_triggers,
+            ),
+            patch(
+                "products.workflows.backend.presentation.views.workflow_import_drafts.MAX_NEW_COHORTS_PER_IMPORT",
+                case.get("cohort_budget", 50),
             ),
         ):
             response = self._segment_import(key=key, **overrides)

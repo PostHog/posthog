@@ -133,6 +133,7 @@ class _ConvertedSegments:
 
 _STATIC_SEGMENT_TYPES = {"static", "manual"}
 MAX_COHORT_NAME_LENGTH = 400
+MAX_NEW_COHORTS_PER_IMPORT = 50
 _UNREADABLE = (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError)
 
 
@@ -227,6 +228,7 @@ class _CohortCreation:
         # Why cohorts can't be used or created, each worked out once per request, when the first segment needs it.
         self.unavailable: str | None = None
         self.blocked: str | None = None
+        self.new_cohorts = 0
 
     def convert(self, segment_id: str, segment: ImportSegment) -> _SegmentOutcome:
         label = f'"{segment.name}" ({segment_id})' if segment.name else segment_id
@@ -274,6 +276,12 @@ class _CohortCreation:
             self.blocked = _cohort_creation_blocked(self.context)
         if self.blocked:
             return _not_converted(label, self.blocked)
+        if self.new_cohorts >= MAX_NEW_COHORTS_PER_IMPORT:
+            return _not_converted(
+                label,
+                f"One import creates at most {MAX_NEW_COHORTS_PER_IMPORT} cohorts. Import again to convert the rest.",
+            )
+        self.new_cohorts += 1
         if self.dry_run:
             return _SegmentOutcome(
                 status=SegmentCohortStatus.WOULD_CREATE,
