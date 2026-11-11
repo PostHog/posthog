@@ -52,7 +52,7 @@ BLUESHIFT_ENDPOINTS: dict[str, BlueshiftEndpointConfig] = {
     "campaigns": BlueshiftEndpointConfig(
         name="campaigns",
         path="/api/v2/campaigns.json",
-        data_selector=None,
+        data_selector="results",
         primary_keys=["uuid"],
         partition_key="created_at",
         params={"startdate": CAMPAIGNS_START_DATE},
