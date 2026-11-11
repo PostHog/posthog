@@ -81,7 +81,6 @@ export function createCorsPlugin(getProxyToken: () => string | null | undefined)
 // The headless renderer has no proxy token, so it calls the proxy without one.
 export const CorsPlugin = createCorsPlugin(() => null)
 
-const defaultStyleRules = BLOCKED_ELEMENT_STYLE_RULE
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
 // Language picker prepended to <body> by the "Translator, dictionary - accurate translate" extension.
@@ -91,7 +90,7 @@ const translatorExtensionPopupFix =
 
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
-    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix, translatorExtensionPopupFix],
+    insertStyleRules: [BLOCKED_ELEMENT_STYLE_RULE, shopifyShorthandCSSFix, translatorExtensionPopupFix],
     // Keep the replay iframe scriptless. UNSAFE_replayCanvas makes rrweb add `allow-scripts`
     // to the sandbox, which combined with the required `allow-same-origin` lets untrusted
     // recorded content escape the sandbox into the app origin. Canvas is replayed via
