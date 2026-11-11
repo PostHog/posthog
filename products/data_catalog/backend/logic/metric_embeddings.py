@@ -102,8 +102,8 @@ def embed_search_query(team: Team, query: str) -> list[float] | None:
 def refresh_metric_embedding(metric: Metric, *, force: bool = False) -> EmbeddingRefresh:
     """Embed the metric's search text when it changed, and store the vector without a model save.
 
-    The row is read again after the worker answers. When a write changed the text in the meantime,
-    the vector is dropped, because that write scheduled its own refresh.
+    The store is one conditional update on the embedded fields. When a write changed the text while the
+    worker answered, no row matches and the vector is dropped, because that write scheduled its own refresh.
     """
     metric_id = str(metric.id)
     if metric.deleted:
@@ -118,11 +118,20 @@ def refresh_metric_embedding(metric: Metric, *, force: bool = False) -> Embeddin
     response = generate_embedding(
         metric.team, text, model=METRIC_EMBEDDING_MODEL, timeout=DOCUMENT_EMBEDDING_TIMEOUT_SECONDS
     )
-    rows = Metric.objects.for_team(metric.team_id).filter(pk=metric.pk, deleted=False)
-    fresh = rows.first()
-    if fresh is None or search_text_hash(metric_search_text(fresh)) != text_hash:
+    updated = (
+        Metric.objects.for_team(metric.team_id)
+        .filter(
+            pk=metric.pk,
+            deleted=False,
+            name=metric.name,
+            display_name=metric.display_name,
+            description=metric.description,
+            unit=metric.unit,
+        )
+        .update(embedding=response.embedding, embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash=text_hash)
+    )
+    if not updated:
         return EmbeddingRefresh(metric_id=metric_id, refreshed=False, reason="changed")
-    rows.update(embedding=response.embedding, embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash=text_hash)
     return EmbeddingRefresh(metric_id=metric_id, refreshed=True, reason="refreshed")
 
 

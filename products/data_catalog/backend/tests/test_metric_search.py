@@ -14,6 +14,7 @@ from posthog.models.scoping import team_scope
 from products.data_catalog.backend.logic.metric_embeddings import (
     METRIC_EMBEDDING_MODEL,
     metric_search_text,
+    refresh_metric_embedding,
     search_text_hash,
 )
 from products.data_catalog.backend.logic.metric_search import search_metrics, split_search
@@ -184,6 +185,21 @@ class TestMetricEmbeddingRefresh(BaseTest):
             )
         assert generate.call_count == 2
         assert self._stored("mrr").embedding == [0.3, 0.4]
+
+    def test_edit_during_the_embedding_call_drops_the_old_vector(self, generate: MagicMock) -> None:
+        with team_scope(self.team.id):
+            Metric.objects.for_team(self.team.id).create(team=self.team, name="mrr", description="Monthly revenue")
+        metric = self._stored("mrr")
+
+        def edit_while_embedding(*_args: object, **_kwargs: object) -> EmbeddingResponse:
+            Metric.objects.for_team(self.team.id).filter(pk=metric.pk).update(description="Monthly recurring revenue")
+            return _embedding([0.9, 0.1])
+
+        generate.side_effect = edit_while_embedding
+        refresh = refresh_metric_embedding(metric)
+
+        assert (refresh.refreshed, refresh.reason) == (False, "changed")
+        assert self._stored("mrr").embedding is None
 
     def test_org_without_ai_approval_is_never_embedded(self, generate: MagicMock) -> None:
         self.organization.is_ai_data_processing_approved = False

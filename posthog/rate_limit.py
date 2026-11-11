@@ -724,6 +724,19 @@ class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# A metric catalog search can embed its query through the shared embedding worker, which spends model
+# provider budget on every call. The project-global pair skips session-authenticated requests, so this
+# team bucket caps browser and agent callers alike. An agent makes a few searches per question.
+class MetricSearchBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_search_burst"
+    rate = "60/minute"
+
+
+class MetricSearchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_search_sustained"
+    rate = "1200/hour"
+
+
 # Site discovery can fetch several small public resources per request and holds the web worker for
 # the complete chain. The project-wide API throttles do not cover session-authenticated requests,
 # so this separate team bucket also limits browser callers.

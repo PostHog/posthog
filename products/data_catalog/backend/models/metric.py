@@ -124,9 +124,16 @@ class Metric(
         blank=True,
         help_text="Vector of the metric's search text, for semantic catalog search.",
     )
-    embedding_model = models.CharField(max_length=64, blank=True, help_text="Model that produced the embedding.")
+    # db_default keeps inserts from the previous release working while the migration rolls out.
+    embedding_model = models.CharField(
+        max_length=64, blank=True, default="", db_default="", help_text="Model that produced the embedding."
+    )
     embedding_text_hash = models.CharField(
-        max_length=64, blank=True, help_text="Hash of the text the embedding was made from, to skip unchanged text."
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Hash of the text the embedding was made from, to skip unchanged text.",
     )
 
     class Meta:

@@ -11,7 +11,11 @@ from typing import Any
 from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 
-from products.data_catalog.backend.logic.metric_embeddings import METRIC_EMBEDDING_MODEL, metric_search_text
+from products.data_catalog.backend.logic.metric_embeddings import (
+    METRIC_EMBEDDING_MODEL,
+    metric_search_text,
+    search_text_hash,
+)
 from products.data_catalog.backend.logic.metric_search import SEARCH_DEFAULT_LIMIT, SEMANTIC_TOP_K, search_metrics
 from products.data_catalog.backend.models import Metric
 from products.data_catalog.evals.metric_search_cases import FIXTURE_METRICS, CaseType, SearchCase
@@ -48,10 +52,11 @@ def seed_metric_search_catalog(team_id: int, *, embed: Embedder | None = None) -
             for fixture in FIXTURE_METRICS
         ]
         if embed is not None:
-            vectors = embed([metric_search_text(metric) for metric in metrics])
-            for metric, vector in zip(metrics, vectors, strict=True):
+            texts = [metric_search_text(metric) for metric in metrics]
+            vectors = embed(texts)
+            for metric, text, vector in zip(metrics, texts, vectors, strict=True):
                 Metric.objects.for_team(team_id).filter(pk=metric.pk).update(
-                    embedding=vector, embedding_model=METRIC_EMBEDDING_MODEL
+                    embedding=vector, embedding_model=METRIC_EMBEDDING_MODEL, embedding_text_hash=search_text_hash(text)
                 )
     return metrics
 
@@ -127,7 +132,8 @@ def openai_embedder(model: str = "text-embedding-3-small") -> Embedder:
         # Built on first use, so listing or enrolling the suite needs no OpenAI key.
         from openai import OpenAI  # noqa: PLC0415 — keeps the OpenAI client off the import path of lexical runs
 
-        response = OpenAI().embeddings.create(model=model, input=list(texts))
+        # Bounded below the harness's case deadline, so a stalled call ends instead of holding a thread.
+        response = OpenAI(timeout=30.0, max_retries=2).embeddings.create(model=model, input=list(texts))
         return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]
 
     return embed
