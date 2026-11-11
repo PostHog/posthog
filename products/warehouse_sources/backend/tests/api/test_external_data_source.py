@@ -5890,6 +5890,8 @@ class TestExternalDataSource(APIBaseTest):
             ("both_absent_omits_key", "incremental", None, None, None),
             ("xmin_fallback_to_detected", "xmin", None, ["id"], ["id"]),
             ("xmin_explicit_wins_over_detected", "xmin", ["custom_pk"], ["id"], ["custom_pk"]),
+            ("string_key_rejected", "incremental", "id", ["id"], "must be a list"),
+            ("xmin_string_key_rejected", "xmin", "id", ["id"], "must be a list"),
         ]
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
@@ -5897,9 +5899,9 @@ class TestExternalDataSource(APIBaseTest):
         self,
         _name: str,
         sync_type: str,
-        payload_primary_keys: list[str] | None,
+        payload_primary_keys: list[str] | str | None,
         detected_primary_keys: list[str] | None,
-        expected_persisted: list[str] | None,
+        expected_persisted: list[str] | str | None,
         mock_get_source,
     ):
         _configure_source_mock_versioning(mock_get_source)
@@ -5962,6 +5964,11 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
+        if isinstance(expected_persisted, str):
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert expected_persisted in response.json()["message"]
+            assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+            return
         assert response.status_code == status.HTTP_201_CREATED, response.content
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
         if expected_persisted is None:

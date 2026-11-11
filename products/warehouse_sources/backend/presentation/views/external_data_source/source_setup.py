@@ -1746,6 +1746,18 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 )
             masked_columns: list[str] | None = payload_masked_columns or None
 
+            # A stored string key would later split into one key per character.
+            if primary_key_columns is not None and not (
+                isinstance(primary_key_columns, list) and all(isinstance(column, str) for column in primary_key_columns)
+            ):
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"primary_key_columns for schema '{schema.get('name')}' must be a list of column names or null."
+                    },
+                )
+
             if should_sync and requires_incremental_fields and incremental_field is None:
                 self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
