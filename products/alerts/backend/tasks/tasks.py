@@ -2,6 +2,7 @@ from celery import shared_task
 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.alerts_platform.backend.facade.api import remove_subscriber
@@ -14,6 +15,8 @@ from products.alerts_platform.backend.facade.api import remove_subscriber
     autoretry_for=(Exception,),
     retry_backoff=True,
 )
+# Cross-team on purpose: it covers every team of one organization, and each destination write is scoped to its team.
+@skip_team_scope_audit
 def remove_departed_subscriber(organization_id: str, user_id: int) -> None:
     """Takes a user who left an organization out of every subscriber destination of its alerts.
 
