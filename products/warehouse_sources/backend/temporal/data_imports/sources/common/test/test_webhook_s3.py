@@ -32,11 +32,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
     WebhookFallback,
     WebhookSourceManager,
     WebhookState,
+    delete_consumed_webhook_files,
 )
 
 _CLOSE_CONNECTIONS_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.common.db.close_old_connections"
 )
+_WEBHOOK_S3 = "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3"
 _SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.db.time.sleep"
 
 
@@ -72,6 +74,8 @@ def _make_inputs(**overrides) -> MagicMock:
     inputs = MagicMock()
     inputs.team_id = overrides.get("team_id", 1)
     inputs.schema_id = overrides.get("schema_id", str(uuid.uuid4()))
+    inputs.job_id = overrides.get("job_id", "job-1")
+    inputs.activity_attempt = overrides.get("activity_attempt", 1)
     inputs.reset_pipeline = overrides.get("reset_pipeline", False)
     return inputs
 
@@ -280,7 +284,7 @@ class TestWebhookSourceManager:
         assert result.num_rows == 1
         assert result.column("payload_json").to_pylist() == ['{"id": "1"}']
 
-    async def test_get_items_yields_transformed_tables_and_deletes_files(self):
+    async def test_get_items_yields_transformed_tables_and_records_files_without_deleting(self):
         schema_id = "test-schema"
         manager = _make_manager(team_id=1, schema_id=schema_id)
 
@@ -294,17 +298,25 @@ class TestWebhookSourceManager:
         mock_s3.open_async.return_value.__aenter__ = AsyncMock(return_value=mock_file)
         mock_s3.open_async.return_value.__aexit__ = AsyncMock(return_value=False)
         mock_s3._rm = AsyncMock()
+        mock_s3._pipe_file = AsyncMock()
 
         with (
             patch.object(manager, "_list_webhook_parquet_files", return_value=["s3://bucket/file.parquet"]),
             _mock_s3_context(mock_s3),
+            patch(f"{_WEBHOOK_S3}.settings") as mock_settings,
         ):
+            mock_settings.DATAWAREHOUSE_BUCKET = "bucket"
             tables = [table async for table in manager.get_items()]
 
         assert len(tables) == 1
         assert tables[0].column("id").to_pylist() == ["1"]
         assert tables[0].column("value").to_pylist() == ["a"]
-        mock_s3._rm.assert_awaited_once_with("bucket/file.parquet")
+        # The batch can still fail to load, so the file stays until the job completes.
+        mock_s3._rm.assert_not_awaited()
+        mock_s3._pipe_file.assert_awaited_once_with(
+            f"bucket/source_webhook_producer/1/{schema_id}/_consumed/job-1-a1/000000.json",
+            orjson.dumps({"files": ["bucket/file.parquet"]}),
+        )
 
     async def test_get_items_skips_file_when_all_rows_fail_validation(self):
         schema_id = "test-schema"
@@ -377,6 +389,7 @@ class TestWebhookSourceManager:
         second_open.__aexit__ = AsyncMock(return_value=False)
         mock_s3.open_async = AsyncMock(side_effect=[first_open, second_open])
         mock_s3._rm = AsyncMock()
+        mock_s3._pipe_file = AsyncMock()
 
         with (
             patch.object(
@@ -390,8 +403,8 @@ class TestWebhookSourceManager:
 
         assert len(tables) == 1
         assert tables[0].column("id").to_pylist() == ["2"]
-        # Only the successfully read file is removed; the vanished one was never touched.
-        mock_s3._rm.assert_awaited_once_with("bucket/file.parquet")
+        mock_s3._rm.assert_not_awaited()
+        assert orjson.loads(mock_s3._pipe_file.await_args.args[1]) == {"files": ["bucket/file.parquet"]}
 
     async def test_get_items_merges_files_with_incompatible_column_types(self):
         schema_id = "test-schema"
@@ -672,11 +685,10 @@ class TestWebhookSourceManagerWithMinIO:
 
         assert files == []
 
-    async def test_get_items_reads_and_deletes_files(self, minio_client):
+    async def test_a_failed_job_leaves_its_files_for_the_next_job(self, minio_client):
         team_id = 99
         schema_id = "test-schema-items"
-        prefix = f"source_webhook_producer/{team_id}/{schema_id}"
-        key = f"{prefix}/batch.parquet"
+        key = f"source_webhook_producer/{team_id}/{schema_id}/batch.parquet"
 
         payloads = [
             {"id": "1", "name": "alice"},
@@ -684,16 +696,51 @@ class TestWebhookSourceManagerWithMinIO:
         ]
         await _upload_parquet_to_minio(minio_client, key, payloads, team_id=team_id, schema_id=schema_id)
 
-        manager = _make_manager(team_id=team_id, schema_id=schema_id)
-        tables = [table async for table in manager.get_items()]
+        # job-1 queues the batch and then fails to load it, so nothing deletes its files.
+        first = [
+            table async for table in _make_manager(team_id=team_id, schema_id=schema_id, job_id="job-1").get_items()
+        ]
+        second = [
+            table async for table in _make_manager(team_id=team_id, schema_id=schema_id, job_id="job-2").get_items()
+        ]
 
-        assert len(tables) == 1
-        assert tables[0].num_rows == 2
-        assert tables[0].column("id").to_pylist() == ["1", "2"]
-        assert tables[0].column("name").to_pylist() == ["alice", "bob"]
+        for tables in (first, second):
+            assert len(tables) == 1
+            assert tables[0].column("id").to_pylist() == ["1", "2"]
+            assert tables[0].column("name").to_pylist() == ["alice", "bob"]
+        assert await _minio_key_exists(minio_client, key)
 
-        # File should be deleted after reading
-        assert not await _minio_key_exists(minio_client, key)
+    async def test_a_completed_attempt_deletes_only_the_files_it_read(self, minio_client):
+        team_id = 99
+        schema_id = "test-schema-complete"
+        prefix = f"source_webhook_producer/{team_id}/{schema_id}"
+
+        for name in ("a", "b"):
+            await _upload_parquet_to_minio(
+                minio_client, f"{prefix}/{name}.parquet", [{"id": name}], team_id=team_id, schema_id=schema_id
+            )
+        # The manifest of an earlier job that failed.
+        await minio_client.put_object(
+            Bucket=BUCKET_NAME,
+            Key=f"{prefix}/_consumed/job-0-a1/000000.json",
+            Body=orjson.dumps({"files": [f"{BUCKET_NAME}/{prefix}/a.parquet"]}),
+        )
+
+        first_attempt = _make_manager(team_id=team_id, schema_id=schema_id, job_id="job-1", activity_attempt=1)
+        assert len([table async for table in first_attempt.get_items(batch_row_limit=1)]) == 2
+
+        # An event arrives, and a second attempt of the same job lists it while the first attempt loads.
+        await _upload_parquet_to_minio(
+            minio_client, f"{prefix}/c.parquet", [{"id": "c"}], team_id=team_id, schema_id=schema_id
+        )
+        second_attempt = _make_manager(team_id=team_id, schema_id=schema_id, job_id="job-1", activity_attempt=2)
+        assert len([table async for table in second_attempt.get_items()]) == 1
+
+        assert await delete_consumed_webhook_files(team_id, schema_id, "job-1", attempt=3) == 0
+        assert await delete_consumed_webhook_files(team_id, schema_id, "job-1", attempt=1) == 2
+
+        response = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
+        assert [obj["Key"] for obj in response.get("Contents", [])] == [f"{prefix}/c.parquet"]
 
     async def test_get_items_applies_transformer(self, minio_client):
         team_id = 99
@@ -734,10 +781,6 @@ class TestWebhookSourceManagerWithMinIO:
         ids = sorted(id for id in tables[0].column("id").to_pylist() if id is not None)
         assert ids == ["a", "b"]
 
-        # Both files should be deleted
-        response = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
-        assert response.get("Contents", []) == []
-
     async def test_get_items_yields_multiple_batches_when_row_limit_exceeded(self, minio_client):
         team_id = 99
         schema_id = "test-schema-batch-limit"
@@ -760,10 +803,6 @@ class TestWebhookSourceManagerWithMinIO:
         assert len(tables) == 2
         all_ids = sorted([row for t in tables for row in t.column("id").to_pylist() if row is not None])
         assert all_ids == ["a", "b", "c"]
-
-        # All files should be deleted
-        response = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
-        assert response.get("Contents", []) == []
 
     async def test_get_items_skips_file_with_wrong_team_id(self, minio_client):
         team_id = 99

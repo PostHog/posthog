@@ -27,7 +27,7 @@ from posthog.utils import get_machine_id
 from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, attempt_of
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
@@ -138,6 +138,9 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import merge_cursor_payloads
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
+    delete_consumed_webhook_files,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase, workload_reporting
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined, OwnershipLostError
@@ -757,6 +760,8 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     if job_completed:
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+        if (model.schema_snapshot or {}).get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK:
+            _delete_consumed_webhook_files(export_signal)
 
         logger.info(
             "job_marked_completed",
@@ -777,6 +782,45 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     if job_completed:
         _resume_schedule_after_ad_hoc_run(export_signal)
+
+
+def _delete_consumed_webhook_files(export_signal: ExportSignalMessage) -> None:
+    """Delete the webhook files whose rows the attempt that completed this job loaded.
+
+    Runs before the pipeline lock is released, so the next run does not read these files again.
+    A failed delete leaves the files for the next run, which merges their rows again on the primary
+    key, so it does not fail the completed job.
+    """
+    parsed = attempt_of(export_signal.run_uuid)
+    if parsed is None:
+        # Without the attempt, the files that this attempt queued are unknown. They stay for the next run.
+        logger.warning(
+            "webhook_consumed_files_attempt_unknown",
+            external_data_job_id=export_signal.job_id,
+            run_uuid=export_signal.run_uuid,
+        )
+        return
+    try:
+        deleted = async_to_sync(delete_consumed_webhook_files)(
+            export_signal.team_id, export_signal.schema_id, export_signal.job_id, parsed[1]
+        )
+    except Exception as e:
+        capture_exception(e)
+        logger.warning(
+            "webhook_consumed_files_delete_failed",
+            external_data_job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            exc_info=True,
+        )
+        return
+    logger.info(
+        "webhook_consumed_files_deleted",
+        external_data_job_id=export_signal.job_id,
+        team_id=export_signal.team_id,
+        external_data_schema_id=export_signal.schema_id,
+        file_count=deleted,
+    )
 
 
 # tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and
