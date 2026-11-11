@@ -162,6 +162,9 @@ const canvasCreate = (): ToolBase<ReturnType<typeof CanvasCreateSchema>, Schemas
         if (params.template_id !== undefined) {
             body['template_id'] = params.template_id
         }
+        if (params.move_to_folder !== undefined) {
+            body['move_to_folder'] = params.move_to_folder
+        }
         const result = await context.api.request<Schemas.Canvas>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/`,
@@ -416,8 +419,13 @@ const CanvasMoveSchema = () => {
     const CanvasesPartialUpdateParams = orvalSchemas.CanvasesPartialUpdateParams()
     return CanvasesPartialUpdateParams.omit({ project_id: true })
         .extend(
-            CanvasesPartialUpdateBody.omit({ name: true, description: true, pinned: true, generation_task_id: true })
-                .shape
+            CanvasesPartialUpdateBody.omit({
+                name: true,
+                description: true,
+                pinned: true,
+                generation_task_id: true,
+                move_to_folder: true,
+            }).shape
         )
         .extend({
             id: CanvasesPartialUpdateParams.shape['id'].describe('ID of the canvas to move.'),
@@ -435,6 +443,43 @@ const canvasMove = (): ToolBase<ReturnType<typeof CanvasMoveSchema>, Schemas.Can
         const body: Record<string, unknown> = {}
         if (params.channel_id !== undefined) {
             body['channel_id'] = params.channel_id
+        }
+        const result = await context.api.request<Schemas.Canvas>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const CanvasMoveToFolderSchema = () => {
+    const CanvasesPartialUpdateBody = orvalSchemas.CanvasesPartialUpdateBody()
+    const CanvasesPartialUpdateParams = orvalSchemas.CanvasesPartialUpdateParams()
+    return CanvasesPartialUpdateParams.omit({ project_id: true })
+        .extend(
+            CanvasesPartialUpdateBody.omit({
+                name: true,
+                description: true,
+                channel_id: true,
+                pinned: true,
+                generation_task_id: true,
+            }).shape
+        )
+        .extend({
+            id: CanvasesPartialUpdateParams.shape['id'].describe('ID of the canvas to file.'),
+            move_to_folder: CanvasesPartialUpdateBody.shape['move_to_folder'].nonoptional(),
+        })
+}
+
+const canvasMoveToFolder = (): ToolBase<ReturnType<typeof CanvasMoveToFolderSchema>, Schemas.Canvas> => ({
+    name: 'canvas-move-to-folder',
+    schema: CanvasMoveToFolderSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasMoveToFolderSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.move_to_folder !== undefined) {
+            body['move_to_folder'] = params.move_to_folder
         }
         const result = await context.api.request<Schemas.Canvas>({
             method: 'PATCH',
@@ -705,6 +750,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-layout-publish': canvasLayoutPublish,
     'canvas-list': canvasList,
     'canvas-move': canvasMove,
+    'canvas-move-to-folder': canvasMoveToFolder,
     'canvas-promote-create': canvasPromoteCreate,
     'canvas-publish-create': canvasPublishCreate,
     'canvas-publish-current-version': canvasPublishCurrentVersion,

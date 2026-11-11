@@ -6,6 +6,7 @@ from django.db import models
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.api.file_system.move_to_folder import move_to_folder_field
 from posthog.api.shared import UserBasicSerializer
 
 from products.canvas.backend.facade.api import (
@@ -132,6 +133,14 @@ class CanvasSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
     url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
+    folder = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Project-tree folder this canvas is filed in, e.g. 'Unfiled/Canvases'. An empty string means the "
+            "project root. Null for canvases the project tree doesn't list, such as components and grids."
+        ),
+    )
 
     def get_pinned(self, canvas: CanvasRecord) -> bool:
         return canvas.pinned_at is not None
@@ -177,6 +186,7 @@ class CanvasCreateSerializer(serializers.Serializer):
     template_id = serializers.CharField(
         required=False, default="freeform", max_length=64, help_text="Canvas template identifier."
     )
+    move_to_folder = move_to_folder_field("canvas")
 
     def validate_template_id(self, value: str) -> str:
         if value in RESERVED_TEMPLATE_IDS:
@@ -205,6 +215,7 @@ class CanvasUpdateSerializer(serializers.Serializer):
     generation_task_id = serializers.UUIDField(
         required=False, allow_null=True, help_text="Task currently generating this canvas, or null to clear it."
     )
+    move_to_folder = move_to_folder_field("canvas")
 
 
 class CanvasSourceAssetSerializer(serializers.Serializer):

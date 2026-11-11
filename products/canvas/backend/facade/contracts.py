@@ -168,6 +168,8 @@ class CanvasRecord:
     component_meta: dict[str, Any] | None
     # The head version's declared capabilities, or None before the first publish.
     head_capabilities: dict[str, Any] | None
+    # Project-tree folder the canvas is filed in; None when it isn't filed or the read didn't load it.
+    folder: str | None = None
 
 
 @dataclass(frozen=True)
@@ -341,6 +343,10 @@ class CanvasStateEntry:
 
 class CanvasNotFoundError(Exception):
     pass
+
+
+class CanvasNotInProjectTreeError(Exception):
+    """A folder move for a canvas the project tree doesn't list, such as a component or grid."""
 
 
 class CanvasVersionNotFoundError(Exception):

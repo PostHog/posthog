@@ -16,6 +16,10 @@
             "enum": ["freeform", "grid", "component"],
             "type": "string"
         },
+        "move_to_folder": {
+            "description": "Project-tree folder to file this canvas in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The canvas keeps its own name. Returns a 400 error when the canvas doesn't appear in the project tree.",
+            "type": "string"
+        },
         "name": {
             "description": "Display name for the canvas.",
             "maxLength": 400,

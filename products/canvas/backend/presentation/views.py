@@ -57,6 +57,7 @@ from products.canvas.backend.facade.contracts import (
     CanvasCapabilityWideningDenied,
     CanvasFieldChange,
     CanvasNotFoundError,
+    CanvasNotInProjectTreeError,
     CanvasPinnedVersionDenied,
     CanvasRecord,
     CanvasRequestRejected,
@@ -279,6 +280,18 @@ def _activity_changes(changes: list[CanvasFieldChange]) -> list[Change]:
         Change(type="Canvas", action="changed", field=change.field, before=change.before, after=change.after)
         for change in changes
     ]
+
+
+def _not_in_project_tree_response() -> Response:
+    return Response(
+        {
+            "move_to_folder": [
+                "This canvas doesn't appear in the project tree, so it can't be filed in a folder. "
+                "Only standalone freeform canvases are listed there."
+            ]
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 def _wrong_kind_response(detail: str) -> Response:
@@ -609,20 +622,24 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
         sandbox_task_id = self._sandbox_task_id(request)
         self._validate_sandbox_channel(channel_id, sandbox_task_id)
-        canvas = canvas_api.create_canvas(
-            team_id=self.team_id,
-            user_id=user.id if user else None,
-            channel_id=channel_id,
-            name=payload.validated_data["name"],
-            kind=payload.validated_data["kind"],
-            description=payload.validated_data["description"],
-            template_id=payload.validated_data["template_id"],
-            # A sandbox-created canvas is its task's deliverable: bind
-            # the two at birth so the client can show the run on the
-            # canvas and nest the task under it — composer-initiated
-            # generations have no client-side create to record it.
-            generation_task_id=sandbox_task_id,
-        )
+        try:
+            canvas = canvas_api.create_canvas(
+                team_id=self.team_id,
+                user_id=user.id if user else None,
+                channel_id=channel_id,
+                name=payload.validated_data["name"],
+                kind=payload.validated_data["kind"],
+                description=payload.validated_data["description"],
+                template_id=payload.validated_data["template_id"],
+                # A sandbox-created canvas is its task's deliverable: bind
+                # the two at birth so the client can show the run on the
+                # canvas and nest the task under it — composer-initiated
+                # generations have no client-side create to record it.
+                generation_task_id=sandbox_task_id,
+                move_to_folder=payload.validated_data.get("move_to_folder"),
+            )
+        except CanvasNotInProjectTreeError:
+            return _not_in_project_tree_response()
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
         self._report_canvas_action(
             "canvas created",
@@ -667,7 +684,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 requester is None or not tasks_facade.task_owned_by_user(task_id, self.team_id, requester.id)
             ):
                 return Response({"detail": "Task not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
-        result = canvas_api.update_canvas(self.team_id, canvas.id, dict(data))
+        try:
+            result = canvas_api.update_canvas(
+                self.team_id, canvas.id, dict(data), user_id=requester.id if requester else None
+            )
+        except CanvasNotInProjectTreeError:
+            return _not_in_project_tree_response()
         if result.changes:
             self._log_canvas_activity(
                 result.canvas, "updated", Detail(name=result.canvas.name, changes=_activity_changes(result.changes))

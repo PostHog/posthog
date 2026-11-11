@@ -64,6 +64,57 @@ class TestCanvasFileSystem(BaseTest):
         self.assertEqual(self._entry(canvas).path, "Unfiled/Canvases/Older")  # type: ignore[union-attr]
 
 
+class TestCanvasFolderFiling(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(team_scope(self.team.id))
+        self.channel = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+
+    def _entry_path(self, canvas_id: str) -> str:
+        return FileSystem.objects.get(team=self.team, type="canvas", ref=canvas_id).path
+
+    def test_create_files_the_canvas_in_the_requested_folder(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/",
+            {"name": "Run rate", "channel_id": str(self.channel.id), "move_to_folder": "Experiments/Q4"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["folder"], "Experiments/Q4")
+        self.assertEqual(self._entry_path(response.json()["id"]), "Experiments/Q4/Run rate")
+        self.assertTrue(FileSystem.objects.filter(team=self.team, type="folder", path="Experiments").exists())
+
+    def test_create_component_with_move_to_folder_is_rejected_and_not_created(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/",
+            {
+                "name": "Widget",
+                "channel_id": str(self.channel.id),
+                "kind": "component",
+                "move_to_folder": "Experiments",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertFalse(Canvas.objects.filter(team=self.team, name="Widget").exists())
+
+    def test_update_moves_the_canvas_and_creates_missing_folders(self) -> None:
+        canvas = Canvas.objects.create(team=self.team, channel=self.channel, name="Run rate", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas.id}/",
+            {"move_to_folder": "Experiments/Q4"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["folder"], "Experiments/Q4")
+        self.assertEqual(self._entry_path(str(canvas.id)), "Experiments/Q4/Run rate")
+        self.assertTrue(FileSystem.objects.filter(team=self.team, type="folder", path="Experiments/Q4").exists())
+
+
 class TestCanvasFileSystemVisibility(APIBaseTest):
     """The file system only applies project RBAC, so canvas rows follow the channel's visibility on read."""
 

@@ -173,6 +173,11 @@ export interface CanvasApi {
     readonly updated_at: string
     /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
     readonly url: string
+    /**
+     * Project-tree folder this canvas is filed in, e.g. 'Unfiled/Canvases'. An empty string means the project root. Null for canvases the project tree doesn't list, such as components and grids.
+     * @nullable
+     */
+    readonly folder: string | null
 }
 
 export interface PaginatedCanvasListApi {
@@ -208,6 +213,8 @@ export interface CanvasCreateApi {
      * @maxLength 64
      */
     template_id?: string
+    /** Project-tree folder to file this canvas in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The canvas keeps its own name. Returns a 400 error when the canvas doesn't appear in the project tree. */
+    move_to_folder?: string
 }
 
 /**
@@ -230,6 +237,8 @@ export interface PatchedCanvasUpdateApi {
      * @nullable
      */
     generation_task_id?: string | null
+    /** Project-tree folder to file this canvas in, e.g. 'Experiments' or 'Experiments/Growth'. Separate nested folders with '/'. Folders that don't exist yet are created. The canvas keeps its own name. Returns a 400 error when the canvas doesn't appear in the project tree. */
+    move_to_folder?: string
 }
 
 /**

@@ -85,6 +85,12 @@ export const CanvasesCreateBody = () => zod
             .max(canvasesCreateBodyTemplateIdMax)
             .default(canvasesCreateBodyTemplateIdDefault)
             .describe('Canvas template identifier.'),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this canvas in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The canvas keeps its own name. Returns a 400 error when the canvas doesn't appear in the project tree."
+            ),
     })
     .describe('Payload for creating a new, empty canvas in a channel.')
 
@@ -115,6 +121,12 @@ export const CanvasesPartialUpdateBody = () => zod
             .string()
             .nullish()
             .describe('Task currently generating this canvas, or null to clear it.'),
+        move_to_folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project-tree folder to file this canvas in, e.g. 'Experiments' or 'Experiments\/Growth'. Separate nested folders with '\/'. Folders that don't exist yet are created. The canvas keeps its own name. Returns a 400 error when the canvas doesn't appear in the project tree."
+            ),
     })
     .describe('Writable canvas fields: metadata only — source changes go through publish\/edit.')
 

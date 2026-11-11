@@ -1,5 +1,6 @@
 """Map canvas models to the facade contracts."""
 
+from posthog.models.file_system.file_system import folder_of
 from posthog.models.user import User
 
 from products.canvas.backend.artifacts import create_canvas_artifact_url
@@ -52,6 +53,7 @@ def canvas_record(canvas: Canvas) -> CanvasRecord:
         updated_at=canvas.updated_at,
         component_meta=head.component_meta if head is not None and canvas.kind == Canvas.KIND_COMPONENT else None,
         head_capabilities=head.capabilities if head is not None else None,
+        folder=folder_of(getattr(canvas, "_folder_path", None)),
     )
 
 

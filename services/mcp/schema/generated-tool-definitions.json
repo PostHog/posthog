@@ -2497,7 +2497,7 @@
         }
     },
     "canvas-create": {
-        "description": "Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with canvas-list first. The response's `url` is the canvas's only valid link — share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself.",
+        "description": "Create a new, empty canvas in a channel. Set `move_to_folder` to file it in a project folder. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with canvas-list first. The response's `url` is the canvas's only valid link — share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Create canvas",
@@ -2617,11 +2617,26 @@
         }
     },
     "canvas-move": {
-        "description": "Move a canvas to a visible destination space. The canvas and its full version history stay intact, but any pin in the current space is cleared. Only the canvas creator can move it. A sandbox task can move a canvas only within its own space; an attempted cross-space move returns 403.",
+        "description": "Move a canvas to a visible destination space. The canvas and its full version history stay intact, but any pin in the current space is cleared. Only the canvas creator can move it. A sandbox task can move a canvas only within its own space; an attempted cross-space move returns 403. To file a canvas in a project folder instead, use canvas-move-to-folder.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Move canvas",
         "title": "Move canvas",
+        "required_scopes": ["canvas:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/canvases/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-move-to-folder": {
+        "description": "File a canvas in a project-tree folder. Folders that don't exist yet are created, and the canvas keeps its name and space. Only the canvas creator can file it. Only standalone freeform canvases appear in the project tree; components and grids return a 400 error. The response's `folder` shows where it now sits.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "File canvas in folder",
+        "title": "File canvas in folder",
         "required_scopes": ["canvas:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/canvases/{id}/"],
         "annotations": {

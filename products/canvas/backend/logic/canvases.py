@@ -5,11 +5,13 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import CharField, OuterRef, Q, QuerySet
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 import structlog
 
+from posthog.models.file_system.file_system import file_system_path_subquery
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
@@ -17,6 +19,7 @@ from posthog.queryset_paging import select_page
 from products.canvas.backend.facade.contracts import (
     CanvasFieldChange,
     CanvasNotFoundError,
+    CanvasNotInProjectTreeError,
     CanvasRecord,
     CanvasUpdateResult,
     CanvasViewer,
@@ -42,7 +45,13 @@ def user_or_none(user_id: int | None) -> User | None:
 
 def canvas_row(team_id: int, canvas_id: UUID | str) -> Canvas:
     """One canvas of the team, for an operation the access check already allowed."""
-    return Canvas.objects.unscoped().select_related(*_RECORD_RELATIONS).get(team_id=team_id, id=canvas_id)
+    return _with_folder(Canvas.objects.unscoped().select_related(*_RECORD_RELATIONS)).get(team_id=team_id, id=canvas_id)
+
+
+def _with_folder(queryset: QuerySet[Canvas]) -> QuerySet[Canvas]:
+    return queryset.annotate(
+        _folder_path=file_system_path_subquery("canvas", Cast(OuterRef("id"), output_field=CharField()))
+    )
 
 
 def _listing(
@@ -55,7 +64,7 @@ def _listing(
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> QuerySet[Canvas]:
-    queryset = authorized_canvases(viewer, CanvasAccess.READ)
+    queryset = _with_folder(authorized_canvases(viewer, CanvasAccess.READ))
     if user_access_control is not None:
         queryset = user_access_control.filter_queryset_by_access_level(
             queryset, include_all_if_admin=include_all_if_admin
@@ -111,7 +120,12 @@ def list_canvases(
 def get_canvas(viewer: CanvasViewer, access: CanvasAccess, canvas_id: UUID | str) -> CanvasRecord:
     """The canvas, or CanvasNotFoundError when `access` cannot reach it."""
     try:
-        canvas = authorized_canvases(viewer, access).select_related(*_RECORD_RELATIONS).filter(id=canvas_id).first()
+        canvas = (
+            _with_folder(authorized_canvases(viewer, access))
+            .select_related(*_RECORD_RELATIONS)
+            .filter(id=canvas_id)
+            .first()
+        )
     except (ValueError, ValidationError):
         canvas = None
     if canvas is None:
@@ -129,22 +143,31 @@ def create_canvas(
     description: str,
     template_id: str,
     generation_task_id: UUID | None,
+    move_to_folder: str | None = None,
 ) -> CanvasRecord:
-    canvas = Canvas.objects.create(
-        team_id=team_id,
-        channel_id=channel_id,
-        name=name,
-        kind=kind,
-        description=description,
-        template_id=template_id,
-        created_by=user_or_none(user_id),
-        generation_task_id=generation_task_id,
-    )
+    with transaction.atomic():
+        canvas = Canvas.objects.create(
+            team_id=team_id,
+            channel_id=channel_id,
+            name=name,
+            kind=kind,
+            description=description,
+            template_id=template_id,
+            created_by=user_or_none(user_id),
+            generation_task_id=generation_task_id,
+            _create_in_folder=move_to_folder,
+        )
+        if move_to_folder is not None:
+            canvas._folder_path = canvas.file_system_path()  # type: ignore[attr-defined]
+            if canvas._folder_path is None:  # type: ignore[attr-defined]
+                raise CanvasNotInProjectTreeError
     return canvas_record(canvas)
 
 
-def update_canvas(team_id: int, canvas_id: UUID, changes: dict[str, Any]) -> CanvasUpdateResult:
-    """Apply validated metadata changes: name, description, channel_id, pinned, generation_task_id."""
+def update_canvas(
+    team_id: int, canvas_id: UUID, changes: dict[str, Any], user_id: int | None = None
+) -> CanvasUpdateResult:
+    """Apply validated metadata changes: name, description, channel_id, pinned, generation_task_id, move_to_folder."""
     canvas = canvas_row(team_id, canvas_id)
     update_fields = ["updated_at"]
     recorded: list[CanvasFieldChange] = []
@@ -181,7 +204,13 @@ def update_canvas(team_id: int, canvas_id: UUID, changes: dict[str, Any]) -> Can
     if "generation_task_id" in changes:
         canvas.generation_task_id = changes["generation_task_id"]
         update_fields.append("generation_task_id")
-    canvas.save(update_fields=update_fields)
+    with transaction.atomic():
+        canvas.save(update_fields=update_fields)
+        if changes.get("move_to_folder") is not None:
+            move = canvas.move_file_system_entry(changes["move_to_folder"], user_id)
+            if move is None:
+                raise CanvasNotInProjectTreeError
+            record("folder", move.before, move.after)
     return CanvasUpdateResult(canvas=canvas_record(canvas), changes=recorded)
 
 
