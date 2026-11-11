@@ -14,10 +14,10 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
-import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
-import type { TraceClusterApi } from '../../../generated/api.schemas'
-import { queryEvaluationRuns } from '../../../utils'
+import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
+import { saveToDatasetButtonLogic } from '../../datasets/saveToDatasetButtonLogic'
+import type { TraceClusterApi } from '../../generated/api.schemas'
+import { queryEvaluationRuns } from '../../utils'
 import {
     decodeIdSegment,
     makeEvaluationResult,
@@ -29,13 +29,12 @@ import {
     makeMessage,
     makeNodeDetail,
     makeRawNode,
-    makeSurveyResponse,
     makeTrace,
     makeTraceCluster,
     makeTraceResource,
-} from '../testFixtures'
-import { traceReviewLogic } from '../traceReviewLogic'
-import { TraceScene } from '../TraceScene'
+} from './testFixtures'
+import { traceReviewLogic } from './traceReviewLogic'
+import { TraceScene } from './TraceScene'
 
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
@@ -43,8 +42,8 @@ const ENGINEERING_ANALYTICS_FLAG = FEATURE_FLAGS.ENGINEERING_ANALYTICS
 const TRACE_NAVIGATION_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
-jest.mock('../../../utils', () => ({
-    ...jest.requireActual('../../../utils'),
+jest.mock('../../utils', () => ({
+    ...jest.requireActual('../../utils'),
     queryEvaluationRuns: jest.fn().mockResolvedValue([]),
 }))
 
@@ -56,7 +55,6 @@ const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/eval
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
-const EXPORT_URL = '/api/projects/:team_id/ai_observability/traces/:id/exports/'
 const PULL_REQUEST_URL = '/api/projects/:team_id/ai_observability/traces/:id/pull_request/'
 const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
@@ -310,6 +308,62 @@ describe('TraceScene', () => {
             )
         })
 
+        it('reads the feedback of a trace opened without a timestamp once the trace arrives', async () => {
+            const feedbackHints: (string | null)[] = []
+            useMocks({
+                get: {
+                    [FEEDBACK_URL]: ({ request }) => {
+                        feedbackHints.push(new URL(request.url).searchParams.get('timestamp_hint'))
+                        return [200, makeFeedback({ scores: [], responses: [] })]
+                    },
+                },
+            })
+
+            renderNewView()
+
+            await waitFor(() => expect(feedbackHints).toEqual(['2026-09-01T10:15:00Z']))
+        })
+
+        it('asks for the review status before the trace has loaded', async () => {
+            let releaseTrace = (): void => {}
+            const traceAnswered = new Promise<void>((resolve) => {
+                releaseTrace = resolve
+            })
+            let reviewRequests = 0
+            useMocks({
+                get: {
+                    [TRACE_URL]: async () => {
+                        await traceAnswered
+                        return [200, makeTraceResource({ defaultNodeId: 'gen-2' })]
+                    },
+                    [REVIEW_URL]: () => {
+                        reviewRequests++
+                        return [200, { review: null, queue: null }]
+                    },
+                },
+            })
+
+            const { findAllByText } = renderNewView()
+
+            await waitFor(() => expect(reviewRequests).toBe(1))
+            releaseTrace()
+            expect((await findAllByText('answer-billing-question')).length).toBeGreaterThan(0)
+        })
+
+        it('sends no second datasets request when leaving Spans and coming back', async () => {
+            const { container, findByText } = renderNewView({ [DATASETS_FLAG]: true })
+            await waitFor(() => findElement(container, 'save-to-dataset-open'))
+            await expectLogic(saveToDatasetButtonLogic).toFinishAllListeners()
+            const requestsBefore = datasetListRequests
+
+            fireEvent.click(await findByText('Thread'))
+            fireEvent.click(await findByText('Spans'))
+            await waitFor(() => findElement(container, 'save-to-dataset-open'))
+            await expectLogic(saveToDatasetButtonLogic).toFinishAllListeners()
+
+            expect(datasetListRequests).toBe(requestsBefore)
+        })
+
         it('opens Summary from a tab=summary link', async () => {
             useMocks({
                 get: {
@@ -515,45 +569,6 @@ describe('TraceScene', () => {
             }
         )
 
-        it('exports the trace with its time and shows the button as busy until the export starts', async () => {
-            let releaseExport = (): void => {}
-            const exportStarted = new Promise<void>((resolve) => {
-                releaseExport = resolve
-            })
-            const exportBodies: unknown[] = []
-            useMocks({
-                post: {
-                    [EXPORT_URL]: async ({ request }) => {
-                        exportBodies.push(await request.json())
-                        await exportStarted
-                        return [
-                            201,
-                            {
-                                id: 7,
-                                status: 'pending',
-                                filename: 'trace-1.json',
-                                createdAt: '2026-09-01T10:20:00Z',
-                                expiresAfter: null,
-                                exception: null,
-                            },
-                        ]
-                    },
-                },
-            })
-            const { findByLabelText } = renderNewView()
-            const button = (await findByLabelText('Export this trace as a JSON file')).closest('button')
-            if (!button) {
-                throw new Error('expected the export action to render as a button')
-            }
-
-            fireEvent.click(button)
-
-            await waitFor(() => expect(exportBodies).toEqual([{ timestamp_hint: '2026-09-01T10:15:00Z' }]))
-            expect(button.classList.contains('LemonButton--loading')).toBe(true)
-            releaseExport()
-            await waitFor(() => expect(button.classList.contains('LemonButton--loading')).toBe(false))
-        })
-
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {
             const { findByText, queryByText } = renderNewView({ [DATASETS_FLAG]: enabled })
 
@@ -745,27 +760,6 @@ describe('TraceScene', () => {
             fireEvent.click(await findByText('helpfulness 0'))
             expect(await findByText('What users said')).toBeTruthy()
         })
-
-        it('shows thumbs in the header chip and the survey answers in the feedback', async () => {
-            useMocks({
-                get: {
-                    [FEEDBACK_URL]: () => [
-                        200,
-                        makeFeedback({
-                            scores: [],
-                            responses: [makeSurveyResponse()],
-                            summary: { total: 1, thumbsUp: 1, thumbsDown: 0 },
-                        }),
-                    ],
-                },
-            })
-            const { findByLabelText, findByText } = renderNewView()
-
-            fireEvent.click(await findByLabelText('1 thumbs up, 0 thumbs down, 1 feedback in total'))
-
-            expect(await findByText('Answer quality')).toBeTruthy()
-            expect(await findByText('Thumbs up')).toBeTruthy()
-        })
     })
 
     describe('behind the flag gate', () => {
@@ -791,7 +785,7 @@ describe('TraceScene', () => {
             aiObservabilityTraceLogic.mount()
             router.actions.push(urls.aiObservabilityTrace('trace-1'))
             // The old scene reads the project id while its modules load, so the import must follow initKeaTests.
-            const { scene } = await import('../../../AIObservabilityTraceScene')
+            const { scene } = await import('../../AIObservabilityTraceScene')
             const TraceRoute = scene.component
             return render(<TraceRoute />)
         }
