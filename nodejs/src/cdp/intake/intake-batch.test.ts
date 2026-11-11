@@ -290,6 +290,25 @@ describe('insertIntakeBatch', () => {
         ).rejects.toThrow('dead letters are off')
     })
 
+    it('writes the rows of the runs it created even when parking a dead letter fails', async () => {
+        const run = send()
+        const brokerDown: IntakeBatchServices['deadLetters'] = {
+            recordMessageFailure: (message, failure) => services.deadLetters.recordMessageFailure(message, failure),
+            produceForBatch: () => Promise.reject(new Error('broker down')),
+        }
+
+        await expect(
+            insertIntakeBatch(
+                [run.message, kafkaMessage(Buffer.from('not json'))],
+                { ...services, deadLetters: brokerDown },
+                OPTIONS
+            )
+        ).rejects.toThrow('broker down')
+
+        expect(lifecycleRows()).toEqual([expect.objectContaining({ invocation_id: run.id, status: 'running' })])
+        expect(emailStatuses()).toEqual([expect.objectContaining({ message_id: run.id, status: 'queued' })])
+    })
+
     it('stalls the batch instead of dead-lettering most of it', async () => {
         const unparseable = Array.from({ length: 3 }, () => kafkaMessage(Buffer.from('not json')))
 

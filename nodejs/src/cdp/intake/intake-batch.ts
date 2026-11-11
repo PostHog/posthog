@@ -82,6 +82,9 @@ export async function insertIntakeBatch(
 
     await failLateRuns(late, services, options.kind)
     await claimRuns(onTime, services, options)
+    // Before the dead letters, so a failure there cannot leave the rows of committed runs queued for a redelivery to drop.
+    const { produced } = await services.invocationResults.handOffQueuedRows()
+    await Promise.all([produced, services.emailStatus.flush()])
 
     try {
         await services.deadLetters.produceForBatch(messages)
@@ -91,8 +94,6 @@ export async function insertIntakeBatch(
         }
         throw error
     }
-    const { produced } = await services.invocationResults.handOffQueuedRows()
-    await Promise.all([produced, services.emailStatus.flush()])
 }
 
 function parseOrDeadLetter(
