@@ -1880,21 +1880,31 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             await breakpoint(500)
             actions.loadBlastRadius()
         },
-        editEmailContent: () => {
+        editEmailContent: async () => {
             if (props.id !== 'new') {
                 const { pathname, searchParams, hashParams } = router.values.currentLocation
                 router.actions.push(pathname, withEmailEditorOpen(searchParams), hashParams)
                 actions.setStep('content')
                 return
             }
-            if (values.launching) {
+            if (values.launching || !values.currentProjectId) {
                 return
             }
             cache.openEmailEditorOnDraftUrl = true
-            if (values.broadcastId) {
-                actions.showSavedDraftUrl()
-            } else {
+            if (!values.broadcastId || !values.broadcast) {
                 actions.ensureDraft()
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            const draft = values.broadcast
+            try {
+                actions.draftAutosaved(
+                    await getSaveQueue(cache, values).run(() => saveDraftSchedule(projectId, draft, values))
+                )
+                actions.showSavedDraftUrl()
+            } catch (error: any) {
+                cache.openEmailEditorOnDraftUrl = false
+                lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
             }
         },
         setStep: ({ step }) => {
