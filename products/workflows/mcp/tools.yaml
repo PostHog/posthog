@@ -57,7 +57,6 @@ tools:
             email sender in from when the project has one; otherwise leave from empty and the user picks one in the
             wizard. Write the email as html plus a plain-text fallback, and refine it afterwards with
             workflows-patch-action-email.
-        # A broadcast has no project folder, so a placement would be dropped without a word.
         exclude_params:
             - folder
         inject_body:
