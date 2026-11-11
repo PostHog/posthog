@@ -1,19 +1,19 @@
 import { existsSync, mkdirSync, realpathSync } from 'fs'
 import os from 'os'
 import path from 'path'
+import { setTimeout as sleep } from 'timers/promises'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { Profile, ROLE_RESTART_BACKOFF_MS } from '../cards'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
-import { ConsumerGroup, ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
+import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
     STACK,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
     downServices,
-    expectOk,
     forgetSesBucket,
     groupMembers,
     missingTemplates,
@@ -42,6 +42,7 @@ const REPO_ROOT = path.dirname(NODEJS_DIR)
 const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
 const EDGE_PORT = 4566
 const TEMPLATES_WITHIN_MS = 120_000
+const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
 const GROUPS_EMPTY_WITHIN_MS = 45_000
 const ROLES_READY_WITHIN_MS = 120_000
@@ -71,6 +72,8 @@ export function createEnvironment(): Environment {
     })
     let edge: ProviderEdge | undefined
     let releaseLock: (() => Promise<void>) | undefined
+
+    const logOf = (role: Role): string => path.join(stateDir, `${role}.log`)
 
     return {
         async up() {
@@ -145,7 +148,32 @@ export function createEnvironment(): Environment {
         down: stop,
     }
 
+    async function untilHealthy(specs: RoleSpec[], exitsBefore: number): Promise<void> {
+        const deadline = Date.now() + ROLE_HEALTHY_WITHIN_MS
+        for (;;) {
+            const notReady = await rolesNotReady(specs)
+            if (notReady.length === 0) {
+                return
+            }
+            const exit = supervisor
+                .exits()
+                .slice(exitsBefore)
+                .find(({ role }) => notReady.includes(role))
+            if (exit) {
+                const how = exit.error ?? `code ${exit.code}, signal ${exit.signal}`
+                throw new Error(`${exit.role} exited before it answered /_health (${how}); see ${logOf(exit.role)}`)
+            }
+            if (Date.now() > deadline) {
+                throw new Error(
+                    `${notReady.join(', ')} did not answer /_health within ${ROLE_HEALTHY_WITHIN_MS / 1000}s; see ${notReady.map(logOf).join(', ')}`
+                )
+            }
+            await sleep(PROBE_INTERVAL_MS)
+        }
+    }
+
     async function bringUp(): Promise<void> {
+        const exitsBefore = supervisor.exits().length
         const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
         if (plan.strangers.length > 0) {
             throw strangerConflict(plan.strangers)
@@ -154,7 +182,6 @@ export function createEnvironment(): Environment {
         await startStack(REPO_ROOT, stateDir, env)
         const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
         const groups = consumerGroupsOf(specs)
-        const killedLeftovers = plan.groups.length + plan.pids.length > 0
         await waitForExpect(
             async () => {
                 const busy = await groupsWithMembers(groups)
@@ -165,16 +192,14 @@ export function createEnvironment(): Environment {
                     )
                 }
             },
-            killedLeftovers ? GROUP_DRAINS_WITHIN_MS : 0,
+            GROUP_DRAINS_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
         edge = await startProviderEdge({ port: EDGE_PORT, trackingKeys: secrets.encryptionSaltKeys })
-        await supervisor.start(specs.filter((spec) => spec.role === 'cdp-api'))
-        await waitForExpect(
-            () => expectOk(`http://127.0.0.1:${ROLE_PORTS['cdp-api']}/_health`),
-            TEMPLATES_WITHIN_MS,
-            PROBE_INTERVAL_MS
-        )
+        const api = specs.filter((spec) => spec.role === 'cdp-api')
+        const others = specs.filter((spec) => spec.role !== 'cdp-api')
+        await supervisor.start(api)
+        await untilHealthy(api, exitsBefore)
         if ((await missingTemplates()).length > 0) {
             await syncTemplates(REPO_ROOT, stateDir, env)
         }
@@ -188,7 +213,8 @@ export function createEnvironment(): Environment {
             TEMPLATES_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
-        await supervisor.start(specs.filter((spec) => spec.role !== 'cdp-api'))
+        await supervisor.start(others)
+        await untilHealthy(others, exitsBefore)
     }
 
     async function stop(): Promise<void> {
