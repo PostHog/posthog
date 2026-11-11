@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
@@ -49,7 +49,11 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
         super(config, deps)
         const { topicKey, groupId } = TOPICS[kind]
         this.name = `CdpIntakeConsumer(${kind})`
-        this.kafkaConsumer = createKafkaConsumer({ groupId, topic: config[topicKey] })
+        // Set rather than inherited from KAFKA_CONSUMER_AUTO_OFFSET_RESET, because a new group on `latest` would skip
+        // every accepted run produced before its first assignment.
+        this.kafkaConsumer = createKafkaConsumer({ groupId, topic: config[topicKey] }, {
+            'auto.offset.reset': 'earliest',
+        } as RdKafkaConsumerConfig)
         if (!config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('CdpIntakeConsumer needs CYCLOTRON_NODE_DATABASE_URL to insert jobs')
         }
