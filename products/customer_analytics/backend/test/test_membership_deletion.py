@@ -167,7 +167,9 @@ class TestMembershipDeletion(MembershipTestCase):
 
         with travel(self.now + timedelta(days=2), tick=False):
             with patch.object(self.store, "delete_keys", side_effect=delete_without_confirmation):
-                assert self.run_deletion().deleted == 0
+                result = self.run_deletion()
+                assert result.deleted == 0
+                assert result.failed_batches == 1
             assert self.get_rows() == []
             assert MembershipCleanupCandidate.objects.for_team(self.team.pk).count() == 2
             assert self.run_deletion().deleted == 1
@@ -290,13 +292,14 @@ class TestMembershipDeletion(MembershipTestCase):
         assert list_membership_deletion_teams() == [self.team.pk, other_team_id]
 
 
-@pytest.mark.parametrize("state", ["pending", "absent", "present"])
+@pytest.mark.parametrize("state", ["pending", "absent", "present", "survivors"])
 def test_mutation_retry_does_not_resubmit_pending_or_completed_deletes(state: str) -> None:
     client = MagicMock()
     client.execute.side_effect = {
         "pending": [[(1,)]],
         "absent": [[(0,)], []],
         "present": [[(0,)], [(1,)], []],
+        "survivors": [[(0,)], [(1,)], []],
     }[state]
     placement = MagicMock()
     placement.cluster.shards = [1]
@@ -307,17 +310,26 @@ def test_mutation_retry_does_not_resubmit_pending_or_completed_deletes(state: st
 
     placement.cluster.map_one_host_per_shard.side_effect = dispatch
     key = MembershipKey(group_type_index=0, group_key="test-account", distinct_id="test-person")
+    store = MembershipDeletionStore()
     with (
         patch("products.customer_analytics.backend.logic.membership_deletion._get_cleanup_cluster"),
         patch("products.customer_analytics.backend.logic.membership_deletion.placement_for", return_value=placement),
-        patch("products.customer_analytics.backend.logic.membership_deletion.sync_execute", return_value=[(0,)]),
+        patch(
+            "products.customer_analytics.backend.logic.membership_deletion.sync_execute",
+            return_value=[(int(state == "survivors"),)],
+        ),
     ):
         if state == "pending":
             with pytest.raises(RuntimeError, match="pending mutation"):
-                MembershipDeletionStore().delete_keys(1, [key])
+                store.delete_keys(1, [key])
+            assert store.timings.failed_step == "check_pending_mutations"
+        elif state == "survivors":
+            with pytest.raises(RuntimeError, match="surviving rows"):
+                store.delete_keys(1, [key])
+            assert store.timings.failed_step == "verify_membership_erasure"
         else:
-            MembershipDeletionStore().delete_keys(1, [key])
+            store.delete_keys(1, [key])
     deletes = [call for call in client.execute.call_args_list if call.args[0].startswith("DELETE FROM")]
-    assert len(deletes) == (1 if state == "present" else 0)
+    assert len(deletes) == (1 if state in ("present", "survivors") else 0)
     if deletes:
         assert deletes[0].kwargs["settings"]["lightweight_deletes_sync"] == "2"

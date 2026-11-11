@@ -176,6 +176,10 @@ Mutation logs omit membership keys. Candidates are removed only after verified e
 Deleted-team erasure also removes eligibility config and clears scan state after membership is gone.
 Live-team erasure keeps eligibility config and unrelated membership.
 The `customer_analytics_membership_deletion_` metrics report checked candidates, recovery, deletion, and failures.
+Step timings also cover storage resolution, pending mutation checks, per-shard deletes, erasure verification, and checkpoint cleanup.
+Deletion batch logs include `dry_run`, `deletion_enabled`, and a `skip_reason` for dry runs or teams outside the allowlist.
+Team and coordinator summaries include `failed_batches`. A caught deletion failure produces a `partial_failure` summary even when the workflow completes.
+The `deleted` count measures membership keys confirmed erased, not physical ClickHouse rows.
 Event deletion and configured group-property deletion do not repair membership or its activity timestamps.
 
 ## Tables on TTL alone
