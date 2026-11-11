@@ -54,6 +54,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
 from posthog.clickhouse.cleanup_snapshots import CLEANUP_SNAPSHOT_TABLE_SQL, DROP_CLEANUP_SNAPSHOT_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.custom_metrics import (
     CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
@@ -1848,6 +1849,12 @@ def flush_persons_and_events():
     """
     from posthog.test.persons import flush_persons_to_db_and_clickhouse
 
+    # The first flush of a session can be its first ClickHouse use, so create the tables before writing
+    # into them. The setup's own queries reach this function too, and must not flush before the tables exist.
+    clickhouse_test_setup.run()
+    if clickhouse_test_setup.in_setup():
+        return
+
     person_mapping = flush_persons_to_db_and_clickhouse()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
@@ -1972,6 +1979,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     snapshot: Any
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Run the deferred ClickHouse setup before any test code, so query snapshots and query
+        # captures never record the setup queries.
+        clickhouse_test_setup.run()
+        super().setUpClass()  # type: ignore[misc]
+
     @staticmethod
     def generalize_sql(value: str):
         """Makes sure we can snapshot our SQL - swaps concrete team_id for placeholder."""
@@ -2023,6 +2037,8 @@ class ClickhouseTestMixin(QueryMatchingTest):
         capture_queries_startswith) are head-anchored, so this contract holds for them. Do not
         pass a filter that matches on mid-statement text; it will not see comments embedded there.
         """
+        # The deferred ClickHouse setup runs its own queries, which must not land in the captured list.
+        clickhouse_test_setup.run()
         queries = []
 
         def execute_wrapper(original_client_execute, query, *args, **kwargs):
@@ -2055,11 +2071,16 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
         for stmt in statements
     ]
 
+    clickhouse_test_setup.run()
+    # Other threads wait while the deferred ClickHouse setup runs, except the DDL workers the setup starts here.
+    joins_setup = clickhouse_test_setup.in_setup()
+
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
         for attempt in range(max_attempts):
             try:
-                sync_execute(stmt)
+                with clickhouse_test_setup.worker(joins_setup):
+                    sync_execute(stmt)
                 return
             except TooManyConnections:
                 if attempt + 1 == max_attempts:
