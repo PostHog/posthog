@@ -28,8 +28,10 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.github_optional import ResearchAccessPolicy
-from products.signals.backend.models import SignalScoutBackgroundBand, SignalScoutRun
+from products.signals.backend.models import SignalScoutBackgroundBand, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.lazy_seed import canonical_deprecation_for, canonical_skill_names
 from products.signals.backend.scout_harness.limits import (
     COORDINATOR_INTERVAL_MINUTES,
     MAX_DISPATCH_SMEAR_SECONDS,
@@ -115,6 +117,15 @@ TEAM_CONFIG_GITHUB_READ_ACCESS = "github_read_access"
 # Unlike `enabled_skills` (a soft seed default a user can still toggle on), this is a HARD gate at
 # the seed + dispatch layer — a withheld scout can't be self-enabled into running.
 TEAM_CONFIG_WITHHELD_SKILLS = "withheld_skills"
+
+# Canonical scouts Inbox quick setup enables, as an ordered list of skill names. Resolves like
+# `withheld_skills` (`_resolve_setup_default_skills`): the team's `team_configs` entry, then
+# `default_team_config`, then general only. It shapes the setup draft and nothing else, so it never
+# enables a scout outside setup and never edits a config that already exists.
+TEAM_CONFIG_SETUP_DEFAULT_SKILLS = "setup_default_skills"
+SETUP_REQUIRED_SKILL = "signals-scout-general"
+# The onboarding draft serializer accepts at most this many suggestions.
+MAX_SETUP_DEFAULT_SKILLS = 5
 
 # Rolling window the per-team daily budget is counted over.
 DAILY_BUDGET_WINDOW = timedelta(hours=24)
@@ -790,6 +801,69 @@ def withheld_skills_for_team(canonical_team_id: int) -> set[str]:
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
     return _resolve_withheld_skills(canonical_team_id, team_configs, _default_team_config(payload))
+
+
+def _resolve_setup_default_skills(
+    team_id: int, team_configs: dict[int, dict], default_team_config: dict
+) -> list[str] | None:
+    """The `setup_default_skills` list for a team, most-specific layer first.
+
+    Replace-not-merge like `withheld_skills`: the first layer carrying a valid `list[str]` wins, and
+    a malformed value falls through to the next layer. `None` when neither layer sets one.
+    """
+    for source in ((team_configs.get(team_id) or {}), default_team_config):
+        raw = source.get(TEAM_CONFIG_SETUP_DEFAULT_SKILLS)
+        if isinstance(raw, list) and all(isinstance(name, str) for name in raw):
+            return list(raw)
+    return None
+
+
+def setup_default_skills_for_team(canonical_team_id: int) -> list[str]:
+    """The canonical scouts Inbox quick setup should enable for this (canonical) team, general first.
+
+    General is always included because quick activation is refused without it. A listed name is
+    dropped when it is not a canonical scout, is a system scout, is withheld from the team, or is
+    being retired. The list is cut to fit the setup draft and the team's enabled-scout cap, so
+    activation never fails on a cap the draft could have respected. A missing payload or key gives
+    general only.
+    """
+    payload = _read_flag_payload()
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    default_team_config = _default_team_config(payload)
+    listed = _resolve_setup_default_skills(canonical_team_id, team_configs, default_team_config) or []
+    withheld = _resolve_withheld_skills(canonical_team_id, team_configs, default_team_config)
+    canonical = canonical_skill_names()
+    skills = [SETUP_REQUIRED_SKILL]
+    for name in listed:
+        if (
+            name not in skills
+            and name in canonical
+            and name not in SYSTEM_SCOUT_NAMES
+            and name not in withheld
+            and canonical_deprecation_for(name) is None
+        ):
+            skills.append(name)
+    skills = skills[:MAX_SETUP_DEFAULT_SKILLS]
+    if len(skills) == 1:
+        return skills
+
+    max_enabled = _resolve_enabled_scout_limit(
+        canonical_team_id, [team_configs.get(canonical_team_id) or {}, default_team_config]
+    )
+    enabled = set(
+        SignalScoutConfig.objects.for_team(canonical_team_id).filter(enabled=True).values_list("skill_name", flat=True)
+    )
+    # Setup never disables a scout, so every enabled config keeps its slot. Only a scout that setup
+    # turns on takes a free slot, and general takes one first because activation needs it.
+    free_slots = max_enabled - len(enabled) - (SETUP_REQUIRED_SKILL not in enabled)
+    selected = [SETUP_REQUIRED_SKILL]
+    for name in skills[1:]:
+        if name in enabled:
+            selected.append(name)
+        elif free_slots > 0:
+            selected.append(name)
+            free_slots -= 1
+    return selected
 
 
 def resolve_sync_seed_inputs(canonical_team_id: int) -> tuple[list[dict], set[str]]:

@@ -20,6 +20,13 @@ import type { Secret, MountedSecrets } from './types'
  */
 export const RESERVED_PREFIX = '__'
 
+/**
+ * OAuth client secrets and minter keys (for example a GitHub App private key). Reserved, so
+ * `/v1/secrets/resolve` never serves one to any caller. Only the in-process provider code reads
+ * them.
+ */
+export const PROVIDER_PREFIX = `${RESERVED_PREFIX}PROVIDER_`
+
 /** Comma-separated names of the secrets that are in recovery. */
 export const RECOVERY_KEYS = 'CREDENTIALS_RECOVERY_KEYS'
 
