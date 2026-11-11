@@ -25,7 +25,7 @@ describe('AddDeliveryWebhookModal', () => {
             get: {
                 '/api/projects/:team_id/messaging_templates/': () =>
                     templatesLoad === 'fails'
-                        ? [500, { detail: 'Server error' }]
+                        ? [500, { detail: 'A server error occurred.' }]
                         : templatesLoad === 'denied'
                           ? [403, { detail: 'You do not have permission to perform this action.' }]
                           : [
@@ -150,9 +150,11 @@ describe('AddDeliveryWebhookModal', () => {
         templatesLoad = 'fails'
         openModal()
 
-        const banner = (await screen.findByText(/Couldn't load your transactional emails: Server error/)).closest(
-            '.LemonBanner'
-        )!
+        const banner = (
+            await screen.findByText(
+                "Couldn't load your transactional emails: A server error occurred. Try again, or leave the field empty to get updates for all of them."
+            )
+        ).closest('.LemonBanner')!
         expect(screen.queryByText(/No transactional emails yet/)).not.toBeInTheDocument()
         expect(document.querySelector('.Toastify__toast')).toBeNull()
 

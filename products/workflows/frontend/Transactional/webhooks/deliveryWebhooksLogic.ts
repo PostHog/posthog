@@ -192,7 +192,7 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             {
                 loadTransactionalEmailOptions: () => null,
                 loadTransactionalEmailOptionsFailure: (_, { error, errorObject }) => ({
-                    message: error,
+                    message: withoutFinalPeriod(error),
                     accessDenied: errorObject?.status === 403,
                 }),
             },
