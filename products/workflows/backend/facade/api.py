@@ -302,9 +302,10 @@ def search_broadcast_summaries(
 ) -> list[WorkflowSummary]:
     return list_workflow_summaries(
         team_id=team_id,
-        query=WorkflowListQuery(search=search, broadcast_eligible=True),
+        query=WorkflowListQuery(broadcast_eligible=True),
         user_access_control=user_access_control,
         limit=limit,
+        name_contains=search,
     )
 
 

@@ -231,9 +231,16 @@ def list_workflows(
 
 
 def list_workflow_summaries(
-    *, team_id: int, query: WorkflowListQuery, user_access_control: "UserAccessControl | None", limit: int
+    *,
+    team_id: int,
+    query: WorkflowListQuery,
+    user_access_control: "UserAccessControl | None",
+    limit: int,
+    name_contains: str = "",
 ) -> list[WorkflowSummary]:
     queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False)
+    if name_contains:
+        queryset = queryset.filter(name__icontains=name_contains)
     return [
         WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
         for row in queryset.values("id", "name", "status")[:limit]
