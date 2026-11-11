@@ -467,6 +467,9 @@ def load_yaml(text: bytes) -> dict[str, Any]:
         for event in yaml.parse(decoded, Loader=StrictLoader):
             if isinstance(event, yaml.AliasEvent) or getattr(event, "tag", None) is not None:
                 raise Refused("a YAML file uses an alias or an explicit tag")
+            # pnpm takes a lockfile that opens with `---` for a metadata document with the lockfile after it.
+            if getattr(event, "explicit", False):
+                raise Refused("a YAML file uses a document marker")
         loaded = yaml.load(decoded, Loader=StrictLoader) or {}
     except yaml.YAMLError as error:
         raise Refused("a YAML file does not parse") from error
