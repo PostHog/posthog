@@ -15,17 +15,7 @@
                         }
                     ],
                     "source": "events",
-                    "bytecode": [
-                        "_H",
-                        1,
-                        32,
-                        "$pageview",
-                        32,
-                        "event",
-                        1,
-                        1,
-                        11
-                    ]
+                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
                 }
             },
             "edges": [
@@ -57,17 +47,7 @@
                                 }
                             ],
                             "source": "events",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "$pageview",
-                                32,
-                                "event",
-                                1,
-                                1,
-                                11
-                            ]
+                            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
                         }
                     },
                     "filters": null,
@@ -84,22 +64,12 @@
                             "url": {
                                 "order": 0,
                                 "value": "https://example.com/stored-program/workflow",
-                                "bytecode": [
-                                    "_H",
-                                    1,
-                                    32,
-                                    "https://example.com/stored-program/workflow"
-                                ]
+                                "bytecode": ["_H", 1, 32, "https://example.com/stored-program/workflow"]
                             },
                             "api_key": {
                                 "order": 1,
                                 "value": "stored-program-fake-workflow-key",
-                                "bytecode": [
-                                    "_H",
-                                    1,
-                                    32,
-                                    "stored-program-fake-workflow-key"
-                                ]
+                                "bytecode": ["_H", 1, 32, "stored-program-fake-workflow-key"]
                             }
                         },
                         "template_id": "template-stored-program-fetch"
@@ -122,9 +92,7 @@
             ],
             "variables": [],
             "exit_condition": "exit_on_conversion",
-            "billable_action_types": [
-                "function"
-            ],
+            "billable_action_types": ["function"],
             "abort_action": null,
             "encrypted_inputs": null
         }

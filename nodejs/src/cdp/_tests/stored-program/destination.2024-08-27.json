@@ -209,25 +209,11 @@
             "inputs": {
                 "api_key": {
                     "value": "stored-program-fake-api-key",
-                    "bytecode": [
-                        "_h",
-                        32,
-                        "stored-program-fake-api-key"
-                    ]
+                    "bytecode": ["_h", 32, "stored-program-fake-api-key"]
                 },
                 "email": {
                     "value": "{event.properties.email}",
-                    "bytecode": [
-                        "_h",
-                        32,
-                        "email",
-                        32,
-                        "properties",
-                        32,
-                        "event",
-                        1,
-                        3
-                    ]
+                    "bytecode": ["_h", 32, "email", 32, "properties", 32, "event", 1, 3]
                 },
                 "properties": {
                     "value": {
@@ -235,28 +221,8 @@
                         "first_name": "{event.properties.first_name}"
                     },
                     "bytecode": {
-                        "first_name": [
-                            "_h",
-                            32,
-                            "first_name",
-                            32,
-                            "properties",
-                            32,
-                            "event",
-                            1,
-                            3
-                        ],
-                        "plan": [
-                            "_h",
-                            32,
-                            "plan",
-                            32,
-                            "properties",
-                            32,
-                            "event",
-                            1,
-                            3
-                        ]
+                        "first_name": ["_h", 32, "first_name", 32, "properties", 32, "event", 1, 3],
+                        "plan": ["_h", 32, "plan", 32, "properties", 32, "event", 1, 3]
                     }
                 }
             },
@@ -270,20 +236,7 @@
                         "order": 0
                     }
                 ],
-                "bytecode": [
-                    "_h",
-                    32,
-                    "$pageview",
-                    32,
-                    "event",
-                    1,
-                    1,
-                    11,
-                    3,
-                    1,
-                    4,
-                    1
-                ]
+                "bytecode": ["_h", 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1]
             },
             "mappings": null,
             "masking": null,

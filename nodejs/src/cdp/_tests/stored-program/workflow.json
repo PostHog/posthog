@@ -15,17 +15,7 @@
                         }
                     ],
                     "source": "events",
-                    "bytecode": [
-                        "_H",
-                        1,
-                        32,
-                        "$pageview",
-                        32,
-                        "event",
-                        1,
-                        1,
-                        11
-                    ],
+                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
                     "bytecode_contract": "3e27c521a9196793"
                 }
             },
@@ -58,17 +48,7 @@
                                 }
                             ],
                             "source": "events",
-                            "bytecode": [
-                                "_H",
-                                1,
-                                32,
-                                "$pageview",
-                                32,
-                                "event",
-                                1,
-                                1,
-                                11
-                            ],
+                            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
                             "bytecode_contract": "3e27c521a9196793"
                         }
                     },
@@ -86,12 +66,7 @@
                             "url": {
                                 "order": 0,
                                 "value": "https://example.com/stored-program/workflow",
-                                "bytecode": [
-                                    "_H",
-                                    1,
-                                    32,
-                                    "https://example.com/stored-program/workflow"
-                                ],
+                                "bytecode": ["_H", 1, 32, "https://example.com/stored-program/workflow"],
                                 "bytecode_contract": "3e27c521a9196793"
                             }
                         },
@@ -115,9 +90,7 @@
             ],
             "variables": [],
             "exit_condition": "exit_on_conversion",
-            "billable_action_types": [
-                "function"
-            ],
+            "billable_action_types": ["function"],
             "abort_action": null,
             "encrypted_inputs": "gAAAAABq9CZLHpiR6htf5kzh9NphWlS8dcarvogEnnCTs0snaG4RC-jM3kvz52p0rM_NPaDQJwhyPLaGS7Fc46stkYohJAQz1QHZIJrLguid7frBzByXns5ldadjV7PaGhEu6AVluI1EIYLuZkQ7ZYL1EqDoFWeKLm2FgUkbYVEbImFH2r1COzKCoRdZ93NZuS8iKiWdRtoshVr3fQT-AWRa_Da7i1lSD-GIiPZA3gogeyNv5VPK1Exk6uv7nC6vwYvLhRP8ukP2_wnYm6C4PdP1zxpmvHQmiGu9Je4nynyqCanoHj86XvvFYFuXiqLmlrGVObJfU1cb"
         }
