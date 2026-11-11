@@ -32,7 +32,7 @@ describe('TransactionalWebhooks', () => {
         })
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
-            workflows_config: { ...storedConfig, email_tracking_consent_mode: 'opt_in' },
+            workflows_config: { capture_workflows_engagement_events: false, email_tracking_consent_mode: 'opt_in' },
         })
     })
 
