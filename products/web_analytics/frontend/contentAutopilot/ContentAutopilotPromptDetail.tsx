@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { pluralize } from 'lib/utils/strings'
 
+import { ContentAutopilotAnswerOutcomeChart } from './ContentAutopilotAnswerOutcomeChart'
 import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -22,7 +23,6 @@ import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTi
 import { ContentAutopilotPromptSentiment } from './ContentAutopilotPromptSentiment'
 import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
-import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { POSITION_DESCRIPTION, positionKpiCard, rateKpiCard } from './promptReport'
 import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
 import { draftableOpportunity } from './utils'
@@ -230,7 +230,6 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                     label="Average position"
                                     description={POSITION_DESCRIPTION}
                                     {...positionKpiCard(reportKpis.position)}
-                                    onClick={() => showMetric('position')}
                                     data-attr="content-autopilot-prompt-kpi-position"
                                 />
                             </ContentAutopilotStatStrip>
@@ -244,12 +243,12 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                         key: 'overview',
                                         label: 'Overview',
                                         content: (
-                                            <ContentAutopilotVisibilityChart
+                                            <ContentAutopilotAnswerOutcomeChart
                                                 chart={visibilityChart}
                                                 metric={visibilityMetric}
                                                 onMetricChange={setVisibilityMetric}
                                                 query={visibilityQuery}
-                                                footer={`${pluralize(reportKpis.answers, 'answer')} across ${pluralize(reportKpis.days, 'day')}. One line per engine, one point per day it ran.`}
+                                                footer={`${pluralize(reportKpis.answers, 'answer')} across ${pluralize(reportKpis.days, 'day')}. Failed checks are left out.`}
                                                 data-attr="content-autopilot-prompt-visibility-tile"
                                             />
                                         ),

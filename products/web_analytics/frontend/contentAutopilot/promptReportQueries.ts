@@ -5,7 +5,7 @@ import { ChartDisplayType } from '~/types'
 
 import type { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import type { PromptVisibilityMetric } from './promptReport'
+import type { PromptOutcomeMetric, PromptVisibilityMetric } from './promptReport'
 import { ENGINE_LABELS } from './utils'
 
 export interface PromptReportWindow {
@@ -103,22 +103,31 @@ const dailyMetricChart = (source: HogQLQuery, metric: PromptVisibilityMetric): D
     },
 })
 
-/** Daily citation rate, brand mention rate or average position per engine. Days an engine did not run are gaps,
- * not zeros. */
-export const promptVisibilityQuery = (
-    window: PromptReportWindow,
-    metric: PromptVisibilityMetric
-): DataVisualizationNode =>
-    dailyMetricChart(
-        hogql(
-            dailyValueSql(WHERE, metricValue(metric, window.brandNames)),
+/** Answers per day that cite you or mention you, stacked on the ones that don't, across every engine. */
+export const promptOutcomeQuery = (window: PromptReportWindow, metric: PromptOutcomeMetric): DataVisualizationNode => {
+    const met = metric === 'mentioned' ? mentionedExpr(window.brandNames) : 'cited'
+    const [yes, no] = metric === 'mentioned' ? ['mentioned', 'not_mentioned'] : ['cited', 'not_cited']
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source: hogql(
+            `SELECT toDate(created_at) AS day, countIf(${met}) AS ${yes}, countIf(NOT (${met})) AS ${no}
+FROM system.aeo_citation_checks
+WHERE ${WHERE}
+GROUP BY day
+ORDER BY day`,
             window,
             metric === 'mentioned' && window.brandNames.length
                 ? { brand_pattern: brandMentionPattern(window.brandNames) }
                 : {}
         ),
-        metric
-    )
+        display: ChartDisplayType.ActionsStackedBar,
+        chartSettings: {
+            xAxis: { column: 'day' },
+            yAxis: [{ column: yes }, { column: no }],
+            showLegend: true,
+        },
+    }
+}
 
 /** The set's checks on one side of the branded split, matching the API's `branded` filter. Without brand names no
  * prompt is branded. */

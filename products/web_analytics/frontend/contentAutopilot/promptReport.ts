@@ -7,6 +7,8 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 export type PromptVisibilityMetric = 'cited' | 'mentioned' | 'position'
+/** The metrics a single answer can only pass or fail, so the prompt page can count yes and no answers. */
+export type PromptOutcomeMetric = Exclude<PromptVisibilityMetric, 'position'>
 
 export interface PromptRateKpi {
     /** Pooled rate over the window: all answers that qualify over all answers. */

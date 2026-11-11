@@ -31,7 +31,7 @@ import {
     PromptConsensusMatrix,
     PromptReportKpis,
     PromptSentimentSummary,
-    PromptVisibilityMetric,
+    PromptOutcomeMetric,
     promptConsensusMatrix,
     promptReportKpis,
     promptSentimentSummary,
@@ -42,11 +42,11 @@ import {
     promptCitationsQuery,
     promptSearchesQuery,
     promptSentimentQuery,
+    promptOutcomeQuery,
     promptSourcesQuery,
-    promptVisibilityQuery,
 } from './promptReportQueries'
 import { promptEditPatch, sortEngines } from './utils'
-import { type EngineVisibilityChart, engineVisibilityChart } from './visibilityChart'
+import { type AnswerOutcomeChart, answerOutcomeChart } from './visibilityChart'
 
 export type PromptReportTab = 'overview' | 'answers' | 'sources' | 'sentiment' | 'searches' | 'history'
 
@@ -92,8 +92,8 @@ export interface contentAutopilotPromptDetailLogicValues {
     versions: AEOPromptVersionApi[] | null
     versionsFailed: boolean
     versionsLoading: boolean
-    visibilityChart: EngineVisibilityChart | null
-    visibilityMetric: PromptVisibilityMetric
+    visibilityChart: AnswerOutcomeChart | null
+    visibilityMetric: PromptOutcomeMetric
     visibilityQuery: DataVisualizationNode | null
 }
 
@@ -257,8 +257,8 @@ export interface contentAutopilotPromptDetailLogicActions {
     setReportTab: (tab: PromptReportTab) => {
         tab: PromptReportTab
     }
-    setVisibilityMetric: (metric: PromptVisibilityMetric) => {
-        metric: PromptVisibilityMetric
+    setVisibilityMetric: (metric: PromptOutcomeMetric) => {
+        metric: PromptOutcomeMetric
     }
 }
 
@@ -279,11 +279,11 @@ export interface contentAutopilotPromptDetailLogicMeta {
         reportWindow: (promptId: string | null, stats: AEOPromptStatsApi | null) => PromptReportWindow | null
         visibilityChart: (
             stats: AEOPromptStatsApi | null,
-            visibilityMetric: PromptVisibilityMetric
-        ) => EngineVisibilityChart | null
+            visibilityMetric: PromptOutcomeMetric
+        ) => AnswerOutcomeChart | null
         visibilityQuery: (
             reportWindow: PromptReportWindow | null,
-            visibilityMetric: PromptVisibilityMetric
+            visibilityMetric: PromptOutcomeMetric
         ) => DataVisualizationNode | null
         sourcesQuery: (reportWindow: PromptReportWindow | null) => DataTableNode | null
         citationsQuery: (reportWindow: PromptReportWindow | null) => DataTableNode | null
@@ -330,7 +330,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         selectEngine: (engine: string) => ({ engine }),
         selectCheck: (check: AEOPromptCheckApi) => ({ check }),
         setChecksPage: (page: number) => ({ page }),
-        setVisibilityMetric: (metric: PromptVisibilityMetric) => ({ metric }),
+        setVisibilityMetric: (metric: PromptOutcomeMetric) => ({ metric }),
         setReportTab: (tab: PromptReportTab) => ({ tab }),
     }),
     loaders(({ values }) => ({
@@ -486,7 +486,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             },
         ],
         visibilityMetric: [
-            'cited' as PromptVisibilityMetric,
+            'cited' as PromptOutcomeMetric,
             {
                 openPromptDetail: () => 'cited',
                 setVisibilityMetric: (_, { metric }) => metric,
@@ -573,13 +573,13 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         ],
         visibilityChart: [
             (s) => [s.stats, s.visibilityMetric],
-            (stats: AEOPromptStatsApi | null, visibilityMetric: PromptVisibilityMetric): EngineVisibilityChart | null =>
-                stats ? engineVisibilityChart(stats.daily, statsWindowDates(stats), visibilityMetric) : null,
+            (stats: AEOPromptStatsApi | null, visibilityMetric: PromptOutcomeMetric): AnswerOutcomeChart | null =>
+                stats ? answerOutcomeChart(stats.daily, statsWindowDates(stats), visibilityMetric) : null,
         ],
         visibilityQuery: [
             (s) => [s.reportWindow, s.visibilityMetric],
-            (reportWindow: PromptReportWindow | null, visibilityMetric: PromptVisibilityMetric) =>
-                reportWindow ? promptVisibilityQuery(reportWindow, visibilityMetric) : null,
+            (reportWindow: PromptReportWindow | null, visibilityMetric: PromptOutcomeMetric) =>
+                reportWindow ? promptOutcomeQuery(reportWindow, visibilityMetric) : null,
         ],
         sourcesQuery: [
             (s) => [s.reportWindow],

@@ -1,5 +1,5 @@
 import type { AEOPromptDailyEngineStatsApi } from '../generated/api.schemas'
-import { engineVisibilityChart } from './visibilityChart'
+import { answerOutcomeChart, engineVisibilityChart } from './visibilityChart'
 
 const DAILY: AEOPromptDailyEngineStatsApi[] = [
     { date: '2026-10-01', engine: 'openai-web-search', checks: 4, cited: 1, mentioned: 2, failed: 0, avg_position: 3 },
@@ -23,7 +23,7 @@ const DAILY: AEOPromptDailyEngineStatsApi[] = [
     },
 ]
 
-describe('engineVisibilityChart', () => {
+describe('visibility charts', () => {
     it.each([
         ['cited', [0.5, NaN, NaN], [0.25, NaN, NaN]],
         ['mentioned', [0.75, NaN, NaN], [0.5, NaN, NaN]],
@@ -39,4 +39,13 @@ describe('engineVisibilityChart', () => {
             ])
         }
     )
+
+    it.each([
+        ['cited', [3, 0, 0], [5, 0, 0]],
+        ['mentioned', [5, 0, 0], [3, 0, 0]],
+    ] as const)('counts %s answers per day across engines, leaving failed checks out', (metric, yes, no) => {
+        const chart = answerOutcomeChart(DAILY, ['2026-10-01', '2026-10-02', '2026-10-03'], metric)
+
+        expect([chart.yes, chart.no]).toEqual([yes, no])
+    })
 })

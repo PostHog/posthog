@@ -1,6 +1,6 @@
 import type { AEOPromptDailyEngineStatsApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import type { PromptVisibilityMetric } from './promptReport'
+import type { PromptOutcomeMetric, PromptVisibilityMetric } from './promptReport'
 import { engineColor, engineLabel, sortEngines } from './utils'
 
 export interface EngineVisibilitySeries {
@@ -42,5 +42,32 @@ export function engineVisibilityChart(
             color: engineColor(engine),
             data: dates.map((date) => dayValue(byDay.get(`${engine}|${date}`), metric)),
         })),
+    }
+}
+
+export interface AnswerOutcomeChart {
+    labels: string[]
+    yes: number[]
+    no: number[]
+}
+
+/** Answers per day across every engine, split into the ones that met `metric` and the ones that didn't. Failed checks
+ *  have no answer, so they are in neither count. */
+export function answerOutcomeChart(
+    daily: AEOPromptDailyEngineStatsApi[],
+    dates: string[],
+    metric: PromptOutcomeMetric
+): AnswerOutcomeChart {
+    const yes = new Map<string, number>()
+    const no = new Map<string, number>()
+    for (const row of daily) {
+        const met = metric === 'cited' ? row.cited : row.mentioned
+        yes.set(row.date, (yes.get(row.date) ?? 0) + met)
+        no.set(row.date, (no.get(row.date) ?? 0) + row.checks - row.failed - met)
+    }
+    return {
+        labels: dates,
+        yes: dates.map((date) => yes.get(date) ?? 0),
+        no: dates.map((date) => no.get(date) ?? 0),
     }
 }
