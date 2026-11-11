@@ -312,6 +312,26 @@ describe('SandboxEmailSendStep', () => {
         }
     )
 
+    it('refuses a job redelivered from before its send once SES took the email, reset the connection, and spent the caps', async () => {
+        const executor = buildExecutor()
+        const routed = await executor.execute(runFor(member()))
+        world.ses.replyNext({ kind: 'deliver-then-reset' })
+
+        const lostReply = await executor.execute(nextDequeue(routed.invocation))
+        const redelivered = await executor.execute(nextDequeue(routed.invocation))
+
+        expect(lostReply.invocation.queue).toBe('emailsandbox')
+        expect(world.ses.attempts).toBe(1)
+        expect(world.ses.delivered).toHaveLength(1)
+        expect(redelivered.invocation.queue).toBe('hogflow')
+        expect(metricNames([redelivered])).toEqual([['email_sandbox_blocked', 'email']])
+        const finished = await executor.execute(nextDequeue(redelivered.invocation))
+        expect(finished.invocation.state.variables?.email_result).toEqual({
+            status: 'skipped',
+            reason: 'daily_cap_reached',
+        })
+    })
+
     it('keeps the daily allowance it spent before an SES throttle through a later pause-state outage', async () => {
         world.ses.replyNext(SES_THROTTLE)
 

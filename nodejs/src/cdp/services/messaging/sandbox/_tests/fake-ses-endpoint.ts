@@ -27,6 +27,7 @@ export type SesReply =
     | { kind: 'accept-without-id' }
     | { kind: 'hang' }
     | { kind: 'deliver-without-reply' }
+    | { kind: 'deliver-then-reset' }
     | { kind: 'drop' }
 
 export const SES_THROTTLE: SesReply = { kind: 'error', status: 400, errorType: 'ThrottlingException' }
@@ -100,6 +101,11 @@ export class FakeSesEndpoint {
         }
         if (reply?.kind === 'deliver-without-reply') {
             this.delivered.push(toDeliveredEmail(parseJSON(body), `ses-${this.delivered.length + 1}`))
+            return
+        }
+        if (reply?.kind === 'deliver-then-reset') {
+            this.delivered.push(toDeliveredEmail(parseJSON(body), `ses-${this.delivered.length + 1}`))
+            req.socket.resetAndDestroy()
             return
         }
         if (reply?.kind === 'drop') {
