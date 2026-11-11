@@ -25,7 +25,7 @@ from products.alerts_platform.backend.delivery import (
     legacy_webhook,
     recipients,
 )
-from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
+from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups, live_hog_function_ids
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import (
     add_late_image as add_late_image_to_target,
@@ -622,6 +622,8 @@ class _PlatformDestinations:
 
     destinations: tuple[StoredAlertDestination, ...]
     owns_destinations: bool
+    # Rows that copy a HogFunction that still exists. The HogFunction sends for them.
+    copies: frozenset[str]
     # The addresses the source's own settings name, read once per delivery.
     recipients: tuple[str, ...]
     kind_by_event_id: dict[str, AlertEventKind]
@@ -642,11 +644,11 @@ def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinatio
         event_id: INCIDENT_KINDS[IncidentAction(action)]
         for action, event_id in request.event_ids_by_incident_action.items()
     }
+    destinations = enabled_alert_destinations(team_id=request.team_id, configuration_id=UUID(request.configuration_id))
     return _PlatformDestinations(
-        destinations=enabled_alert_destinations(
-            team_id=request.team_id, configuration_id=UUID(request.configuration_id)
-        ),
+        destinations=destinations,
         owns_destinations=owns_destinations,
+        copies=frozenset() if owns_destinations else _copies_of_live_hog_functions(request.team_id, destinations),
         # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
         recipients=recipients.addresses(
             request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
@@ -658,6 +660,19 @@ def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinatio
             **incident_kinds,
         },
         incident_event_ids=frozenset(incident_kinds),
+    )
+
+
+def _copies_of_live_hog_functions(team_id: int, destinations: tuple[StoredAlertDestination, ...]) -> frozenset[str]:
+    """Read apart from the alert's destination lookup, which misses a HogFunction whose alert filter a
+    person removed, while that function still hears every emitted event. A disabled HogFunction
+    counts too: a person who disabled it did not ask its copy to send instead."""
+    copied = {
+        hog_function_id for destination in destinations for hog_function_id in destination.legacy_hog_function_ids
+    }
+    live = live_hog_function_ids(team_id=team_id, hog_function_ids=copied)
+    return frozenset(
+        str(destination.id) for destination in destinations if live.intersection(destination.legacy_hog_function_ids)
     )
 
 
@@ -685,13 +700,6 @@ def _destinations(
         alert_id=request.destination_alert_id,
         allowed_event_ids=[event_id],
     )
-    # Disabled ones too: a person who disabled the HogFunction did not ask its copy to send instead.
-    listed = {str(hog_function_id) for group in groups for hog_function_id in group.hog_function_ids}
-    copies = {
-        str(destination.id)
-        for destination in platform_destinations.destinations
-        if listed.intersection(str(hog_function_id) for hog_function_id in destination.legacy_hog_function_ids)
-    }
     return [
         *(
             _SubscribedDestination(
@@ -702,7 +710,7 @@ def _destinations(
             for group in groups
             if group.fully_enabled
         ),
-        *(row for row in rows if row.id not in copies),
+        *(row for row in rows if row.id not in platform_destinations.copies),
     ]
 
 
