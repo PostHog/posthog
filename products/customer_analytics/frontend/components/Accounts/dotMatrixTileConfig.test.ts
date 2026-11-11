@@ -13,8 +13,8 @@ import {
 import { listAvailableAccountViewComponents } from './accountViewComponents'
 
 describe('dot matrix tile config', () => {
-    it('keeps independently configured tiles through the saved document round-trip', () => {
-        const first = { mode: 'dots', weeks: 8, selectedSeries: ['replay'] }
+    it.each([4, 6, 26])('keeps independently configured tiles through a saved round-trip (%s weeks)', (weeks) => {
+        const first = { mode: 'dots', weeks, selectedSeries: ['replay'] }
         const second = {
             mode: 'count',
             weeks: 26,
@@ -32,7 +32,10 @@ describe('dot matrix tile config', () => {
 
     it.each([
         undefined,
-        { dataset: 'production', mode: 'users', weeks: 5, selectedSeries: null },
+        { dataset: 'production', mode: 'users', weeks: 3, selectedSeries: null },
+        { weeks: 27 },
+        { weeks: 4.5 },
+        { weeks: '6' },
         { selectedSeries: ['valid', 1] },
         { selectedSeries: [''] },
         { selectedSeries: ['x'.repeat(129)] },

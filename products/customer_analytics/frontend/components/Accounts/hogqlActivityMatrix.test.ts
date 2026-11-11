@@ -183,7 +183,7 @@ describe('HogQL activity matrix', () => {
     })
 
     describe('bounding the axes', () => {
-        it('caps distinct axes before normalization allocates their product, and says so', () => {
+        it('caps distinct axes, keeps normalized cells sparse, and reports the limits', () => {
             const results = Array.from({ length: 2000 }, (_, index) => [`r${index}`, `c${index}`, `s${index}`, 1])
             const result = getHogQLActivityMatrix(
                 { columns: ['r', 'c', 's', 'v'], results },
@@ -198,7 +198,7 @@ describe('HogQL activity matrix', () => {
             const cellCount = [...matrix.cells.values()].reduce((total, cells) => total + cells.size, 0)
             expect(matrix.rows).toHaveLength(DOT_MATRIX_MAX_ROWS)
             expect(matrix.columns).toHaveLength(DOT_MATRIX_MAX_COLUMNS)
-            expect(cellCount).toBe(DOT_MATRIX_MAX_ROWS * DOT_MATRIX_MAX_COLUMNS)
+            expect(cellCount).toBe(DOT_MATRIX_MAX_SERIES)
             expect(result.notices).toEqual([
                 `Showing ${DOT_MATRIX_MAX_ROWS} of 2000 rows, ${DOT_MATRIX_MAX_COLUMNS} of 2000 columns and ${DOT_MATRIX_MAX_SERIES} of 2000 series. Narrow the query to see the rest.`,
             ])

@@ -570,21 +570,25 @@ describe('accountDotMatrixTileLogic', () => {
             logic.unmount()
         })
 
-        it('supersedes a run still in flight, keeping that query', async () => {
+        it.each([false, true])('supersedes a run still in flight (saved query: %p)', async (saved) => {
+            let releaseFirstRun: (value: unknown) => void = () => {}
+            mockPerformQuery.mockImplementationOnce(() => new Promise((resolve) => (releaseFirstRun = resolve)))
             const logic = accountDotMatrixTileLogic({
                 instanceId: 'weeks-inflight',
                 accountId: 'account-1',
                 externalId: 'external-1',
-                initialConfig: { source: null },
+                initialConfig: { source: saved ? { kind: 'hogql', query: DRAFT, mapping: MAPPING } : null },
             })
             logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            logic.actions.chooseSource('hogql')
-            logic.actions.setQueryDraft(DRAFT)
-            logic.actions.setMappingDraft(MAPPING)
-            let releaseFirstRun: (value: unknown) => void = () => {}
-            mockPerformQuery.mockImplementationOnce(() => new Promise((resolve) => (releaseFirstRun = resolve)))
-            logic.actions.runQuery()
+            if (saved) {
+                logic.actions.editQuery()
+            } else {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.chooseSource('hogql')
+                logic.actions.setQueryDraft(DRAFT)
+                logic.actions.setMappingDraft(MAPPING)
+                logic.actions.runQuery()
+            }
             mockPerformQuery.mockResolvedValue(RESPONSE)
 
             logic.actions.setWeeks(12)
@@ -780,12 +784,15 @@ describe('accountDotMatrixTileLogic', () => {
         })
 
         it.each([
-            ['a server error', Object.assign(new Error('boom'), { status: 500 })],
-            ['an error with no status', new Error('Unexpected token')],
-        ])('reports %s exactly once', async (_, error) => {
+            ['a server error', Object.assign(new Error('boom'), { status: 500 }), false, true],
+            ['an error with no status', new Error('Unexpected token'), false, true],
+            ['a timeout', Object.assign(new Error('Timed out'), { status: 504 }), true, false],
+        ])('handles %s with the expected reporting and cancellation', async (_, error, cancel, report) => {
             await failWith(error)
-            expect(capture).toHaveBeenCalledTimes(1)
-            expect(capture).toHaveBeenCalledWith(error)
+            expect(capture.mock.calls.map(([reported]) => reported)).toEqual(report ? [error] : [])
+            expect((cancelQueryOnServer as jest.Mock).mock.calls.map(([, queryId]) => queryId)).toEqual(
+                cancel ? [mockPerformQuery.mock.calls[0][3]] : []
+            )
         })
     })
 })
