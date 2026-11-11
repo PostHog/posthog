@@ -741,7 +741,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             # has the total budget
             ("precompute_route", True, True, False, [], [], [("m1", None)], False),
             ("direct_route", False, True, False, [], [("m1", PrecomputationMode.DIRECT)], [], False),
-            ("run_off_the_flag_ignores_the_route", True, False, False, [("m1", None)], [], [], True),
+            ("run_started_without_a_queue_ignores_the_route", True, False, False, [("m1", None)], [], [], True),
             ("history_without_routes_replays_on_another_queue", True, True, True, [], [("m1", None)], [], False),
             (
                 "history_without_routes_replays_with_another_arity",
@@ -806,7 +806,7 @@ class TestExperimentMetricsRecalculationWorkflow:
         [
             # name, routed_direct, expected workflow queue calls, expected activity queue calls
             ("direct_route", True, [], [("m1", PrecomputationMode.DIRECT)]),
-            ("run_off_the_flag", False, [("m1", None)], []),
+            ("run_started_without_a_queue", False, [("m1", None)], []),
         ]
     )
     async def test_key_version_reaches_the_calculation_after_the_mode(

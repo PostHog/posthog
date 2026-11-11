@@ -72,7 +72,6 @@ _QUEUED_RECALC_CEILING = timedelta(hours=1)
 # rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
-RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -313,7 +312,7 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
                 METRICS_RECALCULATION_WORKFLOW_NAME,
                 ExperimentMetricsRecalculationWorkflowInputs(
                     recalculation_id=recalculation_id,
-                    activity_task_queue=_activity_task_queue(organization_id),
+                    activity_task_queue=_calc_activity_task_queue(),
                     calculation_key_version=calculation_key_version,
                 ),
                 id=metrics_recalculation_workflow_id(recalculation_id),
@@ -411,14 +410,12 @@ def _organization_flag_enabled(flag_key: str, organization_id: str) -> bool:
     )
 
 
-def _activity_task_queue(organization_id: str) -> str | None:
-    # A flag error keeps the run on the workflow's queue, because a failed start would roll the row back to FAILED.
-    try:
-        enabled = _organization_flag_enabled(RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG, organization_id)
-    except Exception as e:
-        capture_exception(e)
+def _calc_activity_task_queue() -> str | None:
+    # Local development and single-queue mode collapse the activity queue into the workflow's queue. None keeps the
+    # calc on that queue with its total time budget, which the workflow drops for a calc on a fixed-slot queue.
+    if settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE == settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE:
         return None
-    return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
+    return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE
 
 
 def recalculation_clickhouse_user(task_queue: str) -> ClickHouseUser | None:
