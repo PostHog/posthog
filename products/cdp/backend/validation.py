@@ -111,6 +111,16 @@ def _is_stored_sender_id(integration_id: object, context: dict) -> bool:
     )
 
 
+def _validate_sender_id(from_value: dict, context: dict) -> None:
+    integration_id = from_value.get("integrationId")
+    if (
+        integration_id is not None
+        and _as_integration_id(integration_id) is None
+        and not _is_stored_sender_id(integration_id, context)
+    ):
+        raise serializers.ValidationError({"input": "Expected 'from.integrationId' to be an Integration ID."})
+
+
 def _sender_integration_ids(from_value: dict) -> set[int]:
     rotation = from_value.get("integrationIds")
     candidates = [from_value.get("integrationId"), *(rotation if isinstance(rotation, list) else [])]
@@ -191,6 +201,7 @@ def reject_new_non_email_senders(inputs_schema: list[dict] | None, inputs: dict 
         value = email_input.get("value") if isinstance(email_input, dict) else None
         from_value = value.get("from") if isinstance(value, dict) else None
         if isinstance(from_value, dict):
+            _validate_sender_id(from_value, context)
             _validate_email_sender_kind(from_value, context)
 
 
@@ -1059,15 +1070,7 @@ class InputsItemSerializer(serializers.Serializer):
                         {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
                     )
 
-                integration_id = from_value.get("integrationId")
-                if (
-                    integration_id is not None
-                    and _as_integration_id(integration_id) is None
-                    and not _is_stored_sender_id(integration_id, self.context)
-                ):
-                    raise serializers.ValidationError(
-                        {"input": "Expected 'from.integrationId' to be an Integration ID."}
-                    )
+                _validate_sender_id(from_value, self.context)
 
                 integration_ids = from_value.get("integrationIds")
                 if integration_ids is not None:

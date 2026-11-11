@@ -348,7 +348,9 @@ class TestSandboxEmailSteps(APIBaseTest):
         stored_step = HogFlow.objects.get(id=flow.id).actions[1]
         assert stored_step["config"]["inputs"]["email"]["value"]["from"]["integrationId"] == sender.id
 
-    def _publish_with_sender_id(self, stored_sender_id: Any, sender_id: Any) -> tuple[Any, HogFlow, list[dict]]:
+    def _publish_with_sender_id(
+        self, stored_sender_id: Any, sender_id: Any, saved_status: str = "active"
+    ) -> tuple[Any, HogFlow, list[dict]]:
         sync_template_to_db(_email_function_template())
         sender = Integration.objects.create(
             team=self.team, kind="email", integration_id="hello@example.com", config={"email": "hello@example.com"}
@@ -365,7 +367,7 @@ class TestSandboxEmailSteps(APIBaseTest):
         response = self.client.patch(
             self._url(str(flow.id)),
             {
-                "status": "active",
+                "status": saved_status,
                 "actions": [_trigger(), step],
                 "edges": [{"from": "trigger_node", "to": OWN_EMAIL_STEP_ID, "type": "continue"}],
             },
@@ -375,27 +377,34 @@ class TestSandboxEmailSteps(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("new_string", None, str),
-            ("new_boolean", None, lambda _id: True),
-            ("new_fraction", None, lambda sender_id: sender_id + 0.5),
-            ("string_changed_from_the_stored_one", str, lambda sender_id: str(sender_id + 1)),
-            ("boolean_replacing_a_stored_integer_one", lambda _id: 1, lambda _id: True),
+            (f"{case}_{saved_status}", stored_sender_id, sender_id, saved_status)
+            for case, stored_sender_id, sender_id in [
+                ("new_string", None, str),
+                ("new_boolean", None, lambda _id: True),
+                ("new_fraction", None, lambda sender_id: sender_id + 0.5),
+                ("string_changed_from_the_stored_one", str, lambda sender_id: str(sender_id + 1)),
+                ("boolean_replacing_a_stored_integer_one", lambda _id: 1, lambda _id: True),
+            ]
+            for saved_status in ["active", "draft"]
         ]
     )
-    def test_publishing_refuses_a_newly_written_sender_id_that_is_not_a_whole_number(
-        self, _name: str, stored_sender_id: Any, sender_id: Any
+    def test_a_save_refuses_a_newly_written_sender_id_that_is_not_a_whole_number(
+        self, _name: str, stored_sender_id: Any, sender_id: Any, saved_status: str
     ) -> None:
-        response, flow, stored_actions = self._publish_with_sender_id(stored_sender_id, sender_id)
+        response, flow, stored_actions = self._publish_with_sender_id(stored_sender_id, sender_id, saved_status)
 
         assert response.status_code == 400, response.json()
         assert "Expected 'from.integrationId' to be an Integration ID" in response.json()["detail"]
-        assert HogFlow.objects.get(id=flow.id).actions == stored_actions
+        stored = HogFlow.objects.get(id=flow.id)
+        assert stored.actions == stored_actions
+        assert stored.draft is None
 
-    def test_publishing_keeps_an_unchanged_stored_string_sender_id(self) -> None:
-        response, flow, _ = self._publish_with_sender_id(str, str)
+    @parameterized.expand([("publish", "active"), ("web_draft_save", "draft")])
+    def test_a_save_keeps_an_unchanged_stored_string_sender_id(self, _name: str, saved_status: str) -> None:
+        response, flow, _ = self._publish_with_sender_id(str, str, saved_status)
 
         assert response.status_code == 200, response.json()
-        assert HogFlow.objects.get(id=flow.id).status == "active"
+        assert HogFlow.objects.get(id=flow.id).status == saved_status
 
     @parameterized.expand(
         [
