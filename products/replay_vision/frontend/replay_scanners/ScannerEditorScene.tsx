@@ -24,6 +24,7 @@ import {
 import { pngHoggie } from 'lib/brand/hoggies'
 import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { useTagSourceExcluding } from 'lib/components/useTagPages'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -36,7 +37,6 @@ import { urls } from 'scenes/urls'
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { CreditPriceNote } from '../components/PricingLink'
@@ -60,6 +60,7 @@ import {
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
+import { isUnusableScannerTag } from './scannerTags'
 import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS, scannerTypeOptions } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
@@ -282,7 +283,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 }
 
 function DetailsStep(): JSX.Element {
-    const { tags: allTags } = useValues(tagsModel)
+    const scannerTagSource = useTagSourceExcluding(isUnusableScannerTag)
 
     return (
         <div className="flex flex-col gap-4">
@@ -307,9 +308,8 @@ function DetailsStep(): JSX.Element {
                     <ObjectTags
                         tags={value ?? []}
                         onChange={onChange}
+                        loadTags={scannerTagSource}
                         saving={false}
-                        // Tags from other products can contain commas; the scanner API rejects those.
-                        tagsAvailable={allTags.filter((tag) => !tag.includes(',') && !value?.includes(tag))}
                         data-attr="vision-editor-tags"
                     />
                 )}

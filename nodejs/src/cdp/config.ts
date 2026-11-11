@@ -72,6 +72,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
+    WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
     // Comma-separated log sources, such as `hog_flow`, that also send their logs to the logs product. Empty sends none.
     CDP_INTERNAL_LOGS_SOURCES: string
     // Django produces cdp_internal_events to the cyclotron cluster; empty inherits the consumer default.
@@ -165,8 +166,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
     CDP_SES_WEBHOOKS_TOPIC: string
     CDP_SES_WEBHOOKS_PRODUCER: CdpProducerName
-    // On, the webhook only queues, so it stays off until the topic and the cdp-ses-webhooks consumer exist.
-    CDP_SES_WEBHOOKS_QUEUE_ENABLED: boolean
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -210,6 +209,18 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
+    CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
+    CDP_EMAIL_ATTACHMENTS_S3_REGION: string
+    CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string
+    CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: string
+    CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: string
+    CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: string
+    CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: string
+    CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: number
+    CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
+    CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: number
+    CDP_EMAIL_ATTACHMENTS_TEAMS: string
+    CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: number
     CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
 
     // Destination migration diffing
@@ -343,6 +354,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
+        WORKFLOWS_SANDBOX_SENDER_ENABLED: false,
         CDP_INTERNAL_LOGS_SOURCES: '',
         CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: '',
         CDP_REDIS_HOST: '127.0.0.1',
@@ -426,7 +438,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_SES_WEBHOOKS_TOPIC: KAFKA_CDP_SES_WEBHOOKS,
         CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
-        CDP_SES_WEBHOOKS_QUEUE_ENABLED: false,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
@@ -456,6 +467,18 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
+        CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() || isTestEnv() ? 'email-attachments' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
+        CDP_EMAIL_ATTACHMENTS_S3_PREFIX: 'attachments',
+        CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: isDevEnv() || isTestEnv() ? 'http://localhost:19000' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: '',
+        CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: isDevEnv() || isTestEnv() ? 'object_storage_root_user' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: isDevEnv() || isTestEnv() ? 'object_storage_root_password' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 10_000,
+        CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: 4,
+        CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: 0.5,
+        CDP_EMAIL_ATTACHMENTS_TEAMS: '',
+        CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: 50_000_000_000,
         CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
 
         // Destination migration diffing

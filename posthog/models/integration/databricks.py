@@ -6,7 +6,7 @@ from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.security.url_validation import is_url_allowed
 
-from . import model
+from . import model, row_writes
 
 # Production workspace zones from the Databricks SDK's environment list (databricks/sdk/environments.py).
 # Connections check this list but not the resolved addresses, so add only zones whose DNS Databricks controls.
@@ -77,7 +77,7 @@ class DatabricksIntegration:
     @classmethod
     def integration_from_config(
         cls, team_id: int, server_hostname: str, client_id: str, client_secret: str, created_by: User | None = None
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         # first, validate the host
         cls.validate_host(server_hostname)
         server_hostname = server_hostname.lower()
@@ -89,16 +89,12 @@ class DatabricksIntegration:
             "client_id": client_id,
             "client_secret": client_secret,
         }
-        integration, _ = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=model.Integration.IntegrationKind.DATABRICKS.value,
-            integration_id=server_hostname,  # Use server_hostname as unique identifier
-            defaults={
-                "config": config,
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-                "errors": "",
-            },
+        integration, _ = row_writes.creator_accessor(model.Integration.IntegrationKind.DATABRICKS.value).upsert(
+            team_id,
+            server_hostname,  # Use server_hostname as unique identifier
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
 
         return integration

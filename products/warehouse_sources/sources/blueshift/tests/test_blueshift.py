@@ -4,15 +4,18 @@ from typing import Any, Literal
 
 import pytest
 import time_machine
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.blueshift._config import BlueshiftSourceConfig
 from products.warehouse_sources.sources.blueshift.blueshift import (
     MAX_STATS_RETRY_ATTEMPTS,
+    MAX_STATS_RETRY_WAIT_SECONDS,
     BlueshiftResumeConfig,
     BlueshiftRetryableError,
     BlueshiftStatsCursor,
+    _wait_stats,
 )
 from products.warehouse_sources.sources.blueshift.source import BlueshiftSource
 from products.warehouse_sources.sources.sdk import SourceCursorManager
@@ -35,32 +38,112 @@ def _campaign(uuid: str) -> dict[str, Any]:
     return {"uuid": uuid, "name": f"Campaign {uuid}", "statistics": {"sends": 10, "opens": 4}}
 
 
+def _segments(start: int, stop: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"segments": [{"uuid": f"s{i}"} for i in range(start, stop)]})
+
+
 class TestBlueshiftLists:
-    def test_paginated_list_walks_pages_until_an_empty_page(self) -> None:
-        result = _driver().run(
-            "segments",
-            [
-                ScriptedResponse(json={"segments": [{"uuid": f"s{i}"} for i in range(100)]}),
-                ScriptedResponse(json={"segments": [{"uuid": "s100"}]}),
-                ScriptedResponse(json={"segments": []}),
-            ],
-        )
+    @parameterized.expand(
+        [
+            ("pages_count_from_zero", [_segments(0, 100), _segments(100, 101)], ["0", "1"], 101),
+            ("pages_count_from_one", [_segments(0, 100), _segments(0, 100), _segments(100, 150)], ["0", "1", "2"], 150),
+            ("page_param_ignored", always(_segments(0, 100)), ["0", "1", "2"], 100),
+        ]
+    )
+    def test_page_walk_ends_without_an_empty_page(
+        self, _name: str, script: Any, pages: list[str], row_count: int
+    ) -> None:
+        result = _driver().run("segments", script)
 
         assert result.raised is None
-        assert result.params("page") == ["1", "2", "3"]
-        assert result.params("per_page") == ["100", "100", "100"]
+        assert result.params("page") == pages
+        assert set(result.params("per_page")) == {"100"}
         assert {r.headers.get("authorization") for r in result.requests} == {AUTH_VALUE}
-        assert len(result.rows) == 101
-        assert result.saved_states == [BlueshiftResumeConfig(next_page=2), BlueshiftResumeConfig(next_page=3)]
+        assert len(result.rows) == row_count
+        assert len({row["uuid"] for row in result.rows}) == row_count
+        assert result.saved_states[-1] == BlueshiftResumeConfig(next_page=len(pages))
 
-    def test_resume_starts_from_the_saved_page(self) -> None:
-        result = _driver().run(
-            "email_templates",
-            [ScriptedResponse(json={"template": []})],
-            resume_state=BlueshiftResumeConfig(next_page=7),
-        )
+    @parameterized.expand(
+        [
+            ("both_passes", None, True, ["false", "true"], ["a", "b", "c"]),
+            ("resume_in_archived_pass", BlueshiftResumeConfig(next_page=0, list_pass=1), True, ["true"], ["b", "c"]),
+            ("rows_without_archived_flag", None, False, ["false", "true"], ["a", "b", "c"]),
+        ]
+    )
+    def test_campaigns_writes_each_campaign_in_one_pass(
+        self,
+        _name: str,
+        resume_state: BlueshiftResumeConfig | None,
+        with_flag: bool,
+        archived: list[str],
+        uuids: list[str],
+    ) -> None:
+        def answer(request: Any) -> ScriptedResponse:
+            rows = [("a", False), ("b", True)] if request.param("archived") == "false" else [("b", True), ("c", True)]
+            return ScriptedResponse(
+                json={
+                    "page": 0,
+                    "per_page": 100,
+                    "results": [{"uuid": uuid, **({"archived": flag} if with_flag else {})} for uuid, flag in rows],
+                    "total_count": len(rows),
+                    "total_pages": 1,
+                }
+            )
 
-        assert result.params("page") == ["7"]
+        result = _driver().run("campaigns", answer, resume_state=resume_state)
+
+        assert result.raised is None
+        assert result.params("archived") == archived
+        assert set(result.params("startdate")) == {"2000-01-01T00:00:00.000Z"}
+        assert [row["uuid"] for row in result.rows] == uuids
+
+    @parameterized.expand(
+        [
+            (
+                "object_body_without_selector",
+                "sms_templates",
+                {"templates": [{"uuid": "a"}], "total": 1},
+                "'templates'",
+            ),
+            ("campaigns_bare_list", "campaigns", [{"uuid": "a"}], "'results'"),
+            ("selector_key_missing", "email_templates", {"templates": [{"uuid": "a"}]}, "'templates'"),
+        ]
+    )
+    def test_an_unexpected_body_fails_on_the_first_page_and_names_its_keys(
+        self, _name: str, schema: str, body: Any, key: str
+    ) -> None:
+        result = _driver().run(schema, always(ScriptedResponse(json=body)))
+
+        assert isinstance(result.raised, ValueError)
+        assert key in str(result.raised)
+        assert len(result.requests) == 1
+
+    @parameterized.expand(
+        [
+            ("later_page_repeating_the_page_before", 7, {6: (0, 100), 7: (0, 100)}, ["6", "7"], []),
+            ("after_the_last_page", 2, {1: (100, 150)}, ["1"], []),
+            ("page_one_counting_from_zero", 1, {0: (0, 100), 1: (100, 150)}, ["0", "1"], list(range(100, 150))),
+            (
+                "page_one_counting_from_one",
+                1,
+                {0: (0, 100), 1: (0, 100), 2: (100, 150)},
+                ["0", "1", "2"],
+                list(range(100, 150)),
+            ),
+        ]
+    )
+    def test_resume_writes_no_row_of_an_earlier_page(
+        self, _name: str, next_page: int, pages: dict[int, tuple[int, int]], requested: list[str], written: list[int]
+    ) -> None:
+        def answer(request: Any) -> ScriptedResponse:
+            start, stop = pages[int(request.param("page"))]
+            return _segments(start, stop)
+
+        result = _driver().run("segments", answer, resume_state=BlueshiftResumeConfig(next_page=next_page))
+
+        assert result.raised is None
+        assert result.params("page") == requested
+        assert [row["uuid"] for row in result.rows] == [f"s{i}" for i in written]
 
     @parameterized.expand(
         [
@@ -79,7 +162,7 @@ class TestBlueshiftLists:
             (
                 "bare_list_paginated",
                 "sms_templates",
-                [ScriptedResponse(json=[{"uuid": "a"}, {"uuid": "b"}]), ScriptedResponse(json=[])],
+                [ScriptedResponse(json=[{"uuid": "a"}, {"uuid": "b"}])],
                 "/api/v1/sms_templates.json",
             ),
         ]
@@ -100,6 +183,21 @@ class TestBlueshiftLists:
 
 
 class TestBlueshiftCampaignStats:
+    @parameterized.expand([("server_delay_above_backoff_cap", 120.0, 120.0), ("no_server_delay", None, None)])
+    def test_retry_waits_the_delay_the_server_asks_for(
+        self, _name: str, retry_after: float | None, expected: float | None
+    ) -> None:
+        outcome = MagicMock()
+        outcome.exception.return_value = BlueshiftRetryableError("status=429", retry_after=retry_after)
+        state = MagicMock(outcome=outcome, attempt_number=1)
+
+        wait = _wait_stats(state)
+
+        if expected is None:
+            assert 0 <= wait <= MAX_STATS_RETRY_WAIT_SECONDS
+        else:
+            assert wait == expected
+
     @parameterized.expand(
         [
             ("watermark_rereads_a_week", {"db_incremental_field_last_value": date(2026, 10, 13)}, "2026-10-06"),
@@ -119,7 +217,8 @@ class TestBlueshiftCampaignStats:
             day = request.param("start_time")[:10]
             if day == "2026-10-14":
                 return ScriptedResponse(json={"campaigns": []})
-            return ScriptedResponse(json={"campaigns": [_campaign(f"c-{day}")]})
+            idle = {"uuid": "idle", "statistics": {"sends": 0, "revenue": "0.0", "start_time": f"{day}T00:00:00Z"}}
+            return ScriptedResponse(json={"campaigns": [_campaign(f"c-{day}"), idle]})
 
         result = _driver().run(
             "campaign_stats", answer, incremental_field="date", source_cursor=_no_stored_cursor(), **kwargs
