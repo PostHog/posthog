@@ -1,3 +1,5 @@
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import {
@@ -93,9 +95,9 @@ export function emptyFilterGroup(): UniversalFiltersGroup {
     }
 }
 
+/** Whether any group in the tree, at any depth, holds a filter. The API may save several outer groups. */
 function hasFilters(filterGroup: UniversalFiltersGroup): boolean {
-    const inner = filterGroup.values[0] as UniversalFiltersGroup | undefined
-    return (inner?.values.length ?? 0) > 0
+    return filterGroup.values.some((value) => !isUniversalGroupFilterLike(value) || hasFilters(value))
 }
 
 export function tracesSourceConfig(alert: PlatformAlertConfigurationApi): TracesPlatformAlertConfigApi | null {
@@ -148,7 +150,9 @@ function round(value: number): number {
 }
 
 /** Only the fields that can be wrong, so the type fits kea-forms' per-field error map. */
-export type TracesAlertFormErrors = Partial<Record<'name' | 'threshold' | 'groupBy' | 'datapointsToAlarm', string>>
+export type TracesAlertFormErrors = Partial<
+    Record<'name' | 'threshold' | 'groupBy' | 'datapointsToAlarm' | 'evaluationPeriods' | 'cooldownMinutes', string>
+>
 
 /** kea-forms types an error as any of string, boolean or null; the fields here only ever hold a message. */
 export function errorText(error: unknown): string | undefined {
@@ -173,10 +177,30 @@ export function validateForm(form: TracesAlertFormType): TracesAlertFormErrors {
     } else if (form.groupBy === 'service_and_operation' && form.serviceNames.length === 0) {
         errors.groupBy = 'Pick at least one service to group by operation'
     }
-    if (form.datapointsToAlarm > form.evaluationPeriods) {
-        errors.datapointsToAlarm = 'Cannot need more matching checks than checks considered'
+    return { ...errors, ...validateChecks(form) }
+}
+
+function isWholeNumberBetween(value: number, min: number, max: number): boolean {
+    return Number.isInteger(value) && value >= min && value <= max
+}
+
+/** The advanced settings, held to the API's bounds so a bad value fails here rather than on save. */
+function validateChecks(form: TracesAlertFormType): TracesAlertFormErrors {
+    const errors: TracesAlertFormErrors = {}
+    if (!isWholeNumberBetween(form.evaluationPeriods, 1, MAX_EVALUATION_PERIODS)) {
+        errors.evaluationPeriods = `Enter a whole number of checks from 1 to ${MAX_EVALUATION_PERIODS}`
+    } else if (!isWholeNumberBetween(form.datapointsToAlarm, 1, form.evaluationPeriods)) {
+        errors.datapointsToAlarm = `Enter a whole number of matching checks from 1 to ${form.evaluationPeriods}`
+    }
+    if (!isWholeNumberBetween(form.cooldownMinutes, 0, Number.MAX_SAFE_INTEGER)) {
+        errors.cooldownMinutes = 'Enter a whole number of minutes, 0 or more'
     }
     return errors
+}
+
+/** A cleared number input reports NaN, which would otherwise reach the payload as null. */
+export function finiteOr(value: number | undefined, fallback: number): number {
+    return value !== undefined && Number.isFinite(value) ? value : fallback
 }
 
 export function toCondition(form: TracesAlertFormType): TracesPlatformAlertConditionApi {
@@ -191,6 +215,11 @@ export function toCondition(form: TracesAlertFormType): TracesPlatformAlertCondi
 }
 
 function toGrouping(form: TracesAlertFormType, saved: GroupingApi | undefined): GroupingApi {
+    // A saved grouping the form can only approximate, such as one by operation alone, is kept until the
+    // person picks another option, because new keys clear the alert's current groups.
+    if (saved && groupByFromKeys(saved) === form.groupBy) {
+        return saved
+    }
     if (form.groupBy === 'none') {
         return { mode: GroupingModeEnumApi.Single, keys: [] }
     }

@@ -521,7 +521,11 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             (featureFlags: FeatureFlagsSet): TracingSceneTab[] => [
                 DEFAULT_SCENE_TAB,
                 ...(featureFlags[FEATURE_FLAGS.TRACING_SCENE_TABS] ? (['sql'] as const) : []),
-                ...(featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES] ? (['alerts'] as const) : []),
+                // The platform API serves traces alerts only with both flags on, so the tab needs both.
+                ...(featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS] &&
+                featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]
+                    ? (['alerts'] as const)
+                    : []),
             ],
         ],
         sceneTabsEnabled: [

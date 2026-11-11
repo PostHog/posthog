@@ -254,15 +254,22 @@ describe('tracingSceneLogic', () => {
     })
 
     it.each([
-        ['sql', FEATURE_FLAGS.TRACING_SCENE_TABS, FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES],
-        ['alerts', FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES, FEATURE_FLAGS.TRACING_SCENE_TABS],
-    ])('opens a tab=%s deep link only behind its own flag', (tab, ownFlag, otherFlag) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [otherFlag]: true })
+        ['sql', [FEATURE_FLAGS.TRACING_SCENE_TABS], [FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]],
+        // The traces flag alone is not enough: the API also needs platform-alerts.
+        [
+            'alerts',
+            [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES],
+            [FEATURE_FLAGS.TRACING_SCENE_TABS, FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES],
+        ],
+    ])('opens a tab=%s deep link only behind its own flags', (tab, ownFlags, otherFlags) => {
+        const flagsOn = (flags: string[]): Record<string, boolean> =>
+            Object.fromEntries(flags.map((flag) => [flag, true]))
+        featureFlagLogic.actions.setFeatureFlags([], flagsOn(otherFlags))
         mountAt({ tab })
         expect(logic.values.activeSceneTab).toBe('viewer')
         expect(router.values.searchParams).not.toHaveProperty('tab')
 
-        featureFlagLogic.actions.setFeatureFlags([], { [ownFlag]: true })
+        featureFlagLogic.actions.setFeatureFlags([], flagsOn(ownFlags))
         router.actions.push('/tracing', { tab })
         expect(logic.values.activeSceneTab).toBe(tab)
         expect(logic.values.availableSceneTabs).toEqual(['viewer', tab])

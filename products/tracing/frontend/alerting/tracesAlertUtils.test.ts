@@ -1,3 +1,5 @@
+import { FilterLogicalOperator, PropertyOperator, UniversalFiltersGroup } from '~/types'
+
 import {
     GroupingModeEnumApi,
     MeasureEnumApi,
@@ -30,15 +32,33 @@ describe('tracesAlertUtils', () => {
         expect(buildFormDefaults(savedAlert(payload))).toEqual(original)
     })
 
-    it('keeps a saved group limit when an edit keeps the alert grouped', () => {
-        const grouped = form({ groupBy: 'service' })
-        const saved = savedAlert(toWritePayload(grouped))
+    it('keeps a saved grouping the form can only approximate when an edit leaves grouping alone', () => {
+        const byOperation = { mode: GroupingModeEnumApi.ByResultLabels, keys: ['name'], max_instances: 50 }
+        const saved = {
+            ...savedAlert(toWritePayload(form({ serviceNames: ['checkout'] }))),
+            grouping: byOperation,
+        } as PlatformAlertConfigurationApi
 
-        expect(toWritePayload(grouped, saved).grouping).toEqual({
-            mode: GroupingModeEnumApi.ByResultLabels,
-            keys: ['service_name'],
-            max_instances: 50,
-        })
+        const edit = { ...buildFormDefaults(saved), name: 'Renamed' }
+
+        expect(toWritePayload(edit, saved).grouping).toEqual(byOperation)
+    })
+
+    it('keeps filters that sit in a later group of the saved filter tree', () => {
+        const filterGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                { type: FilterLogicalOperator.And, values: [] },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        { key: 'http.route', value: '/cart', operator: PropertyOperator.Exact, type: 'span_attribute' },
+                    ],
+                },
+            ],
+        } as unknown as UniversalFiltersGroup
+
+        expect(toWritePayload(form({ filterGroup })).source_config.filters?.filterGroup).toEqual(filterGroup)
     })
 
     it.each([
@@ -50,6 +70,9 @@ describe('tracesAlertUtils', () => {
         ],
         ['grouping by operation with no service', form({ groupBy: 'service_and_operation' }), 'groupBy'],
         ['more matching checks than checks', form({ datapointsToAlarm: 3, evaluationPeriods: 2 }), 'datapointsToAlarm'],
+        ['more checks than the API allows', form({ evaluationPeriods: 11 }), 'evaluationPeriods'],
+        ['a fractional check count', form({ evaluationPeriods: 2.5 }), 'evaluationPeriods'],
+        ['a negative cooldown', form({ cooldownMinutes: -5 }), 'cooldownMinutes'],
     ])('refuses %s, which the API would reject', (_, invalid, field) => {
         expect(Object.keys(validateForm(invalid))).toEqual([field])
     })

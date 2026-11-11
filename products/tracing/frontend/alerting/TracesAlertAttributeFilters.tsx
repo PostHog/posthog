@@ -28,6 +28,7 @@ export function TracesAlertAttributeFilters({
     serviceNames,
     onChange,
 }: TracesAlertAttributeFiltersProps): JSX.Element {
+    const extraGroups = filterGroup.values.length - 1
     return (
         <UniversalFilters
             rootKey="traces-alert"
@@ -37,12 +38,22 @@ export function TracesAlertAttributeFilters({
                 dateRange: { ...SUGGESTION_RANGE, date_to: dayjs().toISOString() },
                 serviceNames,
             }}
-            onChange={(group) => onChange({ type: FilterLogicalOperator.And, values: [group] })}
+            // Only the first group is editable here. An alert saved through the API may hold more, and they
+            // keep applying, so an edit replaces the first and keeps the rest.
+            onChange={(group) =>
+                onChange({ type: FilterLogicalOperator.And, values: [group, ...filterGroup.values.slice(1)] })
+            }
         >
             <div className="flex flex-wrap items-center gap-1">
                 <FilterValues />
                 <UniversalFilters.AddFilterButton size="small" type="secondary" data-attr="traces-alert-add-filter" />
             </div>
+            {extraGroups > 0 ? (
+                <p className="text-xs text-secondary m-0 mt-1">
+                    Plus {extraGroups} more filter {extraGroups === 1 ? 'group' : 'groups'} set through the API, which
+                    this form keeps but cannot edit.
+                </p>
+            ) : null}
         </UniversalFilters>
     )
 }

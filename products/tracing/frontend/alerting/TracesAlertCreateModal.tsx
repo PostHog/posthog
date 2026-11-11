@@ -53,7 +53,9 @@ function TracesAlertCreateModalContent({
     const triggerCannotAdvanceReason =
         thresholdError ??
         errorText(alertFormValidationErrors.groupBy) ??
-        errorText(alertFormValidationErrors.datapointsToAlarm)
+        errorText(alertFormValidationErrors.evaluationPeriods) ??
+        errorText(alertFormValidationErrors.datapointsToAlarm) ??
+        errorText(alertFormValidationErrors.cooldownMinutes)
     const payload = toWritePayload(alertForm)
 
     const steps: AlertWizardStep[] = [

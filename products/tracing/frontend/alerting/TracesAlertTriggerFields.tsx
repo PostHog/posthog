@@ -17,6 +17,7 @@ import {
     PERCENTILE_OPTIONS,
     WINDOW_OPTIONS,
     errorText,
+    finiteOr,
     thresholdUnit,
 } from './tracesAlertUtils'
 
@@ -97,7 +98,7 @@ export function TracesAlertTriggerFields({ thresholdError }: { thresholdError?: 
                 <LemonField.Pure
                     label="Reduce noise"
                     help="Require the condition on several checks before the alert fires. The alert resolves once the condition stops matching."
-                    error={errorText(alertFormErrors.datapointsToAlarm)}
+                    error={errorText(alertFormErrors.evaluationPeriods) ?? errorText(alertFormErrors.datapointsToAlarm)}
                 >
                     <div className="flex items-center gap-2 flex-wrap">
                         <LemonInput
@@ -105,7 +106,7 @@ export function TracesAlertTriggerFields({ thresholdError }: { thresholdError?: 
                             min={1}
                             max={alertForm.evaluationPeriods}
                             value={alertForm.datapointsToAlarm}
-                            onChange={(value) => setAlertFormValue('datapointsToAlarm', value ?? 1)}
+                            onChange={(value) => setAlertFormValue('datapointsToAlarm', finiteOr(value, 1))}
                             className="w-16"
                             size="small"
                             data-attr="traces-alert-datapoints"
@@ -117,7 +118,7 @@ export function TracesAlertTriggerFields({ thresholdError }: { thresholdError?: 
                             max={MAX_EVALUATION_PERIODS}
                             value={alertForm.evaluationPeriods}
                             onChange={(value) => {
-                                const periods = value ?? 1
+                                const periods = finiteOr(value, 1)
                                 setAlertFormValue('evaluationPeriods', periods)
                                 if (alertForm.datapointsToAlarm > periods) {
                                     setAlertFormValue('datapointsToAlarm', periods)
@@ -133,13 +134,14 @@ export function TracesAlertTriggerFields({ thresholdError }: { thresholdError?: 
                 <LemonField.Pure
                     label="Notification cooldown"
                     help="Minimum time between notifications. Set to 0 for no minimum."
+                    error={errorText(alertFormErrors.cooldownMinutes)}
                 >
                     <div className="flex items-center gap-2">
                         <LemonInput
                             type="number"
                             min={0}
                             value={alertForm.cooldownMinutes}
-                            onChange={(value) => setAlertFormValue('cooldownMinutes', value ?? 0)}
+                            onChange={(value) => setAlertFormValue('cooldownMinutes', finiteOr(value, 0))}
                             className="w-24"
                             size="small"
                             data-attr="traces-alert-cooldown"

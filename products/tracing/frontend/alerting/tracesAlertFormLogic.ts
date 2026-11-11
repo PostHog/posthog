@@ -139,6 +139,11 @@ export const tracesAlertFormLogic = kea<tracesAlertFormLogicType>([
                     window_minutes: form.windowMinutes,
                     service_count: form.serviceNames.length,
                 }
+                // Read before the request, because closing the modal while it runs unmounts the destinations logic.
+                const pending = props.alert
+                    ? []
+                    : (platformAlertDestinationsLogic.findMounted(NEW_ALERT_DESTINATIONS)?.values.pendingDestinations ??
+                      [])
                 try {
                     if (props.alert) {
                         await platformAlertsPartialUpdate(projectId, props.alert.id, {
@@ -152,9 +157,6 @@ export const tracesAlertFormLogic = kea<tracesAlertFormLogicType>([
                             source_kind: TracesPlatformAlertConfigurationCreateApiSourceKind.Traces,
                             ...payload,
                         })
-                        const pending =
-                            platformAlertDestinationsLogic.findMounted(NEW_ALERT_DESTINATIONS)?.values
-                                .pendingDestinations ?? []
                         const failed = await createPendingDestinations(projectId, created.id, pending)
                         posthog.capture('traces alert created', { ...properties, destination_count: pending.length })
                         if (failed > 0) {
