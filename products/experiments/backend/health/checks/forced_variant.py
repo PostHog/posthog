@@ -123,7 +123,18 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
             pinned_keys=pinned_keys,
             diagnostic_ref="A7b",
             grade_evidence=set_after_launch.evidence,
+            # The detail of a launched experiment offers to end it when these are test users.
+            actions=(
+                (ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,)
+                if is_draft
+                else (
+                    ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+                    ExperimentHealthFindingActionKind.END_EXPERIMENT,
+                )
+            ),
         )
+    # With one variant for everyone, the detail of a launched experiment says to end it if the rollout was meant.
+    ends_first = not is_draft and len(pinned_keys) == 1
     return _finding(
         subcode=ALL_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING,
@@ -133,6 +144,14 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
         pinned_keys=pinned_keys,
         diagnostic_ref="A7b",
         grade_evidence=set_after_launch.evidence,
+        actions=(
+            (
+                ExperimentHealthFindingActionKind.END_EXPERIMENT,
+                ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+            )
+            if ends_first
+            else (ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,)
+        ),
     )
 
 
@@ -391,6 +410,9 @@ def _finding(
     diagnostic_ref: str,
     grade_evidence: Mapping[str, str | int | float | None] | None = None,
     reason: str | None = None,
+    actions: tuple[ExperimentHealthFindingActionKind, ...] = (
+        ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+    ),
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.FORCED_VARIANT_RELEASE_CONDITION,
@@ -404,6 +426,6 @@ def _finding(
             "pinned_variant_keys": ", ".join(pinned_keys),
             **(grade_evidence or {}),
         },
-        actions=(ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,),
+        actions=actions,
         diagnostic_ref=diagnostic_ref,
     )
