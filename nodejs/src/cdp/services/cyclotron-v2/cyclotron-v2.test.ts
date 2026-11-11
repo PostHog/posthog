@@ -2007,7 +2007,8 @@ describe('Cyclotron V2', () => {
                 ...args: unknown[]
             ) {
                 const run = (): unknown => (realQuery as (...a: unknown[]) => unknown).apply(this, args)
-                if (String(args[0]).startsWith('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')) {
+                const sql = typeof args[0] === 'string' ? args[0] : (args[0] as { text?: string }).text
+                if (sql?.startsWith('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')) {
                     ownershipReadStarted()
                     return ownershipReadAnswered.then(run)
                 }

@@ -247,6 +247,7 @@ export class CyclotronV2Worker {
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
     private readonly boundedPolls: boolean
+    private readonly ownershipReadTimeoutMs: number
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = createCyclotronPool('worker', {
@@ -261,6 +262,7 @@ export class CyclotronV2Worker {
         this.releaseWriteHeartbeatLimitMs = config.releaseWriteHeartbeatLimitMs ?? 20000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
         this.boundedPolls = config.boundedPolls ?? false
+        this.ownershipReadTimeoutMs = config.ownershipReadTimeoutMs ?? 5_000
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
         // `dequeue_seq` is only ever assigned for email jobs (see
         // CyclotronV2Manager), so deriving this from the queue name keeps the
@@ -406,6 +408,7 @@ export class CyclotronV2Worker {
         const pool = this.pool
         const lockId = row.lock_id
         const releaseWriteHeartbeatLimitMs = this.releaseWriteHeartbeatLimitMs
+        const ownershipReadTimeoutMs = this.ownershipReadTimeoutMs
         let releaseStartedAt: number | null = null
         let releaseWritten = false
 
@@ -430,10 +433,12 @@ export class CyclotronV2Worker {
             logger.warn('CyclotronV2Worker lost ownership of a job', { id: row.id, operation })
         }
         const ownsJobNow = async (): Promise<boolean> => {
-            const result = await pool.query('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2', [
-                row.id,
-                lockId,
-            ])
+            const ownershipRead = {
+                text: 'SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2',
+                values: [row.id, lockId],
+                query_timeout: ownershipReadTimeoutMs,
+            }
+            const result = await pool.query(ownershipRead)
             return result.rowCount === 1
         }
 

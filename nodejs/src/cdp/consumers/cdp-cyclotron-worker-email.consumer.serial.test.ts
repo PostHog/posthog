@@ -20,7 +20,12 @@ import { FakeSes, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { CyclotronV2Janitor, CyclotronV2Manager } from '~/cdp/services/cyclotron-v2'
+import {
+    CyclotronV2Janitor,
+    CyclotronV2Manager,
+    CyclotronV2Worker,
+    CyclotronV2WorkerConfig,
+} from '~/cdp/services/cyclotron-v2'
 import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
@@ -58,9 +63,14 @@ jest.mock('node:dns/promises', () => ({
 class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
     constructor(
         private readonly queueName: string,
-        config: ConstructorParameters<typeof CyclotronJobQueuePostgresV2>[1]
+        config: ConstructorParameters<typeof CyclotronJobQueuePostgresV2>[1],
+        private readonly workerOverrides: Partial<CyclotronV2WorkerConfig> = {}
     ) {
         super(10, config)
+    }
+
+    protected override createWorker(workerConfig: CyclotronV2WorkerConfig): CyclotronV2Worker {
+        return super.createWorker({ ...workerConfig, ...this.workerOverrides })
     }
 
     public override startAsConsumer(
@@ -386,7 +396,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         limits: InFlightLimits | null,
         sesClient: SESv2Client = sesClientFor(ses),
         postgres: PostgresRouter = hub.postgres,
-        overrides: Partial<Hub> = {}
+        overrides: Partial<Hub> = {},
+        workerOverrides: Partial<CyclotronV2WorkerConfig> = {}
     ): Promise<CdpCyclotronWorkerEmail> {
         const config = {
             ...hub,
@@ -401,7 +412,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         const worker = new CdpCyclotronWorkerEmail(
             config,
             { ...createCdpConsumerDeps(hub), postgres },
-            new EmailQueueOfOneTest(queueName, config),
+            new EmailQueueOfOneTest(queueName, config, workerOverrides),
             new InFlightRegistry(limits, () => 0)
         )
         worker.emailService.sesV2Client = sesClient
@@ -520,6 +531,22 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
         expect(delivered()).toEqual([[]])
         expect((await jobRow(id)).status).toBe('completed')
+    })
+
+    it('a worker with one Postgres connection sends once while its first ownership check never gets an answer', async () => {
+        const [id] = await enqueue(transactionalSend(null))
+        const unansweredCheck = cyclotron.hold(writeOf(checksOwnership, id))
+        await startWorker(
+            null,
+            sesClientFor(ses),
+            hub.postgres,
+            { CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id) },
+            { pool: { dbUrl: cyclotron.url, maxConnections: 1 }, ownershipReadTimeoutMs: 200 }
+        )
+        await unansweredCheck
+
+        expect(await ended(id)).toBe('completed')
+        expect(delivered()).toEqual([[]])
     })
 
     it('a worker that claims its own re-queued send with files again sends it once, from the newer claim', async () => {
