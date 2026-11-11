@@ -432,7 +432,7 @@ tools:
             idempotent: true
         title: Group logs by attributes
         description_file: ./prompts/logs-group-by.md
-        feature_flag: logs-agent-tools
+        hooks: logs/groupByRedactionHooks
         response:
             exclude:
                 - groups.*.value
