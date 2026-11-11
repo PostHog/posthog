@@ -1047,6 +1047,19 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 lemonToast.info(`${values.fileMoveDisabledReason}, then try again.`)
                 return
             }
+            // A recursive folder delete removes whatever is inside the folder when the server lists it, so a file
+            // dropped in while the delete is pending could be deleted with it. Only the drop knows its target folder
+            // here, because the Move to dialog hands its choice straight to the shared tree.
+            const deletingTarget = values.pendingActions.some(
+                (action) =>
+                    action.item.type === 'folder' &&
+                    (action.type === 'prepare-delete' || action.type === 'delete') &&
+                    moves.some(({ newPath }) => isPathUnder(newPath, action.path))
+            )
+            if (deletingTarget) {
+                lemonToast.info('Wait until the folder finishes deleting, then try again.')
+                return
+            }
             if (moves.length) {
                 await projectTreeDataLogic.asyncActions.moveItems(moves, false, WORKFLOW_FILES_DRAG_SCOPE)
                 actions.clearSelectedFiles()

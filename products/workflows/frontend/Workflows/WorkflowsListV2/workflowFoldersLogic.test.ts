@@ -672,14 +672,29 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).toContain('Empty')
     })
 
-    it('keeps file moves open while a folder delete from the project tree stalls', async () => {
+    it('refuses a drop into a folder the project tree is deleting, and keeps other moves open', async () => {
         await expectLogic(logic).toFinishAllListeners()
-        useMocks({ post: { '/api/projects/:team_id/file_system/:id/count/': () => new Promise(() => {}) } })
-        projectTreeDataLogic.actions.deleteItem({ id: 'empty', path: 'Empty', type: 'folder' }, 'project-tree')
+        const moves: string[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 0 }],
+                '/api/projects/:team_id/file_system/direct/move/': async ({ request }) => {
+                    const body = (await request.json()) as { new_path: string }
+                    moves.push(body.new_path)
+                    return [200, { id: 'direct', path: body.new_path, type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id }]
+                },
+            },
+            delete: { '/api/projects/:team_id/file_system/:id/': () => new Promise(() => {}) },
+        })
+        projectTreeDataLogic.actions.deleteItem({ id: 'billing', path: 'Billing', type: 'folder' }, 'project-tree')
         await waitFor(() =>
-            expect(projectTreeDataLogic.values.pendingActions.map((action) => action.type)).toEqual(['prepare-delete'])
+            expect(projectTreeDataLogic.values.pendingActions.map((action) => action.type)).toEqual(['delete'])
         )
         expect(logic.values.fileMoveDisabledReason).toBeUndefined()
+
+        await logic.asyncActions.dropFile('project/direct', 'project://Billing/Cards')
+        await logic.asyncActions.dropFile('project/direct', 'project://Empty')
+        await waitFor(() => expect(moves).toEqual(['Empty/Welcome']))
     })
 
     it('releases every move when counting a renamed folder stalls', async () => {
