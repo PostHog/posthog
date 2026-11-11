@@ -211,6 +211,27 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         key.refresh_from_db()
         assert key.scoped_teams == [self.team.id]
 
+    @parameterized.expand(
+        [
+            ("drops a retired scope the key already holds", ["insight:read", "retired_product:read"], 200),
+            ("rejects an unknown scope the key does not hold", ["insight:read", "never_existed:read"], 400),
+        ]
+    )
+    def test_update_with_a_scope_that_no_longer_exists(self, _name, sent_scopes, expected_status):
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read", "retired_product:read"],
+        )
+
+        response = self.client.patch(f"/api/personal_api_keys/{key.id}", {"label": "renamed", "scopes": sent_scopes})
+
+        assert response.status_code == expected_status
+        key.refresh_from_db()
+        if expected_status == 200:
+            assert key.scopes == ["insight:read"]
+
     def test_allows_all_scope(self):
         response = self.client.post(
             "/api/personal_api_keys/",
