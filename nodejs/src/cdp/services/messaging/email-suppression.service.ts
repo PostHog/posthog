@@ -1,13 +1,15 @@
 import { Counter } from 'prom-client'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { isValidTeamId } from '~/common/utils/team-manager'
+import type { ValueMatcher } from '~/types'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_cleared` = an address removed from that list after a delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_cleared` = an address removed from that list after a delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced.',
     labelNames: ['result'],
 })
 
@@ -17,10 +19,16 @@ const normalizeIdentifier = (email: string): string => email.trim().toLowerCase(
 
 const toKey = (teamId: number, identifier: string): string => `${teamId}:${identifier}`
 
+const toTimestampPostgresAccepts = (timestamp?: string): string | null => {
+    const parsed = timestamp ? Date.parse(timestamp) : NaN
+    return Number.isNaN(parsed) ? null : new Date(parsed).toISOString()
+}
+
 export type EmailSuppressionConfig = {
     // Consecutive soft bounces before auto-suppression.
     transientBounceThreshold: number
     globalHardBounceEnforce?: boolean
+    softBounceEventTimeTeams?: string
 }
 
 // Test helper — production paths take config from `CdpConfig`; tests that still mutate process.env
@@ -30,6 +38,13 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
     const parsedThreshold = rawThreshold ? parseInt(rawThreshold, 10) : NaN
     return {
         transientBounceThreshold: Number.isFinite(parsedThreshold) && parsedThreshold > 0 ? parsedThreshold : 5,
+    }
+}
+
+export class SuppressionLookupError extends Error {
+    constructor() {
+        super('Could not check the suppression list')
+        this.name = 'SuppressionLookupError'
     }
 }
 
@@ -94,6 +109,7 @@ const LEGACY_HARD_BOUNCE_REASONS = [
 export class EmailSuppressionService {
     private readonly threshold: number
     private readonly globalHardBounceEnforce: boolean
+    private readonly stampsSoftBounceWithEventTime: ValueMatcher<number>
     // A key's active suppression, or false when it has none.
     private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
@@ -103,6 +119,7 @@ export class EmailSuppressionService {
     ) {
         this.threshold = config.transientBounceThreshold
         this.globalHardBounceEnforce = config.globalHardBounceEnforce ?? false
+        this.stampsSoftBounceWithEventTime = buildIntegerMatcher(config.softBounceEventTimeTeams, true)
         this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
@@ -123,21 +140,40 @@ export class EmailSuppressionService {
         if (!identifier) {
             return false
         }
+        let entry: SuppressionEntry | false
         try {
-            const entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
-            if (entry !== false && entry.global === 'shadow') {
-                cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_shadow_hit' })
+            entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+        } catch (error) {
+            cdpEmailSuppressionTotal.inc({ result: 'lookup_failed' })
+            logger.error('[EmailSuppression] Failed to check suppression', { teamId, error })
+            throw new SuppressionLookupError()
+        }
+        if (entry === false) {
+            return false
+        }
+        if (entry.global === 'shadow') {
+            cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_shadow_hit' })
+            return false
+        }
+        const suppressed = !transactional || entry.blocksTransactional
+        if (suppressed) {
+            cdpEmailSuppressionTotal.inc({ result: entry.global ? 'global_hard_bounce_hit' : 'suppressed_hit' })
+        }
+        return suppressed
+    }
+
+    /**
+     * For checks before an email is queued. The send path checks again and holds the email while the
+     * list cannot be read, so here an unreadable list counts as not suppressed.
+     */
+    public async isKnownSuppressed(teamId: number, email: string, options?: SuppressionCheckOptions): Promise<boolean> {
+        try {
+            return await this.isSuppressed(teamId, email, options)
+        } catch (error) {
+            if (error instanceof SuppressionLookupError) {
                 return false
             }
-            const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
-            if (suppressed) {
-                cdpEmailSuppressionTotal.inc({ result: entry.global ? 'global_hard_bounce_hit' : 'suppressed_hit' })
-            }
-            return suppressed
-        } catch (error) {
-            // Fail open: a lookup error must never block a legitimate send.
-            logger.error('[EmailSuppression] Failed to check suppression', { teamId, error })
-            return false
+            throw error
         }
     }
 
@@ -146,7 +182,12 @@ export class EmailSuppressionService {
      * counter and auto-suppresses it in the same statement once it reaches the threshold. Manual
      * entries keep their suppressed state untouched, and complaint entries keep their reason.
      */
-    public async recordTransientBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
+    public async recordTransientBounces(
+        teamId: number,
+        emails: string[],
+        diagnostic?: string,
+        bounceTimestamp?: string
+    ): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
             return
@@ -156,7 +197,7 @@ export class EmailSuppressionService {
         const reason = `Auto-suppressed after ${this.threshold} consecutive soft bounces`
 
         // Build a single multi-row upsert. Params: teamId, reason, threshold, diag, legacy reasons,
-        // then one identifier per row.
+        // global-copy diagnostic, bounce time, then one identifier per row.
         const valueClauses: string[] = []
         const params: (number | string | string[] | null)[] = [
             teamId,
@@ -165,13 +206,14 @@ export class EmailSuppressionService {
             diag,
             LEGACY_HARD_BOUNCE_REASONS,
             GLOBAL_HARD_BOUNCE_DIAGNOSTIC,
+            this.stampsSoftBounceWithEventTime(teamId) ? toTimestampPostgresAccepts(bounceTimestamp) : null,
         ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             // gen_random_uuid() for the id, mirroring RecipientsManagerService.optOut. First bounce
             // starts the count at 1 and only suppresses immediately if the threshold is 1.
             valueClauses.push(
-                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', NULL, 1, NOW(), $4, (1 >= $3), CASE WHEN 1 >= $3 THEN NOW() ELSE NULL END, false, NOW(), NOW())`
+                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', NULL, 1, COALESCE($7::timestamptz, NOW()), $4, (1 >= $3), CASE WHEN 1 >= $3 THEN NOW() ELSE NULL END, false, NOW(), NOW())`
             )
         })
         params.push(...identifiers)
@@ -183,11 +225,13 @@ export class EmailSuppressionService {
             VALUES ${valueClauses.join(', ')}
             ON CONFLICT (team_id, identifier) DO UPDATE SET
                 transient_bounce_count = posthog_messagesuppression.transient_bounce_count + 1,
-                last_bounce_at = NOW(),
+                last_bounce_at = GREATEST(posthog_messagesuppression.last_bounce_at, EXCLUDED.last_bounce_at),
                 -- The diagnostic marks a copy of a global hard bounce, which a delivery must still be able to release.
                 last_bounce_diagnostic = CASE
                     WHEN posthog_messagesuppression.source = 'BOUNCE'
                         AND posthog_messagesuppression.last_bounce_diagnostic = $6
+                        THEN posthog_messagesuppression.last_bounce_diagnostic
+                    WHEN posthog_messagesuppression.last_bounce_at > EXCLUDED.last_bounce_at
                         THEN posthog_messagesuppression.last_bounce_diagnostic
                     ELSE EXCLUDED.last_bounce_diagnostic END,
                 -- Never downgrade or re-key a manual entry; only auto (BOUNCE) rows can cross the threshold.
@@ -496,7 +540,8 @@ export class EmailSuppressionService {
         // always a single query regardless of batch size.
         const byTeam = new Map<number, string[]>()
         for (const p of parsed) {
-            if (!isValidTeamId(p.teamId)) {
+            // Postgres text cannot hold a NUL byte, so no row matches it, and sending one would fail the whole load.
+            if (!isValidTeamId(p.teamId) || p.identifier.includes('\u0000')) {
                 continue
             }
             const list = byTeam.get(p.teamId) ?? []
@@ -573,8 +618,12 @@ export class EmailSuppressionService {
             )
             bounced = new Set(result.rows.map((row) => row.email))
         } catch (error) {
-            // Fail open, like the rest of the pre-send check, and keep the team's own list.
             logger.error('[EmailSuppression] Failed to check global hard bounces', { error })
+            if (this.globalHardBounceEnforce) {
+                // An enforced list blocks sends, so a failed read holds them like a failed team-list read.
+                throw error
+            }
+            // A shadow list never blocks a send, so a failed read changes nothing.
             return
         }
 

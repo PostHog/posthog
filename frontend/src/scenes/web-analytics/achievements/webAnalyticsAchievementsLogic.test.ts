@@ -9,7 +9,10 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { AchievementsListResponseApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import {
+    type AchievementsListResponseApi,
+    InteractionKindEnumApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
 
@@ -64,11 +67,11 @@ const DEFS_OVERVIEW: AchievementsListResponseApi = {
 describe('webAnalyticsAchievementsLogic', () => {
     let logic: ReturnType<typeof webAnalyticsAchievementsLogic.build>
     let lastAck: { track_key: string; stage: number } | null
-    let lastInteraction: { interaction_kind: string } | null
+    let interactions: { interaction_kind: string }[]
 
     beforeEach(() => {
         lastAck = null
-        lastInteraction = null
+        interactions = []
         jest.spyOn(lemonToast, 'success').mockReturnValue('mock-toast-id')
         initKeaTests()
         useMocks({
@@ -82,7 +85,7 @@ describe('webAnalyticsAchievementsLogic', () => {
                     return [200, { acknowledged: true }]
                 },
                 [RECORD_INTERACTION_URL]: async ({ request }) => {
-                    lastInteraction = (await request.json()) as { interaction_kind: string }
+                    interactions.push((await request.json()) as { interaction_kind: string })
                     return [200, { recorded: true }]
                 },
             },
@@ -251,7 +254,7 @@ describe('webAnalyticsAchievementsLogic', () => {
             })
                 .toDispatchActions(['recordInteraction'])
                 .toFinishAllListeners()
-            expect(lastInteraction).toEqual({ interaction_kind: 'data' })
+            expect(interactions).toEqual([{ interaction_kind: 'data' }])
         })
 
         it('does not post an interaction when achievements are disabled', async () => {
@@ -264,7 +267,19 @@ describe('webAnalyticsAchievementsLogic', () => {
             })
                 .toDispatchActions(['recordInteraction'])
                 .toFinishAllListeners()
-            expect(lastInteraction).toBeNull()
+            expect(interactions).toEqual([])
+        })
+
+        it('sends one data interaction for a burst of dashboard changes and still sends a recording', async () => {
+            enableAchievements()
+            await expectLogic(logic, () => {
+                eventUsageLogic.mount()
+                eventUsageLogic.actions.reportWebAnalyticsFilterApplied({} as any)
+                eventUsageLogic.actions.reportWebAnalyticsFilterRemoved({} as any)
+                eventUsageLogic.actions.reportWebAnalyticsCompareToggled({} as any)
+                logic.actions.recordInteraction(InteractionKindEnumApi.Recording)
+            }).toFinishAllListeners()
+            expect(interactions.map(({ interaction_kind }) => interaction_kind).sort()).toEqual(['data', 'recording'])
         })
     })
 

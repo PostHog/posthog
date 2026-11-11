@@ -44,6 +44,7 @@ class AvailableFeature(StrEnum):
     SURVEYS_RECURRING = "surveys_recurring"
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
+    HIPAA_BAA = "hipaa_baa"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
@@ -54,6 +55,7 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
     TWO_FACTOR_ENFORCEMENT = "2fa_enforcement"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
+    IP_RESTRICTIONS = "ip_restrictions"
     MEMBER_GOVERNANCE = "member_governance"
     SSF = "ssf"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
@@ -67,6 +69,8 @@ class AvailableFeature(StrEnum):
     POSTHOG_CODE_USAGE = "posthog_code_usage"
     TOOLBAR_HEATMAPS = "toolbar_heatmaps"
     PERSONAL_API_KEYS = "personal_api_keys"
+    SELF_DRIVING_TRIAL_ALLOWANCE_MICROUSD = "self_driving_trial_allowance_microusd"
+    SELF_DRIVING_TRIAL_REPORTS = "self_driving_trial_reports"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

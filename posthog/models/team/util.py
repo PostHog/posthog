@@ -44,6 +44,9 @@ TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
 # Child-first order for legacy loop tables retained outside Django state until their safe drop.
 RETIRED_LOOP_TABLES = ("posthog_task_loop_fire", "posthog_task_loop_trigger", "posthog_task_loop")
+# Out of Django state since warehouse_sources/0199, so the Team cascade cannot reach it. It holds encrypted
+# source credentials. Delete with the table.
+RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES = ("warehouse_sources_externaldatasourceinputsbackup",)
 
 
 class TeamPurgeStopped(Exception):
@@ -92,6 +95,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     from products.data_modeling.backend.facade.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.growth.backend.facade import api as growth_facade
+    from products.product_analytics.backend.facade import api as product_analytics_facade
     from products.today.backend.facade import api as today_facade
     from products.web_analytics.backend.facade import health_rollups as web_analytics_health_rollups
 
@@ -109,6 +113,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
     # Highlights carry team_id as a plain integer, so nothing cascades to them.
     today_facade.delete_highlights_for_teams(team_ids)
+    product_analytics_facade.delete_agent_insight_reads_for_teams(team_ids)
     growth_facade.delete_sdk_version_rollups_for_teams(team_ids)
     web_analytics_health_rollups.delete_health_rollups_for_teams(team_ids)
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
@@ -116,6 +121,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _delete_llm_evaluations_for_teams(team_ids)
     _delete_retired_session_summaries_for_teams(team_ids)
     _delete_retired_loops_for_teams(team_ids)
+    _delete_retired_warehouse_source_inputs_backups_for_teams(team_ids)
 
 
 def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
@@ -141,6 +147,10 @@ def _delete_retired_session_summaries_for_teams(team_ids: list[int], batch_size:
 
 def _delete_retired_loops_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
     _delete_retired_team_rows(RETIRED_LOOP_TABLES, team_ids, batch_size)
+
+
+def _delete_retired_warehouse_source_inputs_backups_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
+    _delete_retired_team_rows(RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES, team_ids, batch_size)
 
 
 def _delete_retired_team_rows(tables: tuple[str, ...], team_ids: list[int], batch_size: int) -> None:

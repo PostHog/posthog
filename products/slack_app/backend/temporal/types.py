@@ -15,9 +15,11 @@ from pydantic import BaseModel
 from posthog.dataclasses import frozen
 
 
-@dataclass
+@dataclass(frozen=True)
 class PostHogSlackInboxOnboardingInputs:
     integration_id: int
+    # Absent in workflows started before the field existed.
+    team_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,9 @@ class SlackAppWorkFocusInputs:
     integration_id: int
     slack_team_id: str
     slack_user_id: str
+    # Set on a daily run: the previous run time, as epoch seconds. The run reads the messages sent after it.
+    since: int | None = None
+    start_delay_seconds: int = 0
 
 
 @frozen

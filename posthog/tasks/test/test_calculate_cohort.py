@@ -1677,18 +1677,20 @@ class TestCohortCalculationTasks(APIBaseTest):
         task.push_request(retries=0, called_directly=False, is_eager=True)
         try:
             with (
-                patch(ch_insert_path),
+                patch(ch_insert_path, return_value=7),
                 patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
                 self.assertRaises(Retry) as scheduled,
             ):
                 task.run(cohort.id, self.team.pk)
 
-            with patch(ch_insert_path) as mock_insert_ch, patch(PG_SYNC_PATH):
+            with patch(ch_insert_path) as mock_insert_ch, patch(PG_SYNC_PATH) as mock_sync:
                 task.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
         finally:
             task.pop_request()
 
         mock_insert_ch.assert_not_called()
+        # The retry still has to wait for the rows the first attempt wrote, or a lagging replica reads as empty.
+        self.assertEqual(mock_sync.call_args.kwargs["min_rows"], 7)
 
     @parameterized.expand(
         [

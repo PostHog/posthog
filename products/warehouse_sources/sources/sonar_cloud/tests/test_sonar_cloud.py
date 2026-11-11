@@ -245,3 +245,58 @@ class TestIssueChangelog:
         assert [r.param("issue") for r in changelog_requests] == ["I1", "I2"]
         # The changelog is not paginated; a page or page-size param would be an undocumented one.
         assert all(r.param("p") is None and r.param("ps") is None for r in changelog_requests)
+
+
+class TestProjectFanOut:
+    @parameterized.expand(
+        [
+            ("project_quality_profiles", "qualityprofiles/search", "profiles", "org"),
+            ("pull_requests", "project_pull_requests/list", "pullRequests", None),
+        ]
+    )
+    def test_requests_each_project_once_and_tags_rows(
+        self, endpoint: str, child_path: str, data_key: str, organization: str | None
+    ) -> None:
+        children = {"P1": [{"key": "A"}, {"key": "B"}], "P2": [{"key": "A"}]}
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("components/search_projects"):
+                return _projects("P1", "P2")
+            return ScriptedResponse(json={data_key: children[request.param("project") or ""]})
+
+        result = _run(endpoint, script)
+
+        # The same child key under two projects must stay two rows, told apart by the project key.
+        assert [(row["project_key"], row["key"]) for row in result.rows] == [("P1", "A"), ("P1", "B"), ("P2", "A")]
+        child_requests = [r for r in result.requests if r.path.endswith(child_path)]
+        assert [(r.param("project"), r.param("organization")) for r in child_requests] == [
+            ("P1", organization),
+            ("P2", organization),
+        ]
+        assert all(r.param("p") is None and r.param("ps") is None for r in child_requests)
+
+
+class TestComponents:
+    def test_walks_tree_pages_and_skips_the_project_row(self) -> None:
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("components/search_projects"):
+                return _projects("P1")
+            return _component_tree(
+                "P1",
+                int(request.param("p") or "0"),
+                3,
+                {"1": ["a.py", "b.py"], "2": ["c.py"]}[request.param("p") or ""],
+            )
+
+        result = _run("components", script)
+
+        assert [(row["project_key"], row["key"], row["qualifier"]) for row in result.rows] == [
+            ("P1", "P1:a.py", "FIL"),
+            ("P1", "P1:b.py", "FIL"),
+            ("P1", "P1:c.py", "FIL"),
+        ]
+        tree_requests = [r for r in result.requests if r.path.endswith("components/tree")]
+        assert [(r.param("component"), r.param("p"), r.param("strategy")) for r in tree_requests] == [
+            ("P1", "1", "all"),
+            ("P1", "2", "all"),
+        ]

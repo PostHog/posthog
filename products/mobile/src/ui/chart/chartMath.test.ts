@@ -124,13 +124,15 @@ describe('chartMath', () => {
     test.each([
         [false, '4:07 PM'],
         [true, '16:07'],
-    ])('hourly chart labels follow the 24-hour preference %s', (uses24hourClock, clock) => {
+    ])('hourly and minute chart labels follow the 24-hour preference %s', (uses24hourClock, clock) => {
         jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock }])
         const at = new Date(2026, 9, 13, 16, 7).getTime()
         expect(formatPagerDate(at, 'hour')).toBe(`Oct 13, ${clock}`)
         expect(formatAxisDate(at, 'hour')).toBe(clock)
         expect(formatTooltipDate(at, 'hour', true)).toBe(clock)
         expect(formatTooltipDate(at, 'hour')).toBe(`Tue, Oct 13, ${clock}`)
+        expect(formatAxisDate(at, 'minute')).toBe(clock)
+        expect(formatTooltipDate(at, 'minute')).toBe(clock)
     })
 
     test.each<[string, Date, boolean, string]>([

@@ -368,8 +368,8 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
 
         with patch.object(
             access_control_api,
-            "get_restricted_properties_with_group_type_index_for_team",
-            wraps=access_control_api.get_restricted_properties_with_group_type_index_for_team,
+            "get_restricted_group_property_names_by_type_index",
+            wraps=access_control_api.get_restricted_group_property_names_by_type_index,
         ) as load_restrictions:
             response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
 
@@ -413,6 +413,89 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK, response.content
             matches = {(result["scope"], result["detail"]["name"]) for result in response.json()["results"]}
             assert ((scope, name) in matches) is expected, (value, matches)
+
+    # (label, property name, group type index logged on the entry, whether a member sees its values)
+    _GROUP_TYPE_ENTRIES: tuple[tuple[str, str, Optional[int], bool], ...] = (
+        ("plan-type-0", "plan", 0, False),
+        ("plan-type-1", "plan", 1, True),
+        ("plan-without-type", "plan", None, False),
+        ("customer-type-1", "customer", 1, False),
+        ("customer-type-0", "customer", 0, True),
+        ("customer-ssn-type-1", "customer.ssn", 1, False),
+        ("customer-tier-type-1", "customer.tier", 1, True),
+        ("industry-without-type", "industry", None, True),
+    )
+
+    def _log_group_changes_with_rules_per_group_type(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        for restricted_name, restricted_group_type_index in (("plan", 0), ("customer.ssn", 1)):
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=PropertyDefinition.objects.create(
+                    team=self.team,
+                    name=restricted_name,
+                    type=PropertyDefinition.Type.GROUP,
+                    group_type_index=restricted_group_type_index,
+                ),
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+        for label, name, group_type_index, _visible in self._GROUP_TYPE_ENTRIES:
+            detail: dict[str, Any] = {
+                "name": name,
+                "changes": [
+                    {
+                        "type": "Group",
+                        "action": "changed",
+                        "before": f"example-{label}-before",
+                        "after": f"example-{label}-after",
+                    }
+                ],
+            }
+            if group_type_index is not None:
+                detail["context"] = {"group_type_index": group_type_index}
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                user=self.user,
+                scope="Group",
+                activity="update_property",
+                item_id=label,
+                detail=detail,
+            )
+
+    @parameterized.expand(
+        [
+            ("activity_log", "activity_log/"),
+            ("advanced_activity_logs", "advanced_activity_logs/"),
+            ("advanced_activity_logs_csv", "advanced_activity_logs/?is_csv_export=1"),
+        ]
+    )
+    def test_group_property_values_match_rules_by_group_type_and_path(self, _name: str, path: str) -> None:
+        self._log_group_changes_with_rules_per_group_type()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/{path}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        for label, _entry_name, _group_type_index, visible in self._GROUP_TYPE_ENTRIES:
+            assert (f"example-{label}-before" in body) is visible, label
+            assert (f"example-{label}-after" in body) is visible, label
+
+    def test_value_filters_match_rules_by_group_type_and_path(self) -> None:
+        self._log_group_changes_with_rules_per_group_type()
+
+        for label, _name, _group_type_index, visible in self._GROUP_TYPE_ENTRIES:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/advanced_activity_logs/", {"search_text": f"example-{label}-after"}
+            )
+
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert ({result["item_id"] for result in response.json()["results"]} == {label}) is visible, label
 
     @parameterized.expand(
         [
