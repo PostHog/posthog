@@ -12,8 +12,9 @@ sweep needs into the deployment's own object store and writes a manifest naming 
 (`serving/manifest.json`, `serving/models/<key>/`). The manifest is the dag's serving decision:
 which models a pass scores, and which of them the inbox would order on. Two paths write
 `served.json`, both through `write_served_pointer`: the publish itself, which every
-`INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS` serves the newest version of the served recipe that
-passed the promotion gate, and `inbox_ranking_promote_job` (`training/promote.py`), which a person
+auto-promotion interval serves the newest version of the served recipe that passed the promotion
+gate (the `inbox-ranking-auto-promotion` flag payload sets the interval, and
+`INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS` is the fallback), and `inbox_ranking_promote_job` (`training/promote.py`), which a person
 runs to switch recipe or roll back. The automatic step never changes `model_name`. The
 `<name>/champion.json` objects that the retired per-family promotion wrote stay in place, and the
 manifest still reads them for the cross-family role.
@@ -48,7 +49,12 @@ from posthog.storage import object_storage
 
 from products.signals.backend.ranking.features import FEATURE_SETS
 from products.signals.backend.ranking.model_contract import model_mismatch, trained_head_files
-from products.signals.backend.ranking.overrides import MODEL_KEY_PATTERN, RankingOverrides, read_ranking_overrides
+from products.signals.backend.ranking.overrides import (
+    MODEL_KEY_PATTERN,
+    RankingOverrides,
+    read_auto_promotion_interval,
+    read_ranking_overrides,
+)
 from products.signals.backend.ranking.serving_manifest import (
     PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY,
     PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY,
@@ -573,7 +579,7 @@ def _publish_manifest(
     overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
     auto_metadata = (
         {
-            "auto_promotion": dagster.MetadataValue.text(
+            "auto_promotion": dagster.MetadataValue.json(
                 _auto_promote(context, client, bucket, prefix, partition_key, run_id, overrides)
             )
         }
@@ -737,15 +743,17 @@ def _auto_promote(
     partition_key: str,
     run_id: str,
     overrides: RankingOverrides,
-) -> str:
+) -> dict[str, Any]:
     """Move `served.json` to the newest version of the served recipe that passed the promotion
-    gate, when the interval has passed. Returns what the step did.
+    gate, when the interval has passed. Returns what the step did, the interval and its source.
 
     The step never fails the publish: an S3 error skips it for the day and the manifest still
     publishes with the current pointer. A first promotion and a recipe switch stay with a person.
     """
+    interval = read_auto_promotion_interval(settings.INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS)
+    interval_note = f"interval {interval.days}d from {interval.source}"
     try:
-        result, promotion = _auto_promotion_choice(client, bucket, prefix, partition_key, overrides)
+        result, promotion = _auto_promotion_choice(client, bucket, prefix, partition_key, overrides, interval.days)
         if promotion is not None:
             write_served_pointer(
                 context,
@@ -761,10 +769,11 @@ def _auto_promote(
                 auto=True,
             )
     except (BotoCoreError, ClientError, ValueError, KeyError) as error:
-        context.log.warning(f"auto promotion skipped for dt={partition_key}: {error!r}")
-        return f"not promoted: {error!r}"
-    context.log.info(f"auto promotion for dt={partition_key}: {result}")
-    return result
+        context.log.warning(f"auto promotion skipped for dt={partition_key} ({interval_note}): {error!r}")
+        result = f"not promoted: {error!r}"
+    else:
+        context.log.info(f"auto promotion for dt={partition_key} ({interval_note}): {result}")
+    return {"result": result, "interval_days": interval.days, "source": interval.source}
 
 
 @frozen
@@ -777,7 +786,7 @@ class _AutoPromotionWrite:
 
 
 def _auto_promotion_choice(
-    client, bucket: str, prefix: str, partition_key: str, overrides: RankingOverrides
+    client, bucket: str, prefix: str, partition_key: str, overrides: RankingOverrides, interval_days: int
 ) -> tuple[str, _AutoPromotionWrite | None]:
     """What the step does, and the pointer write when it promotes."""
     pointer = read_served_pointer(client, bucket, prefix)
@@ -787,7 +796,6 @@ def _auto_promotion_choice(
         client, bucket, prefix, pointer["model_name"], pointer["model_version"], partition_key
     )
     now = datetime.datetime.now(datetime.UTC)
-    interval_days = settings.INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS
     choice = auto_promotion_candidate(
         pointer,
         decisions,
