@@ -664,8 +664,10 @@ describe('projectTreeDataLogic', () => {
         const folder = (path: string): FileSystemEntry => ({ id: path, path, type: 'folder' })
         const file = (path: string): FileSystemEntry => ({ id: path, path, type: 'notebook', ref: path })
         const results = [
-            ...['A', 'A/B', 'A/B/C', 'AB', 'X', 'X\\/Y'].map(folder),
-            ...['A/B/C/Deep', 'A/B/Middle', 'A/Top', 'AB/Prefix', 'X/Gone', 'X\\/Y/Escaped'].map(file),
+            ...['A', 'A/B', 'A/B/C', 'A/B/C/D', 'AB', 'X', 'X\\/Y'].map(folder),
+            ...['A/B/C/D/Deepest', 'A/B/C/Deep', 'A/B/Middle', 'A/Top', 'AB/Prefix', 'X/Gone', 'X\\/Y/Escaped'].map(
+                file
+            ),
         ]
         logic.actions.addLoadedResults({ searchTerm: '', results, hasMore: false, lastCount: results.length })
 
