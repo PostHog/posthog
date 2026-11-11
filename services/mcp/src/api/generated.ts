@@ -75403,6 +75403,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
+      readonly has_hidden_flags: boolean;
       id: string;
       name: string;
       description: string;

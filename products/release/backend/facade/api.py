@@ -40,6 +40,7 @@ def _to_dto(obj: Release, hidden: frozenset[int]) -> contracts.ReleaseDTO:
         description=obj.description,
         owner=contracts.ReleaseOwnerDTO(id=obj.owner.id, first_name=obj.owner.first_name) if obj.owner else None,
         feature_flag_ids=[flag_id for flag_id in obj.feature_flag_ids if flag_id not in hidden],
+        has_hidden_flags=any(flag_id in hidden for flag_id in obj.feature_flag_ids),
         created_at=obj.created_at,
     )
 

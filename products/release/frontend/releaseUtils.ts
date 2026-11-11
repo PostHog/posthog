@@ -399,6 +399,7 @@ export interface ReleaseIndex {
     experimentsByFlagKey: Map<string, ExperimentBasicApi[]>
     earlyAccessByFlagKey: Map<string, EarlyAccessFeatureApi[]>
     changesByFlagId: Map<string, ScheduledChangeApi[]>
+    scheduleEventsByFlagId: Map<number, ReleaseEvent[]>
     complete: boolean
     resolvedFlagIds: Set<number>
     unknownFlagIds: Set<number>
@@ -427,11 +428,18 @@ export function buildReleaseIndex(
     scheduled: ScheduledChangeApi[],
     status: { complete: boolean; resolvedFlagIds: number[]; unknownFlagIds: number[] }
 ): ReleaseIndex {
+    const changesByFlagId = groupBy(scheduled, (change) => String(change.record_id))
     return {
         flagsById: new Map(flags.filter((flag) => !flag.deleted).map((flag) => [flag.id, flag])),
         experimentsByFlagKey: groupBy(experiments, (experiment) => experiment.feature_flag_key),
         earlyAccessByFlagKey: groupBy(earlyAccess, (item) => item.feature_flag?.key),
-        changesByFlagId: groupBy(scheduled, (change) => String(change.record_id)),
+        changesByFlagId,
+        scheduleEventsByFlagId: new Map(
+            flags.map((flag) => [
+                flag.id,
+                (changesByFlagId.get(String(flag.id)) ?? []).flatMap((change) => scheduleEvents(change, flag.key)),
+            ])
+        ),
         complete: status.complete,
         resolvedFlagIds: new Set(status.resolvedFlagIds),
         unknownFlagIds: new Set(status.unknownFlagIds),
@@ -488,6 +496,7 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
     const missingFlagIds = unloadedFlagIds.filter((id) => index.resolvedFlagIds.has(id))
     const complete =
         index.complete &&
+        !release.has_hidden_flags &&
         missingFlagIds.length === unloadedFlagIds.length &&
         !flags.some((flag) => index.unknownFlagIds.has(flag.id))
     const experiments = flags
@@ -521,7 +530,11 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         prelaunchEarlyAccess: openEarlyAccess
             ? undefined
             : earlyAccess.find((item) => item.stage === 'draft' || item.stage === 'concept'),
-        ended: flags.length > 0 && !unloadedFlagIds.length && flags.every((flag) => flag.archived),
+        ended:
+            flags.length > 0 &&
+            !unloadedFlagIds.length &&
+            !release.has_hidden_flags &&
+            flags.every((flag) => flag.archived),
         current,
         firstStart,
         runningDays: firstStart ? today.diff(dayjs(firstStart), 'day') + 1 : 0,
@@ -792,10 +805,6 @@ function experimentEvents(experiment: ExperimentBasicApi): ReleaseEvent[] {
 
 function releaseEvents(release: ReleaseDTOApi, facts: ReleaseFacts, index: ReleaseIndex): ReleaseEvent[] {
     const { flags, earlyAccess, experiments } = facts
-    const flagById = new Map(flags.map((flag) => [String(flag.id), flag]))
-    const changes = flags
-        .flatMap((flag) => index.changesByFlagId.get(String(flag.id)) ?? [])
-        .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
     return [
         {
             key: 'release',
@@ -819,7 +828,7 @@ function releaseEvents(release: ReleaseDTOApi, facts: ReleaseFacts, index: Relea
             href: urls.earlyAccessFeature(item.id),
         })),
         ...experiments.flatMap(experimentEvents),
-        ...changes.flatMap((change) => scheduleEvents(change, flagById.get(String(change.record_id))?.key)),
+        ...flags.flatMap((flag) => index.scheduleEventsByFlagId.get(flag.id) ?? []),
     ]
 }
 
@@ -932,7 +941,11 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         nextStep,
         needsDecision: !facts.flags.length || !!nextStep?.urgent,
         runningDays: facts.runningDays,
-        nextDate: events.find((event) => event.upcoming)?.date ?? null,
+        nextDate:
+            events
+                .filter((event) => event.upcoming)
+                .map((event) => event.date)
+                .sort()[0] ?? null,
         spans: releaseSpans(facts),
     }
 }

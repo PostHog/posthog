@@ -97,7 +97,8 @@ class TestReleaseAPI(APIBaseTest):
         admin = self.user
         self.client.force_login(self._create_user("member@example.com"))
 
-        listed = self.client.get(self._url()).json()["results"][0]["feature_flag_ids"]
+        member_view = self.client.get(self._url()).json()["results"][0]
+        listed = member_view["feature_flag_ids"]
         guessed_linked = self.client.patch(
             self._url(f"{release_id}/"), {"feature_flag_ids": [visible_id, hidden_id]}, format="json"
         )
@@ -109,6 +110,7 @@ class TestReleaseAPI(APIBaseTest):
         kept = self.client.get(self._url()).json()["results"][0]["feature_flag_ids"]
 
         assert listed == [visible_id, deleted_id]
+        assert member_view["has_hidden_flags"] is True
         assert guessed_linked.status_code == guessed_unknown.status_code == status.HTTP_400_BAD_REQUEST
         assert kept == [hidden_id]
 

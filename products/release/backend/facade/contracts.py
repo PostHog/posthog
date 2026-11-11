@@ -45,6 +45,7 @@ class ReleaseDTO:
     description: str
     owner: ReleaseOwnerDTO | None
     feature_flag_ids: list[int]
+    has_hidden_flags: bool
     created_at: datetime
 
 

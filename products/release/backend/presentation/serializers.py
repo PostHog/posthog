@@ -9,6 +9,11 @@ from ..facade.contracts import ReleaseDTO
 
 
 class ReleaseSerializer(DataclassSerializer):
+    has_hidden_flags = serializers.BooleanField(
+        read_only=True,
+        help_text="True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids.",
+    )
+
     class Meta:
         dataclass = ReleaseDTO
 
