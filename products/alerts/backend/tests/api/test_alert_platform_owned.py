@@ -46,7 +46,9 @@ from products.alerts.backend.models.alert import (
 )
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
+from products.alerts.backend.platform_insight_alert import native_insight_alert_view
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
+from products.alerts.backend.presentation.views.alert import AlertViewSet
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
@@ -780,6 +782,35 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         }
 
         assert reads[reader]() is expected
+
+    def test_taking_ownership_of_an_ai_alert_insight_keeps_no_row_for_reads_it_under_the_lock(self) -> None:
+        insight = self.alert.insight
+        insight.query = {**(insight.query or {}), "trendsFilter": {"display": "ActionsLineGraph"}}
+        insight.save(update_fields=["query"])
+        create_insight_alert(self.team, detector_config={"type": "llm"}, enabled=True)
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            platform_testing.set_source_config(
+                self.copy_id,
+                {**stored_config, "condition": {**stored_config["condition"], "detector": {"type": "llm"}}},
+            )
+        self._forget_the_insight_row()
+        with team_scope(self.team.id):
+            view = native_insight_alert_view(self.team.id, self.copy_id)
+            assert view is not None
+            seen_enabled = AlertConfiguration.from_platform_view(view, team_id=self.team.id)
+            assert seen_enabled is not None and seen_enabled.enabled
+            platform_testing.set_enabled(self.copy_id, False)
+
+        with (
+            patch.object(AlertViewSet, "_alert_or_native", return_value=seen_enabled),
+            patch("products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1),
+        ):
+            response = self.client.post(f"{self.url}/{self.copy_id}/take_ownership/")
+
+        assert (response.status_code, response.json()["attr"]) == (status.HTTP_400_BAD_REQUEST, "detector_config")
+        assert self._copy().enabled is False
 
     @parameterized.expand([("row", False), ("insight_keeps_no_row_for", True)])
     def test_simulate_reads_a_saved_alert_only_with_the_insight_it_watches(self, _name: str, native: bool) -> None:
