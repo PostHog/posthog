@@ -49,6 +49,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     AvailableFeature,
 )
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -660,6 +661,16 @@ def _resolve_scalar_updates(update_data: dict, original: Mapping, current_values
                 continue
         conflicts.append(field)
     return conflicts
+
+
+@frozen
+class _EnsuredFlag:
+    """The flag that a new experiment runs on, and the variants it uses."""
+
+    feature_flag: FeatureFlag
+    variants: list[dict]
+    # The experiment rule that the experiment links when the flag has rules (config version 2).
+    rule: ExperimentRuleConfig | None = None
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -1317,7 +1328,7 @@ class ExperimentService:
         if not is_draft:
             self._reject_warehouse_native_launch(exposure_criteria)
 
-        feature_flag, used_variants, rule = self._ensure_feature_flag(
+        ensured = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
             experiment_name=name,
             feature_flag_config=feature_flag_config,
@@ -1327,6 +1338,7 @@ class ExperimentService:
             serializer_context=serializer_context,
             feature_flag_rule_id=feature_flag_rule_id,
         )
+        feature_flag, used_variants, rule = ensured.feature_flag, ensured.variants, ensured.rule
         if rule is not None:
             self._validate_rule_linked_create(
                 type=type, holdout=holdout, exposure_criteria=exposure_criteria, is_draft=is_draft
@@ -1609,15 +1621,12 @@ class ExperimentService:
         create_in_folder: str | None,
         serializer_context: dict | None,
         feature_flag_rule_id: Any | None = None,
-    ) -> tuple[FeatureFlag, list[dict], ExperimentRuleConfig | None]:
-        """Resolve existing flag or create a new one. Returns (flag, variants_used, rule).
+    ) -> "_EnsuredFlag":
+        """Resolve existing flag or create a new one.
 
         ``feature_flag_config`` is the flag's own write shape
         (``{filters: {multivariate, groups, aggregation_group_type_index, payloads},
         ensure_experience_continuity}``); a new flag is built from it plus defaults.
-
-        ``rule`` is the experiment rule that the experiment links when the existing flag has rules
-        (config version 2), and None otherwise.
         """
         existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
 
@@ -1631,14 +1640,14 @@ class ExperimentService:
             )
             if detect_config_format(existing_flag.filters).kind == "v2":
                 rule = self._resolve_rule_to_link(existing_flag, feature_flag_rule_id)
-                return existing_flag, rule.variants, rule
+                return _EnsuredFlag(feature_flag=existing_flag, variants=rule.variants, rule=rule)
             if feature_flag_rule_id is not None:
                 raise ValidationError(
                     f"feature_flag_rule_id names a rule, and the feature flag {existing_flag.key} has no rules."
                 )
             self._validate_existing_flag(existing_flag)
             variants = existing_flag.variants or list(DEFAULT_VARIANTS)
-            return existing_flag, variants, None
+            return _EnsuredFlag(feature_flag=existing_flag, variants=variants)
 
         if feature_flag_rule_id is not None:
             raise ValidationError(
@@ -1696,7 +1705,7 @@ class ExperimentService:
             request=(serializer_context or {}).get("request"),
         )
 
-        return feature_flag, variants or list(DEFAULT_VARIANTS), None
+        return _EnsuredFlag(feature_flag=feature_flag, variants=variants or list(DEFAULT_VARIANTS))
 
     def _resolve_rule_to_link(self, feature_flag: FeatureFlag, requested_rule_id: Any | None) -> ExperimentRuleConfig:
         """The experiment rule of a config version 2 flag that a new experiment links.
