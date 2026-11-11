@@ -80,6 +80,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
                 "Recent recordings",
             ),
             ('<Automations nodeId="automations-one" span={6} />', "Automations"),
+            ('<DotMatrix nodeId="matrix-one" span={6} />', "Dot matrix"),
         ]
     )
     def test_accepts_account_widget(self, component: str, expected_text: str) -> None:
