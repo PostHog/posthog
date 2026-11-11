@@ -221,7 +221,7 @@ There is no `series` or `labels`.
 - Click zooms into a node: it spans the full width, its ancestors stay above it at full width and fade, and its siblings leave the view.
   A "+N more" cell zooms to just the bundled nodes.
   The breadcrumb row above the graph shows the path with a reset button, and Escape zooms out one level while the graph has keyboard focus.
-  `defaultFocusedId` zooms into a node on mount only; to open on another node, give the chart a new `key`.
+  `defaultFocusedId` zooms into a node on mount only and scrolls its row to the top of the viewport; to open on another node, give the chart a new `key`.
   `onFocusChange` receives the newly zoomed `FlameHit`, or null after a reset, on each click, breadcrumb, Escape or reset that changes the zoom. `defaultFocusedId` does not call it.
 - `search` is a case-insensitive substring matched against names.
   Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and the share of the graph's width they cover, counting a match nested in another match once.

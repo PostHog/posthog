@@ -88,6 +88,7 @@ def seed_metric(
     trace_id: str = "",
     span_id: str = "",
     count: int = 1,
+    has_labels: bool = True,
 ) -> None:
     """Insert one `metrics4_input` row per `(timestamp, value)` point; the
     ingest MVs write the metrics4 samples, series, names and attribute rollups
@@ -104,6 +105,9 @@ def seed_metric(
 
     Histogram inputs (`histogram_bounds`, `histogram_counts`) are passed
     through verbatim; only relevant when `metric_type='histogram'`.
+
+    `has_labels=False` seeds samples the way capture sends them after the first
+    labelled sample of a window: they write no `metric_series` row.
     """
     attributes = dict(labels or {})
     resource_attributes = dict(resource_labels or {})
@@ -135,7 +139,7 @@ def seed_metric(
                 "trace_id": trace_id,
                 "span_id": span_id,
                 "trace_flags": 0,
-                "has_labels": True,
+                "has_labels": has_labels,
                 "unit": unit,
                 "aggregation_temporality": aggregation_temporality,
                 "is_monotonic": is_monotonic,

@@ -1,6 +1,16 @@
-from collections.abc import Callable, Mapping
+import json
+import dataclasses
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from pydantic import TypeAdapter, ValidationError
+
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.facade.contracts import (
+    MigrationConnectionUpload,
+    WarehouseMigrationUploadTooLargeError,
+)
 from products.warehouse_sources.backend.migration import catalog
 from products.warehouse_sources.backend.migration.fivetran.client import FivetranAPIError, FivetranClient
 from products.warehouse_sources.backend.migration.secrets import strip_secrets
@@ -31,7 +41,6 @@ def fetch_snapshot(client: FivetranClient, *, keep_going: Callable[[], bool] | N
     account = client.get_account_info()
 
     destinations: list[VendorDestination] = []
-    utc_offsets: dict[str, int] = {}
     for group in client.list_groups():
         try:
             raw_destination = client.get_destination(group["id"])
@@ -40,7 +49,7 @@ def fetch_snapshot(client: FivetranClient, *, keep_going: Callable[[], bool] | N
                 raise
             continue  # A group can exist before its destination is set up.
         destinations.append(parse_destination(raw_destination, name=group.get("name") or group["id"]))
-        utc_offsets[group["id"]] = _parse_offset(raw_destination.get("time_zone_offset"))
+    utc_offsets = {destination.id: destination.utc_offset_hours for destination in destinations}
 
     connections: list[VendorConnection] = []
     for listed in client.list_connections():
@@ -69,6 +78,173 @@ def fetch_snapshot(client: FivetranClient, *, keep_going: Callable[[], bool] | N
     )
 
 
+@frozen
+class UploadedSnapshot:
+    snapshot: VendorSnapshot
+    connection_ids: tuple[str, ...]
+    errors: tuple[str, ...]
+
+
+MAX_UPLOADED_CONNECTION_BYTES = 1_000_000
+# Every upload loads, checks and rewrites the whole stored snapshot in one web worker, so the cap bounds that work.
+# A larger account migrates with an API key, and the crawl reads it outside the web worker.
+MAX_UPLOADED_SNAPSHOT_BYTES = 10_000_000
+_ITEM_COLUMN_MAX_LENGTH = 400
+# Fivetran responses nest a few levels. A deeper upload would make the recursive parsers below overflow the stack.
+_MAX_UPLOAD_DEPTH = 64
+# The parsers trust the vendor's field types. An agent upload can carry any JSON, so it is checked after parsing.
+_DESTINATION_ADAPTER: TypeAdapter[VendorDestination] = TypeAdapter(VendorDestination)
+_CONNECTION_ADAPTER: TypeAdapter[VendorConnection] = TypeAdapter(VendorConnection)
+# OverflowError comes from `int()` on a JSON number too large for a float, such as `1e309`.
+_READ_ERRORS = (KeyError, TypeError, ValueError, AttributeError, OverflowError)
+
+
+def merge_upload(
+    previous: VendorSnapshot | None,
+    *,
+    account: Mapping[str, Any] | None,
+    destinations: Sequence[Mapping[str, Any]],
+    connections: Sequence[MigrationConnectionUpload],
+) -> UploadedSnapshot:
+    """Add Fivetran read responses that an agent uploaded to the snapshot of earlier uploads.
+
+    Secrets are removed exactly as in a crawl. A new destination or connection replaces the stored one with its id.
+    Raises `WarehouseMigrationUploadTooLargeError` when the merged snapshot is over `MAX_UPLOADED_SNAPSHOT_BYTES`.
+    """
+    errors: list[str] = []
+    stored_destinations = {destination.id: destination for destination in previous.destinations} if previous else {}
+    for index, raw in enumerate(destinations):
+        raw = _unwrap(raw)
+        label = f"Destination {index} ({_label_id(raw)})"
+        if problem := _upload_problem(raw):
+            errors.append(f"{label}: {problem}")
+            continue
+        try:
+            destination = _DESTINATION_ADAPTER.validate_python(
+                dataclasses.asdict(parse_destination(raw, name=raw.get("name") or raw["id"]))
+            )
+        except _READ_ERRORS as error:
+            errors.append(f"{label}: {_read_error(error)}")
+            continue
+        stored_destinations[destination.id] = destination
+
+    utc_offsets = {destination.id: destination.utc_offset_hours for destination in stored_destinations.values()}
+    stored_connections = {connection.id: connection for connection in previous.connections} if previous else {}
+    connection_ids: list[str] = []
+    for index, upload in enumerate(connections):
+        raw = _unwrap(upload.connection)
+        label = f"Connection {index} ({_label_id(raw)})"
+        schema_config = _unwrap(upload.schema_config) if upload.schema_config is not None else None
+        if problem := _upload_problem([raw, schema_config]):
+            errors.append(f"{label}: {problem}")
+            continue
+        try:
+            parsed = parse_connection(
+                raw, schema_config, utc_offset_hours=utc_offsets.get(raw.get("group_id") or "", 0)
+            )
+            connection = _CONNECTION_ADAPTER.validate_python(dataclasses.asdict(parsed))
+        except _READ_ERRORS as error:
+            errors.append(f"{label}: {_read_error(error)}")
+            continue
+        if max(len(connection.id), len(connection.service), len(connection.name)) > _ITEM_COLUMN_MAX_LENGTH:
+            errors.append(
+                f"{label}: its id, service or schema name is longer than {_ITEM_COLUMN_MAX_LENGTH} characters."
+            )
+            continue
+        stored_connections[connection.id] = connection
+        connection_ids.append(connection.id)
+
+    account_info: Mapping[str, Any] = {}
+    if account is not None:
+        if problem := _upload_problem(_unwrap(account)):
+            errors.append(f"Account: {problem}")
+        else:
+            account_info = _unwrap(account)
+    account_name = _text(account_info.get("account_name"))
+    snapshot = VendorSnapshot(
+        provider=MigrationProvider.FIVETRAN,
+        account_id=_text(account_info.get("account_id")) or (previous.account_id if previous else ""),
+        account_name=account_name[:_ITEM_COLUMN_MAX_LENGTH]
+        if account_name
+        else (previous.account_name if previous else None),
+        destinations=tuple(stored_destinations.values()),
+        connections=tuple(stored_connections.values()),
+    )
+    if _json_longer_than(snapshot.to_json(), MAX_UPLOADED_SNAPSHOT_BYTES):
+        raise WarehouseMigrationUploadTooLargeError()
+    return UploadedSnapshot(
+        snapshot=snapshot, connection_ids=tuple(dict.fromkeys(connection_ids)), errors=tuple(errors)
+    )
+
+
+def _upload_problem(value: Any) -> str | None:
+    """Why one uploaded entry cannot be read at all, checked before anything recurses into it."""
+    pending = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > _MAX_UPLOAD_DEPTH:
+            return f"it nests deeper than {_MAX_UPLOAD_DEPTH} levels, so it is not a Fivetran response."
+        if isinstance(item, Mapping):
+            pending.extend((key, depth) for key in item.keys())
+            pending.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+        # Postgres stores no NUL character and no lone UTF-16 surrogate such as `"\ud800"`.
+        elif isinstance(item, str) and not _storable(item):
+            return "it holds a NUL character or a broken Unicode character, so it is not a Fivetran response."
+    if _json_longer_than(value, MAX_UPLOADED_CONNECTION_BYTES):
+        return "larger than 1 MB, so it cannot be uploaded. Migrate this account with an API key."
+    return None
+
+
+def _json_longer_than(value: Any, limit: int) -> bool:
+    """Encodes only up to `limit`. Parsing repeats a schema name in each of its tables, so the full text can be far
+    larger than the upload."""
+    length = 0
+    for chunk in json.JSONEncoder().iterencode(value):
+        length += len(chunk)
+        if length > limit:
+            return True
+    return False
+
+
+def _storable(text: str) -> bool:
+    if "\x00" in text:
+        return False
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _label_id(raw: Mapping[str, Any]) -> str:
+    value = raw.get("id")
+    if value is None:
+        return "no id"
+    # Never stringified, because an uploaded id can nest deep enough to overflow `repr`.
+    return value[:100] if isinstance(value, str) else "no valid id"
+
+
+def _unwrap(raw: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Fivetran wraps every response as `{"code": ..., "data": {...}}`."""
+    data = raw.get("data")
+    return data if "code" in raw and isinstance(data, Mapping) else raw
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _read_error(error: Exception) -> str:
+    if isinstance(error, KeyError):
+        return f"the field `{error.args[0]}` is missing. Upload the Fivetran response unchanged."
+    if isinstance(error, ValidationError):
+        field = ".".join(str(part) for part in error.errors()[0]["loc"])
+        return f"the field `{field}` has the wrong type. Upload the Fivetran response unchanged."
+    return "this is not a Fivetran response PostHog can read. Upload the Fivetran response unchanged."
+
+
 def parse_destination(raw: Mapping[str, Any], *, name: str) -> VendorDestination:
     return VendorDestination(
         id=raw["id"],
@@ -76,6 +252,7 @@ def parse_destination(raw: Mapping[str, Any], *, name: str) -> VendorDestination
         service=raw.get("service") or "",
         region=raw.get("region"),
         config=_kept_destination_config(raw.get("service") or "", raw.get("config") or {}),
+        utc_offset_hours=_parse_offset(raw.get("time_zone_offset")),
     )
 
 

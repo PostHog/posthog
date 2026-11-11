@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, connection, transaction
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone as django_timezone
 
@@ -120,6 +120,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             extra_state: dict | None = None,
             branch: str | None = None,
             acting_user_id: int | None = None,
+            **kwargs: Any,
         ) -> TaskRun:
             create_reached.set()
             if not handoff_finished.wait(timeout=10):
@@ -131,6 +132,7 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
                 extra_state=extra_state,
                 branch=branch,
                 acting_user_id=acting_user_id,
+                **kwargs,
             )
 
         def bootstrap() -> None:
@@ -1818,7 +1820,10 @@ class TestFacadeReadsAndMappers(TestCase):
                 task.id,
                 self.team.id,
                 self.user.id,
-                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+                validated_data={
+                    "mode": "background" if expected_stage else "interactive",
+                    "resume_from_run_id": str(previous_run.id),
+                },
                 pipeline_rerun=pipeline_rerun,
                 free_trial_enabled=False,
             )
@@ -3261,9 +3266,16 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
 
     def test_create_and_run_task_takes_a_pre_resolved_free_trial_verdict(self):
-        # Auto-start resolves the flag before it takes the report row lock, so the create-time gate
-        # must use the verdict it is given instead of making its own flag request under the lock.
+        # Admission may read the flag to snapshot future eligibility, but not under a new lock.
+        # Its current value must not override the caller's already-resolved permission.
+        savepoints = list(connection.savepoint_ids)
+
+        def flag_outside_lock(*args: object, **kwargs: object) -> bool:
+            self.assertEqual(connection.savepoint_ids, savepoints)
+            return True
+
         with self._on_trial() as flag_mock:
+            flag_mock.side_effect = flag_outside_lock
             dto = facade.create_and_run_task(
                 team=self.team,
                 title="Implementation: t",
@@ -3273,7 +3285,8 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
                 free_trial_enabled=False,
                 start_workflow=False,
             )
-        flag_mock.assert_not_called()
+        # Shared admission snapshots future eligibility; it must not override this verdict.
+        flag_mock.assert_called()
         self.assertTrue(Task.objects.filter(id=dto.task_id).exists())
 
     def test_run_task_takes_a_pre_resolved_free_trial_verdict(self):
@@ -3292,10 +3305,17 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
             team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
         )
 
+        savepoints = list(connection.savepoint_ids)
+
+        def flag_outside_lock(*args: object, **kwargs: object) -> bool:
+            self.assertEqual(connection.savepoint_ids, savepoints)
+            return True
+
         with (
             self._on_trial() as flag_mock,
             patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
         ):
+            flag_mock.side_effect = flag_outside_lock
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -3303,6 +3323,7 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
                 validated_data={"mode": "background"},
                 free_trial_enabled=False,
             )
-        flag_mock.assert_not_called()
+        # Shared admission snapshots future eligibility; it must not override this verdict.
+        flag_mock.assert_called()
         assert result is not None and result.error is None
         self.assertTrue(task.runs.exists())

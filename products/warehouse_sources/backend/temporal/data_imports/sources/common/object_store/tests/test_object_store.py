@@ -1180,6 +1180,17 @@ class TestLocationAndErrors:
             ("region_with_a_host", {"region": "us-east-1.evil.com"}, INVALID_CONFIG_ERROR),
             ("missing_secret", {"secret_access_key": " "}, INVALID_CONFIG_ERROR),
             ("parent_folder", {"prefix": "a/../b"}, INVALID_CONFIG_ERROR),
+            ("jurisdiction_outside_r2", {"jurisdiction": "eu"}, INVALID_CONFIG_ERROR),
+            (
+                "r2_jurisdiction_with_a_host",
+                {
+                    "provider": ObjectStoreProvider.R2,
+                    "region": "auto",
+                    "account_id": "0123456789abcdef0123456789abcdef",
+                    "jurisdiction": "eu.evil.com",
+                },
+                INVALID_CONFIG_ERROR,
+            ),
         ]
     )
     def test_config_rejects_values_that_could_retarget_the_request(

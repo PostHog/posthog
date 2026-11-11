@@ -25,8 +25,10 @@ from products.slack_app.backend.logic.onboarding.interactivity import (
 )
 from products.slack_app.backend.logic.onboarding.sources_step import NO_PROJECT_ACCESS_TEXT
 from products.slack_app.backend.logic.onboarding.tools_step import ToolsStep
-from products.slack_app.backend.models import ChannelWelcomeMode, UntaggedFollowupMode
+from products.slack_app.backend.models import ChannelWelcomeMode, SlackSettings, UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
+    onboarding_status_label,
+    reset_onboarding,
     resolve_auto_model_choice,
     resolve_channel_welcome_mode,
     resolve_onboarding,
@@ -204,6 +206,13 @@ def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     posts_before = slack_client.chat_postMessage.call_count
     assert _refresh(integration) is True
     assert slack_client.chat_postMessage.call_count == posts_before
+
+    # Staff can reset a person from Django admin, and the next trigger then starts a new thread.
+    settings = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID)
+    assert onboarding_status_label(settings.onboarding) == "Done"
+    assert reset_onboarding([settings.id]) == 1
+    _refresh(integration)
+    assert "thread_ts" not in _posts(slack_client)[posts_before]
 
 
 @pytest.mark.django_db

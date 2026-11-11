@@ -117,6 +117,7 @@ from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
     ECE_TOLERANCE,
     PromotionDecision,
+    auto_promotion_candidate,
     decide_promotion,
 )
 from products.signals.dags.inbox_ranking.training.served import (
@@ -1476,6 +1477,82 @@ def test_decide_promotion(candidate, champion, expected_promote, reason_fragment
     decision = decide_promotion(candidate, champion)
     assert decision.promote is expected_promote
     assert reason_fragment in decision.reason
+
+
+_AUTO_SERVED_KEY = model_key(EMBEDDINGS_MODEL_NAME, "2026-08-10")
+_AUTO_POINTER = {
+    "model_key": _AUTO_SERVED_KEY,
+    "model_name": EMBEDDINGS_MODEL_NAME,
+    "model_version": "2026-08-10",
+    "promoted_at": "2026-08-10T05:02:00+00:00",
+}
+
+
+def _decision(would_promote: bool, incumbent_key: str | None = _AUTO_SERVED_KEY) -> dict[str, Any]:
+    return {"would_promote": would_promote, "reason": "open regressed", "incumbent_key": incumbent_key}
+
+
+@pytest.mark.parametrize(
+    "decisions,today,interval_days,pause,expected_version,reason_fragment",
+    [
+        # 05:00 three calendar days after a 05:02 promotion is under 72 hours, and still due.
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, "2026-08-12", "auto: newest"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 12), 3, {}, None, "promoted 2d ago"),
+        (
+            {"2026-08-11": _decision(True), "2026-08-12": _decision(False)},
+            datetime.date(2026, 8, 13),
+            3,
+            {},
+            "2026-08-11",
+            "auto: newest",
+        ),
+        # Graded against a model that no longer serves, for example before a manual rollback.
+        (
+            {"2026-08-12": _decision(True, model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01"))},
+            datetime.date(2026, 8, 13),
+            3,
+            {},
+            None,
+            "graded against",
+        ),
+        # The run's own partition can still be training when the publish starts.
+        ({"2026-08-13": _decision(True)}, datetime.date(2026, 8, 14), 3, {}, None, "no "),
+        # A backfilled decision at or before the served version must not move the pointer back.
+        ({"2026-08-10": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, None, "no "),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 0, {}, None, "off"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {"held": True}, None, "held"),
+        (
+            {"2026-08-12": _decision(True)},
+            datetime.date(2026, 8, 13),
+            3,
+            {"served_override": model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01")},
+            None,
+            "served override",
+        ),
+    ],
+    ids=[
+        "newest_passes",
+        "interval_not_elapsed",
+        "older_passes_when_newest_fails",
+        "other_incumbent",
+        "partition_version",
+        "not_newer_than_served",
+        "interval_zero",
+        "held",
+        "served_override",
+    ],
+)
+def test_auto_promotion_candidate(decisions, today, interval_days, pause, expected_version, reason_fragment):
+    choice = auto_promotion_candidate(
+        _AUTO_POINTER,
+        decisions,
+        partition_key="2026-08-13",
+        today=today,
+        interval_days=interval_days,
+        **{"held": False, **pause},
+    )
+    assert choice.model_version == expected_version
+    assert reason_fragment in choice.reason
 
 
 def test_decide_promotion_grades_the_champion_on_the_candidate_holdout():
