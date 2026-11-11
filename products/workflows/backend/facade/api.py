@@ -2,7 +2,7 @@ from collections.abc import Collection, Iterable, Iterator
 from typing import Any
 from uuid import UUID
 
-from django.db.models import F, QuerySet
+from django.db.models import F, Q, QuerySet
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
@@ -32,7 +32,12 @@ from products.workflows.backend.facade.contracts import (
     WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
-from products.workflows.backend.models.hog_flow.hog_flow import opt_out_category_ids, static_cohort_ids
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    MESSAGING_ACTION_TYPES,
+    SANDBOX_EMAIL_ACTION_TYPE,
+    opt_out_category_ids,
+    static_cohort_ids,
+)
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.services import email_utm_defaults
 from products.workflows.backend.services.batch_jobs import create_batch_job
@@ -311,7 +316,12 @@ def search_broadcast_summaries(
 
 
 def has_active_workflows(*, team_id: int) -> bool:
-    return HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE).exists()
+    active = HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE)
+    sends_own_messages = Q()
+    for action_type in MESSAGING_ACTION_TYPES:
+        if action_type != SANDBOX_EMAIL_ACTION_TYPE:
+            sends_own_messages |= Q(actions__contains=[{"type": action_type}])
+    return active.filter(~Q(actions__contains=[{"type": SANDBOX_EMAIL_ACTION_TYPE}]) | sends_own_messages).exists()
 
 
 def has_active_workflow_for_warehouse_table(*, team_id: int, trigger_source: str, table_name: str) -> bool:

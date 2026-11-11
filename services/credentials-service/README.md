@@ -30,7 +30,7 @@ optional allowlist (see "Auth") shrinks what it is entitled to read.
 
 ```text
 GET  /_liveness          200 always
-GET  /_readiness         200 once the pod holds credentials
+GET  /_readiness         200 once the pod holds credentials (and, with a database, once it has reached it)
 POST /v1/secrets/resolve
 
 GET  /metrics            prometheus text, on its own port (CREDENTIALS_SERVICE_METRICS_PORT)
@@ -307,6 +307,74 @@ on the two staleness signals, or neither degradation is observable.
 `/metrics` listens on its own port, which the chart keeps off the ingress; in-cluster Prometheus
 scrapes it unauthenticated, the same shape as every other service.
 
+## Database
+
+The service has its own Postgres database for customer integrations. Platform secrets never use it.
+When `CREDENTIALS_SERVICE_DATABASE_URL` is not set, the service starts as before and serves platform secrets only.
+So the service can deploy before its database exists.
+
+Tables:
+
+| Table                 | Holds                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `integrations`        | One row per credential, without secrets. Soft delete with `deleted_at`, and a `version` for optimistic writes |
+| `integration_secrets` | The encrypted secret blob of one integration (1:1)                                                            |
+| `audit_log`           | One row per access, partitioned by day on `occurred_at`                                                       |
+| `idempotency_keys`    | Request keys for create and exchange, with `expires_at` 24 hours after the write                              |
+| `auth_jti`            | Accepted token ids per deployment, so a token cannot be replayed. Index on `expires_at` for lazy cleanup      |
+
+`src/db/integrations.ts` holds the typed queries. Every query binds the owner, so no query reads or changes another team's row.
+
+Readiness waits for the database until it answers once.
+After that, a database outage does not make the pod unready, because platform secrets do not need the database.
+
+### Migrations
+
+Migrations are plain SQL files in `migrations/`, applied with `node-pg-migrate`.
+Each file has a `-- Up Migration` and a `-- Down Migration` section.
+To add one, create `migrations/<unix ms>_<name>.sql`. Never edit a migration that has run in production.
+
+The migration runner is a separate bundle in the same image. Run it as a Kubernetes Job before each deploy, never from the server:
+
+```bash
+node credentials-service-migrate.mjs            # apply every pending migration
+node credentials-service-migrate.mjs down 1     # revert the last migration
+pnpm --filter @posthog/credentials-service migrate   # the same, from source, in local development
+```
+
+It reads `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` and the `migrations/` directory relative to the working directory.
+In single-role local development it falls back to `CREDENTIALS_SERVICE_DATABASE_URL`.
+
+### Database roles
+
+The service uses two Postgres roles:
+
+- The **migrate role** owns the tables. Only the migration Job and the maintenance commands use it (`CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`).
+- The **runtime role** is the one the service connects as (`CREDENTIALS_SERVICE_DATABASE_URL`). It does not own any table.
+
+The runtime role gets `SELECT, INSERT, UPDATE, DELETE` on `integrations`, `integration_secrets`, `idempotency_keys` and `auth_jti`.
+On `audit_log` it gets only `SELECT, INSERT`: it cannot `UPDATE`, `DELETE` or `TRUNCATE` audit rows, so a compromised pod cannot erase its own trail.
+Audit retention runs under the migrate or a maintenance role, outside the service process.
+
+In `prod-us`, `prod-eu` and any environment whose name contains `prod` (any case), the service checks the runtime role at startup.
+It refuses to start the integration features when the runtime role owns `audit_log` or one of its partitions, can `UPDATE` (also per column), `DELETE` or `TRUNCATE` any of them, or has the same user as `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`.
+The pod logs `startup:database_role_refused`, stays ready, and keeps serving platform secrets.
+The same-user check runs only when the pod sets `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`. Other environments skip the check.
+
+Infra creates both roles.
+The migration Job sets `CREDENTIALS_SERVICE_RUNTIME_ROLE` to the runtime role name.
+The Job passes it to Postgres as the session setting `credentials_service.runtime_role`, and the grants migration reads it, so the SQL file holds no role name.
+When the variable is unset, the migration skips the grants (single-role local development).
+Each migration that adds a table must grant on it in the same way.
+An advisory lock makes two Jobs that start together run one after the other.
+
+### Audit partitions
+
+`audit_log` is partitioned by range on `occurred_at`, with one default partition, `audit_log_default`.
+Infra runs pg_partman for the daily partitions: `create_parent('public.audit_log', 'occurred_at', '1 day', p_premake => 7, p_default_table => false)`, because the migration already made the default partition.
+Set pg_partman up before the service writes audit rows.
+Rows that land in the default partition stop pg_partman from making a partition for that day, until they are moved with `partition_data_proc`.
+
 ## Isolation
 
 This package must not depend on the rest of the monorepo. It shares the pnpm workspace only for
@@ -318,17 +386,49 @@ npm dependency, so those still rest on review of `package.json` and the lockfile
 Installs run `--ignore-scripts`; nothing in the tree needs an install-time script, and that is
 the npm-specific supply-chain path worth closing here.
 
+## Provider registry
+
+`src/providers/` holds one spec per integration kind: authorize and token URLs, scopes, PKCE, client secret names with fallbacks for rotated apps, token info paths, refresh policy, minter, and the secret fields that `/resolve` may return.
+The service checks every spec with zod at boot and exits if one is invalid.
+The registry is the source of truth for `posthog/integrations/catalogue_generated.json`, which Django reads to build authorize URLs.
+
+To add a kind, write `src/providers/<kind>.ts`, add it to `src/providers/index.ts`, and run `hogli build:projections --only credentials-catalogue`.
+`src/catalogue.ts` and everything it imports must not import an npm package, because the projection check bundles it in a CI job with no `node_modules`.
+
+### Safety rules in the spec
+
+The service enforces these rules on every exchange and refresh. A config write or a stray row cannot turn them off.
+
+- `token.tokenHost` names a config field and a list of allowed host suffixes. The service sends the client secret to that host only when the value is a plain https URL with no port, no credentials and an allowed host. Otherwise it uses the fixed `token.url`. Salesforce uses it with `instance_url` and `.salesforce.com`, the same check as `_salesforce_instance_host`.
+- `regions.<region>.allowedIn` lists the service environments where a row region may exist. The `posthog` kind will use it so that the `dev` region never runs in `prod-us` or `prod-eu`.
+- `identityConfigKeys` lists the config keys that name the account, installation or region of a row. Create and exchange set them. The `PATCH` route refuses them, because the AAD does not cover config. Use `identityConfigKeys(kind)` from `src/providers`.
+
+### Provider secret names
+
+Client secrets and minter keys use the reserved prefix `__PROVIDER_`. The secrets route never serves this prefix. Only the registry reads these names.
+After the prefix comes the name that Django settings and the platform secret mount use today.
+For example, `SLACK_APP_CLIENT_SECRET` becomes `__PROVIDER_SLACK_APP_CLIENT_SECRET`, and `GITHUB_APP_PRIVATE_KEY` becomes `__PROVIDER_GITHUB_APP_PRIVATE_KEY`.
+The Python catalogue keeps the old names, and Django settings do not change.
+The mount must keep `__PROVIDER_` entries for the registry in the exchange and refresh PR. Today it skips every `__` name.
+
+### Egress
+
+Every provider HTTP call goes through smokescreen. The chart sets `NODE_USE_ENV_PROXY=1` and an egress NetworkPolicy.
+The exchange and refresh PR must use the proxy-aware `fetch`, and must not open its own connection.
+KMS and the internal capture host are the only direct egress.
+
 ## Local development
 
 ```bash
 pnpm --filter @posthog/credentials-service dev                # tsx watch, pretty logs
 pnpm --filter @posthog/credentials-service typecheck
 pnpm --filter @posthog/credentials-service test:unit
-pnpm --filter @posthog/credentials-service test:integration   # boots a real server on a temp mount
+pnpm --filter @posthog/credentials-service test:integration   # real server on a temp mount, Postgres in Docker
 ```
 
 The integration suite boots a real `CredentialsServer` against a temp-dir mount and a real
-socket, so it covers the wiring the unit suite fakes. Neither suite needs a database or Docker.
+socket, so it covers the wiring the unit suite fakes. The database tests start Postgres with
+testcontainers, so the integration suite needs Docker. The unit suite needs neither.
 
 Point `CREDENTIALS_SERVICE_SECRETS_DIR` at a directory of files, one per key, to stand in for the
 mount.
@@ -384,6 +484,10 @@ Its wrapped keys go into the same columns. The service refuses it when `CREDENTI
 | `PORT`                                                   | `8004`                        |                                                                                                     |
 | `HOST`                                                   | `0.0.0.0`                     |                                                                                                     |
 | `SHUTDOWN_PRESTOP_DELAY_MS`                              | `5000`                        | Wait before draining, for the Kubernetes prestop window                                             |
+| `CREDENTIALS_SERVICE_DATABASE_URL`                       | unset                         | Postgres URL; unset means platform secrets only                                                     |
+| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE`                 | `20`                          | Connections per pod                                                                                 |
+| `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`               | unset                         | Migrate role URL, for the migration Job only                                                        |
+| `CREDENTIALS_SERVICE_RUNTIME_ROLE`                       | unset                         | Role that the migration Job grants access to                                                        |
 
 The service exits at boot rather than starting degraded: a missing production variable, a
 numeric variable that does not parse, or a `kubernetes` source without `KUBERNETES_SERVICE_HOST`

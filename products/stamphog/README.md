@@ -35,7 +35,7 @@ So the label can be re-applied once the feedback is addressed.
 A verdict that says nothing about the PR keeps the label, and the next push retries.
 A label can request at most one review per PR every 10 minutes.
 A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
-`WAIT` means a reviewer bot still had a review in flight, or the `Migration risk` check had not reported yet.
+`WAIT` means a reviewer bot still had a review in flight, or a check named in the policy's `attestations`, such as `Migration risk`, had not reported yet.
 `ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
 A transient failure must not silently drop labels across every queued PR.
 

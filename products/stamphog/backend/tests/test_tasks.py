@@ -1363,39 +1363,46 @@ index aaa..bbb 100644
 """
 
 
-def _approved_run(team_id: int) -> None:
+def _approved_run(team_id: int, *, lifted: bool | None = False) -> None:
+    attestation = {} if lifted is None else {"gate_attestation": {"attested": True, "lifted": lifted}}
     with team_scope(team_id):
         ReviewRun.objects.filter(pull_request__pr_number=42).update(
             verdict=ReviewVerdict.APPROVED,
             posted_review_id=9,
-            output={"pr": {"base": {"sha": "base-1"}}},
+            output={"pr": {"base": {"sha": "base-1"}}, **attestation},
+            # The sandbox's own report, which says no check lifted anything and must decide nothing.
+            gate_result={"classification": {"lifted_files": {}}},
         )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "review_mode,author_permission,same_diff,clean_base_merge,expect_retained",
+    "review_mode,author_permission,same_diff,clean_base_merge,lifted,expect_retained",
     [
-        (ReviewMode.ALL, "write", True, False, True),
-        (ReviewMode.ALL, "write", False, False, False),
-        (ReviewMode.ALL, "write", False, True, True),
+        (ReviewMode.ALL, "write", True, False, False, True),
+        (ReviewMode.ALL, "write", False, False, False, False),
+        (ReviewMode.ALL, "write", False, True, False, True),
+        (ReviewMode.ALL, "write", True, False, True, False),
+        (ReviewMode.ALL, "write", True, False, None, False),
         # The push lacks the trigger label, so it skips the review. A silent approval survives a clean base merge.
-        (ReviewMode.LABEL, "write", False, True, True),
-        (ReviewMode.LABEL, "write", False, False, False),
+        (ReviewMode.LABEL, "write", False, True, False, True),
+        (ReviewMode.LABEL, "write", False, False, False, False),
         # The main path drops an author below write before retention, so the label skip retains nothing for one.
-        (ReviewMode.LABEL, "read", True, False, False),
+        (ReviewMode.LABEL, "read", True, False, False, False),
     ],
     ids=[
         "identical_diff_retains",
         "changed_diff_dismisses",
         "clean_base_merge_retains",
+        "lifted_approval_dismisses",
+        "approval_the_worker_did_not_record_dismisses",
         "label_skip_clean_base_merge_retains",
         "label_skip_changed_diff_dismisses",
         "label_skip_author_below_write_dismisses",
     ],
 )
 def test_push_retains_the_approval_only_when_the_diff_is_identical(
-    team, repo_config, review_mode, author_permission, same_diff, clean_base_merge, expect_retained
+    team, repo_config, review_mode, author_permission, same_diff, clean_base_merge, lifted, expect_retained
 ):
     # A merge of the base branch does not change any blob in the PR's own diff, so there is nothing
     # new to review, and a dismissal would drop the PR out of merge readiness. A blob that did move
@@ -1405,10 +1412,10 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(
     # Each case uses its own delivery id, because _mark_pr_event_processed writes to the
     # process-wide cache. A shared id would let the first case remove the second case's deliveries
     # as duplicates.
-    case = f"{review_mode}-{author_permission}-{same_diff}-{clean_base_merge}"
+    case = f"{review_mode}-{author_permission}-{same_diff}-{clean_base_merge}-{lifted}"
     current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
     _run_task(_pr_payload(), f"delivery-retention-approved-{case}", team.id)
-    _approved_run(team.id)
+    _approved_run(team.id, lifted=lifted)
     with team_scope(team.id):
         StamphogRepoConfig.objects.filter(id=repo_config.id).update(
             review_mode=review_mode, routing_mode=RoutingMode.FALLBACK

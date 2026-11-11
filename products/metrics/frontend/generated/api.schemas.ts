@@ -1090,6 +1090,56 @@ export interface _MetricQueryCountsResponseApi {
     results: _MetricQueryCountApi[]
 }
 
+export interface MetricsRecordingRuleApi {
+    /** Recording rule id. */
+    readonly id: string
+    /**
+     * The metric the rule writes, in the level:metric:operations form, for example job:http_errors:rate5m. It must contain a colon and cannot change after create.
+     * @maxLength 200
+     */
+    metric_name: string
+    /**
+     * A PromQL expression over this project's metrics that returns an instant vector or a scalar. Each series it returns is written as one series of `metric_name`, with the same labels.
+     * @maxLength 8192
+     */
+    query: string
+    /** What the recorded metric means. */
+    description?: string
+    /** When false, the rule is kept but not evaluated. */
+    enabled?: boolean
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last changed. */
+    readonly updated_at: string
+    /**
+     * The minute the rule last wrote a result. Null until it first writes.
+     * @nullable
+     */
+    readonly last_evaluated_at: string | null
+    /**
+     * How many series the last result had.
+     * @nullable
+     */
+    readonly last_series_count: number | null
+    /**
+     * Why the last evaluation wrote nothing. Null when the last evaluation wrote a result.
+     * @nullable
+     */
+    readonly last_error: string | null
+}
+
+export interface PatchedMetricsRecordingRuleUpdateApi {
+    /**
+     * A new PromQL expression for the rule.
+     * @maxLength 8192
+     */
+    query?: string
+    /** What the recorded metric means. */
+    description?: string
+    /** When false, the rule is kept but not evaluated. */
+    enabled?: boolean
+}
+
 export interface _MetricSamplesBodyApi {
     /**
      * Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot).
@@ -1201,6 +1251,17 @@ export interface MetricsSuggestedDashboardApi {
     dashboard_id: number | null
 }
 
+export interface _MetricClassicHistogramApi {
+    /** The histogram's name without a suffix. */
+    base_name: string
+    /** The `_bucket` name, with the `le` label. PromQL reads this one. */
+    bucket: string
+    /** The `_sum` name: the total of the observed values. */
+    sum: string
+    /** The `_count` name: the number of observations. */
+    count: string
+}
+
 export interface _MetricNameApi {
     /** Metric name as it appears in the team's data. */
     name: string
@@ -1215,6 +1276,13 @@ export interface _MetricNameApi {
     last_seen?: string | null
     /** A small downsampled series of the metric's recent shape, for a sparkline. */
     sparkline?: number[]
+    /**
+     * Start of the earliest hour this metric arrived in, within retention, ISO 8601. Only present when `first_seen` was requested.
+     * @nullable
+     */
+    first_seen?: string | null
+    /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
+    classic_histogram?: _MetricClassicHistogramApi
 }
 
 export interface _MetricNamesResponseApi {
@@ -1470,19 +1538,48 @@ export type MetricsQueryCountsRetrieveParams = {
 
 export type MetricsValuesRetrieveParams = {
     /**
+     * Add `first_seen`: the earliest hour each name arrived in, within retention.
+     */
+    first_seen?: boolean
+    /**
+     * Fold a Prometheus classic histogram's `<name>_bucket`, `<name>_sum` and `<name>_count` into one `<name>_bucket` entry with `classic_histogram` set. Only folds when all three are in the page.
+     */
+    fold_histograms?: boolean
+    /**
      * Max number of names to return. Defaults to 100; maximum 1000.
      * @minimum 1
      * @maximum 1000
      */
     limit?: number
     /**
+     * How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.
+     *
+     * * `substring` - substring
+     * * `prefix` - prefix
+     * * `regex` - regex
+     * @minLength 1
+     */
+    match?: MetricsValuesRetrieveMatch
+    /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024
      */
     service?: string
     /**
-     * Substring filter (case-insensitive) applied to metric names.
+     * Attach a 24-point sparkline of the last 6 hours to each name. Turn off for a smaller, faster response.
+     */
+    sparklines?: boolean
+    /**
+     * Filter applied to metric names; `match` decides how. Empty lists every name, ordered by how many services report it.
      * @maxLength 255
      */
     value?: string
 }
+
+export type MetricsValuesRetrieveMatch = (typeof MetricsValuesRetrieveMatch)[keyof typeof MetricsValuesRetrieveMatch]
+
+export const MetricsValuesRetrieveMatch = {
+    Substring: 'substring',
+    Prefix: 'prefix',
+    Regex: 'regex',
+} as const

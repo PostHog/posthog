@@ -7,6 +7,7 @@ from django.core.management import call_command
 from django.test import override_settings
 
 from cryptography.fernet import InvalidToken
+from parameterized import parameterized
 from structlog.testing import capture_logs
 
 from posthog.management.commands.reencrypt_flag_payloads import Command
@@ -29,12 +30,13 @@ def _codec(key: str) -> FlagPayloadCodec:
 
 
 class TestReencryptFlagPayloads(BaseTest):
-    def _make_flag(self, key: str, encrypt_with: str, payload: str = PAYLOAD) -> FeatureFlag:
+    def _make_flag(self, key: str, encrypt_with: str, payload: str = PAYLOAD, deleted: bool = False) -> FeatureFlag:
         token = _codec(encrypt_with).encrypt(payload.encode("utf-8")).decode("utf-8")
         return FeatureFlag.objects.create(
             team=self.team,
             key=key,
             created_by=self.user,
+            deleted=deleted,
             is_remote_configuration=True,
             has_encrypted_payloads=True,
             filters={"groups": [], "payloads": {"true": token}},
@@ -43,8 +45,9 @@ class TestReencryptFlagPayloads(BaseTest):
     def _run(self, *args: str) -> None:
         call_command("reencrypt_flag_payloads", "--team-id", str(self.team.id), *args)
 
-    def test_live_run_reencrypts_with_new_main_key(self):
-        flag = self._make_flag("rc-flag", encrypt_with=OLD_KEY)
+    @parameterized.expand([("live", False), ("soft_deleted", True)])
+    def test_live_run_reencrypts_with_new_main_key(self, _name: str, deleted: bool):
+        flag = self._make_flag("rc-flag", encrypt_with=OLD_KEY, deleted=deleted)
 
         with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
             self._run("--live-run")
