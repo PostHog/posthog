@@ -678,6 +678,26 @@ describe('Cyclotron V2', () => {
             }
         })
 
+        it.each([false, true])(
+            'a fresh manager refuses its first enqueue when the queue is already at its limit (background depth check %s)',
+            async (backgroundDepthCheck) => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const fresh = createManager({ depthLimit: 2, depthCheckIntervalMs: 10_000, backgroundDepthCheck })
+                await fresh.connect()
+                try {
+                    await expect(fresh.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
+                    const stored = await assertPool.query<{ count: number }>(
+                        'SELECT COUNT(*)::int AS count FROM cyclotron_jobs WHERE queue_name = $1',
+                        [QUEUE]
+                    )
+                    expect(stored.rows[0].count).toBe(2)
+                } finally {
+                    await fresh.disconnect()
+                }
+            }
+        )
+
         describe('depth check under a slow depth query', () => {
             const storedJobs = async (): Promise<number> =>
                 (
