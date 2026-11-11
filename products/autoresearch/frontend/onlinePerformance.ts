@@ -214,7 +214,7 @@ export function accuracyTrend(
     const series: AccuracyTrendSeries[] = [
         {
             key: 'champion',
-            label: metric === 'calibration' ? 'Champion score' : 'Champion',
+            label: metric === 'calibration' ? 'Live model score' : 'Live model',
             role: 'champion',
             points: pointsOf(championRows),
         },
@@ -435,10 +435,10 @@ export function accuracyTrendSummary(
         case 'calibration': {
             const gaps = checked.map(({ row, value }) => value - row.base_rate)
             if (single) {
-                return `${lead}, the champion's average score was ${(Math.abs(gaps[0]) * 100).toFixed(1)} points ${gaps[0] >= 0 ? 'above' : 'below'} the actual rate.`
+                return `${lead}, the live model's average score was ${(Math.abs(gaps[0]) * 100).toFixed(1)} points ${gaps[0] >= 0 ? 'above' : 'below'} the actual rate.`
             }
             const widest = Math.max(...gaps.map(Math.abs))
-            return `Over ${checked.length} checked dates, the champion's average score stayed within ${(widest * 100).toFixed(1)} points of the actual rate.`
+            return `Over ${checked.length} checked dates, the live model's average score stayed within ${(widest * 100).toFixed(1)} points of the actual rate.`
         }
     }
 }

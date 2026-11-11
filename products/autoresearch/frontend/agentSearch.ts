@@ -73,6 +73,8 @@ export interface StatusBrief {
     distillation: string
     recommendedNext: string
     live: BriefModel | null
+    /** The completed run with the best training score, when it is not the run that produced the live model. */
+    bestInTraining: { runNumber: number; score: number } | null
     /** The newest challenger with a realized score. Null when no challenger has one. */
     scoredAlongside: BriefModel | null
 }
@@ -121,11 +123,58 @@ export function runHeadline(run: AutoresearchTrainingRunApi, runNumber: number):
     return { headline: best != null ? `Run ${runNumber} · best ${best.toFixed(3)}` : `Run ${runNumber}`, detail: '' }
 }
 
+/** Agent notes on which experiment another one started from, such as "Builds on iter2 (RF sqrt)". They mean nothing to people. */
+const LINEAGE_NOTE = /^(builds on|model-only on) iter/i
+
 /** Short labels for the approaches a run ruled out. */
 export function ruledOut(run: AutoresearchTrainingRunApi): string[] {
     return (run.summary?.dead_ends ?? [])
-        .map((item) => truncate(experimentTitle(item.agent_description ?? ''), 40))
-        .filter((label) => label)
+        .map((item) => experimentTitle(item.agent_description ?? ''))
+        .filter((title) => title && !LINEAGE_NOTE.test(title))
+        .map((title) => truncate(title, 40))
+}
+
+/** A run's duration in minutes up to 90 minutes ("62 minutes"), then in hours and minutes ("2 hours 5 minutes"). */
+export function formatRunDuration(startedAt: string, completedAt: string): string {
+    const minutes = Math.max(0, Math.floor((Date.parse(completedAt) - Date.parse(startedAt)) / 60000))
+    const plural = (count: number, unit: string): string => `${count} ${unit}${count === 1 ? '' : 's'}`
+    if (minutes < 1) {
+        return 'under a minute'
+    }
+    if (minutes <= 90) {
+        return plural(minutes, 'minute')
+    }
+    const hours = Math.floor(minutes / 60)
+    const rest = minutes % 60
+    return rest > 0 ? `${plural(hours, 'hour')} ${plural(rest, 'minute')}` : plural(hours, 'hour')
+}
+
+/**
+ * Why a completed run that beat the live model in training is not live, or null when there is nothing to explain.
+ * A model that was never promoted and has no recorded rollback reason lost on the promotion margin.
+ */
+export function notMadeLiveReason(
+    run: AutoresearchTrainingRunApi,
+    model: AutoresearchModelApi | undefined,
+    champion: AutoresearchModelApi | null,
+    margin: number
+): string | null {
+    const best = run.best_holdout_score ?? bestKeptScore(run)
+    const liveScore = champion?.holdout_score
+    if (run.status !== 'completed' || !model || model.promoted_at || best == null || liveScore == null) {
+        return null
+    }
+    if (best <= liveScore) {
+        return null
+    }
+    if (model.metrics?.not_promoted_reason) {
+        return 'it failed a check before going live'
+    }
+    const gain = Math.round((best - liveScore) * 1e9) / 1e9
+    if (gain < margin) {
+        return `the gain of ${(Math.floor(Math.round(gain * 1e6) / 1000) / 1000).toFixed(3)} is under the ${margin.toFixed(3)} needed to replace the live model`
+    }
+    return `its gain over the model that was live then was under the ${margin.toFixed(3)} needed to replace it`
 }
 
 function bestKeptScore(run: AutoresearchTrainingRunApi): number | null {
@@ -293,6 +342,13 @@ export function statusBrief(
     }
     const live = champion ? briefModel(champion, runNumbers) : null
     const runNumber = newest ? newestIndex + 1 : null
+    let best: { runNumber: number; score: number } | null = null
+    for (const [index, run] of ordered.entries()) {
+        const score = run.status === 'completed' ? (run.best_holdout_score ?? bestKeptScore(run)) : null
+        if (score != null && (!best || score > best.score)) {
+            best = { runNumber: index + 1, score }
+        }
+    }
     return {
         runNumber,
         readerSummary: newest?.reader_summary?.trim() ?? '',
@@ -301,6 +357,10 @@ export function statusBrief(
         distillation: newest?.summary?.distillation ?? '',
         recommendedNext: newest?.summary?.recommended_next ?? '',
         live,
+        bestInTraining:
+            live && best && best.runNumber !== live.runNumber && best.score > (live.holdoutScore ?? -Infinity)
+                ? best
+                : null,
         scoredAlongside: challenger ? briefModel(challenger, runNumbers) : null,
     }
 }
