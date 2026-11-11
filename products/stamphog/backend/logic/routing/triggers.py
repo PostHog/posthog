@@ -209,6 +209,18 @@ def _live_head(client: StamphogGitHubClient, repo_config: StamphogRepoConfig, pr
     return pr
 
 
+def _finished_review_step(
+    pr: dict[str, Any], state: _State, *, head_sha: str, mode: RoutingMode, review_path: ReviewPath
+) -> _Step | None:
+    """Route the head by its finished review, or None while it has none that ends the wait."""
+    finished = review_path.finished_review(state.repo_config, state.pr_number, head_sha)
+    if finished is None or _reviews_again(finished.outcome, silent=finished.silent):
+        return None
+    outcome = finished.outcome
+    scope = SCOPE_PINNED if outcome == ReviewVerdict.APPROVED else SCOPE_FULL
+    return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=verdict_trigger(outcome), scope=scope)
+
+
 def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, review_path: ReviewPath) -> _Step | None:
     repo_config = state.repo_config
     mode = RoutingMode(repo_config.routing_mode)
@@ -218,6 +230,16 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
         return None
     head_sha = _head_sha(pr)
     record = state.record
+    if (
+        mode == RoutingMode.FALLBACK
+        and record is not None
+        and record.get("head_sha") == head_sha
+        and record.get("status") == STATUS_WAITING
+        and not record.get(FULL_ROUTED_HEAD)
+    ):
+        # A verdict that finished while the pull request was a draft found no live head to route, and the safety
+        # net can have fired in that time too. When the pull request is ready again, nothing else routes the head.
+        return _finished_review_step(pr, state, head_sha=head_sha, mode=mode, review_path=review_path)
     if record is not None and record.get("head_sha") == head_sha:
         # Both modes route once per head, whatever started it. The `opened` task reads the live pull
         # request, so it already routes a draft marked ready before the task ran, and the
@@ -231,11 +253,9 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
     if wait:
         # A fast verdict can land before this task stores a record, and the verdict task drops it as a PR that
         # opened before routing was on. So a head that already has a verdict routes by it instead of waiting.
-        finished = review_path.finished_review(repo_config, state.pr_number, head_sha)
-        if finished is not None and not _reviews_again(finished.outcome, silent=finished.silent):
-            outcome = finished.outcome
-            scope = SCOPE_PINNED if outcome == ReviewVerdict.APPROVED else SCOPE_FULL
-            return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=verdict_trigger(outcome), scope=scope)
+        step = _finished_review_step(pr, state, head_sha=head_sha, mode=mode, review_path=review_path)
+        if step is not None:
+            return step
     return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=action, wait=wait)
 
 

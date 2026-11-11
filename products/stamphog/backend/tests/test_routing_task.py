@@ -747,26 +747,48 @@ def test_a_retracted_pinned_approval_routes_the_live_head_in_full(
 
 
 @pytest.mark.parametrize(
-    "name,verdict,silent,changed_files,expected_trigger,expected_requests,expected_nets",
+    "name,verdict,silent,changed_files,drafted,expected_trigger,expected_requests,expected_nets",
     [
-        ("approval", ReviewVerdict.APPROVED, False, None, "verdict:approved", (set(), {"team-alpha"}), 0),
+        ("approval", ReviewVerdict.APPROVED, False, None, False, "verdict:approved", (set(), {"team-alpha"}), 0),
         (
             "refusal",
             ReviewVerdict.REFUSED,
             False,
             None,
+            False,
             "verdict:refused",
             ({"carol"}, {"team-alpha", "team-beta"}),
             0,
         ),
         # Nothing reviews again after a silent WAIT, so the opening event routes it in full instead of waiting.
-        ("silent_wait", ReviewVerdict.WAIT, True, None, "verdict:wait", ({"carol"}, {"team-alpha", "team-beta"}), 0),
+        (
+            "silent_wait",
+            ReviewVerdict.WAIT,
+            True,
+            None,
+            False,
+            "verdict:wait",
+            ({"carol"}, {"team-alpha", "team-beta"}),
+            0,
+        ),
         # The pins come from a partial file list, so the head still owes a full routing from the safety net.
         (
             "approval_on_a_truncated_file_list",
             ReviewVerdict.APPROVED,
             False,
             5000,
+            False,
+            "verdict:approved",
+            (set(), {"team-alpha"}),
+            1,
+        ),
+        # The head waited, then the verdict and its safety net both found the pull request a draft.
+        (
+            "silent_approval_while_a_draft",
+            ReviewVerdict.APPROVED,
+            True,
+            None,
+            True,
             "verdict:approved",
             (set(), {"team-alpha"}),
             1,
@@ -779,6 +801,7 @@ def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
     verdict: ReviewVerdict,
     silent: bool,
     changed_files: int | None,
+    drafted: bool,
     expected_trigger: str,
     expected_requests: tuple[set[str], set[str]],
     expected_nets: int,
@@ -789,9 +812,13 @@ def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
 ) -> None:
     # A fast verdict beats the opening task, so the verdict task finds no record and drops it.
     repo_config = _setup(routing_chain, team, user, routing_mode="fallback", changed_files=changed_files)
+    live_pr = routing_chain.recorder.prs[(REPO, PR_NUMBER)]
+    if drafted:
+        _route()
+        live_pr["draft"] = True
     with team_scope(team.id):
-        pr_obj = PullRequest.objects.for_team(team.id).create(
-            team_id=team.id, repo_config=repo_config, pr_number=PR_NUMBER
+        pr_obj, _ = PullRequest.objects.for_team(team.id).get_or_create(
+            repo_config=repo_config, pr_number=PR_NUMBER, defaults={"team_id": team.id}
         )
         ReviewRun.objects.for_team(team.id).create(
             team_id=team.id,
@@ -802,9 +829,12 @@ def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
             output={"review_trigger": "reviewhog_clean"} if silent else {},
         )
     _finish_review(repo_config, ReviewRunStatus.COMPLETED, verdict, silent=silent)
+    if drafted:
+        _fire_safety_net(safety_net)
+        live_pr["draft"] = False
     assert routing_chain.recorder.github_writes == []
 
-    _route()
+    _route("ready_for_review" if drafted else "opened")
 
     assert safety_net.call_count == expected_nets
     assert _requested(routing_chain) == expected_requests
