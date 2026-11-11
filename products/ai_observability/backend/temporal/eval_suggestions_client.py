@@ -21,6 +21,8 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
+from products.ai_observability.backend.logic.eval_suggestions.eligibility import TemporalUnreachable
+
 COORDINATOR_WORKFLOW_NAME = "llma-eval-suggestions-coordinator"
 TEAM_WORKFLOW_NAME = "llma-eval-suggestions-team"
 SCHEDULE_ID = "llma-eval-suggestions-coordinator-schedule"
@@ -75,10 +77,6 @@ class TeamRunInputs:
 
 # A page load waits for the start, so a stalled Temporal must not hold the web worker.
 START_TIMEOUT = timedelta(seconds=5)
-
-
-class TemporalUnreachable(Exception):
-    """Connecting failed, so no start request reached Temporal."""
 
 
 async def start_first_visit_run(team_id: int, run_id: str) -> None:

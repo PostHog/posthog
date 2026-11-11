@@ -4,10 +4,15 @@ from parameterized import parameterized
 
 from posthog.schema import LLMTrace
 
-from products.ai_observability.backend.eval_suggestions import adapters, ranking
-from products.ai_observability.backend.eval_suggestions.measure import Measurement, Outcome, SampledTrace, TraceSample
-from products.ai_observability.backend.eval_suggestions.profile import FieldMeaning, StructuredGap, TeamProfile
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+from products.ai_observability.backend.logic.eval_suggestions import adapters, ranking
+from products.ai_observability.backend.logic.eval_suggestions.measure import (
+    Measurement,
+    Outcome,
+    SampledTrace,
+    TraceSample,
+)
+from products.ai_observability.backend.logic.eval_suggestions.profile import FieldMeaning, StructuredGap, TeamProfile
 
 
 def _sampled(trace_id: str, product: str, held_out: bool = False, earlier: tuple[str, ...] = ()) -> SampledTrace:

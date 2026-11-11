@@ -16,9 +16,9 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
-from products.ai_observability.backend.eval_suggestions import measure
-from products.ai_observability.backend.eval_suggestions.adapters import _FINAL_TEXT, AdaptedCheck, compile_check
-from products.ai_observability.backend.eval_suggestions.measure import (
+from products.ai_observability.backend.logic.eval_suggestions import measure
+from products.ai_observability.backend.logic.eval_suggestions.adapters import _FINAL_TEXT, AdaptedCheck, compile_check
+from products.ai_observability.backend.logic.eval_suggestions.measure import (
     ROLE_LABEL,
     SampledTrace,
     _calls_tools,
@@ -27,7 +27,7 @@ from products.ai_observability.backend.eval_suggestions.measure import (
     final_answer,
     run_check,
 )
-from products.ai_observability.backend.eval_suggestions.profile import fetch_profile
+from products.ai_observability.backend.logic.eval_suggestions.profile import fetch_profile
 from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
 from products.ai_observability.backend.logic.eval_suggestions.sample_queries import (
     EVENTS_PER_TRACE,

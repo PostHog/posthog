@@ -1,8 +1,8 @@
 from parameterized import parameterized
 
-from products.ai_observability.backend.eval_suggestions import adapters, cards
-from products.ai_observability.backend.eval_suggestions.coverage import EvalFix, FilterChange
-from products.ai_observability.backend.eval_suggestions.profile import FieldMeaning, StructuredGap
+from products.ai_observability.backend.logic.eval_suggestions import adapters, cards
+from products.ai_observability.backend.logic.eval_suggestions.coverage import EvalFix, FilterChange
+from products.ai_observability.backend.logic.eval_suggestions.profile import FieldMeaning, StructuredGap
 
 
 @parameterized.expand(

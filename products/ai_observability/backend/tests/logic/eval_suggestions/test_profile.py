@@ -2,8 +2,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.eval_suggestions import profile
-from products.ai_observability.backend.eval_suggestions.profile import (
+from products.ai_observability.backend.logic.eval_suggestions import profile
+from products.ai_observability.backend.logic.eval_suggestions.profile import (
     MAX_SEGMENT_KEYS,
     StructuredOutput,
     build_profile,

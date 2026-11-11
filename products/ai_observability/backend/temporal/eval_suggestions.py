@@ -19,11 +19,11 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
-    from posthog.models.team import Team
     from posthog.temporal.common.heartbeat import Heartbeater
     from posthog.temporal.common.utils import on_asyncify_pool
 
-    from .client import (
+    from ..facade import api
+    from .eval_suggestions_client import (
         COORDINATOR_WORKFLOW_NAME,
         DRAFT,
         FAIL_RUN,
@@ -37,9 +37,6 @@ with workflow.unsafe.imports_passed_through():
         CoordinatorInputs,
         TeamRunInputs,
     )
-    from .config import load_settings
-    from .eligibility import eligible_team_ids
-    from .pipeline import create_run, draft_stage, fail_run, measure_stage, publish_stage, screen_stage
 
 # Each stage stops itself this long before Temporal times its attempt out.
 DEADLINE_MARGIN = timedelta(minutes=1)
@@ -75,24 +72,20 @@ class FailRunInputs:
 @activity.defn(name="llma-eval-suggestions-plan")
 async def plan_eval_suggestions_activity() -> CoordinatorPlan:
     async with Heartbeater():
-        suggestion_settings = await on_asyncify_pool(load_settings)()
-        team_ids = await on_asyncify_pool(eligible_team_ids)(suggestion_settings)
-    return CoordinatorPlan(team_ids=team_ids, max_concurrent_teams=suggestion_settings.max_concurrent_teams)
-
-
-def _start_run(inputs: StartRunInputs) -> str:
-    team = Team.objects.get(id=inputs.run.team_id)
-    return str(create_run(team, inputs.run.trigger, inputs.run.batch_id, run_id=inputs.run_id).id)
+        plan = await on_asyncify_pool(api.plan_eval_suggestions)()
+    return CoordinatorPlan(team_ids=plan.team_ids, max_concurrent_teams=plan.max_concurrent_teams)
 
 
 @activity.defn(name="llma-eval-suggestions-start-run")
 async def start_eval_suggestions_run_activity(inputs: StartRunInputs) -> str:
-    return await on_asyncify_pool(_start_run)(inputs)
+    return await on_asyncify_pool(api.start_eval_suggestions_run)(
+        inputs.run.team_id, inputs.run.trigger, inputs.run.batch_id, inputs.run_id
+    )
 
 
 @activity.defn(name="llma-eval-suggestions-fail-run")
 async def fail_eval_suggestions_run_activity(inputs: FailRunInputs) -> None:
-    await on_asyncify_pool(fail_run)(inputs.team_id, inputs.run_id, inputs.error)
+    await on_asyncify_pool(api.fail_eval_suggestions_run)(inputs.team_id, inputs.run_id, inputs.error)
 
 
 def _deadline(limits: ActivityLimits) -> float:
@@ -102,41 +95,30 @@ def _deadline(limits: ActivityLimits) -> float:
 @activity.defn(name="llma-eval-suggestions-measure")
 async def measure_eval_suggestions_activity(inputs: StageInputs) -> int:
     async with Heartbeater():
-        suggestion_settings = await on_asyncify_pool(load_settings)()
-        return await on_asyncify_pool(measure_stage)(
-            inputs.team_id, inputs.run_id, settings=suggestion_settings, deadline=_deadline(MEASURE)
+        return await on_asyncify_pool(api.measure_eval_suggestions)(
+            inputs.team_id, inputs.run_id, deadline=_deadline(MEASURE)
         )
 
 
 @activity.defn(name="llma-eval-suggestions-screen")
 async def screen_eval_suggestions_activity(inputs: StageInputs) -> int:
     async with Heartbeater():
-        suggestion_settings = await on_asyncify_pool(load_settings)()
-        return await on_asyncify_pool(screen_stage)(
-            inputs.team_id,
-            inputs.run_id,
-            include_paid=inputs.include_paid,
-            settings=suggestion_settings,
-            deadline=_deadline(SCREEN),
+        return await on_asyncify_pool(api.screen_eval_suggestions)(
+            inputs.team_id, inputs.run_id, include_paid=inputs.include_paid, deadline=_deadline(SCREEN)
         )
 
 
 @activity.defn(name="llma-eval-suggestions-draft")
 async def draft_eval_suggestions_activity(inputs: StageInputs) -> int:
     async with Heartbeater():
-        suggestion_settings = await on_asyncify_pool(load_settings)()
-        return await on_asyncify_pool(draft_stage)(
-            inputs.team_id,
-            inputs.run_id,
-            include_paid=inputs.include_paid,
-            settings=suggestion_settings,
-            deadline=_deadline(DRAFT),
+        return await on_asyncify_pool(api.draft_eval_suggestions)(
+            inputs.team_id, inputs.run_id, include_paid=inputs.include_paid, deadline=_deadline(DRAFT)
         )
 
 
 @activity.defn(name="llma-eval-suggestions-publish")
 async def publish_eval_suggestions_activity(inputs: StageInputs) -> int:
-    return await on_asyncify_pool(publish_stage)(inputs.team_id, inputs.run_id)
+    return await on_asyncify_pool(api.publish_eval_suggestions)(inputs.team_id, inputs.run_id)
 
 
 def _options(limits: ActivityLimits, *, heartbeat: bool = True) -> dict[str, Any]:

@@ -1,10 +1,6 @@
 import uuid
-from typing import Any, cast
+from typing import Any
 
-from django.db.models import F, Q, QuerySet
-from django.utils import timezone
-
-import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
@@ -16,38 +12,23 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.user import User
 from posthog.permissions import is_service_auth
 from posthog.rate_limit import AIObservabilityBackfillEstimateSustainedThrottle, AIObservabilityBackfillEstimateThrottle
 
-from products.access_control.backend.facade.api import (
-    get_restricted_properties_with_group_type_index_for_team,
-    split_restricted_property_names,
-)
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from ..eval_suggestions import accept as accept_logic
-from ..eval_suggestions.client import TEAM_TIMEOUT
-from ..eval_suggestions.config import is_enabled_for_organization
-from ..eval_suggestions.eligibility import claim_first_visit_run, queue_first_visit_run, record_visit
+from ..facade import eval_suggestions as facade
+from ..facade.contracts import EvalSuggestionNotFoundError
 from ..models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionDismissReason,
     EvalSuggestionKind,
-    EvalSuggestionRun,
-    EvalSuggestionRunStatus,
+    EvalSuggestionRunTrigger,
     EvalSuggestionStatus,
 )
-from ..models.evaluations import Evaluation, EvaluationTarget
+from ..models.evaluations import EvaluationTarget
 
-logger = structlog.get_logger(__name__)
-
-# A fix whose evaluation changed after the run read it, or that is gone, no longer applies. Saving the evaluation
-# by hand is how a person acts on a fix with no patch, so the card leaves the list once they do.
-STALE_FIX = Q(kind=EvalSuggestionKind.FIX_EVAL) & (
-    Q(target_evaluation__isnull=True)
-    | Q(target_evaluation__deleted=True)
-    | Q(target_evaluation__updated_at__gt=F("run__created_at"))
-)
+NOT_FOUND_MESSAGE = "No suggestion with this id in this project."
 
 
 class EvalSuggestionEvidenceSerializer(serializers.Serializer):
@@ -67,7 +48,46 @@ class EvalSuggestionDraftField(serializers.JSONField):
     pass
 
 
-class EvalSuggestionSerializer(serializers.ModelSerializer):
+class EvalSuggestionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Suggestion identifier.")
+    kind = serializers.ChoiceField(
+        choices=EvalSuggestionKind.choices,
+        read_only=True,
+        help_text=(
+            "new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, "
+            "with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results."
+        ),
+    )
+    status = serializers.ChoiceField(
+        choices=EvalSuggestionStatus.choices,
+        read_only=True,
+        help_text="proposed until someone accepts or dismisses it.",
+    )
+    applies = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "False for a fix_eval whose evaluation is gone or changed after the run, so its patch would undo "
+            "that change. Always true for other kinds."
+        ),
+    )
+    template_key = serializers.CharField(
+        read_only=True,
+        help_text="Catalog template or adapted check the suggestion comes from. Empty for fix_eval.",
+    )
+    headline = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The problem in the project's own terms, with the number that makes it concrete, such as "
+            "'1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured."
+        ),
+    )
+    outcome = serializers.CharField(
+        read_only=True,
+        help_text="What adding the evaluation does and what it costs, in one or two plain sentences.",
+    )
+    reason = serializers.CharField(
+        read_only=True, help_text="How the problem was measured or found, for people who want the detail."
+    )
     draft = EvalSuggestionDraftField(
         read_only=True,
         help_text=(
@@ -82,121 +102,74 @@ class EvalSuggestionSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Property filters the suggested evaluation runs on. Empty means all AI traffic.",
     )
+    rollout_percentage = serializers.FloatField(
+        read_only=True, help_text="Percentage (0-100) of matching units the evaluation runs on."
+    )
+    measured_failure_rate = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.",
+    )
+    sample_size = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Traces the failure rate was measured on. Null when there is no rate.",
+    )
     evidence = EvalSuggestionEvidenceSerializer(
         many=True, read_only=True, help_text="Up to 5 example traces, each with a one-line reason."
     )
-    target_evaluation_name = serializers.CharField(
-        source="target_evaluation.name",
+    estimated_weekly_runs = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Runs a week at the suggested rollout, for judges."
+    )
+    estimated_weekly_cost_usd = serializers.FloatField(
         read_only=True,
         allow_null=True,
-        default=None,
+        help_text="Estimated weekly cost in USD on the project's own provider key, for judges. Null when unknown.",
+    )
+    judge_model = serializers.CharField(
+        read_only=True, help_text="Model the weekly cost assumes, for LLM judges. Empty for Hog checks and fixes."
+    )
+    created_evaluation = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Evaluation that accepting this suggestion created."
+    )
+    target_evaluation = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Evaluation a fix_eval suggestion repairs."
+    )
+    target_evaluation_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
         help_text="Name of the evaluation a fix_eval suggestion repairs.",
     )
+    similar_evaluation = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Existing evaluation that may already cover this suggestion."
+    )
     similar_evaluation_name = serializers.CharField(
-        source="similar_evaluation.name",
         read_only=True,
         allow_null=True,
-        default=None,
         help_text="Name of an existing evaluation that may already cover this suggestion.",
     )
-
-    applies = serializers.SerializerMethodField(
-        help_text=(
-            "False for a fix_eval whose evaluation is gone or changed after the run, so its patch would undo "
-            "that change. Always true for other kinds."
-        )
+    dismiss_reason = serializers.ChoiceField(
+        choices=EvalSuggestionDismissReason.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Reason given when the suggestion was dismissed, if any.",
+    )
+    created_at = serializers.DateTimeField(
+        read_only=True, help_text="When the run that produced the suggestion published it."
     )
 
-    @extend_schema_field(OpenApiTypes.BOOL)
-    def get_applies(self, suggestion: EvalSuggestion) -> bool:
-        if suggestion.kind != EvalSuggestionKind.FIX_EVAL:
-            return True
-        target = suggestion.target_evaluation
-        # The same rule as STALE_FIX, which hides these from the list.
-        return target is not None and not target.deleted and target.updated_at <= suggestion.run.created_at
 
-    class Meta:
-        model = EvalSuggestion
-        fields = [
-            "id",
-            "kind",
-            "status",
-            "applies",
-            "template_key",
-            "headline",
-            "outcome",
-            "reason",
-            "draft",
-            "filters",
-            "rollout_percentage",
-            "measured_failure_rate",
-            "sample_size",
-            "evidence",
-            "estimated_weekly_runs",
-            "estimated_weekly_cost_usd",
-            "judge_model",
-            "created_evaluation",
-            "target_evaluation",
-            "target_evaluation_name",
-            "similar_evaluation",
-            "similar_evaluation_name",
-            "dismiss_reason",
-            "created_at",
-        ]
-        read_only_fields = fields
-        extra_kwargs = {
-            "id": {"help_text": "Suggestion identifier."},
-            "kind": {
-                "help_text": (
-                    "new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, "
-                    "with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results."
-                )
-            },
-            "status": {"help_text": "proposed until someone accepts or dismisses it."},
-            "template_key": {
-                "help_text": "Catalog template or adapted check the suggestion comes from. Empty for fix_eval."
-            },
-            "headline": {
-                "help_text": (
-                    "The problem in the project's own terms, with the number that makes it concrete, such as "
-                    "'1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured."
-                )
-            },
-            "outcome": {
-                "help_text": "What adding the evaluation does and what it costs, in one or two plain sentences."
-            },
-            "reason": {"help_text": "How the problem was measured or found, for people who want the detail."},
-            "rollout_percentage": {"help_text": "Percentage (0-100) of matching units the evaluation runs on."},
-            "measured_failure_rate": {
-                "help_text": "Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise."
-            },
-            "sample_size": {"help_text": "Traces the failure rate was measured on. Null when there is no rate."},
-            "estimated_weekly_runs": {"help_text": "Runs a week at the suggested rollout, for judges."},
-            "estimated_weekly_cost_usd": {
-                "help_text": "Estimated weekly cost in USD on the project's own provider key, for judges. Null when unknown."
-            },
-            "judge_model": {
-                "help_text": "Model the weekly cost assumes, for LLM judges. Empty for Hog checks and fixes."
-            },
-            "created_evaluation": {"help_text": "Evaluation that accepting this suggestion created."},
-            "target_evaluation": {"help_text": "Evaluation a fix_eval suggestion repairs."},
-            "similar_evaluation": {"help_text": "Existing evaluation that may already cover this suggestion."},
-            "dismiss_reason": {"help_text": "Reason given when the suggestion was dismissed, if any."},
-            "created_at": {"help_text": "When the run that produced the suggestion published it."},
-        }
-
-
-class EvalSuggestionRunSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = EvalSuggestionRun
-        fields = ["id", "trigger", "created_at", "completed_at"]
-        read_only_fields = fields
-        extra_kwargs = {
-            "id": {"help_text": "Run identifier."},
-            "trigger": {"help_text": "scheduled (weekly), first_visit, or manual."},
-            "created_at": {"help_text": "When the run started."},
-            "completed_at": {"help_text": "When the run published its suggestions."},
-        }
+class EvalSuggestionRunSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Run identifier.")
+    trigger = serializers.ChoiceField(
+        choices=EvalSuggestionRunTrigger.choices,
+        read_only=True,
+        help_text="scheduled (weekly), first_visit, or manual.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the run started.")
+    completed_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the run published its suggestions."
+    )
 
 
 class EvalSuggestionListSerializer(serializers.Serializer):
@@ -287,133 +260,81 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         level = "write" if self.action in self.scope_object_write_actions else "read"
         return [f"evaluation:{level}", "query:read"]
 
-    def _suggestions(self) -> QuerySet[EvalSuggestion]:
-        """The team's suggestions, without those that name an evaluation the user cannot read."""
-        suggestions = EvalSuggestion.objects.for_team(self.team_id)
-        if is_service_auth(self.request):
-            return suggestions
-        # Runs read every event property as the project, and a card's filters, headline and evidence can carry
-        # any of them, so a member with a hidden event property sees no suggestions rather than a masked one.
-        restrictions = get_restricted_properties_with_group_type_index_for_team(
-            user=cast(User, self.request.user), team_id=self.team_id
-        )
-        if split_restricted_property_names(restrictions).event:
-            return suggestions.none()
-        visible = self.user_access_control.filter_queryset_by_access_level(
-            Evaluation.objects.filter(team_id=self.team_id)
-        ).values("id")
-        return suggestions.filter(
-            Q(target_evaluation__isnull=True) | Q(target_evaluation_id__in=visible),
-            Q(similar_evaluation__isnull=True) | Q(similar_evaluation_id__in=visible),
-            Q(created_evaluation__isnull=True) | Q(created_evaluation_id__in=visible),
-        )
+    def _access(self) -> UserAccessControl | None:
+        """None for service credentials, which read every suggestion."""
+        return None if is_service_auth(self.request) else self.user_access_control
 
-    def _suggestion(self, pk: str) -> EvalSuggestion:
+    @staticmethod
+    def _suggestion_id(pk: str) -> uuid.UUID:
         try:
-            suggestion_id = uuid.UUID(pk)
+            return uuid.UUID(pk)
         except ValueError:
-            raise NotFound("No suggestion with this id in this project.")
-        suggestion = (
-            self._suggestions()
-            .select_related("target_evaluation", "similar_evaluation")
-            .filter(id=suggestion_id)
-            .first()
-        )
-        if suggestion is None:
-            raise NotFound("No suggestion with this id in this project.")
-        return suggestion
+            raise NotFound(NOT_FOUND_MESSAGE)
 
     @extend_schema(operation_id="evaluation_suggestions_list", responses={200: EvalSuggestionListSerializer})
     def list(self, request: Request, **kwargs: Any) -> Response:
         """The latest suggestions. Loading them records the visit, and the first visit starts a run."""
-        if not is_enabled_for_organization(str(self.team.organization_id)):
-            return Response(EvalSuggestionListSerializer({"run": None, "pending": False, "results": []}).data)
-        record_visit(self.team)
-        runs = EvalSuggestionRun.objects.for_team(self.team_id)
-        latest = runs.filter(status=EvalSuggestionRunStatus.COMPLETED).order_by("-completed_at").first()
-        pending = runs.filter(
-            status=EvalSuggestionRunStatus.RUNNING, created_at__gte=timezone.now() - TEAM_TIMEOUT
-        ).exists()
-        if latest is None and not pending and claim_first_visit_run(self.team):
-            try:
-                queue_first_visit_run(self.team)
-                pending = True
-            except Exception:
-                # The list still answers. The claim holds for the day, so the next day's visit tries again.
-                logger.exception("llma.eval_suggestions_first_visit_start_failed", team_id=self.team_id)
-        results = (
-            self._suggestions()
-            .filter(run=latest, status=EvalSuggestionStatus.PROPOSED)
-            .exclude(STALE_FIX)
-            .select_related("target_evaluation", "similar_evaluation")
-            .order_by("-score")
-            if latest
-            else EvalSuggestion.objects.none()
-        )
-        return Response(
-            EvalSuggestionListSerializer({"run": latest, "pending": pending, "results": list(results)}).data
-        )
+        return Response(EvalSuggestionListSerializer(facade.list_eval_suggestions(self.team, self._access())).data)
 
     @extend_schema(request=None, responses={200: EvalSuggestionSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """One suggestion, whatever its status. The evaluation page reads it to show a proposed fix."""
-        return Response(EvalSuggestionSerializer(self._suggestion(pk)).data)
+        try:
+            suggestion = facade.get_eval_suggestion(self.team, self._access(), self._suggestion_id(pk))
+        except EvalSuggestionNotFoundError:
+            raise NotFound(NOT_FOUND_MESSAGE)
+        return Response(EvalSuggestionSerializer(suggestion).data)
 
     @extend_schema(request=None, responses={200: EvalSuggestionEstimateSerializer})
     @action(detail=True, methods=["get"], pagination_class=None)
     def accept_estimate(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """What accepting would run on recent data, and what a judge would cost, for the confirm step."""
-        estimate = accept_logic.estimate(self._suggestion(pk), self.team)
-        return Response(
-            EvalSuggestionEstimateSerializer(
-                {
-                    "target": estimate.target,
-                    "units": estimate.units,
-                    "window_start": estimate.window_start,
-                    "window_end": estimate.window_end,
-                    "judge_model": estimate.judge_model,
-                    "estimated_cost_usd": estimate.estimated_cost_usd,
-                }
-            ).data
-        )
+        try:
+            estimate = facade.estimate_eval_suggestion_accept(self.team, self._access(), self._suggestion_id(pk))
+        except EvalSuggestionNotFoundError:
+            raise NotFound(NOT_FOUND_MESSAGE)
+        return Response(EvalSuggestionEstimateSerializer(estimate).data)
 
     @extend_schema(request=None, responses={200: EvalSuggestionAcceptSerializer})
     @action(detail=True, methods=["post"], pagination_class=None)
     def accept(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """Create the evaluation from the suggestion, enabled, and run it on recent data. Safe to repeat."""
-        self._suggestion(pk)
-        result = accept_logic.accept(
-            pk, team=self.team, request=request, serializer_context=self.get_serializer_context()
-        )
-        # A repeat returns the evaluation the first accept created, which can have been restricted since.
-        self.check_object_permissions(request, result.evaluation)
-        return Response(
-            EvalSuggestionAcceptSerializer(
-                {
-                    "suggestion": result.suggestion,
-                    "evaluation_id": result.evaluation.id,
-                    "backfill_id": result.backfill.id if result.backfill else None,
-                    "backfill_units": result.backfill.total_count if result.backfill else None,
-                }
-            ).data
-        )
+        try:
+            result = facade.accept_eval_suggestion(
+                self.team, self._access(), self._suggestion_id(pk), self.get_serializer_context()
+            )
+        except EvalSuggestionNotFoundError:
+            raise NotFound(NOT_FOUND_MESSAGE)
+        self.check_object_permissions(request, result.evaluation_access)
+        return Response(EvalSuggestionAcceptSerializer(result).data)
 
     @extend_schema(request=EvalSuggestionDismissSerializer, responses={200: EvalSuggestionSerializer})
     @action(detail=True, methods=["post"], pagination_class=None)
     def dismiss(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """Hide the suggestion. The same suggestion stays hidden for 90 days."""
-        self._suggestion(pk)
+        suggestion_id = self._suggestion_id(pk)
         body = EvalSuggestionDismissSerializer(data=request.data)
         body.is_valid(raise_exception=True)
-        suggestion = accept_logic.dismiss(pk, reason=body.validated_data.get("reason"), visible=self._suggestions())
+        try:
+            suggestion = facade.dismiss_eval_suggestion(
+                self.team, self._access(), suggestion_id, reason=body.validated_data.get("reason")
+            )
+        except EvalSuggestionNotFoundError:
+            raise NotFound(NOT_FOUND_MESSAGE)
         return Response(EvalSuggestionSerializer(suggestion).data)
 
     @extend_schema(request=None, responses={200: EvalSuggestionSerializer})
     @action(detail=True, methods=["post"], pagination_class=None)
     def apply_fix(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """Apply a fix_eval suggestion's change to the evaluation it repairs."""
-        target = self._suggestion(pk).target_evaluation
-        if target is not None:
-            self.check_object_permissions(request, target)
-        suggestion = accept_logic.apply_fix(pk, team=self.team, serializer_context=self.get_serializer_context())
-        return Response(EvalSuggestionSerializer(self._suggestion(str(suggestion.id))).data)
+        suggestion_id = self._suggestion_id(pk)
+        try:
+            target = facade.eval_suggestion_fix_target(self.team, self._access(), suggestion_id)
+            if target is not None:
+                self.check_object_permissions(request, target)
+            suggestion = facade.apply_eval_suggestion_fix(
+                self.team, self._access(), suggestion_id, self.get_serializer_context()
+            )
+        except EvalSuggestionNotFoundError:
+            raise NotFound(NOT_FOUND_MESSAGE)
+        return Response(EvalSuggestionSerializer(suggestion).data)

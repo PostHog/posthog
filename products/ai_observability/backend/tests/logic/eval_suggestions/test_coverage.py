@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.eval_suggestions.coverage import (
+from products.ai_observability.backend.logic.eval_suggestions.coverage import (
     MAX_SILENT_EVALUATIONS,
     ExistingEval,
     best_replacement,

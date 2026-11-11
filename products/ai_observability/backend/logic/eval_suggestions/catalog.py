@@ -7,7 +7,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-SHARED_DIR = Path(__file__).resolve().parents[2] / "shared"
+SHARED_DIR = Path(__file__).resolve().parents[3] / "shared"
 
 
 @frozen

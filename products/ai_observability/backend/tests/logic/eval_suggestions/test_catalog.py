@@ -1,7 +1,7 @@
 from parameterized import parameterized
 
-from products.ai_observability.backend.eval_suggestions import catalog
 from products.ai_observability.backend.hog import compile_ai_observability_hog
+from products.ai_observability.backend.logic.eval_suggestions import catalog
 from products.ai_observability.backend.models.evaluation_configs import validate_evaluation_configs
 
 

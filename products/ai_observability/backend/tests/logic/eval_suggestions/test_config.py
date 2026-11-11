@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from products.ai_observability.backend.eval_suggestions.config import SuggestionSettings, parse_settings
+from products.ai_observability.backend.logic.eval_suggestions.config import SuggestionSettings, parse_settings
 
 
 @parameterized.expand(

@@ -5,7 +5,7 @@ from parameterized import parameterized
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
-from products.ai_observability.backend.eval_suggestions import adapters
+from products.ai_observability.backend.logic.eval_suggestions import adapters
 from products.ai_observability.backend.logic.evaluations.hog_runtime import (
     build_trace_hog_globals,
     execute_hog_eval_bytecode,

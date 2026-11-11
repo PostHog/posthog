@@ -11,29 +11,23 @@ that needs traces hydrates them again from their ids, so a retry redoes one stag
 
 import time
 from collections.abc import Sequence
-from dataclasses import field, replace
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
-from django.db import connection, transaction
-from django.db.models import F, Sum
 from django.utils import timezone
 
 import structlog
-from pydantic import TypeAdapter
 
-from posthog.dataclasses import frozen
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models.team import Team
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
 from products.ai_observability.backend.models.eval_suggestions import (
-    EvalSuggestion,
     EvalSuggestionKind,
     EvalSuggestionRun,
     EvalSuggestionRunStatus,
-    EvalSuggestionStatus,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 
@@ -44,6 +38,7 @@ from . import (
     coverage as coverage_stage,
     drafting,
     ranking,
+    runs,
     screening,
 )
 from .adapters import AdaptedCheck, compile_check
@@ -53,7 +48,6 @@ from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
 from .measure import (
     Measurement,
     Outcome,
-    SampleRef,
     TraceSample,
     discover_sample,
     hydrate_sample,
@@ -63,6 +57,7 @@ from .measure import (
 )
 from .profile import StructuredGap, TeamProfile, fetch_profile, find_structured_gaps, gap_holds
 from .ranking import Proposal
+from .runs import GapCandidate, Handoff
 
 logger = structlog.get_logger(__name__)
 
@@ -76,7 +71,6 @@ DRAFT_ABORT_ERRORS = ("Execution timed out", "Memory limit exceeded")
 MAX_DEDUPED_EVALS = 50
 JUDGE_KINDS = frozenset({EvalSuggestionKind.NEW_LLM_JUDGE})
 PAID_STAGES = ("screening", "drafting")
-STAGE_ORDER = ("measure", "screening", "drafting")
 
 
 def judge_model(team: Team) -> str | None:
@@ -89,72 +83,12 @@ def judge_model(team: Team) -> str | None:
     return DEFAULT_MODEL_BY_PROVIDER.get(key.provider) if key else ranking.DEFAULT_JUDGE_MODEL
 
 
-@frozen
-class GapCandidate:
-    gap: StructuredGap
-    # The templated judge for the gap, which a draft replaces.
-    proposal: Proposal
-
-
-@frozen
-class Handoff:
-    window: ProfileWindow
-    profile: TeamProfile
-    # The traces the measure stage read, which later stages hydrate again.
-    sample: list[SampleRef]
-    # Candidates from every stage so far.
-    proposals: list[Proposal]
-    gaps: list[GapCandidate]
-    screened_judges: list[str]
-    judge_target: str
-    judge_model: str | None
-    # Check key -> Hog source, so dedupe can match an evaluation running the same code.
-    sources: dict[str, str]
-    # Dedupe key -> what the candidate checks, for matching against hand-written evaluations.
-    candidate_options: dict[str, str]
-    # Dedupe key -> (evaluation id, confidence) from that matching.
-    matches: dict[str, list[tuple[str, float]]] = field(default_factory=dict)
-    # The last stage that wrote this handoff.
-    written_by: str = "measure"
-
-
-_HANDOFF = TypeAdapter(Handoff)
-
-
 class _Stages:
     def __init__(self) -> None:
         self.record: dict[str, dict[str, Any]] = {}
 
     def set(self, name: str, status: str, **details: Any) -> None:
         self.record[name] = {"status": status, **details}
-
-
-def _running_run(team_id: int, run_id: str) -> EvalSuggestionRun | None:
-    """The run while it still works. A run another attempt published or gave up on is left alone."""
-    run = EvalSuggestionRun.objects.for_team(team_id).select_related("team").get(id=run_id)
-    return run if run.status == EvalSuggestionRunStatus.RUNNING else None
-
-
-def _load(run: EvalSuggestionRun) -> Handoff:
-    return _HANDOFF.validate_python(run.handoff)
-
-
-def _save(run: EvalSuggestionRun, handoff: Handoff, stages: _Stages, stage: str) -> None:
-    """Store a stage's result while the run still works.
-
-    A timed-out attempt keeps running in its thread and can finish after its retry and the stages after it. Its write
-    is dropped when the run is no longer running, or when a later stage already wrote the handoff.
-    """
-    with transaction.atomic():
-        locked = EvalSuggestionRun.objects.for_team(run.team_id).select_for_update().get(id=run.id)
-        if locked.status != EvalSuggestionRunStatus.RUNNING:
-            return
-        written_by = (locked.handoff or {}).get("written_by")
-        if written_by in STAGE_ORDER and STAGE_ORDER.index(written_by) > STAGE_ORDER.index(stage):
-            return
-        locked.handoff = _HANDOFF.dump_python(replace(handoff, written_by=stage), mode="json")
-        locked.stages = {**locked.stages, **stages.record}
-        locked.save(update_fields=["handoff", "stages"])
 
 
 def _matches(handoff: Handoff, evals: Sequence[coverage_stage.ExistingEval]) -> dict[str, list[tuple[Any, float]]]:
@@ -172,25 +106,6 @@ def _current_coverage(team: Team) -> Coverage:
     return Coverage(evals=existing_evals(team), fixes=[], dismissed_dedupe_keys=dismissed_dedupe_keys(team))
 
 
-def _reserve(run: EvalSuggestionRun, amount: float, budget: float) -> bool:
-    """Add `amount` to the run's spend if its coordinator run stays within `budget`. A run without a
-    coordinator has a budget of its own."""
-    runs = EvalSuggestionRun.objects.unscoped()
-    with transaction.atomic():
-        # Teams of one coordinator run draft concurrently, so the sum and the write share a lock.
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                [f"llma-eval-suggestions-budget:{run.batch_id or run.id}"],
-            )
-        charged = runs.filter(batch_id=run.batch_id) if run.batch_id else runs.filter(id=run.id)
-        spent = charged.aggregate(total=Sum("cost_usd"))["total"] or 0.0
-        if spent + amount > budget:
-            return False
-        runs.filter(id=run.id).update(cost_usd=F("cost_usd") + amount)
-    return True
-
-
 def paid_draft(team: Team, run: EvalSuggestionRun, brief: str, budget: float) -> drafting.DraftCall | None:
     """One draft call charged to the run, or None when the budget cannot cover the most it could cost.
 
@@ -198,13 +113,11 @@ def paid_draft(team: Team, run: EvalSuggestionRun, brief: str, budget: float) ->
     since the provider may have billed. A call that returns settles to the cost it reports.
     """
     reserved = drafting.max_cost_usd(brief)
-    if not _reserve(run, reserved, budget):
+    if not runs.reserve_spend(run, reserved, budget):
         return None
     # The brief carries segment values and tool names, so an organization in privacy mode keeps it out of analytics.
     call = drafting.draft_check(team.pk, brief, privacy_mode=is_privacy_mode_enabled(team))
-    EvalSuggestionRun.objects.for_team(team.pk).filter(id=run.id).update(
-        cost_usd=F("cost_usd") - reserved + call.cost_usd
-    )
+    runs.settle_spend(run, reserved, call.cost_usd)
     return call
 
 
@@ -323,13 +236,13 @@ def measure_stage(
     `deadline` is a time.monotonic() value. A worker thread cannot be stopped from outside, so measuring stops at
     it and the stage raises rather than hand on checks measured on part of the sample.
     """
-    run = _running_run(team_id, run_id)
+    run = runs.running_run(team_id, run_id)
     if run is None:
         return 0
     team = run.team
     # The weekly plan can be days old, so an organization taken off the rollout since then gets nothing new.
     if not is_enabled_for_organization(str(team.organization_id)):
-        fail_run(team_id, run_id, "The organization is no longer in the eval suggestions rollout")
+        runs.fail_run(team_id, run_id, "The organization is no longer in the eval suggestions rollout")
         return 0
     stages = _Stages()
     end = (now or timezone.now()) - SETTLE
@@ -348,7 +261,7 @@ def measure_stage(
     profile = fetch_profile(team, window)
     if profile.generations == 0:
         stages.set("profile", "skipped", detail="no generations in the last 7 days")
-        _save(
+        runs.save_handoff(
             run,
             Handoff(
                 window=window,
@@ -362,7 +275,7 @@ def measure_stage(
                 sources={},
                 candidate_options={},
             ),
-            stages,
+            stages.record,
             "measure",
         )
         return len(fixes)
@@ -426,7 +339,7 @@ def measure_stage(
     ]
     if model is not None:
         proposals += [candidate.proposal for candidate in gap_candidates]
-    _save(
+    runs.save_handoff(
         run,
         Handoff(
             window=window,
@@ -447,7 +360,7 @@ def measure_stage(
                 | {c.proposal.dedupe_key: c.proposal.draft["description"] for c in gap_candidates}
             ),
         ),
-        stages,
+        stages.record,
         "measure",
     )
     return len(proposals)
@@ -468,18 +381,18 @@ def screen_stage(
 ) -> int:
     """Stage 2: screen traces for the judges and match hand-written evaluations. Both stop at `deadline` and keep
     what they finished. Returns the number of screened judge candidates."""
-    run = _running_run(team_id, run_id)
+    run = runs.running_run(team_id, run_id)
     if run is None:
         return 0
     team = run.team
-    handoff = _load(run)
+    handoff = runs.load_handoff(run)
     stages = _Stages()
     skip = _paid_skip(team, include_paid, settings.jeeves)
     if skip is None and not handoff.sample:
         skip = "no traces to screen"
     if skip is not None:
         stages.set("screening", "skipped", detail=skip)
-        _save(run, handoff, stages, "screening")
+        runs.save_handoff(run, handoff, stages.record, "screening")
         return 0
     try:
         client = screening.build_client(team)
@@ -494,11 +407,11 @@ def screen_stage(
         screened = screening.screen(client, handoff.screened_judges, sample.main, deadline)
     except SystemOneNotConfigured:
         stages.set("screening", "skipped", detail="System One is not configured")
-        _save(run, handoff, stages, "screening")
+        runs.save_handoff(run, handoff, stages.record, "screening")
         return 0
     except SystemOneRequestFailed as error:
         stages.set("screening", "failed", detail=str(error))
-        _save(run, handoff, stages, "screening")
+        runs.save_handoff(run, handoff, stages.record, "screening")
         return 0
     proposals = [
         p
@@ -518,14 +431,14 @@ def screen_stage(
     stages.set(
         "screening", "ok", flagged={r.template_key: len(r.flagged) for r in screened}, dedupe_matches=len(matches)
     )
-    _save(
+    runs.save_handoff(
         run,
         replace(
             handoff,
             proposals=[*handoff.proposals, *proposals],
             matches={key: [(e.id, confidence) for e, confidence in pairs] for key, pairs in matches.items()},
         ),
-        stages,
+        stages.record,
         "screening",
     )
     return len(proposals)
@@ -535,11 +448,11 @@ def draft_stage(
     team_id: int, run_id: str, *, include_paid: bool, settings: SuggestionSettings, deadline: float | None = None
 ) -> int:
     """Stage 3: one paid draft for the best uncovered gap. Returns the number of drafted candidates."""
-    run = _running_run(team_id, run_id)
+    run = runs.running_run(team_id, run_id)
     if run is None:
         return 0
     team = run.team
-    handoff = _load(run)
+    handoff = runs.load_handoff(run)
     stages = _Stages()
     skip = _paid_skip(team, include_paid, settings.llm_drafting)
     coverage = _current_coverage(team)
@@ -561,7 +474,7 @@ def draft_stage(
         skip = "not enough time left"
     if skip is not None or sample is None:
         stages.set("drafting", "skipped", detail=skip)
-        _save(run, handoff, stages, "drafting")
+        runs.save_handoff(run, handoff, stages.record, "drafting")
         return 0
     try:
         drafted = _drafted_proposals(team, run, draftable, sample, handoff.profile, settings, stages)
@@ -571,19 +484,19 @@ def draft_stage(
         drafted = []
     if handoff.judge_model is None:
         drafted = [p for p in drafted if p.kind not in JUDGE_KINDS]
-    _save(run, replace(handoff, proposals=[*handoff.proposals, *drafted]), stages, "drafting")
+    runs.save_handoff(run, replace(handoff, proposals=[*handoff.proposals, *drafted]), stages.record, "drafting")
     return len(drafted)
 
 
 def publish_stage(team_id: int, run_id: str) -> int:
     """Stage 4: dedupe against the team's evaluations as they are now, pick at most three, and publish."""
-    run = EvalSuggestionRun.objects.for_team(team_id).select_related("team").get(id=run_id)
+    run = runs.get_run(team_id, run_id)
     if run.status == EvalSuggestionRunStatus.COMPLETED:
         # Temporal retries an attempt whose result it lost after the run had published.
-        return EvalSuggestion.objects.for_team(team_id).filter(run=run).count()
+        return runs.published_count(run)
     if run.status == EvalSuggestionRunStatus.FAILED:
         return 0
-    handoff = _load(run)
+    handoff = runs.load_handoff(run)
     coverage = _current_coverage(run.team)
     stages = _Stages()
     for name in PAID_STAGES:
@@ -602,70 +515,7 @@ def publish_stage(team_id: int, run_id: str) -> int:
         after_dedupe=len(best),
         picked=[p.dedupe_key for p in picked],
     )
-    return len(publish(run, picked, {**run.stages, **stages.record}))
-
-
-def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[str, Any]) -> list[EvalSuggestion]:
-    """Write the run's suggestions and complete it in one transaction, so the API never reads half a set.
-
-    Two attempts of one run can both get here when Temporal retries an attempt that is still running.
-    The first to lock the run publishes, and the other returns what it published.
-    """
-    with transaction.atomic():
-        locked = EvalSuggestionRun.objects.for_team(run.team_id).select_for_update().get(id=run.id)
-        if locked.status == EvalSuggestionRunStatus.COMPLETED:
-            return list(EvalSuggestion.objects.for_team(run.team_id).filter(run=run))
-        # The run was given up on while this attempt still ran, so its cards must not replace last week's.
-        if locked.status == EvalSuggestionRunStatus.FAILED:
-            return []
-        suggestions = EvalSuggestion.objects.for_team(run.team_id)
-        # Expiring first locks the open cards, so a dismissal in flight commits before the dismissed keys are read.
-        suggestions.filter(status=EvalSuggestionStatus.PROPOSED).exclude(run=run).update(
-            status=EvalSuggestionStatus.EXPIRED, updated_at=timezone.now()
-        )
-        # The team can dismiss or accept a card while the run works, after the stages read the dismissals and
-        # evaluations. A card accepted during the run would come back as new, since its evaluation is that young.
-        dismissed = dismissed_dedupe_keys(run.team) | set(
-            suggestions.filter(status=EvalSuggestionStatus.ACCEPTED, decided_at__gte=run.created_at).values_list(
-                "dedupe_key", flat=True
-            )
-        )
-        rows = suggestions.bulk_create(
-            [
-                EvalSuggestion(
-                    team_id=run.team_id,
-                    run=run,
-                    kind=p.kind,
-                    template_key=p.template_key,
-                    dedupe_key=p.dedupe_key,
-                    headline=p.headline[:400],
-                    outcome=p.outcome,
-                    reason=p.reason,
-                    draft=p.draft,
-                    filters=p.filters,
-                    rollout_percentage=p.rollout_percentage,
-                    measured_failure_rate=p.measured_failure_rate,
-                    sample_size=p.sample_size,
-                    evidence=[{"trace_id": e.trace_id, "reason": e.reason} for e in p.evidence],
-                    score=p.score,
-                    estimated_weekly_runs=p.estimated_weekly_runs,
-                    estimated_weekly_cost_usd=p.estimated_weekly_cost_usd,
-                    mean_input_tokens=p.mean_input_tokens,
-                    judge_model=p.judge_model,
-                    target_evaluation_id=p.target_evaluation_id,
-                    similar_evaluation_id=p.similar_evaluation_id,
-                )
-                for p in proposals
-                if p.dedupe_key not in dismissed
-            ]
-        )
-        # cost_usd stays out of this save, because drafting updates it on the row and the value held here is stale.
-        run.status = EvalSuggestionRunStatus.COMPLETED
-        run.stages = stages
-        run.handoff = {}
-        run.completed_at = timezone.now()
-        run.save(update_fields=["status", "stages", "handoff", "completed_at"])
-    return rows
+    return len(runs.publish(run, picked, {**run.stages, **stages.record}))
 
 
 class RunDeadlinePassed(Exception):
@@ -675,19 +525,3 @@ class RunDeadlinePassed(Exception):
 def _on_time(deadline: float | None) -> None:
     if deadline is not None and time.monotonic() >= deadline:
         raise RunDeadlinePassed("The attempt ran out of time before publishing")
-
-
-def create_run(team: Team, trigger: str, batch_id: str = "", run_id: str | None = None) -> EvalSuggestionRun:
-    """A new run, or with `run_id` the run a retried start already created, so a retry never leaves one orphaned."""
-    runs = EvalSuggestionRun.objects.for_team(team.pk)
-    if run_id is None:
-        return runs.create(team=team, trigger=trigger, batch_id=batch_id)
-    run, _ = runs.get_or_create(id=run_id, defaults={"team": team, "trigger": trigger, "batch_id": batch_id})
-    return run
-
-
-def fail_run(team_id: int, run_id: str, error: str) -> None:
-    """Mark a run failed unless an attempt already published, so a late failure never hides published cards."""
-    EvalSuggestionRun.objects.for_team(team_id).filter(id=run_id).exclude(
-        status=EvalSuggestionRunStatus.COMPLETED
-    ).update(status=EvalSuggestionRunStatus.FAILED, error=error[:2000], handoff={}, completed_at=timezone.now())

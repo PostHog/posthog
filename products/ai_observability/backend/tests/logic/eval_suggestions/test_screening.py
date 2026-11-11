@@ -9,9 +9,9 @@ from posthog.schema import LLMTrace
 
 from posthog.llm.system_one import ChoiceAnswer, NoulAnswer, Question, SystemOneRequestFailed
 
-from products.ai_observability.backend.eval_suggestions import screening
-from products.ai_observability.backend.eval_suggestions.measure import SampledTrace
-from products.ai_observability.backend.eval_suggestions.screening import dedupe, screen
+from products.ai_observability.backend.logic.eval_suggestions import screening
+from products.ai_observability.backend.logic.eval_suggestions.measure import SampledTrace
+from products.ai_observability.backend.logic.eval_suggestions.screening import dedupe, screen
 
 
 class _RecordingClient:

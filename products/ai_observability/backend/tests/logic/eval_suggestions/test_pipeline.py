@@ -20,21 +20,19 @@ from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.team import Team
 
-from products.ai_observability.backend.eval_suggestions import drafting, pipeline
-from products.ai_observability.backend.eval_suggestions.config import SuggestionSettings
-from products.ai_observability.backend.eval_suggestions.coverage import Coverage, ExistingEval
-from products.ai_observability.backend.eval_suggestions.pipeline import (
-    create_run,
+from products.ai_observability.backend.logic.eval_suggestions import drafting, pipeline, runs
+from products.ai_observability.backend.logic.eval_suggestions.config import SuggestionSettings
+from products.ai_observability.backend.logic.eval_suggestions.coverage import Coverage, ExistingEval
+from products.ai_observability.backend.logic.eval_suggestions.pipeline import (
     dedupe,
     draft_stage,
-    fail_run,
     measure_stage,
     paid_draft,
-    publish,
     publish_stage,
     screen_stage,
 )
-from products.ai_observability.backend.eval_suggestions.ranking import Proposal
+from products.ai_observability.backend.logic.eval_suggestions.ranking import Proposal
+from products.ai_observability.backend.logic.eval_suggestions.runs import create_run, fail_run, publish
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionRun,
@@ -174,7 +172,8 @@ def _run_stages(
 @pytest.fixture(autouse=True)
 def _organization_in_rollout() -> Any:
     with patch(
-        "products.ai_observability.backend.eval_suggestions.pipeline.is_enabled_for_organization", return_value=True
+        "products.ai_observability.backend.logic.eval_suggestions.pipeline.is_enabled_for_organization",
+        return_value=True,
     ):
         yield
 
@@ -445,12 +444,12 @@ class TestRunRecords(BaseTest):
     @patch.object(pipeline, "_drafted_proposals")
     def test_the_draft_deadline_counts_the_time_hydration_took(self, drafted: MagicMock) -> None:
         run = create_run(self.team, "scheduled")
-        handoff = pipeline.Handoff(
+        handoff = runs.Handoff(
             window=pipeline.ProfileWindow(start=timezone.now() - timedelta(days=7), end=timezone.now()),
             profile=pipeline.TeamProfile.empty(),
             sample=[],
             proposals=[],
-            gaps=[pipeline.GapCandidate(gap=MagicMock(), proposal=_candidate("gap:lens=security:priority", []))],
+            gaps=[runs.GapCandidate(gap=MagicMock(), proposal=_candidate("gap:lens=security:priority", []))],
             screened_judges=[],
             judge_target="trace",
             judge_model="gpt-5-mini",
@@ -465,7 +464,7 @@ class TestRunRecords(BaseTest):
 
         needed = drafting.max_draft_seconds() + pipeline.DRAFT_MEASURE_BUDGET_SECONDS
         with (
-            patch.object(pipeline, "_load", return_value=handoff),
+            patch.object(runs, "load_handoff", return_value=handoff),
             patch.object(pipeline, "_paid_skip", return_value=None),
             patch.object(pipeline, "hydrate_sample", side_effect=slow_hydration),
             patch.object(pipeline.time, "monotonic", side_effect=lambda: clock[0]),
@@ -494,12 +493,12 @@ class TestRunRecords(BaseTest):
     @patch.object(pipeline, "_drafted_proposals")
     def test_a_draft_that_cannot_finish_before_the_deadline_is_not_started(self, drafted: MagicMock) -> None:
         run = create_run(self.team, "scheduled")
-        handoff = pipeline.Handoff(
+        handoff = runs.Handoff(
             window=pipeline.ProfileWindow(start=timezone.now() - timedelta(days=7), end=timezone.now()),
             profile=pipeline.TeamProfile.empty(),
             sample=[],
             proposals=[],
-            gaps=[pipeline.GapCandidate(gap=MagicMock(), proposal=_candidate("gap:lens=security:priority", []))],
+            gaps=[runs.GapCandidate(gap=MagicMock(), proposal=_candidate("gap:lens=security:priority", []))],
             screened_judges=[],
             judge_target="trace",
             judge_model="gpt-5-mini",
@@ -508,7 +507,7 @@ class TestRunRecords(BaseTest):
         )
 
         with (
-            patch.object(pipeline, "_load", return_value=handoff),
+            patch.object(runs, "load_handoff", return_value=handoff),
             patch.object(pipeline, "_paid_skip", return_value=None),
         ):
             drafted_count = draft_stage(

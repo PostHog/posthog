@@ -12,19 +12,19 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.ai_observability.backend.eval_suggestions.client import (
-    COORDINATOR_WORKFLOW_NAME,
-    TEAM_WORKFLOW_NAME,
-    CoordinatorInputs,
-    TeamRunInputs,
-)
-from products.ai_observability.backend.eval_suggestions.temporal import (
+from products.ai_observability.backend.temporal.eval_suggestions import (
     CoordinatorPlan,
     EvalSuggestionsCoordinatorWorkflow,
     EvalSuggestionsTeamWorkflow,
     FailRunInputs,
     StageInputs,
     StartRunInputs,
+)
+from products.ai_observability.backend.temporal.eval_suggestions_client import (
+    COORDINATOR_WORKFLOW_NAME,
+    TEAM_WORKFLOW_NAME,
+    CoordinatorInputs,
+    TeamRunInputs,
 )
 
 QUEUE = "eval-suggestions-test"

@@ -4,13 +4,13 @@ from parameterized import parameterized
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
-from products.ai_observability.backend.eval_suggestions.applicability import (
+from products.ai_observability.backend.logic.eval_suggestions.applicability import (
     ContentProfile,
     applicable,
     trace_dispatcher_tools,
 )
-from products.ai_observability.backend.eval_suggestions.measure import SampledTrace
-from products.ai_observability.backend.eval_suggestions.profile import TeamProfile
+from products.ai_observability.backend.logic.eval_suggestions.measure import SampledTrace
+from products.ai_observability.backend.logic.eval_suggestions.profile import TeamProfile
 
 PROFILE = TeamProfile(
     sessions=0,

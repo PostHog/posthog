@@ -7,8 +7,8 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
-from products.ai_observability.backend.eval_suggestions import eligibility
-from products.ai_observability.backend.eval_suggestions.config import SuggestionSettings
+from products.ai_observability.backend.logic.eval_suggestions import eligibility
+from products.ai_observability.backend.logic.eval_suggestions.config import SuggestionSettings
 from products.ai_observability.backend.logic.eval_suggestions.eligibility_queries import GenerationDaysRow
 from products.ai_observability.backend.models.eval_suggestions import EvalSuggestionTeamState
 

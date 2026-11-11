@@ -29,8 +29,8 @@ from products.ai_observability.backend.api.evaluation_backfills import (
 )
 from products.ai_observability.backend.api.evaluations import EvaluationSerializer, create_evaluation, update_evaluation
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
-from products.ai_observability.backend.eval_suggestions.ranking import judge_input_price
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+from products.ai_observability.backend.logic.eval_suggestions.ranking import judge_input_price
 from products.ai_observability.backend.logic.evaluations.settle import settle_horizon
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,

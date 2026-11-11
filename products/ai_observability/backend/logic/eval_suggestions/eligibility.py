@@ -1,6 +1,6 @@
 """Who gets suggestions: a flagged organization, a recent visit, and steady AI traffic."""
 
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import date, datetime, timedelta
 
 from django.db.models import Q
@@ -21,7 +21,6 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestionTeamState,
 )
 
-from .client import TemporalUnreachable, start_first_visit_run
 from .config import SuggestionSettings, is_enabled_for_organization
 
 logger = structlog.get_logger(__name__)
@@ -55,7 +54,16 @@ def claim_first_visit_run(team: Team, today: date | None = None) -> bool:
     return claimed == 1
 
 
-def queue_first_visit_run(team: Team) -> None:
+class TemporalUnreachable(Exception):
+    """Connecting failed, so no start request reached Temporal."""
+
+
+# Starts a team's first-visit workflow for a run row. The facade passes the Temporal client's starter in, so logic
+# does not import workflow code.
+StartRun = Callable[[int, str], Awaitable[None]]
+
+
+def queue_first_visit_run(team: Team, start_run: StartRun) -> None:
     """Start the free stages for a team's first visit.
 
     The run row exists before the workflow starts, so the page reads the queued run as pending until a worker
@@ -63,7 +71,7 @@ def queue_first_visit_run(team: Team) -> None:
     """
     run = EvalSuggestionRun.objects.for_team(team.pk).create(team=team, trigger="first_visit")
     try:
-        async_to_sync(start_first_visit_run)(team.pk, str(run.id))
+        async_to_sync(start_run)(team.pk, str(run.id))
     except TemporalUnreachable:
         run.delete()
         raise
