@@ -1657,10 +1657,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Whole segments up to the last unescaped separator, read from the start so `\\/` and `\/` split as split_path does.
         parents = Func(F("path"), Value(r"^(?:(?:\\.|[^/\\])*/)*"), function="substring", output_field=CharField())
         folder = Func(parents, Value("/$"), Value(""), function="regexp_replace", output_field=CharField())
-        counts = (
-            files.annotate(folder=folder).values("folder").annotate(count=Count("id")).values_list("folder", "count")
-        )
-        return Response({"results": [{"folder": folder_path, "count": count} for folder_path, count in sorted(counts)]})
+        counts = files.annotate(folder=folder).values_list("folder").annotate(count=Count("id"))
+        return Response({"results": [{"folder": path, "count": count} for path, count in sorted(counts)]})
 
     @action(methods=["POST"], detail=True)
     def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:
