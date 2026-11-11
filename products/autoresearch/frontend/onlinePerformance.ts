@@ -1,11 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
-import {
-    AutoresearchRunApi,
-    ConfusionByCutoffApi,
-    OnlinePerformanceRowApi,
-} from './generated/api.schemas'
+import { AutoresearchRunApi, ConfusionByCutoffApi, OnlinePerformanceRowApi } from './generated/api.schemas'
 import { formatAuc, isLiftAtCeiling, liftCeilingNote, modelQuality } from './modelQuality'
 import { eventName } from './pipelineQuestion'
 import { PredictionSegmentThresholds, predictionSegmentFor } from './predictionSegments'
@@ -535,8 +531,7 @@ export function accuracyTrendSummary(
     rows: OnlinePerformanceRowApi[],
     metric: AccuracyTrendMetric,
     cutoff: AccuracyCutoff,
-    target: string,
-    holdoutAuc: number | null
+    target: string
 ): string | null {
     const checked = rows
         .filter((row) => row.emitted_role === 'champion')
@@ -555,10 +550,8 @@ export function accuracyTrendSummary(
 
     switch (metric) {
         case 'ranking':
-            return holdoutSentence(
-                checked.map(({ row }) => row),
-                holdoutAuc
-            )
+            // The holdout sentence under the stat tiles covers ranking, for the dates the frame picks.
+            return null
         case 'hit_rate': {
             const everyone = median(checked.map(({ row }) => row.base_rate))
             return `${lead}, ${percent(typical)} of ${cutoffGroup(cutoff)} did ${event}, against ${percent(everyone)} of everyone.`
