@@ -593,6 +593,40 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
+        ['unrelated master push', push(), 'false', false],
+        ['changed master push', push(), 'true', true],
+        ['missing filter output', push(), '', true],
+        ['unrelated PR', pullRequest(), 'false', false],
+        ['changed fork PR', pullRequest({ fork: true }), 'true', true],
+        ['unrelated merge queue', mergeQueue(), 'false', false],
+    ])('OAuth proxy build follows the input filter (%s)', (name, github, changed, runs) => {
+        const plan = planWorkflow(workflow('ci-oauth-proxy.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: { outputs: { 'oauth-proxy': changed } } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs).toBe(true)
+        expect(plan.jobs['build-and-test']?.result).toBe(runs ? 'success' : 'skipped')
+        expect(plan.jobs.oauth_proxy_tests?.result).toBe('success')
+    })
+
+    it.each(['', '0000000000000000000000000000000000000000'])(
+        'OAuth proxy runs the full build without a push base (%s)',
+        (before) => {
+            const github = push()
+            const plan = planWorkflow(workflow('ci-oauth-proxy.yml'), {
+                name: 'missing push base',
+                github: { ...github, event: { ...(github.event as object), before } },
+            })
+            expect(plan.errors).toEqual([])
+            expect(plan.jobs.changes?.steps.find((step) => step.id === 'filter')?.runs).toBe(false)
+            expect(plan.jobs['build-and-test']?.result).toBe('success')
+            expect(plan.jobs.oauth_proxy_tests?.result).toBe('success')
+        }
+    )
+
+    it.each([
         ['unrelated PR', pullRequest(), 'false', '2', 2, false],
         ['unrelated fork PR', pullRequest({ fork: true }), 'false', '2', 2, false],
         ['Markdown inputs changed', pullRequest(), 'true', '2', 2, true],

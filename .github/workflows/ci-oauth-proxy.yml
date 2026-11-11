@@ -36,13 +36,21 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push'
+              if: github.event_name != 'push' || (github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000')
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       oauth-proxy:
                         - 'services/oauth-proxy/**'
                         - '.github/workflows/ci-oauth-proxy.yml'
+                        - '*'
+                        - '**/package.json'
+                        - '.github/actions/paths-filter/**'
+                        - '.github/actions/pnpm-install/**'
+                        - '.github/actions/setup-pnpm/**'
+                        - '.husky/**'
+                        - 'bin/fix-rdkafka-paths'
+                        - 'patches/**'
 
     build-and-test:
         name: Build & Test
