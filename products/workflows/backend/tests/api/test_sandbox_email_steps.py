@@ -269,22 +269,34 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("plain", {}, {}, None),
-            ("reply_to_kept", {"replyTo": "a@example.com"}, {}, "can't keep these settings: replyTo"),
-            ("reply_to_cleared_in_the_patch", {"replyTo": "a@example.com"}, {"email_patch": {"replyTo": None}}, None),
-            ("reply_to_dropped", {"replyTo": "a@example.com"}, {"drop_own_sender_settings": True}, None),
+            ("plain", {}, {}, {}, None),
+            ("reply_to_kept", {"replyTo": "a@example.com"}, {}, {}, "can't keep these settings: replyTo"),
+            (
+                "reply_to_cleared_in_the_patch",
+                {"replyTo": "a@example.com"},
+                {},
+                {"email_patch": {"replyTo": None}},
+                None,
+            ),
+            ("reply_to_dropped", {"replyTo": "a@example.com"}, {}, {"drop_own_sender_settings": True}, None),
             (
                 "sender_rotation_that_is_not_a_list",
+                {},
                 {},
                 {"email_patch": {"from": {"integrationIds": 42}}},
                 "can't keep these settings: from.integrationIds",
             ),
+            ("cc_kept", {"cc": "c@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
+            ("bcc_kept", {"bcc": "b@example.com"}, {}, {}, "can't keep these settings: cc and bcc"),
+            ("tracking_off_kept", {}, {"tracking_enabled": False}, {}, "can't keep these settings: tracking_enabled"),
+            ("utm_tags_kept", {}, {"utm_tags_enabled": True}, {}, "can't keep these settings: utm_tags_enabled"),
         ]
     )
     def test_the_email_patch_switches_a_step_to_the_sandbox_sender(
-        self, _name: str, own_value: dict, extra: dict, refusal: str | None
+        self, _name: str, own_value: dict, own_config: dict, extra: dict, refusal: str | None
     ) -> None:
         own_step = _own_email_step(self._verified_sender().id, **own_value)
+        own_step["config"].update(own_config)
         flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger(), own_step])
 
         with _flag(True):
