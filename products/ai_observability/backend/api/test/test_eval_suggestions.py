@@ -131,7 +131,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
             ("judge", EvalSuggestionKind.NEW_LLM_JUDGE, JUDGE_DRAFT, 50),
         ]
     )
-    @patch(f"{BACKFILLS_MODULE}.sync_connect")
+    @patch(f"{BACKFILLS_MODULE}.connect_with_deadline")
     @patch(f"{ACCEPT_MODULE}.count_backfill_candidates")
     def test_accept_creates_the_evaluation_once_and_shrinks_the_backfill_to_the_cap(
         self, _name: str, kind: str, draft: dict, cap: int, count: MagicMock, connect: MagicMock
@@ -285,7 +285,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
             ("counts_use_up_the_budget", [5000], 0, -1),
         ]
     )
-    @patch(f"{BACKFILLS_MODULE}.sync_connect")
+    @patch(f"{BACKFILLS_MODULE}.connect_with_deadline")
     @patch(f"{ACCEPT_MODULE}.count_backfill_candidates")
     def test_accept_falls_back_to_the_last_window_with_traffic(
         self, _name: str, counts: list[int], kept_window: int, budget: int, count: MagicMock, connect: MagicMock
@@ -501,7 +501,7 @@ class TestEvalSuggestionsAccessControl(APIBaseTest):
         assert self.client.get(f"{url}/{suggestion.id}/accept_estimate/").status_code == status.HTTP_404_NOT_FOUND
 
     @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", return_value=BackfillScope(to_evaluate=0, already_judged=0))
-    def test_repeat_accept_checks_access_to_the_created_evaluation(self, _count: MagicMock) -> None:
+    def test_member_loses_an_accepted_suggestion_once_its_evaluation_is_hidden(self, _count: MagicMock) -> None:
         self._grant("editor")
         suggestion = EvalSuggestion.objects.for_team(self.team.pk).create(
             team=self.team,
@@ -517,4 +517,5 @@ class TestEvalSuggestionsAccessControl(APIBaseTest):
         self._grant("none", created)
         self.client.force_login(self.member)
 
-        assert self.client.post(url).status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.get(url.removesuffix("accept/")).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.post(url).status_code == status.HTTP_404_NOT_FOUND

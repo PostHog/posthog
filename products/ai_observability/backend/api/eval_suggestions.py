@@ -300,6 +300,7 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return suggestions.filter(
             Q(target_evaluation__isnull=True) | Q(target_evaluation_id__in=visible),
             Q(similar_evaluation__isnull=True) | Q(similar_evaluation_id__in=visible),
+            Q(created_evaluation__isnull=True) | Q(created_evaluation_id__in=visible),
         )
 
     def _suggestion(self, pk: str) -> EvalSuggestion:

@@ -19,7 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
-from temporalio.client import WorkflowExecutionStatus
+from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -50,7 +50,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
 )
 from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.ai_observability.backend.api.evaluations import EvaluationConditionSerializer
@@ -162,6 +162,14 @@ def clamp_backfill_window(
     return BackfillWindow(start=window_start, end=window_end)
 
 
+# Requests wait for these calls, so a stalled Temporal must not hold the web worker.
+TEMPORAL_REQUEST_TIMEOUT = timedelta(seconds=5)
+
+
+def connect_with_deadline() -> Client:
+    return asyncio.run(asyncio.wait_for(async_connect(), TEMPORAL_REQUEST_TIMEOUT.total_seconds()))
+
+
 def start_backfill(
     *,
     team: Team,
@@ -192,7 +200,7 @@ def start_backfill(
         raise ValidationError("This evaluation already has a running backfill.")
 
     try:
-        client = sync_connect()
+        client = connect_with_deadline()
     except Exception:
         # Connecting failed, so no start request reached Temporal and no workflow can exist for
         # this row. Removing it lets the user retry at once.
@@ -208,6 +216,7 @@ def start_backfill(
                 id=backfill_workflow_id(str(backfill.id)),
                 task_queue=settings.LLMA_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                rpc_timeout=TEMPORAL_REQUEST_TIMEOUT,
             )
         )
     except Exception:
@@ -625,7 +634,7 @@ class EvaluationBackfillViewSet(
     def _probe_reads_alive(self, backfill: EvaluationBackfill, workflow_id: str) -> bool:
         """Ask Temporal whether the workflow runs, and read no answer at all as a yes."""
         try:
-            client = sync_connect()
+            client = connect_with_deadline()
             description = asyncio.run(client.get_workflow_handle(workflow_id).describe())
             return description.status == WorkflowExecutionStatus.RUNNING
         except RPCError as error:
@@ -705,7 +714,7 @@ class EvaluationBackfillViewSet(
         backfill = self.get_object()
         if cancel_backfill(self.team_id, backfill.pk):
             try:
-                client = sync_connect()
+                client = connect_with_deadline()
                 asyncio.run(client.get_workflow_handle(backfill_workflow_id(str(backfill.pk))).cancel())
             except Exception as error:
                 # The workflow reads the row's status at every tick and stops on a terminal one, so
