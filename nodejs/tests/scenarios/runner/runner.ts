@@ -157,6 +157,13 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 await stopHealth?.()
                 try {
                     await producer?.disconnect()
+                } catch (error) {
+                    const failed = `the load producer did not disconnect: ${(error as Error).message}`
+                    outcome = {
+                        ...outcome,
+                        status: 'invalid',
+                        statusReason: outcome.status === 'invalid' ? `${outcome.statusReason}; ${failed}` : failed,
+                    }
                 } finally {
                     await postgres.end()
                 }
