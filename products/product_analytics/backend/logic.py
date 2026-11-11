@@ -4,10 +4,13 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.contrib.postgres.aggregates import ArrayAgg
+from django.db import router
 from django.db.models import Count, Max, OuterRef, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
+
+from posthog.ingress.dispatch.database import bounded_statement_timeout
 
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedTrendsInsight
 from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
@@ -60,15 +63,17 @@ def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | 
 
 AGENT_READ_DAYS_KEPT = 35
 AGENT_READ_DELETE_BATCH = 10_000
+AGENT_READ_WRITE_TIMEOUT_MS = 500
 
 
 def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) -> None:
     team_id = team.parent_team_id or team.id
     day = now().astimezone(team.timezone_info).date()
-    InsightAgentRead.objects.for_team(team_id, canonical=True).bulk_create(
-        [InsightAgentRead(team_id=team_id, user_id=user_id, insight_id=insight_id, day=day)],
-        ignore_conflicts=True,
-    )
+    with bounded_statement_timeout(AGENT_READ_WRITE_TIMEOUT_MS, aliases=[router.db_for_write(InsightAgentRead)]):
+        InsightAgentRead.objects.for_team(team_id, canonical=True).bulk_create(
+            [InsightAgentRead(team_id=team_id, user_id=user_id, insight_id=insight_id, day=day)],
+            ignore_conflicts=True,
+        )
 
 
 def insight_reads_by_agents(
