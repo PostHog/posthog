@@ -2173,7 +2173,6 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         href: (ref: string) => urls.workflow(ref, 'workflow'),
         listHref: () => urls.workflows(),
-        filterKey: 'hog_flow',
     },
     insight: {
         name: 'Insight',
@@ -2197,7 +2196,6 @@ export const fileSystemTypes = {
         iconType: 'broadcasts',
         href: (ref: string) => urls.workflowsLibraryTemplate(ref),
         listHref: () => urls.workflows('library'),
-        filterKey: 'message_template',
     },
     notebook: {
         name: 'Notebook',

@@ -7,6 +7,17 @@ import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightModel } from '~/types'
 
+async function setDeleted<T extends Record<string, any>>(
+    props: { endpoint: string; object: T; idField?: keyof T; payload?: Record<string, any> },
+    deleted: boolean
+): Promise<void> {
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+    await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
+        ...(props.payload ?? props.object),
+        deleted,
+    })
+}
+
 export async function deleteWithUndo<T extends Record<string, any>>({
     undo = false,
     ...props
@@ -30,15 +41,7 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     onError?: (undo: boolean, object: T) => void
 }): Promise<void> {
     try {
-        if (undo && props.restore) {
-            await props.restore()
-        } else {
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-            await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
-                ...(props.payload ?? props.object),
-                deleted: !undo,
-            })
-        }
+        await (undo && props.restore ? props.restore() : setDeleted(props, !undo))
         props.callback?.(undo, props.object)
         lemonToast[undo ? 'success' : 'info'](
             <>
