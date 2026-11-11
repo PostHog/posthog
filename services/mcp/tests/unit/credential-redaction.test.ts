@@ -347,6 +347,23 @@ describe('credential redaction', () => {
         expect(await GENERATED_TOOLS[tool]!().handler(context, {})).toEqual(expected)
     })
 
+    it('redacts logs-group-by values whose dimension key is credential-named, keeping session ids', async () => {
+        const response = {
+            groups: [{ value: OTHER_SECRET, values: [OTHER_SECRET, 'checkout', 'sess-1'], log_count: 3 }],
+        }
+        const context = {
+            stateManager: { getProjectId: vi.fn().mockResolvedValue(1) },
+            api: { request: vi.fn().mockResolvedValue(response) },
+        } as unknown as Context
+        const params = {
+            query: { groupBys: [{ key: 'api_key' }, { key: 'service.name' }, { key: 'session_id' }] },
+        }
+
+        expect(await GENERATED_TOOLS['logs-group-by']!().handler(context, params)).toEqual({
+            groups: [{ values: ['[REDACTED]', 'checkout', 'sess-1'], log_count: 3 }],
+        })
+    })
+
     it.each([
         'engineering-analytics-ci-failure-logs',
         'engineering-analytics-run-failure-logs',
