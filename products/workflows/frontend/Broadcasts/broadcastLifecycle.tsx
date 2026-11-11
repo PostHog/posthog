@@ -67,7 +67,6 @@ export interface BroadcastSummaryActionsInput {
     batchJobStatuses: (string | null | undefined)[] | null
     onMoveToDraft: () => void
     onSendAgain: () => void
-    onOpenWorkflow: () => void
     onRestore: () => void
     onArchive: () => void
     onDelete: () => void
@@ -92,12 +91,6 @@ export function summaryActions(input: BroadcastSummaryActionsInput): BroadcastSu
                   'data-attr': 'broadcast-send-again',
               }
             : null,
-        {
-            label: 'Open in workflow editor',
-            onClick: input.onOpenWorkflow,
-            disabledReason: undefined,
-            'data-attr': 'broadcast-open-in-workflow-editor',
-        },
         input.isArchived
             ? {
                   label: 'Restore as draft',

@@ -1,5 +1,4 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconLetter } from '@posthog/icons'
@@ -21,8 +20,11 @@ import type { HogFlowBatchJobApi, HogFlowConversionApi } from 'products/workflow
 
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
+import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
+import { workflowLogic } from '../Workflows/workflowLogic'
 import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
+import { BroadcastEmailPausedBanner } from './BroadcastEmailPausedBanner'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { manageDisabledReason, sendErrorActions, summaryActions } from './broadcastLifecycle'
 import { BroadcastPerformance, BroadcastRunAudience } from './BroadcastPerformance'
@@ -31,9 +33,13 @@ import { BroadcastPushPerformance } from './BroadcastPushPerformance'
 import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { canStillBeSending } from './broadcastRunAudience'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
+import { broadcastSendingLogic } from './broadcastSendingLogic'
+import { BroadcastSendingRate } from './BroadcastSendingRate'
+import { BroadcastSendingRateModal } from './BroadcastSendingRateModal'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { type BroadcastChannel, type BroadcastRunStatus, getRunStatus } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
+import { BroadcastStillToSend } from './BroadcastStillToSend'
 import { broadcastPath } from './broadcastUsage'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { ComposerDraftFeedback } from './ComposerDraftFeedback'
@@ -365,6 +371,7 @@ export function BroadcastSummary(): JSX.Element {
     const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
         useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
+    useMountedLogic(broadcastSendingLogic(props))
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
@@ -414,7 +421,6 @@ export function BroadcastSummary(): JSX.Element {
     ]
 
     const accessReason = manageDisabledReason(broadcast?.user_access_level)
-    const workflowEditorUrl = urls.workflow(broadcastId ?? '', 'workflow')
     const actionItems = summaryActions({
         userAccessLevel: broadcast?.user_access_level,
         canMoveToDraft,
@@ -423,7 +429,6 @@ export function BroadcastSummary(): JSX.Element {
         batchJobStatuses: hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null,
         onMoveToDraft: confirmMoveToDraft,
         onSendAgain: duplicateBroadcast,
-        onOpenWorkflow: () => router.actions.push(workflowEditorUrl),
         onRestore: restoreBroadcast,
         onArchive: archiveBroadcast,
         onDelete: deleteBroadcast,
@@ -467,6 +472,7 @@ export function BroadcastSummary(): JSX.Element {
             />
             <div className="mx-auto w-full max-w-6xl space-y-4">
                 {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
+                <BroadcastEmailPausedBanner />
                 {broadcast?.status === 'draft' && accessReason ? (
                     <LemonBanner type="info">
                         You can view this draft but not edit it. Ask an admin for editor access to make changes.
@@ -476,7 +482,7 @@ export function BroadcastSummary(): JSX.Element {
                         type="info"
                         action={{
                             children: 'Open in workflow editor',
-                            to: workflowEditorUrl,
+                            to: urls.workflow(broadcastId ?? '', 'workflow'),
                             'data-attr': 'broadcast-draft-open-in-workflow-editor',
                         }}
                     >
@@ -515,7 +521,7 @@ export function BroadcastSummary(): JSX.Element {
                                     <div
                                         className={cn(
                                             'grid grid-cols-1 gap-4 rounded-lg border border-border bg-surface-primary p-4',
-                                            goalEnabled ? '@2xl:grid-cols-4' : '@2xl:grid-cols-3'
+                                            '@2xl:grid-cols-3'
                                         )}
                                     >
                                         <SummaryRow label="Audience">
@@ -558,6 +564,14 @@ export function BroadcastSummary(): JSX.Element {
                                             </SummaryRow>
                                         )}
                                         {goalEnabled && <SummaryRow label="Goal">{goalSummary(conversion)}</SummaryRow>}
+                                        {channel === 'email' ? (
+                                            <SummaryRow label="Sending rate">
+                                                <BroadcastSendingRate />
+                                            </SummaryRow>
+                                        ) : null}
+                                        <SummaryRow label="Still to send">
+                                            <BroadcastStillToSend />
+                                        </SummaryRow>
                                     </div>
                                     <div className="flex flex-col gap-2">
                                         <h2 className="m-0 text-base font-semibold">
@@ -624,9 +638,21 @@ export function BroadcastSummary(): JSX.Element {
                                 />
                             ),
                         },
+                        {
+                            key: 'logs',
+                            'data-attr': 'broadcast-summary-tab-logs',
+                            label: 'Logs',
+                            content: (
+                                // The invocations view reads the flow off workflowLogic, so it binds the broadcast's id.
+                                <BindLogic logic={workflowLogic} props={{ id: broadcastId ?? '' }}>
+                                    <WorkflowInvocations id={broadcastId ?? ''} />
+                                </BindLogic>
+                            ),
+                        },
                     ]}
                 />
             </div>
+            <BroadcastSendingRateModal />
         </SceneContent>
     )
 }
