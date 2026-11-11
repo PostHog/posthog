@@ -12,8 +12,8 @@ use crate::cohorts::cohort_models::{
 };
 use crate::database::get_connection_with_metrics;
 use crate::metrics::consts::{
-    COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNSUPPORTED_FILTER_COUNTER,
-    FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
+    COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNKNOWN_MEMBERSHIP_COUNTER,
+    COHORT_UNSUPPORTED_FILTER_COUNTER, FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
 };
 use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::OperatorType;
@@ -27,16 +27,16 @@ use common_types::TeamId;
 /// `/flags` path against stack overflow from an adversarially deep filter tree.
 const MAX_COHORT_FILTER_DEPTH: usize = 64;
 
-/// Cohorts already warned about by `record_malformed_cohort_filter`, so a persistently
-/// malformed cohort on the hot `/flags` path logs its identifying context once per
-/// process lifetime instead of flooding logs on every request.
+/// Cohorts already warned about by `record_malformed_cohort_filter` or
+/// `record_unknown_cohort_membership`, so a persistently failing cohort on the hot
+/// `/flags` path logs its identifying context once per process lifetime instead of
+/// flooding logs on every request.
 static WARNED_MALFORMED_COHORTS: Lazy<Mutex<HashSet<(TeamId, CohortId)>>> =
     Lazy::new(|| Mutex::new(HashSet::new()));
 
 /// Logs and counts a cohort whose filters failed dependency extraction or evaluation
 /// with `CohortFiltersParsingError` (malformed leaf, excessive nesting, or other
-/// structural error surfaced by `traverse_group`/`evaluate_group`), or whose
-/// membership stayed unknown because of an unsupported group that no sibling decided.
+/// structural error surfaced by `traverse_group`/`evaluate_group`).
 ///
 /// The counter is unlabeled (cardinality), so this log is the only place the cohort
 /// and team ids are recorded; it's deduped per cohort so it stays visible at `warn`
@@ -49,7 +49,23 @@ fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &
         tracing::warn!(
             cohort_id,
             team_id,
-            "Cohort filters are malformed or contain an unsupported group; failing {phase}"
+            "Cohort filters contain a malformed or unparsable leaf; failing {phase}"
+        );
+    }
+}
+
+/// Logs and counts a requested cohort whose membership stayed unknown because an
+/// unsupported group, possibly inside a referenced cohort, was not decided by a sibling.
+/// The log is deduped per cohort for the same reason as `record_malformed_cohort_filter`.
+fn record_unknown_cohort_membership(cohort_id: CohortId, team_id: TeamId) {
+    common_metrics::inc(COHORT_UNKNOWN_MEMBERSHIP_COUNTER, &[], 1);
+
+    let mut warned = WARNED_MALFORMED_COHORTS.lock().unwrap();
+    if warned.insert((team_id, cohort_id)) {
+        tracing::warn!(
+            cohort_id,
+            team_id,
+            "Cohort membership is unknown because of an unsupported group, possibly in a referenced cohort; failing evaluation"
         );
     }
 }
@@ -508,11 +524,7 @@ pub fn evaluate_dynamic_cohorts(
         FlagError::DependencyNotFound(DependencyType::Cohort, initial_cohort_id.into())
     })?;
     membership.ok_or_else(|| {
-        record_malformed_cohort_filter(
-            initial_cohort_id,
-            team_id,
-            "evaluation (membership unknown, possibly through a referenced cohort)",
-        );
+        record_unknown_cohort_membership(initial_cohort_id, team_id);
         FlagError::CohortFiltersParsingError
     })
 }
@@ -1524,6 +1536,7 @@ mod tests {
             "IN_1" => json!({"key": "id", "type": "cohort", "value": 1}),
             "NOT_IN_1" => json!({"key": "id", "type": "cohort", "value": 1, "operator": "not_in"}),
             "NEGATED_1" => json!({"key": "id", "type": "cohort", "value": 1, "negation": true}),
+            "EXACT_1" => json!({"key": "id", "type": "cohort", "value": 1, "operator": "exact"}),
             other => panic!("unknown child {other}"),
         }
     }
@@ -1599,6 +1612,7 @@ mod tests {
     #[case::not_in_does_not_turn_unknown_into_a_match("OR", &["NOT_IN_1"], None)]
     #[case::negation_does_not_turn_unknown_into_a_match("OR", &["NEGATED_1"], None)]
     #[case::and_negation_then_miss("AND", &["NEGATED_1", "F"], Some(false))]
+    #[case::unsupported_operator_keeps_unknown("OR", &["EXACT_1"], None)]
     fn test_reference_to_cohort_with_unsupported_root_is_decided_by_its_siblings(
         #[case] parent_type: &str,
         #[case] children: &[&str],
