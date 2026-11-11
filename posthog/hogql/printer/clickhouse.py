@@ -1061,7 +1061,7 @@ class ClickHousePrinter(BasePrinter):
 
         # In ClickHouse `equals(x, NULL)` is always NULL, so `IS [NOT] NULL` must print as a null check even when
         # the shortcut below skips the ifNull wrapping (for example on the $ai_* bloom-filter columns).
-        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq) and not in_join_constraint:
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             null_check = "isNull" if node.op == ast.CompareOperationOp.Eq else "isNotNull"
             if isinstance(node.right, ast.Constant) and node.right.value is None:
                 return f"{null_check}({left})"

@@ -26,11 +26,11 @@ CATALOG_JSON = Path(__file__).resolve().parents[2] / "tool-catalog.json"
 def get_tool_catalog() -> tuple[Tool, ...]:
     tools = [
         Tool(
-            kind=source_type.value,
-            label=source.get_source_config.label or source_type.value,
+            kind=str(source_type),
+            label=source.get_source_config.label or str(source_type),
             warehouse_source_type=source_type,
             detection=source.codebase_detection,
-            warehouse_destination_type=warehouse_destination_type(source_type.value),
+            warehouse_destination_type=warehouse_destination_type(str(source_type)),
             setup_requires_ui=source.setup_requires_ui or fields_require_ui(source.get_source_config.fields),
         )
         for source_type, source in SourceRegistry.get_all_sources().items()
@@ -55,7 +55,7 @@ def build_catalog_document() -> dict[str, Any]:
         {
             "kind": tool.kind,
             "label": tool.label,
-            "warehouse_source_type": tool.warehouse_source_type.value if tool.warehouse_source_type else None,
+            "warehouse_source_type": str(tool.warehouse_source_type) if tool.warehouse_source_type else None,
             "warehouse_destination_type": tool.warehouse_destination_type,
             "wizard_setup_mode": None
             if tool.setup_requires_ui is None
