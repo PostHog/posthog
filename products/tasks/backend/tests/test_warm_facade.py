@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
@@ -16,6 +17,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
 from posthog.models.user_integration import UserIntegration
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.signals.backend.facade.testing import claim_trial
 from products.signals.backend.models import SignalReport
@@ -1063,16 +1065,17 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert warm_task.last_client == TaskClientProvenance.POSTHOG_WEB
         assert warm_task.last_client_at is not None
 
-    def test_reuses_matching_posthog_ai_warm_task(self):
+    @parameterized.expand([("full", True), ("read_only", False)])
+    def test_reuses_matching_posthog_ai_warm_task(self, scopes: str, reused: bool) -> None:
         warm_task, run = self._warm_run(
             origin_product=Task.OriginProduct.POSTHOG_AI,
-            extra_state={"initial_permission_mode": "auto"},
+            extra_state={"initial_permission_mode": "auto", "pending_dispatch": {"posthog_mcp_scopes": scopes}},
         )
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
             dto = self._create(origin_product=Task.OriginProduct.POSTHOG_AI, initial_permission_mode="auto")
 
-        assert str(dto.id) == str(warm_task.id)
-        assert Task.objects.filter(team=self.team, deleted=False).count() == 1
+        assert (str(dto.id) == str(warm_task.id)) is reused
+        assert Task.objects.filter(team=self.team, deleted=False).count() == (1 if reused else 2)
 
     @parameterized.expand(
         [
@@ -1938,6 +1941,90 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
                 initial_permission_mode="plan",
             )
 
+    @parameterized.expand(
+        [
+            ("read_only_cold", "read_only", False),
+            ("custom_cold", ["query:read"], False),
+            ("empty_cold", [], False),
+            ("read_only_model_mismatch", "read_only", True),
+            ("custom_model_mismatch", ["query:read"], True),
+            ("empty_model_mismatch", [], True),
+            ("agent_full_resume", "full", False, "agent", None, False),
+            ("agent_custom_write_resume", ["dashboard:write"], False, "agent", None, False),
+            ("agent_custom_read_resume", ["query:read"], False, "agent"),
+            ("agent_empty_resume", [], False, "agent"),
+            ("profile_ceiling_lowered", "full", False, None, "read_only", False),
+            ("profile_access_removed", "read_only", False, None, [], False),
+        ]
+    )
+    def test_cold_resume_enforces_scope_limits(
+        self,
+        _name: str,
+        scopes: PosthogMcpScopes,
+        warm_successor: bool,
+        run_source: str | None = None,
+        profile_scopes: PosthogMcpScopes | None = None,
+        allowed: bool = True,
+    ) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        terminal = self._terminal_run(task)
+        TaskRun.update_state_atomic(terminal.id, updates={"pending_dispatch": {"posthog_mcp_scopes": scopes}})
+        warmed = self._warm_resume(task, terminal) if warm_successor else None
+        if warm_successor:
+            assert warmed is not None
+
+        profiles = {}
+        if profile_scopes is not None:
+            profile = replace(get_task_profile("posthog_ai"), key="test.scoped_resume", mcp_scopes=profile_scopes)
+            profiles[profile.key] = profile
+            task.profile = profile.key
+            task.save(update_fields=["profile"])
+
+        with (
+            self.settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False),
+            patch.dict("products.tasks.backend.facade.profiles._profiles", profiles),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as execute_workflow,
+            patch(f"{FACADE}.signal_task_run_user_message") as signal,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": terminal.id,
+                    "run_source": run_source,
+                    "model": "claude-sonnet-4-6" if warm_successor else "claude-sonnet-5",
+                    "pending_user_message": "Continue the example task",
+                },
+            )
+
+        assert result is not None
+        if not allowed:
+            assert result.error is not None
+            assert "MCP scopes exceed" in result.error.detail
+            assert task.runs.count() == 1
+            signal.assert_not_called()
+            execute_workflow.assert_not_called()
+            return
+
+        assert result.error is None and result.run_id is not None
+        successor = task.runs.get(id=result.run_id)
+        assert successor.state["pending_dispatch"]["posthog_mcp_scopes"] == scopes
+        assert successor.state["resume_from_run_id"] == str(terminal.id)
+        if warmed is not None:
+            assert successor.id != warmed.run_id
+        signal.assert_not_called()
+        execute_workflow.assert_called_once()
+        assert execute_workflow.call_args.kwargs["posthog_mcp_scopes"] == scopes
+
     def test_warms_again_after_a_successor_is_released(self):
         # A released successor is terminal and sits in front of its own source, so a source fence that
         # only accepts the source or a live warm would leave the task unable to warm for the rest of
@@ -2035,6 +2122,48 @@ class TestRunTaskWarmActivation(APIBaseTest):
             branch=branch,
         )
         return task, run
+
+    @parameterized.expand(
+        [
+            ("read_only", "read_only", None, "read_only"),
+            ("custom", ["query:read"], None, ["query:read"]),
+            ("empty", [], None, []),
+            ("agent_full", "full", "agent", "read_only"),
+            ("agent_read_only", "read_only", "agent", "read_only"),
+            ("agent_custom", ["query:read"], "agent", ["query:read"]),
+            ("agent_empty", [], "agent", []),
+        ]
+    )
+    def test_direct_start_honors_profile_and_source_scopes(
+        self, _name: str, scopes: PosthogMcpScopes, run_source: str | None, expected: PosthogMcpScopes
+    ) -> None:
+        profile = replace(USER, key="test.scoped_start", mcp_scopes=scopes)
+        task = Task.objects.create(
+            team=self.team,
+            title="Example task",
+            description="",
+            origin_product=profile.origin_product,
+            profile=profile.key,
+            created_by=self.user,
+        )
+        with (
+            self.settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False),
+            patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as execute_workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "run_source": run_source},
+            )
+
+        assert result is not None and result.error is None and result.run_id is not None
+        run = task.runs.get(id=result.run_id)
+        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == expected
+        execute_workflow.assert_called_once()
+        assert execute_workflow.call_args.kwargs["posthog_mcp_scopes"] == expected
 
     def test_activates_idling_warm_run_without_creating_a_new_run(self):
         task, run = self._warm_run()
