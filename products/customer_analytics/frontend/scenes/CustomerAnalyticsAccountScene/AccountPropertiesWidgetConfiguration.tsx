@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
-import type { AccountViewTileConfig } from '../../components/Accounts/accountViewTileConfig'
+import type { AccountViewTileConfigEditorProps } from '../../components/Accounts/accountViewTileConfig'
 import { ACCOUNT_ID_FIELDS, ACCOUNT_LIST_FIELDS } from './accountNativeProperties'
 import {
     accountWidgetKeysToReferences,
@@ -14,21 +14,13 @@ import { accountSidebarConfigLogic } from './accountSidebarConfigLogic'
 import { AccountPropertySelection } from './components/AccountPropertySelection'
 import { MAX_PINNED_ACCOUNT_PROPERTIES, type AccountPropertyOption } from './components/accountPropertyTypes'
 
-interface AccountPropertiesWidgetConfigurationProps {
-    projectId: number
-    accountId: string
-    config: AccountViewTileConfig
-    saving: boolean
-    onChange: (config: AccountViewTileConfig) => void
-}
-
 export function AccountPropertiesWidgetConfiguration({
     projectId,
     accountId,
     config,
     saving,
     onChange,
-}: AccountPropertiesWidgetConfigurationProps): JSX.Element {
+}: AccountViewTileConfigEditorProps): JSX.Element {
     const definitionsLogic = accountSidebarConfigLogic({ projectId })
     const { availableDefinitions, availableDefinitionsLoading, availableDefinitionsLoadFailed } =
         useValues(definitionsLogic)

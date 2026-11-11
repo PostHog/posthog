@@ -1,5 +1,6 @@
 import json
 import datetime
+import dataclasses
 from typing import Any
 
 import pytest
@@ -21,7 +22,9 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportSuggestedReviewer,
 )
+from products.signals.backend.ranking import report_facts
 from products.signals.backend.ranking.inventory import spine_report_filter
+from products.signals.backend.ranking.report_facts import ReportFacts, read_report_facts
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset import dag, queries
@@ -651,6 +654,56 @@ class TestSpineInclusion(BaseTest):
                 (*counts, *counters), 0
             )
             assert rows[report_id]["user_authored"] is False
+
+    def _judge(self, report_id: str, artefact_type: str, content: str) -> None:
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team, report_id=report_id, type=artefact_type, content=content
+        )
+        SignalReportArtefact.objects.filter(id=artefact.id).update(created_at=T1, updated_at=T1)
+
+    def test_state_snapshot_and_the_scoring_facts_agree_on_every_shared_column(self):
+        populated = self._report(SignalReport.Status.READY)
+        SignalReport.objects.filter(id=populated).update(
+            title="a title",
+            summary="a longer summary",
+            signal_count=5,
+            total_weight=2.5,
+            run_count=2,
+            charts=[{"id": "c1"}, {"id": "c2"}],
+            metrics=[{"id": "m1"}],
+            suggested_prompts=["a"],
+            tags=["x", "y"],
+            content_revision_count=3,
+            corroboration_count=4,
+            user_authored=True,
+        )
+        self._judge(populated, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, json.dumps({"priority": "P1"}))
+        self._judge(
+            populated,
+            SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            json.dumps({"actionability": "immediately_actionable", "already_addressed": False}),
+        )
+        unjudged = self._report(SignalReport.Status.READY)
+        malformed = self._report(SignalReport.Status.READY)
+        SignalReport.objects.filter(id=malformed).update(title=None, charts={"id": "c1"}, tags=[])
+        self._judge(malformed, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, json.dumps({"priority": 1}))
+        self._judge(malformed, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "[1]")
+        shared = [field.name for field in dataclasses.fields(ReportFacts) if field.name != "source_products"]
+
+        rows = self._state_snapshot()
+        with patch.object(report_facts, "fetch_source_products_for_reports", return_value={}):
+            facts = read_report_facts(self.team.id, [populated, unjudged, malformed])
+
+        for report_id in (populated, unjudged, malformed):
+            assert {column: rows[report_id][column] for column in shared} == {
+                column: getattr(facts[report_id], column) for column in shared
+            }
+        assert (facts[populated].priority, facts[populated].already_addressed) == ("P1", False)
+        assert (facts[malformed].priority, facts[malformed].actionability, facts[malformed].corroboration_count) == (
+            None,
+            None,
+            0,
+        )
 
     @parameterized.expand(
         [

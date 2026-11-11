@@ -7,6 +7,7 @@ import {
     PostHogApiError,
     PostHogPermissionError,
     PostHogRateLimitError,
+    PostHogValidationError,
     wrapError,
 } from '@/lib/errors'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -58,9 +59,34 @@ describe('CLI tool library', () => {
             { code: 'rate_limited', status: 429 },
         ],
         [
-            'an API error reads the DRF detail',
+            'an API error keeps the DRF detail out of the message',
             new PostHogApiError({ status: 404, statusText: 'Not Found', body: '{"detail":"Not found."}', ...request }),
-            { code: 'api_error', status: 404, message: 'Not found.' },
+            {
+                code: 'api_error',
+                status: 404,
+                message: expect.not.stringContaining('Not found.'),
+                detail: 'Not found.',
+            },
+        ],
+        [
+            'an API error passes on no part of a body that is not DRF JSON',
+            new PostHogApiError({ status: 502, statusText: 'Bad Gateway', body: '<html>proxy</html>', ...request }),
+            { code: 'api_error', status: 502, message: expect.not.stringContaining('proxy'), detail: undefined },
+        ],
+        [
+            'a validation error keeps the detail and the field apart from the message',
+            new PostHogValidationError({
+                detail: 'Enter a number.',
+                attr: 'limit',
+                code: 'invalid',
+                extra: undefined,
+                ...request,
+            }),
+            {
+                code: 'validation_error',
+                message: expect.not.stringContaining('Enter a number.'),
+                detail: 'Enter a number. (field: limit)',
+            },
         ],
         [
             'a wrapped refusal keeps its scope',
