@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import { getEventListeners } from 'events'
 import path from 'path'
 
 import { LoadedCard, load } from '../cards'
@@ -95,6 +96,27 @@ describe('drive', () => {
             summary: { targetUnits: 5, offeredUnits: 2 },
             journaled: ['run-a-1', 'run-a-2'],
         })
+    })
+
+    it('leaves no abort listener on any signal it listened on once a drive ends', async () => {
+        const listened = new Set<EventTarget>()
+        const addEventListener = EventTarget.prototype.addEventListener
+        jest.spyOn(EventTarget.prototype, 'addEventListener').mockImplementation(function (
+            this: EventTarget,
+            ...args: Parameters<EventTarget['addEventListener']>
+        ) {
+            listened.add(this)
+            return addEventListener.apply(this, args)
+        })
+        try {
+            const { driving } = startDrive(cardWith({ ratePerSecond: 50, driveFor: '1s' }), ACKNOWLEDGED)
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(await driving).toEqual({ targetUnits: 50, offeredUnits: 50 })
+        } finally {
+            jest.restoreAllMocks()
+        }
+
+        expect([...listened].reduce((left, target) => left + getEventListeners(target, 'abort').length, 0)).toBe(0)
     })
 
     it('ends at an interrupt between units without waiting for the next unit', async () => {
