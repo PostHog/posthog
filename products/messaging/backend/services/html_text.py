@@ -8,6 +8,10 @@ from posthog.dataclasses import frozen
 PARAGRAPH_TAGS = frozenset({"p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "table", "blockquote", "pre", "hr"})
 LINE_TAGS = frozenset({"div", "li", "tr", "section", "article", "header", "footer", "dd", "dt"})
 HIDDEN_TAGS = frozenset({"head", "title", "style", "script", "template"})
+RAW_TEXT_TAGS = frozenset({"script", "style", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext"})
+ESCAPABLE_RAW_TEXT_TAGS = frozenset({"textarea", "title"})
+UNREADABLE_AFTER_TAGS = frozenset({"svg", "math", "select"})
+FRAME_TAGS = frozenset({"frameset", "noframes"})
 VOID_TAGS = frozenset(
     {
         "area",
@@ -54,10 +58,10 @@ def has_unsubscribe_link(html: str, text: str) -> bool:
     if not html:
         url = f"https://{link}.invalid/"
         return "" in _text_links_to(UNSUBSCRIBE_PLACEHOLDER.sub(url, text), url)
-    parser = _TextParser(keep_unsubscribe_link=False)
+    parser = _TextParser(keep_unsubscribe_link=False, reads_like_a_browser=True)
     parser.feed(UNSUBSCRIBE_PLACEHOLDER.sub(link, html))
     parser.close()
-    return link in parser.visible_hrefs
+    return not parser.has_frames and link in parser.visible_hrefs
 
 
 def _text_links_to(text: str, base: str) -> list[str]:
@@ -90,9 +94,12 @@ class _OpenLink:
 
 
 class _TextParser(HTMLParser):
-    def __init__(self, *, keep_unsubscribe_link: bool) -> None:
-        super().__init__(convert_charrefs=True)
+    def __init__(self, *, keep_unsubscribe_link: bool, reads_like_a_browser: bool = False) -> None:
+        super().__init__(convert_charrefs=True, scripting=reads_like_a_browser)
+        if reads_like_a_browser:
+            self._set_support_cdata(False)
         self.keep_unsubscribe_link = keep_unsubscribe_link
+        self.reads_like_a_browser = reads_like_a_browser
         self.parts: list[str] = []
         self.open_tags: list[str] = []
         self.open_counts: Counter[str] = Counter()
@@ -101,6 +108,8 @@ class _TextParser(HTMLParser):
         self.label_text: list[str] = []
         self.label_length = 0
         self.visible_hrefs: set[str] = set()
+        self.has_frames = False
+        self.unreadable = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in VOID_TAGS:
@@ -112,12 +121,24 @@ class _TextParser(HTMLParser):
         self._push(tag)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.reads_like_a_browser and tag not in VOID_TAGS:
+            self.handle_starttag(tag, attrs)
+            self._read_content_as_text(tag)
+            return
         self._start(tag, attrs)
         self._push(tag)
         self._end_last()
 
+    def _read_content_as_text(self, tag: str) -> None:
+        if tag in RAW_TEXT_TAGS:
+            self.set_cdata_mode(tag)
+        elif tag in ESCAPABLE_RAW_TEXT_TAGS:
+            self.set_cdata_mode(tag, escapable=True)
+
     def handle_endtag(self, tag: str) -> None:
         if tag in VOID_TAGS or not self.open_counts[tag]:
+            return
+        if self.reads_like_a_browser and tag != "template" and not self._open_above_a_template(tag):
             return
         while self.open_tags[-1] != tag:
             self._end_last()
@@ -136,7 +157,19 @@ class _TextParser(HTMLParser):
         while self.open_tags:
             self._end_last()
 
+    def _open_above_a_template(self, tag: str) -> bool:
+        for open_tag in reversed(self.open_tags):
+            if open_tag == tag:
+                return True
+            if open_tag == "template":
+                return False
+        return False
+
     def _start(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in FRAME_TAGS:
+            self.has_frames = True
+        if self.reads_like_a_browser and tag in UNREADABLE_AFTER_TAGS:
+            self.unreadable = True
         if self.hidden_from is not None:
             return
         if tag in HIDDEN_TAGS:
@@ -149,7 +182,7 @@ class _TextParser(HTMLParser):
         elif tag in LINE_TAGS:
             self.parts.append("\n")
         href = _first_href(attrs) if tag == "a" else None
-        if href is not None:
+        if href is not None and not self.unreadable:
             self.visible_hrefs.add(href.strip(URL_PARSER_TRIMS))
         if href is not None and (href.startswith(LINK_SCHEMES) or self._is_unsubscribe_link(href)):
             self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
