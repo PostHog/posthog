@@ -25,6 +25,7 @@ from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
 from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
+from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
@@ -1104,7 +1105,7 @@ class OauthIntegration:
     @classmethod
     def integration_from_oauth_response(
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         region: str | None = None
         if kind == "posthog":
             # The target region was stashed in state at authorize time; the token exchange must hit
@@ -1510,16 +1511,12 @@ class OauthIntegration:
             # when the workspace last authorized the app. See `LinearIntegration.authorized_before_webhooks`.
             config["authorized_at"] = config["refreshed_at"]
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=kind,
-            integration_id=integration_id,
-            defaults={
-                "config": config,
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-                "errors": "",
-            },
+        integration, _ = row_writes.creator_accessor(kind).upsert(
+            team_id,
+            integration_id,
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
 
         if kind == "slack":
@@ -1799,7 +1796,7 @@ class OauthIntegration:
         try:
             res = self._post_token_refresh(oauth_config, client)
             config = self._parse_token_refresh_response(res)
-        except model.UndecryptedIntegrationSecretError:
+        except UndecryptedIntegrationSecretError:
             # The stored refresh token can't be read, so there is nothing to refresh with and no
             # later attempt can change that. Go terminal immediately: the sweep stops retrying,
             # and the UI shows the reconnect prompt.
@@ -1887,7 +1884,7 @@ def _held_access_token(record: IntegrationRecord) -> str:
     """
     try:
         token = record.access_token
-    except model.UndecryptedIntegrationSecretError:
+    except UndecryptedIntegrationSecretError:
         # The stored value compares as it is, so a refresh can still replace an unreadable token.
         token = record.sensitive_config.get("access_token")
     return token or ""

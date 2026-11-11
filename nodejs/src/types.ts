@@ -95,6 +95,7 @@ export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
     healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
+    readinessCheck?: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
 export interface PluginsServerConfig

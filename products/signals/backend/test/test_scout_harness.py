@@ -21,7 +21,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
-from django.db import OperationalError
+from django.db import OperationalError, transaction
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -3132,11 +3132,25 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
         (False, None, None, None, None),
     ],
 )
-async def test_first_report_experiment_routes_and_records_assignment(ateam, variant, runtime, adapter, model, tier):
+async def test_first_report_experiment_restarts_and_records_assignment(ateam, variant, runtime, adapter, model, tier):
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     await database_sync_to_async(LLMSkill.objects.create)(
         team=ateam, name="signals-scout-first-report", description="First report", body="Investigate"
     )
-    session, _ = await database_sync_to_async(_make_fake_session)(ateam)
+    previous_task = await database_sync_to_async(Task.objects.create)(
+        team=ateam,
+        title="First investigation",
+        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        origin_key="first-report",
+        idempotency_key="first-report",
+    )
+    previous_run = await database_sync_to_async(TaskRun.objects.create)(
+        team=ateam, task=previous_task, status=TaskRun.Status.FAILED
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        team=ateam, task_run=previous_run, skill_name="signals-scout-first-report", skill_version=1
+    )
     result = scout_prompt.FirstReportScoutRunSummary(
         summary="No actionable finding", first_report_result={"outcome": "no_actionable_finding"}
     )
@@ -3144,7 +3158,21 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
 
     async def start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
-        await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+
+        def create_session():
+            with transaction.atomic():
+                session, _ = _make_fake_session(ateam)
+                Task.objects.filter(pk=session.task_run.task_id).update(
+                    origin_key=kwargs["origin_key"], idempotency_key=kwargs["origin_key"]
+                )
+                TaskRun.objects.filter(pk=session.task_run.id).update(status=TaskRun.Status.QUEUED)
+                before_task_dispatch(session.task_run.id)
+            return session
+
+        session = await database_sync_to_async(create_session)()
+        await database_sync_to_async(TaskRun.objects.filter(pk=session.task_run.id).update)(
+            status=TaskRun.Status.COMPLETED
+        )
         return session, result
 
     with (
@@ -3163,9 +3191,22 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
         patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
     ):
-        outcome = await arun_signals_scout(
+        env = ActivityEnvironment()
+        env.info = replace(env.info, workflow_run_id=str(uuid4()))
+        input = RunSignalsScoutInput(
             team_id=ateam.id, skill_name="signals-scout-first-report", triggered_by="onboarding"
         )
+        outcome = await env.run(run_signals_scout_activity, input)
+        if runtime is not None:
+            assert outcome.status == "completed"
+            first_run_id = outcome.run_id
+            replay = await env.run(run_signals_scout_activity, input)
+            assert replay.run_id == outcome.run_id
+            assert replay.task_run_id == outcome.task_run_id
+            assert replay.status == "completed"
+            env.info = replace(env.info, workflow_run_id=str(uuid4()))
+            outcome = await env.run(run_signals_scout_activity, input)
+            assert outcome.run_id != first_run_id
 
     if runtime is None:
         assert outcome.skip_reason == (
@@ -3183,7 +3224,13 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
         model,
         tier,
     )
-    run = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    run = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam, id=outcome.run_id)
+    assert await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).count)() == 3
+    await database_sync_to_async(previous_task.refresh_from_db)()
+    await database_sync_to_async(previous_run.refresh_from_db)()
+    assert previous_task.origin_key == "first-report"
+    assert previous_task.idempotency_key == "first-report"
+    assert previous_run.status == TaskRun.Status.FAILED
     assert run.metadata is not None
     assert run.metadata["experiment_variant"] == variant
     assert run.metadata["runtime"] == runtime
@@ -3192,6 +3239,89 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
     assert events["signals_scout_run_finished"]["experiment_variant"] == variant
     assert events["signals_scout_run_finished"]["first_report_outcome"] == "no_actionable_finding"
     assert events["signals_scout_run_finished"]["report_delivered"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("same_execution", [False, True])
+async def test_first_report_concurrent_dispatch_creates_one_task(ateam: Team, same_execution: bool) -> None:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    await database_sync_to_async(LLMSkill.objects.create)(
+        team=ateam, name="signals-scout-first-report", description="First report", body="Investigate"
+    )
+    barrier = asyncio.Barrier(2)
+    dispatched = asyncio.Event()
+    attempts = 0
+    result = scout_prompt.FirstReportScoutRunSummary(
+        summary="No actionable finding", first_report_result={"outcome": "no_actionable_finding"}
+    )
+
+    async def start(
+        *, before_task_dispatch: Callable[[UUID], object], origin_key: str, **kwargs: object
+    ) -> tuple[MagicMock, scout_prompt.FirstReportScoutRunSummary]:
+        nonlocal attempts
+        await barrier.wait()
+
+        def create_session() -> MagicMock:
+            with transaction.atomic():
+                session, _ = _make_fake_session(ateam)
+                Task.objects.filter(pk=session.task_run.task_id).update(
+                    origin_key=origin_key, idempotency_key=origin_key
+                )
+                TaskRun.objects.filter(pk=session.task_run.id).update(status=TaskRun.Status.QUEUED)
+                before_task_dispatch(session.task_run.id)
+            return session
+
+        try:
+            session = await database_sync_to_async(create_session, thread_sensitive=False)()
+        finally:
+            attempts += 1
+            if attempts == 2:
+                dispatched.set()
+        await dispatched.wait()
+        await database_sync_to_async(TaskRun.objects.filter(pk=session.task_run.id).update)(
+            status=TaskRun.Status.COMPLETED
+        )
+        return session, result
+
+    first_run_id = uuid4()
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+        patch(
+            "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
+            side_effect=lambda key, *args, **kwargs: "test-deepseek" if key == "self-driving-banger-scout" else None,
+        ),
+        patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"),
+        patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture"),
+    ):
+        outcomes = await asyncio.wait_for(
+            asyncio.gather(
+                *(
+                    arun_signals_scout(
+                        team_id=ateam.id,
+                        skill_name="signals-scout-first-report",
+                        triggered_by="onboarding",
+                        first_report_run_id=run_id,
+                    )
+                    for run_id in (first_run_id, first_run_id if same_execution else uuid4())
+                )
+            ),
+            timeout=60,
+        )
+
+    assert await database_sync_to_async(Task.objects.filter(team=ateam).count)() == 1
+    assert await database_sync_to_async(TaskRun.objects.filter(team=ateam).count)() == 1
+    assert await database_sync_to_async(lambda: SignalScoutRun.objects.for_team(ateam.id).count())() == 1
+    assert len({outcome.task_run_id for outcome in outcomes if outcome.task_run_id is not None}) == 1
+    if same_execution:
+        assert outcomes[0].run_id == outcomes[1].run_id
+    else:
+        assert sorted(outcome.status or "skipped" for outcome in outcomes) == ["completed", "skipped"]
+        assert [outcome.skip_reason for outcome in outcomes if outcome.run_id is None] == [
+            "prior run still in progress"
+        ]
 
 
 @pytest.mark.asyncio
