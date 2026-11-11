@@ -58,6 +58,10 @@ Each dequeued job exposes an ack interface:
 - `cancel()` — mark canceled
 - `heartbeat()` — extend the lock to prevent the janitor from reclaiming the job
 
+A worker holds every job in its batch until the whole batch finishes.
+A wake the hogflow subscription matcher sees in that time cannot reach a parked row, so the matcher records it in `pending_wake`, keyed by the wait step.
+When `reschedule()` parks the job on a step with a wake recorded after the dequeue, the job wakes at once instead of at its requested time.
+
 ### Janitor (standalone service)
 
 Runs on a timer interval as its own service (`PLUGIN_SERVER_MODE=cdp-cyclotron-v2-janitor`).
