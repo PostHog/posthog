@@ -51,7 +51,8 @@ Its payload sets `clamp_existing`, which defaults to `false`.
 With `clamp_existing: false`, existing faster cadences keep running.
 With `clamp_existing: true`, schedules run at the minimum while preserving the saved cadence.
 When billing sync changes an organization's `data_modeling_refresh_interval` limit, it enqueues a schedule reconciliation after its transaction commits, and a second one five minutes later because Temporal's schedule listing can lag.
-After changing the flag's targeting or payload, use `reconcile_organization_schedules --organization-ids` to apply the policy to existing tier schedules.
+The first limit billing sync stores for an organization enqueues nothing, so granting the feature to every plan does not queue a reconcile per organization.
+After granting the feature or changing the flag's targeting or payload, use `reconcile_organization_schedules --organization-ids` to apply the policy to existing tier schedules.
 Deploying the code alone does not enable the rollout.
 
 ## Model materialization usage
