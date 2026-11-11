@@ -53,7 +53,7 @@ export default defineCommand({
     },
 
     // Names only, grouped by kind, so the whole list stays small enough for an agent's context.
-    // `hog skills read -d <skill>` describes one. A download that fell back to the saved copy is reported.
+    // `hog skills search` returns descriptions. A download that fell back to the saved copy is reported.
     agent({ result, out }) {
         const stale = result.assets.filter((asset) => asset.origin !== 'network')
         out.json({

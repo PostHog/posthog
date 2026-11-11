@@ -7,6 +7,8 @@ import { z } from 'zod'
 import { hashBytes } from '@/hono/cache/SharedBlobCache'
 import { CONTEXT_MILL_URL, contextMillEntries, omnibusSkillFiles, unzipOmnibusArchives } from '@/resources/internals'
 import {
+    type LearnCommands,
+    learnCommands,
     LearnLookupError,
     makeSkillFile,
     MAX_SKILL_ARCHIVE_BYTES,
@@ -15,15 +17,17 @@ import {
     type SkillDefinition,
     unzipUntrusted,
 } from '@/skills/skill-catalog'
-import { ExecLearnCatalog, learnSkillCommands, SkillsUnavailableError } from '@/tools/exec-learn'
 
 import type {
     CatalogSkill,
-    LearnRequest,
-    LearnResult,
+    FoundSkill,
     SkillAssetName,
     SkillAssetStatus,
+    SkillCommands,
     SkillRead,
+    SkillReadRequest,
+    SkillReadResult,
+    SkillSearchResult,
     SkillsError,
     SkillsFetch,
     SkillsLibrary,
@@ -41,8 +45,15 @@ const INSTRUMENT_SKILL_PREFIX = 'instrument-'
 // serves it once, as `<name>`, from the omnibus archive.
 const OMNIBUS_RESOURCE_PREFIX = 'omnibus-'
 const SKILL_NAMESPACE = 'posthog:'
-const PROJECT_SKILLS_UNAVAILABLE =
-    'This CLI serves PostHog skills only. Read project skills through the PostHog MCP server.'
+const MAX_SEARCH_LENGTH = 200
+const LINE_RANGE = /^([1-9]\d*):([1-9]\d*)$/
+
+// The MCP `learn` command, for a caller that names no commands of its own.
+const LEARN_COMMANDS: SkillCommands = {
+    read: (skill, file, lines) => learnCommands().read(`${SKILL_NAMESPACE}${skill}`, file, lines),
+    search: (keywords) => learnCommands().search(keywords),
+    list: 'learn skills',
+}
 
 // The server's and posthog-cli's overrides, so a local build of either release can be tested here too.
 function assetUrl(name: SkillAssetName): string {
@@ -369,49 +380,57 @@ function offline(assets: SkillAssetStatus[]): SkillsError {
     }
 }
 
-// A `learn` command in a skill's text, bare or inside an exec tool call, which a CLI serves as the
-// bare command. Only a bare `learn` followed by a learn argument counts, so prose such as "learn more"
-// stays as it is. `skills` counts only at the end of a quoted command, because "learn skills" also
-// reads as prose.
-const LEARN_COMMAND =
-    /posthog:exec\(\{\s*"command":\s*"learn((?: (?:\\.|[^"\\])*)?)"\s*\}\)|(?<=^|[\s`"(])learn(?=`| (?:skills(?=[`"]|$)|-s\b|-d\b|--lines\b|posthog:|project:|<))/gm
+// A `learn` command in a skill's text, in backticks or inside an exec tool call. Prose such as "learn more"
+// has no backticks, so it stays as it is.
+const LEARN_COMMAND = /`learn((?: [^`]*)?)`|posthog:exec\(\{\s*"command":\s*"learn((?: (?:\\.|[^"\\])*)?)"\s*\}\)/g
 
-export function rewriteLearnCommands(text: string, learnCommand: string): string {
-    return text.replace(
-        LEARN_COMMAND,
-        (_match, execArguments: string | undefined) =>
-            `${learnCommand}${execArguments === undefined ? '' : execArguments.replace(/\\"/g, '"')}`
-    )
+function learnWords(text: string): string[] {
+    return [...text.matchAll(/"([^"]*)"|(\S+)/g)].map((match) => match[1] ?? match[2]!)
 }
 
-// The exec tool reads one command string, so each word is quoted to reach its tokenizer intact.
-function learnInput(words: readonly string[]): string {
-    return words.map((word) => `"${word.replace(/[\\"]/g, '\\$&')}"`).join(' ')
+// The caller's commands for one `learn` command, or undefined when the caller has none for it. A batch
+// becomes one read each, and a search of one file becomes a read of the file.
+function translateLearn(words: readonly string[], commands: SkillCommands): string[] | undefined {
+    const [first, ...rest] = words
+    if (first === undefined || first === 'skills' || first === '-d') {
+        return [commands.list]
+    }
+    if (first === '-s') {
+        return [commands.search(rest.join(' '))]
+    }
+
+    const skill = /^(?:posthog|<source>):(.+)$/.exec(first)?.[1]
+    if (skill === undefined) {
+        return undefined
+    }
+    if (rest.length > 0 && rest.every((word) => word.startsWith(SKILL_NAMESPACE))) {
+        return [skill, ...rest.map(bareName)].map((name) => commands.read(name))
+    }
+
+    const flag = rest.findIndex((word) => word.startsWith('-'))
+    const files = flag === -1 ? rest : rest.slice(0, flag)
+    const lines = rest[flag] === '--lines' ? rest[flag + 1] : undefined
+    if (files.length === 0) {
+        return [commands.read(skill)]
+    }
+    return files.map((file) => commands.read(skill, file, files.length === 1 ? lines : undefined))
 }
 
-function learnWords(skill: string | undefined, paths: readonly string[], request: LearnRequest): string[] {
-    const words = skill === undefined ? [...paths] : [skill, ...paths]
-
-    if (request.describe) {
-        return ['-d', ...words]
-    }
-    if (request.lines !== undefined) {
-        return [...words, '--lines', request.lines]
-    }
-    if (request.search !== undefined) {
-        return skill === undefined ? ['-s', request.search, ...paths] : [...words, '-s', request.search]
-    }
-    return words
+export function rewriteLearnCommands(text: string, commands: SkillCommands): string {
+    return text.replace(LEARN_COMMAND, (match, quoted: string | undefined, exec: string | undefined) => {
+        const words = learnWords(quoted ?? exec?.replace(/\\"/g, '"') ?? '')
+        const translated = translateLearn(words, commands)
+        if (!translated) {
+            return match
+        }
+        return quoted === undefined
+            ? translated.join(' and ')
+            : translated.map((command) => `\`${command}\``).join(' and ')
+    })
 }
 
-function learnError(error: unknown): SkillsError {
-    const code =
-        error instanceof SkillsUnavailableError
-            ? 'unavailable'
-            : error instanceof LearnLookupError
-              ? error.code
-              : 'usage'
-
+function readError(error: unknown): SkillsError {
+    const code = error instanceof LearnLookupError && error.code !== 'unknown_topic' ? error.code : 'usage'
     return { code, message: message(error) }
 }
 
@@ -467,16 +486,6 @@ function bareName(name: string): string {
     return name.startsWith(SKILL_NAMESPACE) ? name.slice(SKILL_NAMESPACE.length) : name
 }
 
-// The `learn` grammar names a skill as `posthog:<name>`. This library serves no topics, so a bare word
-// that names a skill can only mean that skill.
-function qualified(word: string | undefined, catalog: SkillCatalog): string | undefined {
-    return word !== undefined && !word.includes(':') && catalog.has(word) ? `${SKILL_NAMESPACE}${word}` : word
-}
-
-function escapeRegExp(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 function catalogSkills({ catalog, kinds }: Catalog): CatalogSkill[] {
     const skills = catalog.listNames().map((name) => ({
         name,
@@ -496,12 +505,10 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         downloadTimeoutMs: options.downloadTimeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS,
         now: options.now ?? Date.now,
     }
-    const learnCommand = options.learnCommand ?? 'learn'
-    const listCommand = options.listCommand ?? `${learnCommand} skills`
-    // `learn skills` lists skills in the MCP grammar. Here `catalog` lists them, through the caller's own command.
-    const listPattern = new RegExp(`${escapeRegExp(learnCommand)} skills(?![\\w-])`, 'g')
-    const pointToList = (text: string): string => text.replace(listPattern, listCommand)
-    const rewrite = (text: string): string => pointToList(rewriteLearnCommands(text, learnCommand))
+    const commands = options.commands ?? LEARN_COMMANDS
+    const rewrite = (text: string): string => rewriteLearnCommands(text, commands)
+    // Hints in served text, such as how to read a file, name the caller's commands. The skill name is bare.
+    const catalogCommands: LearnCommands = { read: commands.read, search: commands.search }
 
     const loadContextMill = memoizeWhileFresh(async () => {
         const loaded = await loadAsset(settings, 'context-mill', parseContextMill)
@@ -529,37 +536,26 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         return release ? { ok: true, value: { release, assets } } : { ok: false, error: offline(assets) }
     }
 
-    // A resource skill is listed by name and description only. A call that reads resource skills gets a
-    // catalog with their files in place of their listings. A skill whose archive can't be read fails the
-    // call, because serving its listing would count as a read of the skill.
-    const withFiles = (
-        { catalog, resources, release }: Catalog,
-        names: readonly (string | undefined)[]
-    ): SkillsResult<SkillCatalog> => {
-        const ids = new Set(
-            names
-                .flatMap((name) => (name?.startsWith(SKILL_NAMESPACE) ? [bareName(name)] : []))
-                .filter((id) => resources.has(id))
-        )
-        const skills: SkillDefinition[] = []
-        for (const id of ids) {
-            const skill = release?.resourceSkill(id)
-            if (!skill) {
-                return {
-                    ok: false,
-                    error: {
-                        code: 'unavailable',
-                        message: `Couldn't read the skill "${id}", because its archive in the skills release has no valid SKILL.md.`,
-                    },
-                }
-            }
-            skills.push(skill)
-        }
-        if (skills.length === 0) {
+    // A resource skill is listed by name and description only. A read of one gets a catalog with its files
+    // in place of its listing. A skill whose archive can't be read fails the read, because serving its
+    // listing would count as a read of the skill.
+    const withFiles = ({ catalog, resources, release }: Catalog, id: string): SkillsResult<SkillCatalog> => {
+        if (!resources.has(id)) {
             return { ok: true, value: catalog }
         }
 
-        const loaded = new SkillCatalog(skills).mapText(rewrite)
+        const skill = release?.resourceSkill(id)
+        if (!skill) {
+            return {
+                ok: false,
+                error: {
+                    code: 'unavailable',
+                    message: `Couldn't read the skill "${id}", because its archive in the skills release has no valid SKILL.md.`,
+                },
+            }
+        }
+
+        const loaded = new SkillCatalog([skill]).mapText(rewrite)
         return {
             ok: true,
             value: new SkillCatalog(catalog.listNames().map((other) => loaded.get(other) ?? catalog.get(other)!)),
@@ -570,26 +566,13 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
     const handedOut = new WeakMap<SkillsRelease, LoadedCatalog>()
 
     return {
-        async learn(request): Promise<SkillsResult<LearnResult>> {
-            // The exec tool never sees an empty word, because its tokenizer drops them.
-            const skill = request.skill?.trim() ? request.skill : undefined
-            const paths = request.paths.filter((word) => word.trim())
-            const { search, describe, lines } = request
-            const modes = Number(search !== undefined) + Number(describe === true) + Number(lines !== undefined)
-
-            if (modes > 1) {
+        async read({ skill, file, lines }: SkillReadRequest): Promise<SkillsResult<SkillReadResult>> {
+            const range = lines === undefined ? undefined : LINE_RANGE.exec(lines)
+            if (range === null) {
                 return {
                     ok: false,
-                    error: { code: 'usage', message: 'Give only one of search, describe and lines.' },
+                    error: { code: 'usage', message: 'Give the lines as `<start>:<end>`, such as `10:40`.' },
                 }
-            }
-
-            if (skill === undefined && paths.length === 0 && modes === 0) {
-                // The overview lists fixed commands, so it answers without the network.
-                const commands = learnSkillCommands(learnCommand)
-                    .filter((command) => !command.includes('project:'))
-                    .map(pointToList)
-                return { ok: true, value: { output: { kind: 'overview', commands }, reads: [], assets: [] } }
             }
 
             const { loaded, assets } = await loadCatalog()
@@ -597,52 +580,62 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
                 return { ok: false, error: offline(assets) }
             }
 
-            if (skill === 'skills' && paths.length === 0 && modes === 0) {
-                return { ok: false, error: { code: 'usage', message: `List the skills with \`${listCommand}\`.` } }
+            const id = bareName(skill.trim())
+            if (!loaded.catalog.has(id)) {
+                return { ok: false, error: { code: 'unknown_skill', message: `Unknown skill "${skill}".` } }
             }
 
-            // A path-shaped word after the first one asks to search one file, but only a skill has files.
-            // So `-s tracing node.js next.js` searches every skill for all three words.
-            const scoped =
-                search === undefined || skill === undefined || skill.includes(':') || loaded.catalog.has(skill)
-            const query = scoped ? request : { ...request, search: [search, skill, ...paths].join(' ') }
-            const named = scoped ? qualified(skill, loaded.catalog) : undefined
-            // Words after a skill are files in it, unless every one names a skill. Then the call reads them
-            // all as a batch, so `instrument-integration tracing-nodejs` reads two skills.
-            const namedPaths = paths.map((path) => qualified(path, loaded.catalog) ?? path)
-            const batch =
-                named?.startsWith(SKILL_NAMESPACE) === true &&
-                search === undefined &&
-                lines === undefined &&
-                namedPaths.every((path) => path.startsWith(SKILL_NAMESPACE))
-            const words = !scoped ? [] : describe || batch ? namedPaths : paths
-
-            const posthog = describe
-                ? { ok: true as const, value: loaded.catalog }
-                : withFiles(loaded, [named, ...words])
-            if (!posthog.ok) {
-                return posthog
+            const catalog = withFiles(loaded, id)
+            if (!catalog.ok) {
+                return catalog
             }
-
-            const reads: SkillRead[] = []
-            const learn = new ExecLearnCatalog(
-                [],
-                {
-                    posthog: posthog.value,
-                    projectUnavailableReason: PROJECT_SKILLS_UNAVAILABLE,
-                },
-                ({ source, skill: name, path: file, readKind }) =>
-                    reads.push({ source, skill: name, path: file ?? 'SKILL.md', readKind }),
-                learnCommand
-            )
 
             try {
-                const raw = await learn.execute(learnInput(learnWords(named, words, query)))
-                return { ok: true, value: { output: { kind: 'text', text: pointToList(raw) }, reads, assets } }
+                const text = range
+                    ? catalog.value.readLines(
+                          id,
+                          file ?? 'SKILL.md',
+                          Number(range[1]),
+                          Number(range[2]),
+                          id,
+                          catalogCommands
+                      )
+                    : catalog.value.read(id, file, id, catalogCommands)
+                const read: SkillRead = {
+                    source: 'posthog',
+                    skill: id,
+                    path: file ?? 'SKILL.md',
+                    readKind: range ? 'file_lines' : file === undefined ? 'skill' : 'file',
+                }
+                return { ok: true, value: { text, reads: [read], assets } }
             } catch (error) {
-                const failure = learnError(error)
-                return { ok: false, error: { ...failure, message: pointToList(failure.message) } }
+                return { ok: false, error: readError(error) }
             }
+        },
+
+        async search(keywords): Promise<SkillsResult<SkillSearchResult>> {
+            const query = keywords.trim()
+            if (!query || query.length > MAX_SEARCH_LENGTH) {
+                return {
+                    ok: false,
+                    error: {
+                        code: 'usage',
+                        message: `Give between 1 and ${MAX_SEARCH_LENGTH} characters of keywords.`,
+                    },
+                }
+            }
+
+            const { loaded, assets } = await loadCatalog()
+            if (!loaded) {
+                return { ok: false, error: offline(assets) }
+            }
+
+            const skills: FoundSkill[] = loaded.catalog.searchResults(query).map((result) => ({
+                name: result.identifier,
+                description: result.description,
+                matches: result.snippets.map(({ path: file, line, text }) => ({ path: file, line, text })),
+            }))
+            return { ok: true, value: { skills, assets } }
         },
 
         async catalog() {

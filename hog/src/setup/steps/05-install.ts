@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { SKILL_COMMANDS } from '@/core/skill-commands'
 import { INGESTION_HOSTS, regionOf } from '@/posthog/host'
 import { ProjectTokenSchema } from '@/posthog/tokens'
 
@@ -13,7 +14,8 @@ export const RULES_READ: SkillFile = { skill: INSTALL_SKILL, path: 'references/C
 const ProjectSchema = z.looseObject({ api_token: ProjectTokenSchema })
 
 export function readCommand({ skill, path }: SkillFile): string {
-    return path === 'SKILL.md' ? `hog skills read ${skill}` : `hog skills read ${skill} ${path}`
+    const name = skill.replace(/^posthog:/, '')
+    return path === 'SKILL.md' ? SKILL_COMMANDS.read(name) : SKILL_COMMANDS.read(name, path)
 }
 
 async function fillInstallContext(run: SetupRun): Promise<void> {
@@ -52,7 +54,7 @@ export const install: Step = {
                 kind: 'read',
                 read: [readCommand(SKILL_READ), readCommand(RULES_READ)],
                 command: SETUP_NEXT,
-                instructions: `Run both commands and read each file in full, without \`--lines\` or \`-s\`. Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`,
+                instructions: `Run both commands and read each file in full, without \`--lines\`. Install PostHog in this app as the skill describes, with \`context.token\` and \`context.apiHost\`. Then run \`${SETUP_NEXT}\`.`,
             },
         }
     },

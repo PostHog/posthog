@@ -107,20 +107,15 @@ export interface SkillRead {
     skill: string
     /** The file in the skill. A read of the skill itself serves `SKILL.md`. */
     path: string
-    readKind: 'skill' | 'file' | 'file_search' | 'file_lines'
+    readKind: 'skill' | 'file' | 'file_lines'
 }
 
-/**
- * A `learn` command, in the parts `hog skills read` takes it as. Give at most one of `search` (keywords),
- * `describe` and `lines`. Without any of them, `skill` and `paths` read files, and nothing is the overview.
- */
-export interface LearnRequest {
+/** One read: a skill's `SKILL.md`, one file in it, or a line range of that file. */
+export interface SkillReadRequest {
     /** A skill such as `instrument-integration` or `posthog:instrument-integration`. `catalog` lists every skill. */
-    skill?: string
-    /** Files in `skill`, such as `references/COMMANDMENTS.md`. With `describe`, more skills to describe. */
-    paths: readonly string[]
-    search?: string
-    describe?: boolean
+    skill: string
+    /** A file in the skill, such as `references/COMMANDMENTS.md`. Without it, the read serves `SKILL.md`. */
+    file?: string
     /** As `<start>:<end>`. */
     lines?: string
 }
@@ -132,19 +127,37 @@ export interface LearnRequest {
 export type SkillKind = 'learning' | 'implementation'
 
 export interface CatalogSkill {
-    /** As `learn` and `install` take it, such as `tracing-nodejs`. Both also take `posthog:tracing-nodejs`. */
+    /** As `read` and `install` take it, such as `tracing-nodejs`. Both also take `posthog:tracing-nodejs`. */
     name: string
     kind: SkillKind
     /** The first line of the skill's description. */
     description: string
 }
 
-export type LearnOutput = { kind: 'overview'; commands: string[] } | { kind: 'text'; text: string }
-
-export interface LearnResult {
-    output: LearnOutput
+export interface SkillReadResult {
+    text: string
     reads: SkillRead[]
     assets: SkillAssetStatus[]
+}
+
+export interface FoundSkill {
+    name: string
+    description: string
+    /** Lines in the skill's files that contain the keywords. */
+    matches: { path: string; line: number; text: string }[]
+}
+
+export interface SkillSearchResult {
+    /** The best matches first. */
+    skills: FoundSkill[]
+    assets: SkillAssetStatus[]
+}
+
+/** The caller's commands, which served text names instead of the MCP `learn` command. */
+export interface SkillCommands {
+    read(skill: string, file?: string, lines?: string): string
+    search(keywords: string): string
+    list: string
 }
 
 /**
@@ -167,7 +180,6 @@ export interface SkillsError {
         | 'offline'
         | 'unknown_skill'
         | 'unknown_file'
-        | 'unknown_topic'
         | 'unavailable'
         | 'usage'
         | 'already_installed'
@@ -189,10 +201,8 @@ export interface SkillsLibraryOptions {
      * reads this folder only when the download fails, or to answer a 304. Without it, nothing is cached.
      */
     cacheDir?: string
-    /** The command that served text names, such as `hog skills read`. Defaults to `learn`. */
-    learnCommand?: string
-    /** The command that lists every skill, such as `hog skills list`. `learn skills` in served text points there. */
-    listCommand?: string
+    /** The commands that served text names. Defaults to the MCP `learn` command. */
+    commands?: SkillCommands
     fetch?: SkillsFetch
     responseTimeoutMs?: number
     downloadTimeoutMs?: number
@@ -200,10 +210,12 @@ export interface SkillsLibraryOptions {
 }
 
 export interface SkillsLibrary {
-    learn(request: LearnRequest): Promise<SkillsResult<LearnResult>>
+    read(request: SkillReadRequest): Promise<SkillsResult<SkillReadResult>>
+    /** Finds skills whose name, description or files contain the keywords. */
+    search(keywords: string): Promise<SkillsResult<SkillSearchResult>>
     /** The `posthog:instrument-*` skills. Downloads only context-mill, not the product skills. */
     instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>>
-    /** Every skill `learn` serves. Each one can be installed. */
+    /** Every skill `read` serves. Each one can be installed. */
     catalog(): Promise<SkillsResult<{ skills: CatalogSkill[]; assets: SkillAssetStatus[]; release: SkillsRelease }>>
     /**
      * Writes a skill from `catalog` into `<skillsDir>/<id>` under `cwd`, where `id` is the name without its

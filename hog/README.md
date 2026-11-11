@@ -117,23 +117,21 @@ PostHog's agent skills are the step-by-step guides agents follow for PostHog tas
 
 ```bash
 hog skills list                                   # every skill
-hog skills read -s "session replay"               # find skills by keywords
-hog skills read -d instrument-integration         # what a skill is for
+hog skills search session replay                  # find skills by keywords
 hog skills read instrument-integration            # read a skill and list its files
-hog skills read instrument-integration references/COMMANDMENTS.md
-hog skills read instrument-integration references/django.md -s middleware
-hog skills read instrument-integration references/django.md --lines 1:40
+hog skills read instrument-integration --file references/COMMANDMENTS.md
+hog skills read instrument-integration --file references/django.md --lines 1:40
 hog skills add instrument-integration             # copy it into this repository
 ```
 
-`hog skills read` takes the arguments of the `learn` command in the PostHog MCP server's `exec` tool. A skill name works with or without its `posthog:` prefix, and commands in the skill text read `hog skills read ...`.
+Each `hog skills read` reads one skill, or one file in it with `--file`. A file too large to show whole comes back as an outline of its headings with line numbers, to read in parts with `--lines`. A skill name works with or without its `posthog:` prefix, and commands in the skill text name the hog commands.
 hog downloads the latest PostHog product skills and the latest context-mill release, the same assets the MCP server serves, every time it runs.
 It saves them in `~/.posthog/skills/` (`HOG_HOME` moves the folder), and serves that copy only when a download fails, saying when the copy was saved. Project skills are only available through the MCP server.
 
 `hog skills add <skill...>` copies skills into the repository, so later agent sessions find them without hog.
 
 - The list splits the skills into two kinds: skills for using PostHog, such as analyzing a funnel, from the PostHog product skills, and skills for adding PostHog to code, such as an SDK for one framework, from context-mill.
-- Agents get the names only, grouped by kind, as `{ learning: [...], implementation: [...] }`. `hog skills read -d <skill>` describes one.
+- Agents get the names only, grouped by kind, as `{ learning: [...], implementation: [...] }`. `hog skills search` returns descriptions.
 - The output starts with the result, then the folders written, then any notes.
 - They go in the closest git repository, or in the working folder outside of one. The output names which.
 - Claude Code reads `.claude/skills/<id>/` and Augment reads `.augment/skills/<id>/`. Every other agent reads `.agents/skills/<id>/`, as in the agent table of [`npx skills add`](https://skills.sh).
@@ -200,7 +198,7 @@ A CI job that uses its OIDC token counts as its workload instead: events carry a
 Without a key, with a self-hosted PostHog, or with a key that can't read those, events belong to a random ID in `~/.posthog/hog-telemetry-id`.
 Usage events never carry argument or option values or API keys, except the setup answer above.
 When you log in, hog ties the random ID's earlier events to your PostHog user, so what you did before logging in, such as the first `hog setup` answers, counts with your sign-up.
-`hog skills read` adds the names of the PostHog skills it served, how it read them, and whether each release came from the network or the saved copy. A name counts only once it matched a published skill, so the event never carries what you typed, such as search keywords or a skill that doesn't exist.
+`hog skills read` adds the names of the PostHog skills it served, how it read them, and whether each release came from the network or the saved copy. A name counts only once it matched a published skill, so the event never carries what you typed, such as a skill that doesn't exist. `hog skills search` adds only how many skills it found, never the keywords.
 
 Telemetry is on by default and goes to the same PostHog project as posthog-cli's.
 Turn it off with `--no-telemetry`, `HOG_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `"cli": { "telemetry": false }` in `posthog.json`.

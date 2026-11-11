@@ -24,7 +24,7 @@ export const LIST_HINT = 'Run `hog skills list` to see every skill you can add.'
 
 const SKILL_NAMESPACE = 'posthog:'
 
-// `hog skills list` names skills without a prefix. Skill text and `hog skills read` also name them as `posthog:<name>`.
+// `hog skills list` names skills without a prefix. Older skill text also names them as `posthog:<name>`.
 export function skillName(input: string): string {
     return input.startsWith(SKILL_NAMESPACE) ? input.slice(SKILL_NAMESPACE.length) : input
 }

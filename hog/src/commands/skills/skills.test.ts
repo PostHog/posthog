@@ -45,7 +45,8 @@ function fakeSkills(installed: string[] = [], assets = ASSETS): FakeSkills {
     }
 
     const library: SkillsLibrary = {
-        learn: async () => ({ ok: false, error: { code: 'usage', message: 'not used' } }),
+        read: async () => ({ ok: false, error: { code: 'usage', message: 'not used' } }),
+        search: async () => ({ ok: false, error: { code: 'usage', message: 'not used' } }),
         instrumentSkills: async () => ({ ok: true, value: { skills: [], assets: ASSETS } }),
         catalog: async () => {
             fake.releaseLoads += 1

@@ -120,6 +120,7 @@ describe('hog', () => {
             'api agents-md',
             'skills',
             'skills list',
+            'skills search',
             'skills read',
             'skills add',
             'mcp add',
