@@ -16,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
+import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleaseRow, STAGE_LABEL, STAGE_TONE } from './releaseUtils'
 
 export const scene: SceneExport = {
@@ -132,6 +133,7 @@ export function ReleaseList(): JSX.Element {
             />
             <div data-quill className="flex flex-col gap-3">
                 <ReleaseFilters />
+                <ReleasePartialLoadWarning />
                 {loadFailed ? (
                     <ReleaseLoadError title="Releases could not load" />
                 ) : dataLoading && !filteredRows.length ? (

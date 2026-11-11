@@ -36,6 +36,7 @@ interface ReleaseLogicValues {
     flagCount: number
     experiments: ExperimentBasicApi[]
     experimentsLoading: boolean
+    experimentCount: number
     earlyAccessFeatures: EarlyAccessFeatureApi[]
     scheduledChanges: ScheduledChangeApi[]
     search: string
@@ -44,6 +45,9 @@ interface ReleaseLogicValues {
     newReleaseOpen: boolean
     creatingRelease: boolean
     loadFailed: boolean
+    experimentsFailed: boolean
+    earlyAccessFailed: boolean
+    schedulesFailed: boolean
     partialLoadFailed: boolean
     scheduleFlagId: number | null
     dataLoading: boolean
@@ -67,10 +71,18 @@ interface ReleaseLogicActions {
     searchFlags: (search: string) => string
     loadFlagCount: () => void
     loadExperiments: () => void
+    loadExperimentsSuccess: (experiments: ExperimentBasicApi[]) => { experiments: ExperimentBasicApi[] }
     loadExperimentsFailure: (error: string) => { error: string }
+    loadExperimentCount: () => void
     loadEarlyAccessFeatures: () => void
+    loadEarlyAccessFeaturesSuccess: (earlyAccessFeatures: EarlyAccessFeatureApi[]) => {
+        earlyAccessFeatures: EarlyAccessFeatureApi[]
+    }
     loadEarlyAccessFeaturesFailure: (error: string) => { error: string }
     loadScheduledChanges: () => void
+    loadScheduledChangesSuccess: (scheduledChanges: ScheduledChangeApi[]) => {
+        scheduledChanges: ScheduledChangeApi[]
+    }
     loadScheduledChangesFailure: (error: string) => { error: string }
     setSearch: (search: string) => { search: string }
     setStageFilter: (stage: ReleaseStage | null) => { stage: ReleaseStage | null }
@@ -97,6 +109,32 @@ const FLAG_SEARCH_LIMIT = 50
 const FLAG_FETCH_CONCURRENCY = 8
 
 type ListPage<T> = { results?: T[]; next?: string | null } | T[]
+
+function linkedFlagIds(releases: ReleaseDTOApi[]): number[] {
+    return [...new Set(releases.flatMap((release) => release.feature_flag_ids))]
+}
+
+async function inBatches<T, R>(
+    items: T[],
+    fetch: (item: T) => Promise<R>,
+    breakpoint: () => void
+): Promise<PromiseSettledResult<R>[]> {
+    const results: PromiseSettledResult<R>[] = []
+    for (let start = 0; start < items.length; start += FLAG_FETCH_CONCURRENCY) {
+        results.push(...(await Promise.allSettled(items.slice(start, start + FLAG_FETCH_CONCURRENCY).map(fetch))))
+        breakpoint()
+    }
+    return results
+}
+
+function valuesOrThrow<R>(results: PromiseSettledResult<R>[]): R[] {
+    return results.map((result) => {
+        if (result.status === 'rejected') {
+            throw result.reason
+        }
+        return result.value
+    })
+}
 
 async function allPages<T>(fetchPage: (offset: number) => Promise<ListPage<T>>): Promise<T[]> {
     const items: T[] = []
@@ -158,24 +196,21 @@ export const releaseLogic = kea<releaseLogicType>([
         flags: [
             [] as FeatureFlagApi[],
             {
-                loadFlags: async () => {
+                loadFlags: async (_, breakpoint) => {
                     const projectId = String(values.currentProjectId)
-                    const ids = [...new Set(values.releases.flatMap((release) => release.feature_flag_ids))]
+                    const results = await inBatches(
+                        linkedFlagIds(values.releases),
+                        (id) => featureFlagsRetrieve(projectId, id),
+                        breakpoint
+                    )
                     const flags: FeatureFlagApi[] = []
-                    for (let start = 0; start < ids.length; start += FLAG_FETCH_CONCURRENCY) {
-                        const batch = await Promise.allSettled(
-                            ids
-                                .slice(start, start + FLAG_FETCH_CONCURRENCY)
-                                .map((id) => featureFlagsRetrieve(projectId, id))
-                        )
-                        for (const result of batch) {
-                            if (result.status === 'fulfilled') {
-                                if (!result.value.deleted) {
-                                    flags.push(result.value)
-                                }
-                            } else if ((result.reason as { status?: number })?.status !== 404) {
-                                throw result.reason
+                    for (const result of results) {
+                        if (result.status === 'fulfilled') {
+                            if (!result.value.deleted) {
+                                flags.push(result.value)
                             }
+                        } else if ((result.reason as { status?: number })?.status !== 404) {
+                            throw result.reason
                         }
                     }
                     return flags
@@ -206,12 +241,31 @@ export const releaseLogic = kea<releaseLogicType>([
         experiments: [
             [] as ExperimentBasicApi[],
             {
-                loadExperiments: async () =>
-                    (
-                        await allPages((offset) =>
-                            experimentsList(String(values.currentProjectId), { limit: PAGE_SIZE, offset })
+                loadExperiments: async (_, breakpoint) => {
+                    const projectId = String(values.currentProjectId)
+                    const queries = linkedFlagIds(values.releases).flatMap((id) => [
+                        { feature_flag_id: id, archived: false },
+                        { feature_flag_id: id, archived: true },
+                    ])
+                    const pages = valuesOrThrow(
+                        await inBatches(
+                            queries,
+                            (query) =>
+                                allPages((offset) =>
+                                    experimentsList(projectId, { ...query, limit: PAGE_SIZE, offset })
+                                ),
+                            breakpoint
                         )
-                    ).filter((experiment) => !experiment.archived),
+                    )
+                    return pages.flat()
+                },
+            },
+        ],
+        experimentCount: [
+            0,
+            {
+                loadExperimentCount: async () =>
+                    (await experimentsList(String(values.currentProjectId), { limit: 1 })).count ?? 0,
             },
         ],
         earlyAccessFeatures: [
@@ -226,13 +280,12 @@ export const releaseLogic = kea<releaseLogicType>([
         scheduledChanges: [
             [] as ScheduledChangeApi[],
             {
-                loadScheduledChanges: async () => {
+                loadScheduledChanges: async (_, breakpoint) => {
                     const projectId = String(values.currentProjectId)
-                    const ids = [...new Set(values.releases.flatMap((release) => release.feature_flag_ids))]
-                    const changes: ScheduledChangeApi[] = []
-                    for (let start = 0; start < ids.length; start += FLAG_FETCH_CONCURRENCY) {
-                        const pages = await Promise.all(
-                            ids.slice(start, start + FLAG_FETCH_CONCURRENCY).map((id) =>
+                    const pages = valuesOrThrow(
+                        await inBatches(
+                            linkedFlagIds(values.releases),
+                            (id) =>
                                 allPages((offset) =>
                                     scheduledChangesList(projectId, {
                                         model_name: 'FeatureFlag',
@@ -240,12 +293,11 @@ export const releaseLogic = kea<releaseLogicType>([
                                         limit: PAGE_SIZE,
                                         offset,
                                     })
-                                )
-                            )
+                                ),
+                            breakpoint
                         )
-                        changes.push(...pages.flat())
-                    }
-                    return changes
+                    )
+                    return pages.flat()
                 },
             },
         ],
@@ -265,12 +317,23 @@ export const releaseLogic = kea<releaseLogicType>([
                 loadFlagsFailure: () => true,
             },
         ],
-        partialLoadFailed: [
+        experimentsFailed: [
+            false,
+            { reload: () => false, loadExperimentsSuccess: () => false, loadExperimentsFailure: () => true },
+        ],
+        earlyAccessFailed: [
             false,
             {
                 reload: () => false,
-                loadExperimentsFailure: () => true,
+                loadEarlyAccessFeaturesSuccess: () => false,
                 loadEarlyAccessFeaturesFailure: () => true,
+            },
+        ],
+        schedulesFailed: [
+            false,
+            {
+                reload: () => false,
+                loadScheduledChangesSuccess: () => false,
                 loadScheduledChangesFailure: () => true,
             },
         ],
@@ -283,6 +346,11 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
     }),
     selectors({
+        partialLoadFailed: [
+            (s) => [s.experimentsFailed, s.earlyAccessFailed, s.schedulesFailed],
+            (experimentsFailed: boolean, earlyAccessFailed: boolean, schedulesFailed: boolean) =>
+                experimentsFailed || earlyAccessFailed || schedulesFailed,
+        ],
         dataLoading: [
             (s) => [s.releasesLoading, s.experimentsLoading, s.flagsReady, s.loadFailed],
             (releasesLoading: boolean, experimentsLoading: boolean, flagsReady: boolean, loadFailed: boolean) =>
@@ -297,6 +365,8 @@ export const releaseLogic = kea<releaseLogicType>([
                 s.scheduledChanges,
                 s.flagsReady,
                 s.loadFailed,
+                s.experimentsFailed,
+                s.earlyAccessFailed,
             ],
             (
                 releases: ReleaseDTOApi[],
@@ -305,12 +375,20 @@ export const releaseLogic = kea<releaseLogicType>([
                 earlyAccessFeatures: EarlyAccessFeatureApi[],
                 scheduledChanges: ScheduledChangeApi[],
                 flagsReady: boolean,
-                loadFailed: boolean
+                loadFailed: boolean,
+                experimentsFailed: boolean,
+                earlyAccessFailed: boolean
             ): ReleaseRow[] => {
                 if (!flagsReady || loadFailed) {
                     return []
                 }
-                const index = buildReleaseIndex(flags, experiments, earlyAccessFeatures, scheduledChanges)
+                const index = buildReleaseIndex(
+                    flags,
+                    experiments,
+                    earlyAccessFeatures,
+                    scheduledChanges,
+                    !experimentsFailed && !earlyAccessFailed
+                )
                 return releases.map((release) => buildReleaseRow(release, index))
             },
         ],
@@ -339,7 +417,7 @@ export const releaseLogic = kea<releaseLogicType>([
             cache.lastReloadAt = now
             actions.loadReleases()
             actions.loadFlagCount()
-            actions.loadExperiments()
+            actions.loadExperimentCount()
             actions.loadEarlyAccessFeatures()
         },
         createRelease: async ({ name, description }) => {
@@ -361,6 +439,7 @@ export const releaseLogic = kea<releaseLogicType>([
         },
         updateRelease: async ({ id, changes, successMessage }) => {
             actions.setReleaseLocally(id, changes)
+            cache.pendingSaves = (cache.pendingSaves ?? 0) + 1
             const previous: Promise<void> = cache.saving ?? Promise.resolve()
             cache.saving = previous.then(async () => {
                 try {
@@ -369,15 +448,27 @@ export const releaseLogic = kea<releaseLogicType>([
                         lemonToast.success(successMessage)
                     }
                     if (changes.owner_id !== undefined) {
-                        actions.loadReleases()
+                        cache.refetchAfterSaves = true
                     }
                     if (changes.feature_flag_ids !== undefined) {
-                        actions.loadFlags()
-                        actions.loadScheduledChanges()
+                        cache.relinkAfterSaves = true
                     }
                 } catch {
                     lemonToast.error('The change could not be saved. Try again.')
-                    actions.loadReleases()
+                    cache.refetchAfterSaves = true
+                } finally {
+                    cache.pendingSaves -= 1
+                    if (cache.pendingSaves === 0) {
+                        if (cache.refetchAfterSaves) {
+                            actions.loadReleases()
+                        } else if (cache.relinkAfterSaves) {
+                            actions.loadFlags()
+                            actions.loadExperiments()
+                            actions.loadScheduledChanges()
+                        }
+                        cache.refetchAfterSaves = false
+                        cache.relinkAfterSaves = false
+                    }
                 }
             })
             await cache.saving
@@ -402,6 +493,7 @@ export const releaseLogic = kea<releaseLogicType>([
         },
         loadReleasesSuccess: () => {
             actions.loadFlags()
+            actions.loadExperiments()
             actions.loadScheduledChanges()
         },
         closeSchedule: () => {

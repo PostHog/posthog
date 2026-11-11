@@ -20,7 +20,7 @@ import { STAGE_TONE } from './releaseUtils'
 const SECTION_LIMIT = 10
 
 export function ReleaseSidebar(): JSX.Element {
-    const { rows, decisionRows, flagCount, experiments, earlyAccessFeatures } = useValues(releaseLogic)
+    const { rows, decisionRows, flagCount, experimentCount, earlyAccessFeatures } = useValues(releaseLogic)
     const { setDecisionOnly } = useActions(releaseLogic)
     const { location } = useValues(router)
     const [query, setQuery] = useState('')
@@ -45,7 +45,7 @@ export function ReleaseSidebar(): JSX.Element {
             label: 'Experiments',
             to: urls.experiments(),
             type: 'experiment',
-            count: experiments.length,
+            count: experimentCount,
             prefix: '/experiments',
         },
         {

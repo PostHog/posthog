@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconFlag, IconWarning } from '@posthog/icons'
+import { IconFlag } from '@posthog/icons'
 import {
     Button,
     Empty,
@@ -9,12 +9,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    Item,
-    ItemActions,
-    ItemContent,
-    ItemDescription,
-    ItemMedia,
-    ItemTitle,
     Skeleton,
 } from '@posthog/quill'
 
@@ -31,6 +25,7 @@ import { ReleaseHistory } from './ReleaseHistory'
 import { ReleaseLinkedCard } from './ReleaseLinkedCard'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
+import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleaseScheduleButton } from './ReleaseScheduleButton'
 import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
 import { ReleaseStatusCard } from './ReleaseStatusCard'
@@ -65,8 +60,8 @@ function ReleaseSkeleton(): JSX.Element {
 }
 
 export function Release({ id }: ReleaseSceneProps): JSX.Element {
-    const { rows, dataLoading, loadFailed, partialLoadFailed } = useValues(releaseLogic)
-    const { updateRelease, reload } = useActions(releaseLogic)
+    const { rows, dataLoading, loadFailed } = useValues(releaseLogic)
+    const { updateRelease } = useActions(releaseLogic)
     const row = rows.find((item) => item.id === id)
 
     if (!row) {
@@ -119,24 +114,7 @@ export function Release({ id }: ReleaseSceneProps): JSX.Element {
                 }
             />
             <div data-quill className="@container flex flex-col gap-4 pb-8">
-                {partialLoadFailed && (
-                    <Item variant="outline" tone="warning" size="sm" data-attr="release-partial-load">
-                        <ItemMedia variant="icon">
-                            <IconWarning />
-                        </ItemMedia>
-                        <ItemContent>
-                            <ItemTitle>Some linked details could not load</ItemTitle>
-                            <ItemDescription>
-                                Experiments, early access or schedules may be missing from this release.
-                            </ItemDescription>
-                        </ItemContent>
-                        <ItemActions>
-                            <Button size="sm" variant="outline" onClick={() => reload(true)}>
-                                Try again
-                            </Button>
-                        </ItemActions>
-                    </Item>
-                )}
+                <ReleasePartialLoadWarning />
                 <div className="grid items-start gap-4 @3xl:grid-cols-3">
                     <div className="flex min-w-0 flex-col gap-4 @3xl:col-span-2">
                         <ReleaseStatusCard row={row} />
