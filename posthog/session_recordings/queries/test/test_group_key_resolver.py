@@ -5,7 +5,7 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 
-from posthog.schema import GroupPropertyFilter, PropertyOperator
+from posthog.schema import GroupPropertyFilter, HogQLPropertyFilter, PropertyOperator
 
 from posthog.hogql import ast
 
@@ -14,6 +14,7 @@ from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
     MAX_RESOLVED_GROUP_KEYS,
     _resolution_predicate,
     resolved_group_key_expr,
+    resolved_hogql_group_key_expr,
 )
 
 _RESOLVER = "posthog.session_recordings.queries.sub_queries.group_key_resolver._query_group_keys"
@@ -110,3 +111,35 @@ class TestGroupKeyResolver(BaseTest):
     def test_a_failed_resolution_keeps_the_join(self) -> None:
         with patch(_RESOLVER, side_effect=Exception("clickhouse said no")):
             assert resolved_group_key_expr(self.team, _filter(), _CH_USER) is None
+
+    @parameterized.expand(
+        [
+            ("one_group_type", "group_0.properties.is_owned = true OR toFloat(group_0.properties.mrr) > 1666", 0),
+            ("other_group_type", "group_2.properties.plan = 'pro'", 2),
+            # Each of these can also be true for an event with no group, which a key list would drop.
+            ("negated", "NOT group_0.properties.plan = 'pro'", None),
+            ("not_equal", "group_0.properties.plan != 'pro'", None),
+            ("null_check", "group_0.properties.plan = null", None),
+            ("coalesce", "coalesce(group_0.properties.plan, 'x') = 'x'", None),
+            # Anything outside one group type's properties needs the event row, so it keeps the join.
+            ("mixes_event_properties", "group_0.properties.plan = 'pro' AND properties.$browser = 'Chrome'", None),
+            ("two_group_types", "group_0.properties.plan = 'pro' OR group_1.properties.plan = 'pro'", None),
+            ("event_property_only", "properties.$pathname ILIKE '%billing%'", None),
+        ]
+    )
+    def test_a_hogql_filter_resolves_only_when_a_key_list_returns_the_same_sessions(
+        self, _name: str, expression: str, expected_group_type: int | None
+    ) -> None:
+        with patch(_RESOLVER, return_value=["org-1"]) as resolve:
+            expr = resolved_hogql_group_key_expr(self.team, HogQLPropertyFilter(key=expression), _CH_USER)
+
+        if expected_group_type is None:
+            assert expr is None
+            resolve.assert_not_called()
+            return
+        assert isinstance(expr, ast.CompareOperation) and isinstance(expr.left, ast.Field)
+        assert expr.left.chain == ["events", f"$group_{expected_group_type}"]
+        # The predicate runs in a select over `groups`, where the property is read without the `group_N.` prefix.
+        _team, group_type_index, predicate, _ch_user = resolve.call_args.args
+        assert group_type_index == expected_group_type
+        assert "group_" not in str(predicate)

@@ -13,6 +13,7 @@ from posthog.schema import (
     EventMatchScope,
     EventPropertyFilter,
     EventsNode,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
     PropertyOperator,
@@ -31,7 +32,10 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
-from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
+    resolved_group_key_expr,
+    resolved_hogql_group_key_expr,
+)
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
     SessionRecordingQueryResult,
@@ -614,6 +618,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         skip_negative_properties = self._query.operand == "AND"
 
         for p in self._emitted_event_properties():
+            if (resolved_hogql := self._resolved_hogql_group_filter(p)) is not None:
+                gathered_exprs.append(resolved_hogql)
+                continue
             if self._allow_event_property_expansion:
                 events_seen_with_this_property, property_expr = self.with_team_events_added(p, self._team)
                 gathered_exprs.append(
@@ -1001,6 +1008,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             for e in self._query.events or []
             if self._is_negated_entity(e)
         ]
+
+    def _resolved_hogql_group_filter(self, p: AnyPropertyFilter) -> ast.Expr | None:
+        if self._resolve_group_properties is None or not isinstance(p, HogQLPropertyFilter):
+            return None
+        return resolved_hogql_group_key_expr(self._team, p, self._resolve_group_properties)
 
     @property
     def event_properties(self):

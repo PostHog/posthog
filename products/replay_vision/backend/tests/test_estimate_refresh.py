@@ -20,6 +20,7 @@ from posthog.schema import FilterLogicalOperator, RecordingsQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -36,6 +37,8 @@ from products.replay_vision.backend.queries import (
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     _ESTIMATE_EVENTS_SAMPLE_FACTOR,
     BATCH_ESTIMATE_BUDGET,
+    EXACT_ESTIMATE_MAX_BYTES,
+    PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
 )
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
@@ -153,6 +156,14 @@ _EVENT_FILTERED_AND_QUERY = RecordingsQuery(
         ),
         (
             BATCH_ESTIMATE_BUDGET,
+            [CHQueryErrorTooManyBytes("too many bytes", code=307), MagicMock(results=[[5, None]])],
+            50,
+            True,
+            [15, 30],
+            ["ReplayVisionScannerEstimateExactQuery", "ReplayVisionScannerEstimateSampledQuery"],
+        ),
+        (
+            BATCH_ESTIMATE_BUDGET,
             [ClickHouseQueryMemoryLimitExceeded(), MagicMock(results=[[5, None]])],
             50,
             True,
@@ -190,6 +201,31 @@ def test_estimate_falls_back_to_sampling_only_when_the_exact_count_times_out(
     assert [s.max_execution_time for s in settings] == expected_budgets
     assert all(s.timeout_overflow_mode == "throw" for s in settings)
     assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == expected_query_types
+    # Only the exact count is capped: the sampled count is the answer of last resort.
+    assert [s.max_bytes_to_read for s in settings] == [
+        EXACT_ESTIMATE_MAX_BYTES if query_type.endswith("ExactQuery") else None for query_type in expected_query_types
+    ]
+
+
+@pytest.mark.django_db
+def test_a_failed_exact_count_is_skipped_next_time_and_previews_reuse_their_result() -> None:
+    scanner = _make_scanner()
+    with patch(
+        "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
+        side_effect=[ClickHouseQueryTimeOut(), MagicMock(results=[[5, None]]), MagicMock(results=[[7, None]])],
+    ) as mock_execute:
+        for _ in range(3):
+            estimate_scanner_session_volume(
+                team=scanner.team, query=_EVENT_FILTERED_AND_QUERY, budget=PREVIEW_ESTIMATE_BUDGET
+            )
+        batch = estimate_scanner_session_volume(team=scanner.team, query=_EVENT_FILTERED_AND_QUERY)
+
+    assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == [
+        "ReplayVisionScannerEstimateExactQuery",
+        "ReplayVisionScannerEstimateSampledQuery",
+        "ReplayVisionScannerEstimateSampledQuery",
+    ]
+    assert batch.matched_sessions == 70
 
 
 @pytest.mark.django_db

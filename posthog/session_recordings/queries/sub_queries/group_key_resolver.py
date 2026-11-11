@@ -15,11 +15,14 @@ from django.core.cache import cache
 
 import structlog
 
-from posthog.schema import EventPropertyFilter, GroupPropertyFilter, PropertyOperator
+from posthog.schema import EventPropertyFilter, GroupPropertyFilter, HogQLPropertyFilter, PropertyOperator
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
@@ -64,28 +67,129 @@ def resolved_group_key_expr(team: Team, prop: GroupPropertyFilter, ch_user: Clic
     if prop.operator not in _RESOLVABLE_OPERATORS or prop.group_type_index is None:
         return None
 
-    keys = _group_keys(team, prop, ch_user)
-    if keys is None:
+    group_type_index = prop.group_type_index
+    keys = _group_keys(
+        team,
+        prop.key,
+        _cache_key(team, [group_type_index, prop.key, prop.operator, prop.value]),
+        lambda: _query_group_keys(team, group_type_index, _resolution_predicate(team, prop), ch_user),
+    )
+    return None if keys is None else _group_key_in(group_type_index, keys)
+
+
+def resolved_hogql_group_key_expr(team: Team, prop: HogQLPropertyFilter, ch_user: ClickHouseUser) -> ast.Expr | None:
+    """`$group_N IN (keys)` for a HogQL filter that only reads one group type's properties, or None to keep the join.
+
+    A HogQL filter like `group_0.properties.plan = 'pro' OR group_0.properties.mrr > 100` compiles to the same
+    events-to-groups join as a group property filter, so it pays the same per-shard scan of every group row.
+    """
+    try:
+        expr = parse_expr(prop.key)
+    except Exception:
+        return None
+    group_type_index = _single_group_property_reader(expr)
+    if group_type_index is None:
         return None
 
+    predicate = _GroupPrefixStripper().visit(expr)
+    keys = _group_keys(
+        team,
+        prop.key,
+        _cache_key(team, ["hogql", group_type_index, prop.key]),
+        lambda: _query_group_keys(team, group_type_index, predicate, ch_user),
+    )
+    return None if keys is None else _group_key_in(group_type_index, keys)
+
+
+def _group_key_in(group_type_index: int, keys: list[str]) -> ast.Expr:
     return ast.CompareOperation(
         op=ast.CompareOperationOp.In,
-        left=ast.Field(chain=["events", f"$group_{prop.group_type_index}"]),
+        left=ast.Field(chain=["events", f"$group_{group_type_index}"]),
         right=ast.Constant(value=keys),
     )
 
 
-def _group_keys(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser) -> list[str] | None:
-    cache_key = _cache_key(team, prop)
-    cached = _swallowing_failure("group_key_cache_read_failed", team, prop, lambda: cache.get(cache_key))
+# A key list can only express "the event's group matches". These ops and calls can also be true for an event with
+# no group at all, which the join keeps and the key list would drop, so expressions using them keep the join.
+_KEY_SAFE_COMPARE_OPS = {
+    ast.CompareOperationOp.Eq,
+    ast.CompareOperationOp.Gt,
+    ast.CompareOperationOp.GtEq,
+    ast.CompareOperationOp.Lt,
+    ast.CompareOperationOp.LtEq,
+    ast.CompareOperationOp.Like,
+    ast.CompareOperationOp.ILike,
+    ast.CompareOperationOp.Regex,
+    ast.CompareOperationOp.IRegex,
+    ast.CompareOperationOp.In,
+}
+_KEY_SAFE_CALLS = {"toFloat", "toInt", "toString", "toBool", "lower", "upper", "trim", "toDate", "toDateTime"}
+
+
+class _GroupPropertyReaderCheck(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.group_type_indexes: set[int] = set()
+        self.unsafe = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        chain = [str(part) for part in node.chain]
+        if len(chain) >= 3 and chain[1] == "properties" and chain[0].startswith("group_") and chain[0][6:].isdigit():
+            self.group_type_indexes.add(int(chain[0][6:]))
+        else:
+            self.unsafe = True
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op not in _KEY_SAFE_COMPARE_OPS:
+            self.unsafe = True
+        super().visit_compare_operation(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name not in _KEY_SAFE_CALLS:
+            self.unsafe = True
+        super().visit_call(node)
+
+    def visit_constant(self, node: ast.Constant) -> None:
+        # Comparing with null or an empty string can match an event whose group is missing.
+        if node.value is None or node.value == "":
+            self.unsafe = True
+
+    def visit_not(self, node: ast.Not) -> None:
+        self.unsafe = True
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.unsafe = True
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        self.unsafe = True
+
+
+def _single_group_property_reader(expr: ast.Expr) -> int | None:
+    """The group type index when `expr` is a key-safe predicate over that one group type's properties, else None."""
+    if not isinstance(expr, ast.And | ast.Or | ast.CompareOperation):
+        return None
+    check = _GroupPropertyReaderCheck()
+    check.visit(expr)
+    if check.unsafe or len(check.group_type_indexes) != 1:
+        return None
+    return next(iter(check.group_type_indexes))
+
+
+class _GroupPrefixStripper(CloningVisitor):
+    """`group_N.properties.x` to `properties.x`, the form that reads the property in a select over `groups`."""
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        return ast.Field(chain=node.chain[1:])
+
+
+def _group_keys(team: Team, property_key: str, cache_key: str, resolve: Callable[[], list[str]]) -> list[str] | None:
+    cached = _swallowing_failure("group_key_cache_read_failed", team, property_key, lambda: cache.get(cache_key))
     if cached == _FALLBACK:
         return None
     if cached is not None:
         return _cast_keys(cached)
 
-    keys = _swallowing_failure(
-        "group_key_resolution_failed", team, prop, lambda: _query_group_keys(team, prop, ch_user)
-    )
+    keys = _swallowing_failure("group_key_resolution_failed", team, property_key, resolve)
     if keys is None:
         return None
 
@@ -93,19 +197,19 @@ def _group_keys(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser) 
     _swallowing_failure(
         "group_key_cache_write_failed",
         team,
-        prop,
+        property_key,
         lambda: cache.set(cache_key, _FALLBACK if resolved is None else resolved, GROUP_KEY_CACHE_TTL_SECONDS),
     )
     return resolved
 
 
-def _swallowing_failure(event: str, team: Team, prop: GroupPropertyFilter, work: Callable[[], Any]) -> Any:
+def _swallowing_failure(event: str, team: Team, property_key: str, work: Callable[[], Any]) -> Any:
     # Everything here is an optimisation over a join that already returns the right answer, so a
     # broken cache or an unavailable ClickHouse costs reads rather than failing the caller's query.
     try:
         return work()
     except Exception:
-        logger.exception(event, team_id=team.pk, property_key=prop.key)
+        logger.exception(event, team_id=team.pk, property_key=property_key)
         return None
 
 
@@ -130,8 +234,7 @@ def _resolution_predicate(team: Team, prop: GroupPropertyFilter) -> ast.Expr:
     )
 
 
-def _query_group_keys(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser) -> list[str]:
-    predicate = _resolution_predicate(team, prop)
+def _query_group_keys(team: Team, group_type_index: int, predicate: ast.Expr, ch_user: ClickHouseUser) -> list[str]:
     query = ast.SelectQuery(
         select=[ast.Field(chain=["key"])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
@@ -140,7 +243,7 @@ def _query_group_keys(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouse
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=["index"]),
-                    right=ast.Constant(value=prop.group_type_index),
+                    right=ast.Constant(value=group_type_index),
                 ),
                 predicate,
             ]
@@ -148,7 +251,14 @@ def _query_group_keys(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouse
         # One over the ceiling, so an over-broad filter is recognised without materialising the rest.
         limit=ast.Constant(value=MAX_RESOLVED_GROUP_KEYS + 1),
     )
-    response = execute_hogql_query(query=query, team=team, query_type=GROUP_KEY_RESOLUTION_QUERY_TYPE, ch_user=ch_user)
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        query_type=GROUP_KEY_RESOLUTION_QUERY_TYPE,
+        ch_user=ch_user,
+        # Types `properties.x` from this group type's property definitions, as the join path types `group_N.properties.x`.
+        context=HogQLContext(team_id=team.pk, globals={"group_id": group_type_index}),
+    )
     return [row[0] for row in (response.results or []) if row[0]]
 
 
@@ -156,10 +266,6 @@ def _cast_keys(cached: Any) -> list[str]:
     return [str(key) for key in cached]
 
 
-def _cache_key(team: Team, prop: GroupPropertyFilter) -> str:
-    payload = json.dumps(
-        [prop.group_type_index, prop.key, prop.operator, prop.value],
-        sort_keys=True,
-        default=str,
-    )
+def _cache_key(team: Team, parts: list[Any]) -> str:
+    payload = json.dumps(parts, sort_keys=True, default=str)
     return f"group-keys:{team.pk}:{hashlib.sha256(payload.encode()).hexdigest()}"
