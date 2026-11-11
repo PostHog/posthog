@@ -249,10 +249,15 @@ export const VisualReviewRunsTolerateCreateBody = /* @__PURE__ */ zod.object({
  *
  * Does nothing when a run of the commit and run type exists, or when the repo reads its baselines from the YAML file.
  */
+export const visualReviewRunsSkipCreateBodyCommitShaRegExp = new RegExp('^[0-9a-f]{40}$')
+
 export const VisualReviewRunsSkipCreateBody = /* @__PURE__ */ zod.object({
     repo_id: zod.uuid().describe('ID of the Visual Review repo the commit belongs to.'),
     run_type: zod.string().describe('Run type that needs no run at this commit, for example `storybook`.'),
-    commit_sha: zod.string().describe('Full SHA of the commit that gets the passing status.'),
+    commit_sha: zod
+        .string()
+        .regex(visualReviewRunsSkipCreateBodyCommitShaRegExp)
+        .describe('Full SHA of the commit that gets the passing status.'),
     branch: zod.string().describe('Branch CI ran on. Only logged.'),
     pr_number: zod.number().nullish().describe('Pull request the commit belongs to, if any. Only logged.'),
 })

@@ -811,7 +811,10 @@ export interface NoRunNeededInputApi {
     repo_id: string
     /** Run type that needs no run at this commit, for example `storybook`. */
     run_type: string
-    /** Full SHA of the commit that gets the passing status. */
+    /**
+     * Full SHA of the commit that gets the passing status.
+     * @pattern ^[0-9a-f]{40}$
+     */
     commit_sha: string
     /** Branch CI ran on. Only logged. */
     branch: string

@@ -47,16 +47,27 @@ from products.visual_review.backend.tests.logic.ledger_fakes import (
 
 
 @pytest.mark.parametrize(
-    ("lookup_error", "expected"),
+    ("commit_sha", "lookup_error", "expected", "expected_path"),
     [
-        pytest.param(None, ci_status.StatusPost.POSTED, id="posted"),
+        pytest.param("a" * 40, None, ci_status.StatusPost.POSTED, f"/repos/org/repo/statuses/{'a' * 40}", id="posted"),
         pytest.param(
-            errors.GitHubIntegrationNotFoundError("no integration"), ci_status.StatusPost.SKIPPED, id="no_integration"
+            "../../pulls/1#x",
+            None,
+            ci_status.StatusPost.POSTED,
+            "/repos/org/repo/statuses/..%2F..%2Fpulls%2F1%23x",
+            id="sha_is_one_path_segment",
         ),
-        pytest.param(RuntimeError("lookup failed"), ci_status.StatusPost.REFUSED, id="lookup_failed"),
+        pytest.param(
+            "a" * 40,
+            errors.GitHubIntegrationNotFoundError("no integration"),
+            ci_status.StatusPost.SKIPPED,
+            None,
+            id="no_integration",
+        ),
+        pytest.param("a" * 40, RuntimeError("lookup failed"), ci_status.StatusPost.REFUSED, None, id="lookup_failed"),
     ],
 )
-def test_send_commit_status(mocker, lookup_error, expected) -> None:
+def test_send_commit_status(mocker, commit_sha, lookup_error, expected, expected_path) -> None:
     github = MagicMock()
     github.api_request.return_value = MagicMock(status_code=201)
     mocker.patch.object(
@@ -64,10 +75,12 @@ def test_send_commit_status(mocker, lookup_error, expected) -> None:
     )
 
     posted = ci_status._send_commit_status(
-        Repo(repo_full_name="org/repo"), "a" * 40, context="ctx", state="success", description="ok", target_url=None
+        Repo(repo_full_name="org/repo"), commit_sha, context="ctx", state="success", description="ok", target_url=None
     )
 
     assert posted == expected
+    paths = [call.args[1] for call in github.api_request.call_args_list]
+    assert paths == ([expected_path] if expected_path else [])
 
 
 @pytest.mark.django_db(transaction=True, databases=PRODUCT_DATABASES)
