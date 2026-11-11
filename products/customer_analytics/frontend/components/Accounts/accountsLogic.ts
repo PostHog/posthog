@@ -53,7 +53,6 @@ import type {
 } from '../../generated/api.schemas'
 import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
-import type { AccountSystemTabKind } from './accountViewComponents'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
 import type { AccountsOverviewTile } from './accountsOverviewTilesLogic'
 import type { AccountFilter } from './accountsPropertyFilters'
@@ -69,6 +68,7 @@ import {
 } from './accountsTableQuery'
 import { getAccountsViewSession } from './accountsViewSessionLogic'
 import { AccountsViewState, normalizeRoleFilter } from './accountsViewState'
+import type { AccountSystemTabKind } from './accountViewComponents'
 import { ACCOUNT_RELATIONSHIP_ANALYTICS_ROLES, AccountsEvents, DEFAULT_TILES } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
@@ -443,7 +443,10 @@ export interface accountsLogicActions {
     loadAccountPresenceSuccess: (presence: AccountPresenceResponse) => {
         presence: AccountPresenceResponse
     }
-    openAccount: (accountId: string, tab: AccountSystemTabKind) => {
+    openAccount: (
+        accountId: string,
+        tab: AccountSystemTabKind
+    ) => {
         accountId: string
         tab: AccountSystemTabKind
     }

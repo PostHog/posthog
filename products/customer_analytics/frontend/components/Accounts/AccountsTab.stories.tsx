@@ -606,10 +606,7 @@ const PINNED_PROPERTIES_CONFIG: UserCustomerAnalyticsConfigApi = {
 const PINNED_EXPANSION_SELECTOR = '[data-attr="account-pinned-properties-expansion"]'
 const PINNED_FIELD_SELECTOR = '[data-attr="account-property-row"]'
 const PINNED_ROW_PARAMETERS = {
-    featureFlags: [
-        FEATURE_FLAGS.CUSTOMER_ANALYTICS,
-        FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
-    ],
+    featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP],
     testOptions: {
         waitForSelector: `${PINNED_EXPANSION_SELECTOR} ${PINNED_FIELD_SELECTOR}`,
         viewport: { width: 1440, height: 900 },

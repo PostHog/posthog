@@ -122,10 +122,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-05-21',
-        featureFlags: [
-            FEATURE_FLAGS.CUSTOMER_ANALYTICS,
-            FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
-        ],
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP],
         pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID, `view:${ACCOUNT_VIEW_ID}`),
         testOptions: {
             waitForSelector: [

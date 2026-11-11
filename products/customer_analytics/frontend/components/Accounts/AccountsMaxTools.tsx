@@ -3,9 +3,9 @@ import { useActions } from 'kea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
-import type { AccountSystemTabKind } from './accountViewComponents'
 import { accountsLogic } from './accountsLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
+import type { AccountSystemTabKind } from './accountViewComponents'
 
 interface OpenAccountResult {
     account_id?: string

@@ -43,11 +43,11 @@ import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigu
 import { AccountPinnedPropertiesExpansion } from './AccountPinnedPropertiesExpansion'
 import { AccountColumnDisplayConfig, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
-import type { AccountSystemTabKind } from './accountViewComponents'
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { accountsViewsLogic } from './accountsViewsLogic'
+import type { AccountSystemTabKind } from './accountViewComponents'
 import { useAccountColumnAutoSizing } from './useAccountColumnAutoSizing'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
@@ -334,11 +334,7 @@ function CanonicalTimestampCell({
     if (!accountId) {
         return label
     }
-    return (
-        <Link to={urls.customerAnalyticsAccount(accountId, tab)}>
-            {label}
-        </Link>
-    )
+    return <Link to={urls.customerAnalyticsAccount(accountId, tab)}>{label}</Link>
 }
 
 export function isCustomPropertyEditable(definition: AccountsTableCustomPropertyDefinition): boolean {

@@ -26,7 +26,6 @@ describe('AccountsTableNameCell', () => {
     })
 
     it('keeps modifier-click behavior for the account link', () => {
-
         render(
             <Provider>
                 <AccountsTableNameCell accountId={ACCOUNT_ID} name="Test account" viewers={[]} />
@@ -40,7 +39,6 @@ describe('AccountsTableNameCell', () => {
     })
 
     it('navigates to the account scene without expanding', () => {
-
         render(
             <Provider>
                 <AccountsTableNameCell accountId={ACCOUNT_ID} name="Test account" viewers={[]} />
@@ -59,7 +57,6 @@ describe('AccountsTableNameCell', () => {
     })
 
     it('shows three viewer indicators and names every viewer in the hover label', () => {
-
         render(
             <Provider>
                 <AccountsTableNameCell

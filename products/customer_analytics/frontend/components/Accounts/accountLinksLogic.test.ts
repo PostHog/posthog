@@ -82,12 +82,11 @@ describe('accountLinksLogic', () => {
             accountPropertyUpdatesLogic.actions.accountUpdated(MOCK_DEFAULT_TEAM.id, saved)
             resolveRead(initial)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.currentFieldValues.billing_id).toBe('saved-billing')
+            expect(logic.values.account).toEqual(saved)
             expect(shared.values.account).toEqual(saved)
         } finally {
             resolveRead(initial)
             await expectLogic(logic).toFinishAllListeners()
         }
     })
-
 })
