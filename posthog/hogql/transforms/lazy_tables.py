@@ -1,4 +1,5 @@
 import dataclasses
+from functools import partial
 from typing import Optional, cast
 
 from posthog.hogql import ast
@@ -9,8 +10,10 @@ from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd, UnexpandedScan
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.transforms.flag_calls_in_lazy_joins import read_flag_calls_in_lazy_join
 from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
     before_grouping,
@@ -360,6 +363,23 @@ class LazyTableResolver(TraversingVisitor):
         # forwarded to nested resolve_types/resolve_lazy_tables calls so a caller-supplied
         # factory (e.g. BoundedResolver) applies to subqueries built mid-transform
         self.resolver_factory = resolver_factory
+
+    def _resolve_join_subquery(
+        self, select_type: ast.SelectQueryType, subquery: ast.SelectQuery, *, join_sources: JoinSources | None = None
+    ) -> ast.SelectQuery:
+        # The resolver copies `subquery`. A copy made here would have no source in `join_sources`. The swap then
+        # refuses the subquery on mode 2.
+        return cast(
+            ast.SelectQuery,
+            resolve_types(
+                subquery,
+                self.context,
+                self.dialect,
+                [select_type],
+                resolver_factory=self.resolver_factory,
+                join_sources=join_sources,
+            ),
+        )
 
     def _find_tables_needing_lazy_preresolution(
         self, node: ast.SelectQuery, select_type: ast.SelectQueryType
@@ -924,6 +944,17 @@ class LazyTableResolver(TraversingVisitor):
             ]
             if len(overrides) != 0:
                 FieldChainReplacer(overrides).visit(join_to_add)
+
+            # The swap already ran on the query before this join existed. The outer fields still read the join's
+            # LazyJoinType here. The hook reads which of them filter the join's `event` from that type.
+            read_flag_calls_in_lazy_join(
+                join_to_add,
+                join_scope,
+                node,
+                original_select_type,
+                self.context,
+                partial(self._resolve_join_subquery, select_type),
+            )
 
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
             join_to_add = cast(
