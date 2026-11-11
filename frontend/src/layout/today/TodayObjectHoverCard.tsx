@@ -18,6 +18,23 @@ import { TodayObjectIcon } from './TodayObjectIcon'
 import { TodayObjectPreview } from './todayPreviewCards'
 import { activityDetail } from './todayWorkItems'
 
+function TodayFolderPath({ folder }: { folder: string[] }): JSX.Element {
+    return (
+        <span className="flex min-w-0 items-center gap-0.5" title={folder.join(' / ')}>
+            {folder.length === 0 ? (
+                <span>Project root</span>
+            ) : (
+                folder.map((segment, index) => (
+                    <Fragment key={index}>
+                        {index > 0 && <IconChevronRight className="size-3 shrink-0" />}
+                        <span className={index === folder.length - 1 ? 'truncate' : 'shrink-0'}>{segment}</span>
+                    </Fragment>
+                ))
+            )}
+        </span>
+    )
+}
+
 export function TodayObjectHoverCard({
     preview,
     onAction,
@@ -58,24 +75,7 @@ export function TodayObjectHoverCard({
                             {preview.typeLabel && (
                                 <span className="shrink-0">{capitalizeFirstLetter(preview.typeLabel)} in</span>
                             )}
-                            <span className="flex min-w-0 items-center gap-0.5" title={preview.folder.join(' / ')}>
-                                {preview.folder.length === 0 ? (
-                                    <span>Project root</span>
-                                ) : (
-                                    preview.folder.map((segment, index) => (
-                                        <Fragment key={index}>
-                                            {index > 0 && <IconChevronRight className="size-3 shrink-0" />}
-                                            <span
-                                                className={
-                                                    index === preview.folder.length - 1 ? 'truncate' : 'shrink-0'
-                                                }
-                                            >
-                                                {segment}
-                                            </span>
-                                        </Fragment>
-                                    ))
-                                )}
-                            </span>
+                            <TodayFolderPath folder={preview.folder} />
                         </div>
                         {glance === undefined ? (
                             <div className="flex flex-col gap-1.5" aria-busy="true">
