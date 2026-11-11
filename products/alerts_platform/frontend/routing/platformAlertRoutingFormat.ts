@@ -18,7 +18,11 @@ export const RECEIVER_TYPE_OPTIONS: { value: ReceiverType; label: string }[] = [
     { value: 'discord', label: 'Discord' },
     { value: 'webhook', label: 'Webhook' },
     { value: 'pagerduty', label: 'PagerDuty' },
+    { value: 'incident_io', label: 'incident.io' },
 ]
+
+/** Receiver types that open and close incidents, which hear every trigger and resolve whatever a route lists. */
+export const INCIDENT_RECEIVER_TYPES: ReceiverType[] = ['pagerduty', 'incident_io']
 
 export const PAGERDUTY_SEVERITY_OPTIONS: { value: PagerDutySeverityEnumApi; label: string }[] = [
     { value: 'critical', label: 'Critical' },
@@ -52,6 +56,8 @@ export interface ReceiverForm {
     pagerdutyRoutingKey: string
     pagerdutySeverity: PagerDutySeverityEnumApi
     pagerdutyRegion: PagerDutyRegionEnumApi
+    incidentIoAlertSourceConfigId: string
+    incidentIoSecret: string
 }
 
 export interface RouteForm {
@@ -69,6 +75,8 @@ export const EMPTY_RECEIVER_FORM: ReceiverForm = {
     pagerdutyRoutingKey: '',
     pagerdutySeverity: 'critical',
     pagerdutyRegion: 'us',
+    incidentIoAlertSourceConfigId: '',
+    incidentIoSecret: '',
 }
 export const EMPTY_ROUTE_FORM: RouteForm = { receiverId: null, matchers: [], eventKinds: ALL_ROUTE_EVENT_KINDS }
 
@@ -82,6 +90,9 @@ export function receiverTarget(receiver: AlertReceiverApi): string {
     }
     if (receiver.type === 'pagerduty') {
         return `Integration key ${receiver.pagerduty_routing_key ?? ''}`
+    }
+    if (receiver.type === 'incident_io') {
+        return `Alert source ${receiver.incident_io_alert_source_config_id ?? ''}`
     }
     return receiver.webhook_url ?? ''
 }
@@ -101,6 +112,9 @@ export function receiverFormFor(receiver: AlertReceiverApi): ReceiverForm {
         pagerdutyRoutingKey: '',
         pagerdutySeverity: receiver.pagerduty_severity ?? 'critical',
         pagerdutyRegion: receiver.pagerduty_region ?? 'us',
+        incidentIoAlertSourceConfigId: receiver.incident_io_alert_source_config_id ?? '',
+        // Reads return the last four characters of the secret, so an edit starts blank and keeps the stored secret.
+        incidentIoSecret: '',
     }
 }
 
@@ -112,20 +126,28 @@ export function routeFormFor(route: AlertRouteApi): RouteForm {
     }
 }
 
-/** An edit to a webhook-style receiver of the same type may leave the URL blank, because reads return it redacted. */
-export function keepsStoredUrl(form: ReceiverForm, editing: AlertReceiverApi | null): boolean {
-    return form.type !== 'slack' && form.type !== 'pagerduty' && editing?.type === form.type
+export function usesWebhookUrl(type: ReceiverType): boolean {
+    return type !== 'slack' && !INCIDENT_RECEIVER_TYPES.includes(type)
 }
 
-/** An edit to a PagerDuty receiver may leave the key blank to keep it, but only while the severity and region stay
- * as stored: the API replaces the whole destination, and it cannot send the stored key back. */
+/** An edit to a webhook-style receiver of the same type may leave the URL blank, because reads return it redacted. */
+export function keepsStoredUrl(form: ReceiverForm, editing: AlertReceiverApi | null): boolean {
+    return usesWebhookUrl(form.type) && editing?.type === form.type
+}
+
+/** An edit to an incident receiver may leave its credential blank to keep it, but only while its other settings stay
+ * as stored: the API replaces the whole destination, and it cannot send the stored credential back. */
 export function keepsStoredKey(form: ReceiverForm, editing: AlertReceiverApi | null): boolean {
-    return (
-        form.type === 'pagerduty' &&
-        editing?.type === 'pagerduty' &&
-        form.pagerdutySeverity === (editing.pagerduty_severity ?? 'critical') &&
-        form.pagerdutyRegion === (editing.pagerduty_region ?? 'us')
-    )
+    if (form.type === 'pagerduty' && editing?.type === 'pagerduty') {
+        return (
+            form.pagerdutySeverity === (editing.pagerduty_severity ?? 'critical') &&
+            form.pagerdutyRegion === (editing.pagerduty_region ?? 'us')
+        )
+    }
+    if (form.type === 'incident_io' && editing?.type === 'incident_io') {
+        return form.incidentIoAlertSourceConfigId.trim() === editing.incident_io_alert_source_config_id
+    }
+    return false
 }
 
 /** Null when an edit leaves the stored destination as it is. */
@@ -162,6 +184,17 @@ export function receiverDestinationBody(
             pagerduty_region: form.pagerdutyRegion,
         }
     }
+    if (form.type === 'incident_io') {
+        const secret = form.incidentIoSecret.trim()
+        if (keepsStoredKey(form, editing) && !secret) {
+            return null
+        }
+        return {
+            type: 'incident_io',
+            incident_io_alert_source_config_id: form.incidentIoAlertSourceConfigId.trim(),
+            incident_io_secret: secret,
+        }
+    }
     const webhookUrl = form.webhookUrl.trim()
     if (keepsStoredUrl(form, editing) && !webhookUrl) {
         return null
@@ -177,10 +210,7 @@ export function receiverFormErrors(
         name: form.name.trim() ? undefined : 'Enter a name',
         slackChannel: form.type === 'slack' && !form.slackChannel ? 'Choose a channel' : undefined,
         webhookUrl:
-            form.type !== 'slack' &&
-            form.type !== 'pagerduty' &&
-            !keepsStoredUrl(form, editing) &&
-            !form.webhookUrl.trim()
+            usesWebhookUrl(form.type) && !keepsStoredUrl(form, editing) && !form.webhookUrl.trim()
                 ? 'Enter a webhook URL'
                 : undefined,
         pagerdutyRoutingKey:
@@ -188,6 +218,16 @@ export function receiverFormErrors(
                 ? editing?.type === 'pagerduty'
                     ? 'Enter the integration key again to change the severity or region'
                     : 'Enter an integration key'
+                : undefined,
+        incidentIoAlertSourceConfigId:
+            form.type === 'incident_io' && !form.incidentIoAlertSourceConfigId.trim()
+                ? 'Enter the alert source ID'
+                : undefined,
+        incidentIoSecret:
+            form.type === 'incident_io' && !keepsStoredKey(form, editing) && !form.incidentIoSecret.trim()
+                ? editing?.type === 'incident_io'
+                    ? 'Enter the secret again to change the alert source'
+                    : 'Enter the alert source secret'
                 : undefined,
     }
 }

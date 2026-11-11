@@ -14641,16 +14641,18 @@ export namespace Schemas {
      * * `teams` - Microsoft Teams
      * * `discord` - Discord
      * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io
      */
-    export type PlatformAlertDestinationTypeEnum = typeof PlatformAlertDestinationTypeEnum[keyof typeof PlatformAlertDestinationTypeEnum];
+    export type AlertReceiverTypeEnum = typeof AlertReceiverTypeEnum[keyof typeof AlertReceiverTypeEnum];
 
 
-    export const PlatformAlertDestinationTypeEnum = {
+    export const AlertReceiverTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
       Teams: 'teams',
       Discord: 'discord',
       Pagerduty: 'pagerduty',
+      IncidentIo: 'incident_io',
     } as const;
 
     export interface AlertReceiver {
@@ -14664,8 +14666,9 @@ export namespace Schemas {
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
        * * `discord` - Discord
-       * * `pagerduty` - PagerDuty */
-      type: PlatformAlertDestinationTypeEnum;
+       * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io */
+      type: AlertReceiverTypeEnum;
       /** Whether routes send to this receiver. A disabled receiver gets nothing. */
       enabled: boolean;
       /** How many routes send to this receiver. Deleting the receiver deletes them. */
@@ -14692,6 +14695,10 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
+      /** ID of the incident.io HTTP alert source the events go to. */
+      incident_io_alert_source_config_id?: string;
+      /** incident.io alert source secret reduced to its last four characters. */
+      incident_io_secret?: string;
     }
 
     export interface AlertReceiverWrite {
@@ -14708,8 +14715,9 @@ export namespace Schemas {
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
        * * `discord` - Discord
-       * * `pagerduty` - PagerDuty */
-      type: PlatformAlertDestinationTypeEnum;
+       * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io */
+      type: AlertReceiverTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -14732,6 +14740,13 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+         * @pattern [0-9A-Za-z]{26}
+         */
+      incident_io_alert_source_config_id?: string;
+      /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+      incident_io_secret?: string;
     }
 
     export interface AlertRouteMatcher {
@@ -83520,8 +83535,9 @@ export namespace Schemas {
        * * `webhook` - Webhook
        * * `teams` - Microsoft Teams
        * * `discord` - Discord
-       * * `pagerduty` - PagerDuty */
-      type?: PlatformAlertDestinationTypeEnum;
+       * * `pagerduty` - PagerDuty
+       * * `incident_io` - incident.io */
+      type?: AlertReceiverTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -83544,6 +83560,13 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+         * @pattern [0-9A-Za-z]{26}
+         */
+      incident_io_alert_source_config_id?: string;
+      /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+      incident_io_secret?: string;
     }
 
     export interface PatchedAlertRouteWrite {
@@ -95040,6 +95063,24 @@ export namespace Schemas {
     }
 
     export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | TracesPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
+
+    /**
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     */
+    export type PlatformAlertDestinationTypeEnum = typeof PlatformAlertDestinationTypeEnum[keyof typeof PlatformAlertDestinationTypeEnum];
+
+
+    export const PlatformAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+      Pagerduty: 'pagerduty',
+    } as const;
 
     export interface PlatformAlertCreateDestination {
       /** Notification destination type.

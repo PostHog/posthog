@@ -6,7 +6,12 @@ import { LemonButton, LemonCheckbox, LemonCollapse, LemonModal, LemonSelect } fr
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { PlatformAlertDestinationEventKindEnumApi } from '../generated/api.schemas'
-import { ALL_ROUTE_EVENT_KINDS, ROUTE_EVENT_KIND_OPTIONS, receiverTarget } from './platformAlertRoutingFormat'
+import {
+    ALL_ROUTE_EVENT_KINDS,
+    INCIDENT_RECEIVER_TYPES,
+    ROUTE_EVENT_KIND_OPTIONS,
+    receiverTarget,
+} from './platformAlertRoutingFormat'
 import { platformAlertRoutingLogic } from './platformAlertRoutingLogic'
 import { RouteMatchersField } from './RouteMatchersField'
 
@@ -16,8 +21,8 @@ export function PlatformAlertRouteModal(): JSX.Element {
     const { closeRouteModal, submitRouteForm } = useActions(platformAlertRoutingLogic)
     const customEvents = routeForm.eventKinds.length !== ALL_ROUTE_EVENT_KINDS.length
     // An incident manager hears every trigger and resolve, so the events a route lists change nothing for it.
-    const pagesIncidents =
-        (receivers ?? []).find((receiver) => receiver.id === routeForm.receiverId)?.type === 'pagerduty'
+    const incidentReceiverType = (receivers ?? []).find((receiver) => receiver.id === routeForm.receiverId)?.type
+    const pagesIncidents = !!incidentReceiverType && INCIDENT_RECEIVER_TYPES.includes(incidentReceiverType)
 
     return (
         <LemonModal
@@ -70,7 +75,9 @@ export function PlatformAlertRouteModal(): JSX.Element {
                 </LemonField>
                 {pagesIncidents ? (
                     <p className="text-secondary text-sm m-0">
-                        PagerDuty opens an incident when a matching alert fires and resolves it when the alert resolves.
+                        {incidentReceiverType === 'incident_io'
+                            ? 'incident.io opens an alert when a matching alert fires and resolves it when the alert resolves.'
+                            : 'PagerDuty opens an incident when a matching alert fires and resolves it when the alert resolves.'}
                     </p>
                 ) : (
                     <LemonCollapse
