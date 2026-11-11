@@ -92,6 +92,7 @@ interface ReleaseLogicValues {
     earlyAccessReady: boolean
     schedulesFailed: boolean
     partialLoadFailed: boolean
+    unknownFlagIds: number[]
     scheduleFlagId: number | null
     dataLoading: boolean
     flagsById: Map<number, FeatureFlagApi>
@@ -706,6 +707,12 @@ export const releaseLogic = kea<releaseLogicType>([
             (flags: FeatureFlagApi[], scheduledChanges: ScheduledChangeApi[]) =>
                 indexSchedules(flags, scheduledChanges),
         ],
+        unknownFlagIds: [
+            (s) => [s.hiddenExperimentFlagIds, s.hiddenEarlyAccessFlagIds],
+            (hiddenExperimentFlagIds: number[], hiddenEarlyAccessFlagIds: number[]) => [
+                ...new Set([...hiddenExperimentFlagIds, ...hiddenEarlyAccessFlagIds]),
+            ],
+        ],
         rows: [
             (s) => [
                 s.releases,
@@ -718,8 +725,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 s.experimentsFailed,
                 s.earlyAccessFailed,
                 s.experimentsReady,
-                s.hiddenExperimentFlagIds,
-                s.hiddenEarlyAccessFlagIds,
+                s.unknownFlagIds,
                 s.earlyAccessReady,
                 s.resolvedFlagIds,
                 s.broadcasts,
@@ -737,8 +743,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 experimentsFailed: boolean,
                 earlyAccessFailed: boolean,
                 experimentsReady: boolean,
-                hiddenExperimentFlagIds: number[],
-                hiddenEarlyAccessFlagIds: number[],
+                unknownFlagIds: number[],
                 earlyAccessReady: boolean,
                 resolvedFlagIds: number[],
                 broadcasts: HogFlowApi[],
@@ -753,7 +758,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     {
                         complete: experimentsReady && earlyAccessReady && !experimentsFailed && !earlyAccessFailed,
                         resolvedFlagIds,
-                        unknownFlagIds: [...new Set([...hiddenExperimentFlagIds, ...hiddenEarlyAccessFlagIds])],
+                        unknownFlagIds,
                     },
                     { broadcasts, sends: broadcastSends, runs: broadcastRuns }
                 )
