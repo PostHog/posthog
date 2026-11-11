@@ -93,9 +93,7 @@ def _json_events_to_json_string_expr(value: str) -> str:
 
 def _json_events_property_expr(property_name: PropertyName, column_ref: str, declared_type: str) -> tuple[str, bool]:
     scalar_value = _json_events_subcolumn_expr(property_name, column_ref)
-    # A path declared as a string has no sub-object and never holds a container (see the HogQL resolver), and the ''
-    # it holds for a missing key is what this read returns for one. toString and ifNull do nothing to a string path.
-    # They keep the read valid on a table that does not declare the path, where a missing key is a NULL Dynamic.
+    # `_declared_string_text_expr` in the HogQL resolver explains why this read is enough for a declared string path.
     if declared_type == "String":
         return f"ifNull(toString({scalar_value}), '')", False
     if declared_type == "LowCardinality(String)":
