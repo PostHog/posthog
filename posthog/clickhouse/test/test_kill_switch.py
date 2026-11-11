@@ -12,6 +12,7 @@ from posthog.clickhouse.client.execute import (
     get_team_kill_switch_level,
     resolve_kill_switch_level,
 )
+from posthog.settings.dynamic_settings import CONSTANCE_CONFIG
 
 
 class TestGetKillSwitchLevel:
@@ -223,8 +224,14 @@ class TestKillSwitchCacheWarming:
             mock_logger.info.assert_called_with("kill_switch_on_skipping_cache_warming", level=level)
 
     @patch("posthog.clickhouse.client.execute.get_kill_switch_level", return_value=KillSwitchLevel.OFF)
+    @patch(
+        "posthog.caching.warming.get_instance_settings",
+        side_effect=lambda keys: {key: CONSTANCE_CONFIG[key][0] for key in keys},
+    )
     @patch("posthog.caching.warming.largest_teams", return_value=[])
-    def test_cache_warming_proceeds_when_off(self, mock_largest: MagicMock, _mock_ks: MagicMock):
+    def test_cache_warming_proceeds_when_off(
+        self, mock_largest: MagicMock, _mock_settings: MagicMock, _mock_ks: MagicMock
+    ):
         from posthog.caching.warming import schedule_warming_for_teams_task
 
         try:
