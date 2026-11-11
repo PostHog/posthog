@@ -22,6 +22,7 @@ import {
     SyncFrequencySelectProps,
     UPSTREAM_RULE,
     pinnedSegmentTooltip,
+    withPinnedSegment,
     syncFrequencyState,
 } from './SyncFrequencySelect'
 
@@ -120,7 +121,7 @@ export function QuillSyncFrequencySelect({
                         }
                     }}
                 >
-                    {options.map((option) => {
+                    {(pin?.pinned ? withPinnedSegment(options, selected, { canUnpin }) : options).map((option) => {
                         const optionReason = reason ?? option.disabledReason
                         const pinnedHere = !!pin?.pinned && option.value === selected
                         if (optionReason) {
