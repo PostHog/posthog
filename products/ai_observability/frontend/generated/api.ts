@@ -19,6 +19,8 @@ import type {
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
+    AiObservabilityTracesNodesDatasetItemRetrieveParams,
+    AiObservabilityTracesNodesParserTestCreateParams,
     AiObservabilityTracesNodesRawRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesPullRequestRetrieveParams,
@@ -173,7 +175,10 @@ import type {
     TraceExportCreateApi,
     TraceExportFileApi,
     TraceFeedbackApi,
+    TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
+    TraceNodeParserTestApi,
+    TraceNodeParserTestRequestApi,
     TraceNodeRawApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
@@ -880,6 +885,89 @@ export const aiObservabilityTracesNodesRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAiObservabilityTracesNodesDatasetItemRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params: AiObservabilityTracesNodesDatasetItemRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/dataset_item/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/dataset_item/`
+}
+
+/**
+ * One node of a trace as a dataset item: its input and output as ingested, and its custom properties as metadata. The root node gives the trace's input and output state with no metadata.
+ */
+export const aiObservabilityTracesNodesDatasetItemRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params: AiObservabilityTracesNodesDatasetItemRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeDatasetItemApi> => {
+    return apiMutator<TraceNodeDatasetItemApi>(
+        getAiObservabilityTracesNodesDatasetItemRetrieveUrl(projectId, id, nodeId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityTracesNodesParserTestCreateUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesParserTestCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/parser_test/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/parser_test/`
+}
+
+/**
+ * Tests a custom parser recipe against one node without saving it: the node's input and output as they would render with the parser saved, and whether it parses every side that the project's saved parsers leave unparsed.
+ */
+export const aiObservabilityTracesNodesParserTestCreate = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    traceNodeParserTestRequestApi: TraceNodeParserTestRequestApi,
+    params?: AiObservabilityTracesNodesParserTestCreateParams,
+    options?: RequestInit
+): Promise<TraceNodeParserTestApi> => {
+    return apiMutator<TraceNodeParserTestApi>(
+        getAiObservabilityTracesNodesParserTestCreateUrl(projectId, id, nodeId, params),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(traceNodeParserTestRequestApi),
+        }
+    )
 }
 
 export const getAiObservabilityTracesNodesRawRetrieveUrl = (

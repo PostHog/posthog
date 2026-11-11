@@ -422,6 +422,16 @@ def retry_inbox_report_ready_event(team_id: int, report_id: str, source_products
     send_inbox_report_ready_events(team_id=team_id, report_id=report_id, source_products=source_products)
 
 
+@shared_task(ignore_result=True, soft_time_limit=120, time_limit=150)
+@skip_team_scope_audit
+def sweep_stuck_research_reports() -> None:
+    from products.signals.backend.research_recovery import (
+        recover_stuck_research_reports,  # noqa: PLC0415 — keeps the temporal deps off the import path
+    )
+
+    recover_stuck_research_reports()
+
+
 @shared_task(
     name="products.signals.backend.tasks.link_report_tracker_issues",
     ignore_result=True,

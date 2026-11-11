@@ -17,6 +17,7 @@ from products.signals.backend.tasks import (
     sweep_implementation_dispatches,
     sweep_monitoring_research_requests,
     sweep_monitoring_tracker_issues,
+    sweep_stuck_research_reports,
     sync_pending_signals_refund_credits,
 )
 
@@ -33,5 +34,6 @@ __all__ = [
     "sweep_implementation_dispatches",
     "sweep_monitoring_research_requests",
     "sweep_monitoring_tracker_issues",
+    "sweep_stuck_research_reports",
     "sync_pending_signals_refund_credits",
 ]

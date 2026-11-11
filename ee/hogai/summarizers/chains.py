@@ -55,5 +55,5 @@ async def abatch_summarize_actions(
         )
         prompts.append(prompt)
 
-    chain = ChatOpenAI(model="gpt-4.1-mini", temperature=0.1, streaming=False, max_retries=3) | StrOutputParser()
+    chain = ChatOpenAI(model="gpt-6-luna", reasoning_effort="low", streaming=False, max_retries=3) | StrOutputParser()
     return await chain.abatch(prompts, config={"callbacks": [callback_handler]}, return_exceptions=True)  # type: ignore  # typing doesn't match in LangChain
