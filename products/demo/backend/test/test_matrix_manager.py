@@ -78,7 +78,7 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         cls.matrix = DummyMatrix(
             n_clusters=3,
             now=dt.datetime(2020, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
-            days_past=1,
+            days_past=14,
             days_future=0,
         )
         cls.matrix.simulate()
