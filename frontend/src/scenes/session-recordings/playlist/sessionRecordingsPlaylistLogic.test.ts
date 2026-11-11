@@ -1501,6 +1501,31 @@ describe('sessionRecordingsPlaylistLogic', () => {
             featureFlagLogic.mount()
         }
 
+        it.each([
+            { accountValue: true, expected: true },
+            { accountValue: 'false', expected: false },
+        ])(
+            'opens with filter_test_accounts $expected when the account value is $accountValue',
+            async ({ accountValue, expected }) => {
+                persistFilters(props, { ...DEFAULT_RECORDING_FILTERS, date_from: '-7d', filter_test_accounts: false })
+                userLogic.mount()
+                userLogic.actions.loadUserSuccess({
+                    ...MOCK_DEFAULT_USER,
+                    ui_configuration: {
+                        version: 1,
+                        session_replay: { filter_test_accounts: accountValue as boolean },
+                    },
+                })
+
+                logic = sessionRecordingsPlaylistLogic(props)
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.filters).toMatchObject({ date_from: '-7d', filter_test_accounts: expected })
+                expect(getDefaultFilters().filter_test_accounts).toBe(expected)
+            }
+        )
+
         it('resets a malformed persisted filters value to defaults on mount', async () => {
             persistFilters(props, { filter_group: 'not-a-group', duration: 'nope' })
 
@@ -3067,23 +3092,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
             const result = getDefaultFilters()
             expect(result.filter_test_accounts).toBe(false)
         })
-
-        it.each([
-            { saved: true, browser: 'false', expected: true },
-            { saved: false, browser: 'true', expected: false },
-            { saved: undefined, browser: 'true', expected: true },
-        ])(
-            'filter_test_accounts is $expected with account value $saved and browser value $browser',
-            ({ saved, browser, expected }) => {
-                localStorage.setItem('default_filter_test_accounts', browser)
-                userLogic.mount()
-                userLogic.actions.loadUserSuccess({
-                    ...MOCK_DEFAULT_USER,
-                    ui_configuration: { version: 1, session_replay: { filter_test_accounts: saved } },
-                })
-                expect(getDefaultFilters().filter_test_accounts).toBe(expected)
-            }
-        )
 
         it('returns date_from as -30d for person recordings', () => {
             const result = getDefaultFilters('person-uuid')
