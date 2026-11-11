@@ -1,6 +1,6 @@
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import http from 'http'
 import net from 'net'
 import os from 'os'
@@ -578,8 +578,9 @@ describe('scenario environment', () => {
         const realSpawn = childProcess.spawn
         const realExecFile = childProcess.execFile as (...args: unknown[]) => ChildProcess
         const stubRolePids = new Set<number>()
+        let rolesSpawnedWhileHeld = 0
         const stubRole =
-            "console.log('started at', Date.now()); require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
+            "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
@@ -680,12 +681,8 @@ describe('scenario environment', () => {
                 process.stderr.write('The fake docker has no command ' + args.join(' ') + '\\n')
                 process.exit(1)
             }
-            const leaves = path.join(__dirname, 'dead-member-leaves-at')
-            if (!fs.existsSync(leaves)) {
-                const session = Number(fs.readFileSync(path.join(__dirname, 'dead-member-session-ms'), 'utf8'))
-                fs.writeFileSync(leaves, String(Date.now() + session))
-            }
-            const members = Date.now() < Number(fs.readFileSync(leaves, 'utf8')) ? 1 : 0
+            fs.appendFileSync(path.join(__dirname, 'describes'), '.')
+            const members = fs.existsSync(path.join(__dirname, 'dead-member-held')) ? 1 : 0
             process.stdout.write(
                 'GROUP        ' + group + '\\nCOORDINATOR  0\\nSTATE        ' + (members > 0 ? 'Stable' : 'Empty') +
                     '\\nBALANCER     range\\nMEMBERS      ' + members + '\\nTOTAL-LAG    0\\n'
@@ -730,13 +727,12 @@ describe('scenario environment', () => {
             }
             return () => holder.kill('SIGKILL')
         }
-        const deadMemberStaysFor = (sessionMs: number): void => {
-            writeFileSync(path.join(fakes, 'dead-member-session-ms'), String(sessionMs))
-            rmSync(path.join(fakes, 'dead-member-leaves-at'), { force: true })
+        const holdDeadMember = (): void => writeFileSync(path.join(fakes, 'dead-member-held'), '')
+        const releaseDeadMember = (): void => rmSync(path.join(fakes, 'dead-member-held'))
+        const describeCount = (): number => {
+            const describes = path.join(fakes, 'describes')
+            return existsSync(describes) ? readFileSync(describes, 'utf8').length : 0
         }
-        const deadMemberLeftAt = (): number => Number(readFileSync(path.join(fakes, 'dead-member-leaves-at'), 'utf8'))
-        const startedAt = (role: Role): number =>
-            Number(/^started at (\d+)$/m.exec(readFileSync(logOf(role), 'utf8'))?.[1])
         const writeStack = (stack: { running: boolean; ready: boolean; busy?: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
@@ -770,7 +766,7 @@ describe('scenario environment', () => {
             writeFake(path.join(fakes, 'hogli'), fakeHogli)
             writeFake(path.join(fakes, 'docker'), fakeDocker)
             writeStack({ running: true, ready: true })
-            deadMemberStaysFor(0)
+            rolesSpawnedWhileHeld = 0
             await withPostgres(async (client) => {
                 await client.query('DELETE FROM posthog_hogfunctiontemplate')
                 await client.query(insertTemplates, [STACK.templates])
@@ -803,6 +799,9 @@ describe('scenario environment', () => {
                         : mode === exitsAfterHealth
                           ? stubRoleExitingAfterHealth
                           : stubRole
+                if (existsSync(path.join(fakes, 'dead-member-held'))) {
+                    rolesSpawnedWhileHeld += 1
+                }
                 const role = realSpawn(process.execPath, ['-e', script], options)
                 if (mode === losesItsPort) {
                     void holdPort(ROLE_PORTS[losesItsPort!], once(role, 'exit'))
@@ -865,17 +864,23 @@ describe('scenario environment', () => {
         })
 
         it('waits for a dead consumer to leave the events group before it starts the roles', async () => {
-            deadMemberStaysFor(2000)
+            holdDeadMember()
             environment = environmentOf()
 
-            await environment.up()
+            const up = environment.up().then(
+                () => 'up',
+                (error: unknown) => String(error)
+            )
+            await waitForExpect(() => expect(describeCount()).toBeGreaterThanOrEqual(3), 10_000, 50)
+            releaseDeadMember()
 
-            const firstStart = Math.min(...(Object.keys(ROLE_PORTS) as Role[]).map(startedAt))
             expect({
-                startedAfterItLeft: firstStart >= deadMemberLeftAt(),
+                rolesSpawnedWhileHeld,
+                up: await up,
                 apiHealth: await healthOf('cdp-api'),
             }).toEqual({
-                startedAfterItLeft: true,
+                rolesSpawnedWhileHeld: 0,
+                up: 'up',
                 apiHealth: 200,
             })
         }, 30_000)
