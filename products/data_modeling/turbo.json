@@ -1,0 +1,27 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": [
+                "backend/facade/**",
+                "backend/presentation/**",
+                "backend/routes.py",
+                "backend/models/**",
+                "backend/migrations/**",
+                "backend/tasks/**",
+                "backend/apps.py",
+                "backend/console.py",
+                "backend/signals.py",
+                "backend/schedule.py",
+                "backend/logic/node_materialization.py",
+                "backend/logic/saved_query_dag_sync.py",
+                "backend/logic/saved_query_deletion.py",
+                "backend/logic/saved_query_materialization.py",
+                "backend/logic/saved_query_reads.py",
+                "backend/logic/schedule_reconcile.py"
+            ],
+            "outputs": [],
+            "cache": true
+        }
+    }
+}
