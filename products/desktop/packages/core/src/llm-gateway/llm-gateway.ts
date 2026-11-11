@@ -379,9 +379,9 @@ export class LlmGatewayService {
   }
 
   async fetchUsage(): Promise<UsageOutput | null> {
+    const auth = await this.auth.getValidAccessToken();
     const { currentProjectId } = this.authService.getState();
     if (currentProjectId === null) return null;
-    const auth = await this.auth.getValidAccessToken();
     const usageUrl = this.endpoints.usageUrl(auth.apiHost, currentProjectId);
 
     this.log.debug("Fetching usage", { url: usageUrl });
@@ -389,7 +389,7 @@ export class LlmGatewayService {
     let response: Response;
     try {
       response = await this.auth.authenticatedFetch(usageUrl, {
-        headers: this.projectScopeHeaders(),
+        headers: buildPosthogProjectHeaderRecord(currentProjectId),
       });
     } catch (err) {
       this.log.warn("Usage fetch network error", {
@@ -413,12 +413,6 @@ export class LlmGatewayService {
       this.gatewayTokens.clearBlocked();
     }
     return usage;
-  }
-
-  private projectScopeHeaders(): Record<string, string> {
-    return buildPosthogProjectHeaderRecord(
-      this.authService.getState().currentProjectId,
-    );
   }
 }
 

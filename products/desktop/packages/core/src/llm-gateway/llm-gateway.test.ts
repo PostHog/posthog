@@ -74,11 +74,14 @@ function createService(
   };
   const logger = { ...log, scope: () => log };
 
-  const currentProjectId =
+  let currentProjectId =
     options.currentProjectId === undefined ? 42 : options.currentProjectId;
   const authService = {
     getState: () => ({ currentOrgId: "org-1", currentProjectId }),
   } as unknown as AuthService;
+  const selectProject = (projectId: number | null) => {
+    currentProjectId = projectId;
+  };
 
   const service = new LlmGatewayService(
     host,
@@ -92,6 +95,7 @@ function createService(
     endpoints,
     log,
     gatewayTokens,
+    selectProject,
   };
 }
 
@@ -223,17 +227,21 @@ describe("LlmGatewayService.fetchUsage", () => {
     is_rate_limited: false,
   };
 
-  it("returns the schema-parsed usage payload from Django", async () => {
+  it("returns Django usage for the project selected once the token is valid", async () => {
     const fetchMock = vi.fn().mockResolvedValue(createJsonResponse(USAGE_BODY));
-    const { service } = createService(fetchMock);
+    const { service, auth, selectProject } = createService(fetchMock);
+    vi.mocked(auth.getValidAccessToken).mockImplementationOnce(async () => {
+      selectProject(43);
+      return { accessToken: "tok", apiHost: API_HOST };
+    });
 
     const usage = await service.fetchUsage();
 
     expect(usage?.product).toBe("code");
     expect(usage?.sustained.used_percent).toBe(10);
     expect(fetchMock).toHaveBeenCalledWith(
-      `${API_HOST}/api/projects/42/desktop/usage/`,
-      { headers: { "X-PostHog-Project-Id": "42" } },
+      `${API_HOST}/api/projects/43/desktop/usage/`,
+      { headers: { "X-PostHog-Project-Id": "43" } },
     );
   });
 
