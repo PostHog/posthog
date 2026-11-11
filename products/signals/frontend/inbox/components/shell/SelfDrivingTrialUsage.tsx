@@ -43,9 +43,8 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
 
     const exhausted = trial.grant_status === 'exhausted'
     const banner = exhausted
-        ? { type: 'warning' as const, title: 'Trial limit reached', scoutCount: `${trial.enabled_scouts}` }
+        ? { title: 'Trial limit reached', scoutCount: `${trial.enabled_scouts}` }
         : {
-              type: 'info' as const,
               title: 'Your Self-driving free trial',
               scoutCount: `${trial.enabled_scouts} of ${trial.scout_limit}`,
           }
@@ -73,43 +72,46 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
         },
     }[trial.paid_continuation]
 
+    const content = (
+        <div className="flex flex-col gap-2 min-w-0 font-normal">
+            <strong className="text-sm font-semibold">{banner.title}</strong>
+            <p className="m-0 text-sm">
+                <span>{`${trial.reports_delivered} of ${trial.report_limit} reports delivered`}</span>
+                {!!trial.reports_in_progress && <span>{` · ${trial.reports_in_progress} in progress`}</span>}
+                {' · '}
+                <span>{`${banner.scoutCount} scouts enabled`}</span>
+            </p>
+            <LemonProgress
+                percent={(100 * trial.used_microusd) / trial.allowance_microusd}
+                aria-label="Trial allowance used"
+            />
+            <p className="m-0 text-xs text-secondary">
+                {`Trial allowance used: ${formatCredits(usdToCredits(trial.used_microusd / 1_000_000))} of ${formatCredits(usdToCredits(trial.allowance_microusd / 1_000_000))}.`}
+            </p>
+            {exhausted && (
+                <p className="m-0">
+                    <span>
+                        {trial.exhaustion_reason === 'report_limit'
+                            ? 'The trial report limit has been reached, including reports still in progress.'
+                            : 'The trial allowance is exhausted.'}
+                    </span>{' '}
+                    <span>Work already underway can finish at no additional charge. {continuation.message}</span>
+                </p>
+            )}
+            {exhausted && trial.new_work_paused && (
+                <LemonButton className="self-start" type="primary" to={urls.organizationBilling()}>
+                    {continuation.action}
+                </LemonButton>
+            )}
+        </div>
+    )
+
     return (
-        <section className="min-w-0" aria-label="Self-driving free trial">
-            <LemonBanner type={banner.type}>
-                <div className="flex flex-col gap-2 min-w-0 font-normal">
-                    <strong>{banner.title}</strong>
-                    <p className="m-0">
-                        <span>{`${trial.reports_delivered} of ${trial.report_limit} reports delivered`}</span>
-                        {!!trial.reports_in_progress && <span>{` · ${trial.reports_in_progress} in progress`}</span>}
-                        {' · '}
-                        <span>{`${banner.scoutCount} scouts enabled`}</span>
-                    </p>
-                    <LemonProgress
-                        percent={(100 * trial.used_microusd) / trial.allowance_microusd}
-                        aria-label="Trial allowance used"
-                    />
-                    <p className="m-0">
-                        {`Trial allowance used: ${formatCredits(usdToCredits(trial.used_microusd / 1_000_000))} of ${formatCredits(usdToCredits(trial.allowance_microusd / 1_000_000))}.`}
-                    </p>
-                    {exhausted && (
-                        <p className="m-0">
-                            <span>
-                                {trial.exhaustion_reason === 'report_limit'
-                                    ? 'The trial report limit has been reached, including reports still in progress.'
-                                    : 'The trial allowance is exhausted.'}
-                            </span>{' '}
-                            <span>
-                                Work already underway can finish at no additional charge. {continuation.message}
-                            </span>
-                        </p>
-                    )}
-                    {exhausted && trial.new_work_paused && (
-                        <LemonButton className="self-start" type="primary" to={urls.organizationBilling()}>
-                            {continuation.action}
-                        </LemonButton>
-                    )}
-                </div>
-            </LemonBanner>
+        <section
+            className={exhausted ? 'min-w-0' : 'min-w-0 border-t border-primary pt-3'}
+            aria-label="Self-driving free trial"
+        >
+            {exhausted ? <LemonBanner type="warning">{content}</LemonBanner> : content}
         </section>
     )
 }

@@ -453,11 +453,13 @@ class TestParseOverrides(SimpleTestCase):
                     "expires_at": EXPIRES,
                     "served": "report_embeddings@2026-10-03",
                     "pin": ["report_embeddings@2026-09-26"],
+                    "hold_auto_promotion": True,
                 },
                 RankingOverrides(
                     expires_at=datetime.datetime(2026, 10, 11, tzinfo=datetime.UTC),
                     served="report_embeddings@2026-10-03",
                     pin=("report_embeddings@2026-09-26",),
+                    hold_auto_promotion=True,
                 ),
                 None,
             ),

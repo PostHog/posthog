@@ -9,7 +9,7 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::info;
 use uuid::Uuid;
 
-use crate::modes::{processing::redis_heal::HealGate, shadow_redis};
+use crate::modes::processing::redis_heal::HealGate;
 use crate::{
     core::config::build_pg_pool,
     error::UnhandledError,
@@ -44,7 +44,6 @@ pub struct AppContext {
 
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
-    pub shadow_redis_client: Option<Arc<dyn RedisClientTrait + Send + Sync>>,
     // Debounces heal-task spawns for the issue-buckets client (see redis_heal).
     pub issue_buckets_heal_gate: HealGate,
     // Error-tracking rate limiter. `None` when disabled (the default), in which
@@ -179,20 +178,7 @@ impl AppContext {
         let (remote_resolution, remote_resolution_refresh_task) =
             build_remote_resolution(config).await?;
 
-        let shadow = shadow_redis::connect(
-            config.shadow_redis_url.as_deref(),
-            &[
-                &config.issue_buckets_redis_url,
-                &config.error_tracking_rate_limiter_redis_url,
-            ],
-            common_redis::RedisValueFormat::default(),
-            config.redis_response_timeout_ms,
-            config.redis_connection_timeout_ms,
-        )
-        .await;
-        let rate_limiter = build_rate_limiter(config, shadow.clone()).await?;
-        let shadow_redis_client: Option<Arc<dyn RedisClientTrait + Send + Sync>> =
-            shadow.map(|client| -> Arc<dyn RedisClientTrait + Send + Sync> { client });
+        let rate_limiter = build_rate_limiter(config).await?;
         let rate_limiter_enabled_team_ids =
             parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
         let drop_code_variables_team_ids = Arc::new(parse_strict_team_id_list(
@@ -209,7 +195,6 @@ impl AppContext {
             process_request_limiter,
             team_manager,
             issue_buckets_redis_client,
-            shadow_redis_client,
             issue_buckets_heal_gate: HealGate::new(),
             rate_limiter,
             rate_limiter_enabled_team_ids,
@@ -224,7 +209,6 @@ impl AppContext {
 
 async fn build_rate_limiter(
     config: &ProcessingConfig,
-    shadow: Option<Arc<RedisClient>>,
 ) -> Result<Option<Arc<RedisRateLimiter>>, UnhandledError> {
     if !config.error_tracking_rate_limiter_enabled {
         return Ok(None);
@@ -251,16 +235,11 @@ async fn build_rate_limiter(
 
     info!("Error-tracking rate limiter enabled");
 
-    let shadow: Option<Arc<dyn common_redis::ScriptRunner>> =
-        shadow.map(|client| -> Arc<dyn common_redis::ScriptRunner> { client });
-    Ok(Some(Arc::new(
-        RedisRateLimiter::new(
-            Arc::new(client),
-            config.error_tracking_rate_limiter_key_prefix.clone(),
-            config.error_tracking_rate_limiter_bucket_ttl_seconds,
-        )
-        .with_shadow(shadow),
-    )))
+    Ok(Some(Arc::new(RedisRateLimiter::new(
+        Arc::new(client),
+        config.error_tracking_rate_limiter_key_prefix.clone(),
+        config.error_tracking_rate_limiter_bucket_ttl_seconds,
+    ))))
 }
 
 /// Parse a comma-separated team-id allowlist. `None` (empty input) means the

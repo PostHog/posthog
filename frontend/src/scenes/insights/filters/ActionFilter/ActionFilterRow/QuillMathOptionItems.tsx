@@ -27,7 +27,6 @@ export function QuillMathOptionItems({ section, value, onSelect }: QuillMathOpti
                         <DropdownMenuSub key={option.choice.prefix}>
                             <DropdownMenuSubTrigger
                                 inset
-                                tooltip={resolveTooltipTitle(option.tooltip)}
                                 disabledReason={option.disabledReason}
                                 data-attr={option['data-attr']}
                             >
@@ -41,6 +40,19 @@ export function QuillMathOptionItems({ section, value, onSelect }: QuillMathOpti
                                 )}
                             </DropdownMenuSubTrigger>
                             <DropdownMenuSubContent>
+                                {/* A tooltip beside the trigger would open over this submenu, so the help sits at its top. */}
+                                {option.tooltip && (
+                                    <>
+                                        <Text
+                                            size="xs"
+                                            variant="muted"
+                                            render={<div className="max-w-64 px-2 py-1.5" />}
+                                        >
+                                            {resolveTooltipTitle(option.tooltip)}
+                                        </Text>
+                                        <DropdownMenuSeparator />
+                                    </>
+                                )}
                                 <DropdownMenuRadioGroup
                                     value={option.value === value ? option.choice.value : null}
                                     onValueChange={(next) => option.choice?.onSelect(next as string)}

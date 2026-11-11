@@ -60,24 +60,6 @@ class BatchExportDestination(UUIDTModel):
 
     Destination = enums.BatchExportDestinationType
 
-    # S3-family exports read their credentials from an Integration, but rows migrated off inline
-    # credentials still hold them in `config`. These entries keep those stale values out of API
-    # responses until a follow-up strips them from stored config.
-    secret_fields = {
-        "AwsS3": {"aws_access_key_id", "aws_secret_access_key"},
-        "S3Compatible": {"aws_access_key_id", "aws_secret_access_key"},
-        "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
-        "Postgres": {"user", "password"},
-        "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
-        "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
-        "Databricks": set(),  # uses Integration model to store credentials
-        "AzureBlob": set(),  # uses Integration model to store credentials
-        "HTTP": {"token"},
-        "NoOp": set(),
-        "Workflows": set(),
-        "FileDownload": set(),
-    }
-
     type = models.CharField(
         choices=Destination.choices,
         max_length=64,
