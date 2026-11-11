@@ -9,9 +9,9 @@ rules:
           Pre-existing findings are grandfathered; only newly introduced findings block CI.
       languages: [generic]
       severity: WARNING
-      # One finding per file, on its first line. A leading "ruleid:" or "ok:" line is a semgrep
-      # test annotation, so the fixtures report the line after it, as semgrep --test expects.
-      pattern-regex: \A(?:[^\n]*(?:ruleid|ok)\:[^\n]*\n)?\K[^\n]
+      # One finding per file, starting on its first line, so leading blank lines cannot hide a file. A
+      # leading "ruleid:" or "ok:" line is a semgrep test annotation, so fixtures report the line after it.
+      pattern-regex: \A(?:[^\n]*(?:ruleid|ok)\:[^\n]*\n)?\K\s*\S
       paths:
           include:
               - '**/templates/admin/**'
