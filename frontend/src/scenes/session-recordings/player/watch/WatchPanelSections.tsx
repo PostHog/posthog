@@ -93,11 +93,15 @@ export function WatchPanelSections({
                         itemRefs.current.observations = el
                     }}
                 >
-                    <AccordionTrigger data-attr="watch-panel-section-observations">
-                        <span className="flex items-center gap-1.5">
-                            <IconSparkles />
-                            Replay Vision observations
-                            {observations.count > 0 && <Badge>{observations.count}</Badge>}
+                    <AccordionTrigger
+                        className="min-w-0 [&>span]:min-w-0 [&>span]:flex-1"
+                        data-attr="watch-panel-section-observations"
+                    >
+                        <span className="flex items-center gap-1.5 min-w-0">
+                            <IconSparkles className="shrink-0" />
+                            <span className="truncate">Replay Vision observations</span>
+                            {observations.count > 0 && <Badge className="shrink-0">{observations.count}</Badge>}
+                            {observations.action && <span aria-hidden className="w-40 shrink-0" />}
                         </span>
                     </AccordionTrigger>
                     {observations.action && <div className="absolute top-1.5 right-8">{observations.action}</div>}

@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
@@ -16,6 +17,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -203,49 +205,47 @@ const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
 // Pinned: a localStorage key. Renaming it shows the banner again to everyone who closed it.
 const FIELD_GUIDE_DISMISS_KEY = 'replay-field-guide-callout'
 
-function DebugHintBanner(): JSX.Element | null {
+function DebugHintToast(): null {
     const { debugHintShown, debugMode } = useValues(playerSettingsLogic)
     const { setDebugMode, dismissDebugHint } = useActions(playerSettingsLogic)
     const { setTab } = useActions(playerSidebarLogic)
 
-    if (!debugHintShown) {
-        return null
-    }
-
-    return (
-        <LemonBanner
-            type="info"
-            onClose={dismissDebugHint}
-            action={
-                debugMode
+    useEffect(() => {
+        if (!debugHintShown) {
+            return
+        }
+        lemonToast.info(
+            'Looking for the inspector, network waterfall or linked issues? They are under the Dev mode button above the player now.',
+            {
+                toastId: 'replay-debug-hint',
+                autoClose: false,
+                onClose: () => dismissDebugHint(),
+                button: debugMode
                     ? undefined
                     : {
-                          children: 'Turn on dev mode',
-                          center: true,
-                          'data-attr': 'player-debug-hint-open',
-                          onClick: () => {
+                          label: 'Turn on dev mode',
+                          dataAttr: 'player-debug-hint-open',
+                          action: () => {
                               posthog.capture('session recording mode changed', { mode: 'debug', source: 'hint' })
                               setDebugMode(true)
                               setTab(SessionRecordingSidebarTab.INSPECTOR)
                           },
-                      }
+                      },
             }
-        >
-            Looking for the inspector, network waterfall or linked issues? They are under the Dev mode button above the
-            player now.
-        </LemonBanner>
-    )
+        )
+    }, [debugHintShown, debugMode, setDebugMode, dismissDebugHint, setTab])
+
+    return null
 }
 
 function ReplayVisionPromoBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
     // The promo waits until the field guide banner is closed so the two never stack
     const { isDismissed: isFieldGuideDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
-    const { debugHintShown } = useValues(playerSettingsLogic)
     const { isHobby } = useValues(preflightLogic)
 
     // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
-    if (isHobby || isDismissed || !isFieldGuideDismissed || debugHintShown) {
+    if (isHobby || isDismissed || !isFieldGuideDismissed) {
         return null
     }
 
@@ -269,10 +269,9 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
 
 function FieldGuideBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
-    const { debugHintShown } = useValues(playerSettingsLogic)
 
     // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
-    if (isDismissed || debugHintShown) {
+    if (isDismissed) {
         return null
     }
 
@@ -322,7 +321,7 @@ function MainPanel(): JSX.Element {
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
-            {tab === ReplayTabs.Home && <DebugHintBanner />}
+            {tab === ReplayTabs.Home && <DebugHintToast />}
             <ReplayVisionPromoBanner />
             {tab === ReplayTabs.Home && <FieldGuideBanner />}
 
