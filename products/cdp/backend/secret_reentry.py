@@ -1,20 +1,13 @@
-"""Secrets a function's code still reads as raw values, and the saves that must carry them typed again.
+"""The saves that must carry a function's stored secret inputs typed again.
 
-A secret stored with a bound `auth` declaration reaches the code only as a credential handle, and the worker sets it on
-requests to the bound origins. Any other stored secret is a legacy secret: the code reads its value, so a change to
-the code, the inputs or the mappings could send it anywhere. Such a change must carry every legacy secret typed again.
+A secret input is typed into one function, and the code reads its value. A change to the code, the inputs or the
+mappings could send it anywhere, so such a change must carry every stored secret typed again. The stored secret then
+only ever runs with code that someone who knows it saved.
 """
 
 import json
 from enum import StrEnum
 from typing import Any, Optional
-
-from rest_framework import serializers
-
-from products.cdp.backend.credential_auth import bind_secret_auth
-from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-
-ANY_ORIGIN = "*"
 
 
 class SecretReentry(StrEnum):
@@ -22,12 +15,6 @@ class SecretReentry(StrEnum):
     REFUSED = "refused"
     WOULD_REFUSE = "would_refuse"
     STAGED = "staged"
-
-
-def has_bound_auth(entry: Any) -> bool:
-    """The worker's test for a secret it applies itself, so this side and the worker agree on what is legacy."""
-    auth = entry.get("auth") if isinstance(entry, dict) else None
-    return isinstance(auth, dict) and isinstance(auth.get("scheme"), str) and isinstance(auth.get("origins"), list)
 
 
 def stored_secrets(inputs: Optional[dict], inputs_schema: Optional[list], encrypted_inputs: Optional[dict]) -> dict:
@@ -43,10 +30,9 @@ def stored_secrets(inputs: Optional[dict], inputs_schema: Optional[list], encryp
     }
 
 
-def legacy_secret_keys(secrets: dict) -> set[str]:
-    return {
-        key for key, entry in secrets.items() if entry.get("value") not in (None, "", {}) and not has_bound_auth(entry)
-    }
+def filled_secret_keys(secrets: dict) -> set[str]:
+    # A blank optional secret holds nothing the code could send.
+    return {key for key, entry in secrets.items() if entry.get("value") not in (None, "", {})}
 
 
 def replaces_stored_value(value: Any, stored: Any) -> bool:
@@ -114,21 +100,3 @@ def guarded_content(hog: Optional[str], inputs: Any, inputs_schema: Any, mapping
             if isinstance(mapping, dict)
         ],
     )
-
-
-def template_origins(template: Optional[HogFunctionTemplate], key: str, inputs: dict) -> str | list[str]:
-    """The origins the template declares for a secret, or any origin when it declares none. Code is never read."""
-    declaration = next(
-        (
-            schema.get("auth")
-            for schema in (template.inputs_schema if template else None) or []
-            if isinstance(schema, dict) and schema.get("key") == key and schema.get("secret")
-        ),
-        None,
-    )
-    if not isinstance(declaration, dict):
-        return ANY_ORIGIN
-    try:
-        return sorted(bind_secret_auth(declaration, inputs)["origins"])
-    except (serializers.ValidationError, KeyError, TypeError):
-        return ANY_ORIGIN
