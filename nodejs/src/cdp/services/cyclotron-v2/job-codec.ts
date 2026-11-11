@@ -117,7 +117,8 @@ export type JobRow = Pick<
     | 'parentRunId'
     | 'state'
     | 'cancelRequestedAt'
->
+> &
+    Partial<Pick<CyclotronV2DequeuedJob, 'pendingWake'>>
 
 export function v2JobToInvocation(job: JobRow): CyclotronJobInvocation {
     const parsed = decodeJobState(job)
@@ -143,6 +144,10 @@ export function v2JobToInvocation(job: JobRow): CyclotronJobInvocation {
 
     if (job.cancelRequestedAt) {
         invocation.cancelRequestedAt = job.cancelRequestedAt
+    }
+
+    if (job.pendingWake) {
+        invocation.pendingWake = job.pendingWake
     }
 
     return invocation

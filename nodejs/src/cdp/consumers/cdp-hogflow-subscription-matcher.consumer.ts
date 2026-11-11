@@ -90,6 +90,11 @@ const counterHogflowMatcherConversionsCounted = new Counter({
 // that distinct_id belonged to the old person still references the old person_id, so the survivor's
 // person/event updates (keyed on the new id) can't wake it. We re-key such waits onto the survivor;
 // this counts the re-keyed jobs.
+const counterHogflowMatcherPendingWakesRecorded = new Counter({
+    name: 'cdp_hogflow_matcher_pending_wakes_recorded_total',
+    help: 'Wait wakes recorded on jobs a worker held, so the worker wakes the job when it parks.',
+})
+
 const counterHogflowMatcherJobsRekeyedOnMove = new Counter({
     name: 'cdp_hogflow_matcher_jobs_rekeyed_on_distinct_id_move',
     help: 'Parked wait_until_condition jobs re-keyed to the surviving person after a distinct_id was repointed by a merge.',
@@ -164,6 +169,18 @@ type ParkedCandidate = {
     actionId: string | null
     distinctId: string | null
     personId: string | null
+    // 'running' means a worker holds the job, so it cannot be woken now; a match is recorded on
+    // the row for the worker's release write to act on.
+    status: 'available' | 'running'
+}
+
+// A wake for a job a worker held when the matcher saw the signal, keyed by wait step action id.
+type PendingWakeWrite = {
+    id: string
+    wakes: Record<
+        string,
+        { kind: 'match' | 'recheck'; eventName?: string; eventUuid?: string; eventTimestamp?: string }
+    >
 }
 
 // A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
@@ -209,6 +226,7 @@ function conditionNeedsRunGlobals(action: Extract<HogFlowAction, { type: 'wait_u
 
 type MatchedJob = {
     id: string
+    actionId: string | null
     teamId: number
     functionId: string
     parentRunId: string | null
@@ -421,6 +439,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         counterHogflowMatcherCandidatesEvaluated.inc(candidates.length)
 
         const matchedJobs: MatchedJob[] = []
+        const pendingWakes: PendingWakeWrite[] = []
         for (const candidate of candidates) {
             const hogflow = hogflows[candidate.functionId]
             if (!hogflow) {
@@ -432,22 +451,34 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 continue
             }
 
+            // A worker holds this job, so it may be about to park on any of the flow's waits.
+            if (candidate.status === 'running') {
+                const wakes: PendingWakeWrite['wakes'] = {}
+                for (const wait of hogflow.actions) {
+                    if (wait.type !== 'wait_until_condition') {
+                        continue
+                    }
+                    const wake = await evaluateWaitWake(
+                        eventsOnly ? eventsOnlyWait(wait) : wait,
+                        candidateGlobals,
+                        filterGlobalsFor,
+                        source,
+                        hogflow.id
+                    )
+                    if (wake) {
+                        wakes[wait.id] = wake
+                    }
+                }
+                if (Object.keys(wakes).length > 0) {
+                    pendingWakes.push({ id: candidate.id, wakes })
+                }
+                continue
+            }
+
             const parkedOn = candidate.actionId
                 ? hogflow.actions.find((a: HogFlowAction) => a.id === candidate.actionId)
                 : undefined
-            const action =
-                eventsOnly && parkedOn?.type === 'wait_until_condition'
-                    ? {
-                          ...parkedOn,
-                          config: {
-                              ...parkedOn.config,
-                              condition: { filters: null },
-                              events: parkedOn.config.events?.filter(
-                                  (eventConfig) => !readsPerson(eventConfig.filters?.bytecode)
-                              ),
-                          },
-                      }
-                    : parkedOn
+            const action = eventsOnly && parkedOn?.type === 'wait_until_condition' ? eventsOnlyWait(parkedOn) : parkedOn
 
             // Any single matching event is enough. Stop early once both flags are set.
             let stepMatched = false
@@ -495,6 +526,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (stepMatched || recheckMatched || conversionMatched) {
                 matchedJobs.push({
                     id: candidate.id,
+                    actionId: candidate.actionId,
                     teamId: candidate.teamId,
                     functionId: candidate.functionId,
                     parentRunId: candidate.parentRunId,
@@ -512,17 +544,72 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
         }
 
-        if (matchedJobs.length === 0) {
-            return
+        if (matchedJobs.length > 0) {
+            const { woken, inFlight } = await this.processMatchedJobs(matchedJobs)
+            counterHogflowMatcherJobsWoken.inc(woken)
+            logger.info('⚡', 'Processed waiting workflows from event match', {
+                evaluated: candidates.length,
+                matched: matchedJobs.length,
+                woken,
+            })
+            // A worker took these jobs between the candidate read and the wake.
+            for (const m of inFlight) {
+                if (!m.actionId || !(m.stepMatched || m.recheckMatched)) {
+                    continue
+                }
+                pendingWakes.push({
+                    id: m.id,
+                    wakes: {
+                        [m.actionId]: m.stepMatched
+                            ? {
+                                  kind: 'match',
+                                  eventName: m.eventName,
+                                  eventUuid: m.eventUuid,
+                                  eventTimestamp: m.eventTimestamp,
+                              }
+                            : { kind: 'recheck' },
+                    },
+                })
+            }
         }
 
-        const woken = await this.processMatchedJobs(matchedJobs)
-        counterHogflowMatcherJobsWoken.inc(woken)
-        logger.info('⚡', 'Processed waiting workflows from event match', {
-            evaluated: candidates.length,
-            matched: matchedJobs.length,
-            woken,
-        })
+        if (pendingWakes.length > 0) {
+            await this.recordPendingWakes(pendingWakes)
+        }
+    }
+
+    // Records wakes for jobs a worker holds. The worker's release write wakes the job at once when it
+    // parks on a wait with a wake recorded during its hold (FRESH_PENDING_WAKE in the cyclotron
+    // worker). A job released before this write is already parked, so it is woken here instead.
+    private async recordPendingWakes(writes: PendingWakeWrite[]): Promise<void> {
+        const sorted = [...writes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        const client = await this.cyclotronPool.connect()
+        try {
+            await client.query('BEGIN')
+            // Same lock order as processMatchedJobs, so concurrent batches can't deadlock.
+            await client.query(`SELECT id FROM cyclotron_jobs WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, [
+                sorted.map((w) => w.id),
+            ])
+            const result = await client.query(
+                `UPDATE cyclotron_jobs cj
+                 SET pending_wake = COALESCE(cj.pending_wake, '{}'::jsonb) || (
+                         SELECT jsonb_object_agg(w.key, w.value || jsonb_build_object('at', clock_timestamp()))
+                         FROM jsonb_each(u.wakes) w
+                     ),
+                     scheduled = CASE WHEN cj.status = 'available' AND u.wakes ? cj.action_id
+                                      THEN LEAST(cj.scheduled, NOW()) ELSE cj.scheduled END
+                 FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::jsonb[]) AS wakes) u
+                 WHERE cj.id = u.id AND cj.status IN ('available', 'running')`,
+                [sorted.map((w) => w.id), sorted.map((w) => JSON.stringify(w.wakes))]
+            )
+            await client.query('COMMIT')
+            counterHogflowMatcherPendingWakesRecorded.inc(result.rowCount ?? 0)
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => {})
+            throw err
+        } finally {
+            client.release()
+        }
     }
 
     private async evaluateConversionEvents(
@@ -573,17 +660,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         let result
         try {
             result = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
+                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, status
              FROM cyclotron_jobs
-             WHERE status = 'available'
-               AND scheduled > NOW()
+             WHERE ((status = 'available' AND scheduled > NOW()) OR status = 'running')
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
-             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
+             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, status
              FROM cyclotron_jobs
-             WHERE status = 'available'
-               AND scheduled > NOW()
+             WHERE ((status = 'available' AND scheduled > NOW()) OR status = 'running')
                AND function_id = ANY($5::uuid[])
                AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
                 [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds]
@@ -600,14 +685,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             actionId: row.action_id,
             distinctId: row.distinct_id,
             personId: row.person_id,
+            status: row.status,
         }))
     }
 
     // Only ever resumes runs. Conversions are counted by claimConversionWatchers, which is what keeps
     // a conversion countable after the run it belongs to has finished.
-    private async processMatchedJobs(matched: MatchedJob[]): Promise<number> {
+    // Returns how many jobs were woken, and the matched jobs that were no longer parked.
+    private async processMatchedJobs(matched: MatchedJob[]): Promise<{ woken: number; inFlight: MatchedJob[] }> {
         if (matched.length === 0) {
-            return 0
+            return { woken: 0, inFlight: [] }
         }
 
         const ids = matched.map((m) => m.id)
@@ -677,7 +764,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
             await client.query('COMMIT')
 
-            return woken
+            const parked = new Set(stateRows.rows.map((row) => row.id))
+            return { woken, inFlight: matched.filter((m) => !parked.has(m.id)) }
         } catch (err) {
             await client.query('ROLLBACK').catch(() => {})
             throw err
@@ -1159,19 +1247,24 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         )
 
         let updatedCount = 0
+        const pendingWakes: PendingWakeWrite[] = []
         const client = await this.cyclotronPool.connect()
         try {
             await client.query('BEGIN')
             // Lock the parked jobs for the repointed distinct_ids. ORDER BY id keeps lock order consistent
             // with processMatchedJobs so concurrent move/match batches can't deadlock.
+            // A running job is locked too, but only to queue a re-check: its worker rewrites the state on
+            // release, so the anchor is fixed by the worker re-reading the person when it wakes.
             const rows = await client.query(
-                `SELECT id, team_id, distinct_id, function_id, action_id, state
+                `SELECT id, team_id, distinct_id, function_id, action_id, state, status
                  FROM cyclotron_jobs
-                 WHERE status = 'available'
-                   AND function_id = ANY($3::uuid[])
-                   AND action_id = ANY($4::text[])
-                   ${onlyNullAnchor ? 'AND person_id IS NULL' : ''}
+                 WHERE function_id = ANY($3::uuid[])
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
+                   AND (status = 'running' OR (
+                       status = 'available'
+                       AND action_id = ANY($4::text[])
+                       ${onlyNullAnchor ? 'AND person_id IS NULL' : ''}
+                   ))
                  ORDER BY id
                  FOR UPDATE`,
                 [moveTeamIds, moveDistinctIds, functionIds, waitActionIds]
@@ -1179,6 +1272,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
             const updates: { id: string; personId: string; state: Buffer }[] = []
             for (const row of rows.rows) {
+                if (row.status === 'running') {
+                    const waits = hogflows[row.function_id].actions.filter(
+                        (a: HogFlowAction) => a.type === 'wait_until_condition'
+                    )
+                    pendingWakes.push({
+                        id: row.id,
+                        wakes: Object.fromEntries(waits.map((a) => [a.id, { kind: 'recheck' as const }])),
+                    })
+                    continue
+                }
                 // Only re-key jobs currently parked ON a wait_until_condition step. A job of the same flow
                 // could be parked in a delay; rewriting its person_id off a repoint would be wrong, and it
                 // must never be pulled forward.
@@ -1236,6 +1339,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             throw err
         } finally {
             client.release()
+        }
+        if (pendingWakes.length > 0) {
+            await this.recordPendingWakes(pendingWakes)
         }
     }
 
@@ -1564,6 +1670,44 @@ function rewriteStatePersonId(
         logger.warn('Failed to parse state during distinct_id-move re-key', { jobId, err })
         return null
     }
+}
+
+type WaitUntilConditionAction = Extract<HogFlowAction, { type: 'wait_until_condition' }>
+
+// A cohort membership change carries no person properties, so only event entries that do not read
+// the person can judge it.
+function eventsOnlyWait(wait: WaitUntilConditionAction): WaitUntilConditionAction {
+    return {
+        ...wait,
+        config: {
+            ...wait.config,
+            condition: { filters: null },
+            events: wait.config.events?.filter((eventConfig) => !readsPerson(eventConfig.filters?.bytecode)),
+        },
+    }
+}
+
+async function evaluateWaitWake(
+    wait: WaitUntilConditionAction,
+    candidateGlobals: HogFunctionInvocationGlobals[],
+    filterGlobalsFor: (g: HogFunctionInvocationGlobals) => FilterGlobals,
+    source: WakeSource,
+    hogFlowId: string
+): Promise<PendingWakeWrite['wakes'][string] | null> {
+    if (source === 'person' && conditionNeedsRunGlobals(wait)) {
+        return { kind: 'recheck' }
+    }
+    for (const globals of candidateGlobals) {
+        if (await matchesWaitUntilCondition(wait, filterGlobalsFor(globals), { hogFlowId, actionId: wait.id })) {
+            return {
+                kind: 'match',
+                eventName: globals.event.event,
+                eventUuid: globals.event.uuid,
+                eventTimestamp: globals.event.timestamp,
+            }
+        }
+    }
+    return null
 }
 
 type MatchOutcome = { state: Buffer; wake: boolean }
