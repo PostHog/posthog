@@ -120,8 +120,8 @@ const ROOTS = [
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-11-02: 4.00 MiB eager output, stable CSS included. ~0.3% headroom.
-        budgetBytes: 4_203_000,
+        // 2026-11-10: 3.85 MiB, stable CSS included. ~1.5% headroom.
+        budgetBytes: 4_098_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
@@ -202,8 +202,8 @@ const ROOTS = [
     {
         root: 'src/scenes/dashboard/Dashboard.tsx',
         label: 'dashboard scene',
-        // 2026-11-02: 9.49 MiB (3729 files), stable CSS included. ~3.6% headroom.
-        budgetBytes: 10_314_000,
+        // 2026-11-10: 7.76 MiB, stable CSS included. ~2% headroom.
+        budgetBytes: 8_300_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             ...RICH_TEXT_STACK,
@@ -233,8 +233,8 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        // 2026-11-02: 4.92 MiB, stable CSS included. ~0.3% headroom.
-        budgetBytes: 5_170_000,
+        // 2026-11-10: 4.81 MiB, stable CSS included. ~1.5% headroom.
+        budgetBytes: 5_119_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
@@ -252,8 +252,8 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
         ],
         label: 'AI-first home path',
-        // 2026-11-02: 6.22 MiB, stable CSS included. ~1% headroom.
-        budgetBytes: 6_576_000,
+        // 2026-11-10: 6.04 MiB, stable CSS included. ~1.5% headroom.
+        budgetBytes: 6_428_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
@@ -268,8 +268,8 @@ const ROOTS = [
     {
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
-        // 2026-11-02: 8.92 MiB (3499 files), stable CSS included. ~5.5% headroom.
-        budgetBytes: 9_869_000,
+        // 2026-11-10: 6.77 MiB, stable CSS included. ~2% headroom.
+        budgetBytes: 7_241_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             ...RICH_TEXT_STACK,
@@ -298,8 +298,8 @@ const ROOTS = [
     {
         root: 'src/scenes/web-analytics/WebAnalyticsScene.tsx',
         label: 'web analytics scene',
-        // 2026-11-02: 9.72 MiB (3766 files), stable CSS included. ~7.9% headroom.
-        budgetBytes: 10_999_000,
+        // 2026-11-10: 7.80 MiB, stable CSS included. ~2% headroom.
+        budgetBytes: 8_342_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             ...RICH_TEXT_STACK,
@@ -322,8 +322,8 @@ const ROOTS = [
     {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
         label: 'replay detail scene',
-        // 2026-11-02: 7.39 MiB (2690 files), stable CSS included. ~10% headroom.
-        budgetBytes: 8_520_000,
+        // 2026-11-10: 6.95 MiB, stable CSS included. ~2% headroom.
+        budgetBytes: 7_433_000,
         forbidden: [
             QUILL_UMBRELLA_DIST,
             ...RICH_TEXT_STACK,
