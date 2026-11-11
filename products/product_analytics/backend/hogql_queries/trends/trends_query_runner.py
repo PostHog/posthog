@@ -633,7 +633,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         for item in results:
             if (
                 self.breakdown_enabled
-                and self._is_other_breakdown(item.get("breakdown_value"))
+                and self._is_other_breakdown(item["breakdown_value"])
                 and named_breakdowns[self._range_total_series(item)]
                 != range_named_breakdowns[self._range_total_series(item)]
             ):
