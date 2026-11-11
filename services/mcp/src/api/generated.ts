@@ -16130,6 +16130,70 @@ export namespace Schemas {
       delete_verified_at: string | null;
     }
 
+    export interface AttachmentUploadFile {
+      /**
+         * SHA-256 of the file's bytes, as 64 lowercase hex characters. PostHog stores the file under it.
+         * @pattern ^[0-9a-f]{64}$
+         */
+      sha256: string;
+      /**
+         * Size of the file in bytes.
+         * @minimum 1
+         */
+      size: number;
+    }
+
+    /**
+     * For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256.
+     */
+    export type AttachmentUploadSlotHeaders = {[key: string]: string};
+
+    /**
+     * * `present` - Present
+     * * `upload` - Upload
+     */
+    export type AttachmentUploadStatusEnum = typeof AttachmentUploadStatusEnum[keyof typeof AttachmentUploadStatusEnum];
+
+
+    export const AttachmentUploadStatusEnum = {
+      Present: 'present',
+      Upload: 'upload',
+    } as const;
+
+    export interface AttachmentUploadSlot {
+      /** SHA-256 of the file, as sent. */
+      sha256: string;
+      /** `present` when PostHog already has the file and nothing needs uploading, `upload` when the file must be uploaded to `url` before the send.
+       *
+       * * `present` - Present
+       * * `upload` - Upload */
+      status: AttachmentUploadStatusEnum;
+      /** For a `present` file: when PostHog deletes it unless a send uses it before then. */
+      expires_at?: string;
+      /** For an `upload` file: where to send the file's bytes, without your PostHog API key. */
+      url?: string;
+      /** For an `upload` file: the HTTP method, `PUT`. */
+      method?: string;
+      /** For an `upload` file: the headers to send with the bytes, exactly as given. The upload is refused if the bytes don't match the size or SHA-256. */
+      headers?: AttachmentUploadSlotHeaders;
+      /** For an `upload` file: when `url` stops accepting the upload. */
+      url_expires_at?: string;
+    }
+
+    export interface AttachmentUploadsRequest {
+      /**
+         * The files one email will carry: 1 to 10, at most 40 MB after Base64 encoding, about 29 MB of files for the whole email.
+         * @minItems 1
+         * @maxItems 10
+         */
+      files: AttachmentUploadFile[];
+    }
+
+    export interface AttachmentUploadsResponse {
+      /** One answer per requested file, in request order. */
+      files: AttachmentUploadSlot[];
+    }
+
     export interface Author {
       /** Login handle of the pull request author. */
       handle: string;
