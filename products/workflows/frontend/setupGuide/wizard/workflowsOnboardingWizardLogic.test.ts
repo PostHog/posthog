@@ -379,28 +379,67 @@ describe('workflowsOnboardingWizardLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.broadcastNew())
     })
 
-    it.each<[WorkflowsOnboardingPath, string, boolean, boolean]>([
-        ['messaging', 'test', true, true],
-        ['messaging', 'control', true, false],
-        ['broadcast', 'test', true, true],
-        ['broadcast', 'control', true, false],
-        ['automation', 'test', false, false],
+    let sdkRuns = 0
+
+    function recordCapturedExposures(variant: string): { mocks: Mocks; exposures: { variant: string | undefined }[] } {
+        const exposures: { variant: string | undefined }[] = []
+        const recordCapture = async ({ request }: MockResolverInfo): Promise<[number, unknown]> => {
+            const { batch } = (await request.json()) as {
+                batch: { event: string; properties: Record<string, string | undefined> }[]
+            }
+            for (const event of batch) {
+                if (
+                    event.event === '$feature_flag_called' &&
+                    event.properties.$feature_flag === FEATURE_FLAGS.WORKFLOWS_WIZARD_JOURNEY_FIRST
+                ) {
+                    exposures.push({ variant: event.properties.$feature_flag_response })
+                }
+            }
+            return [200, { status: 'Ok' }]
+        }
+        sdkRuns += 1
+        const sdk = jest.requireActual('posthog-js').default.init(
+            `phc_exposure_${sdkRuns}`,
+            {
+                api_host: window.location.origin,
+                autocapture: false,
+                capture_pageview: false,
+                capture_pageleave: false,
+                disable_session_recording: true,
+                disable_surveys: true,
+                advanced_disable_flags: true,
+                disable_compression: true,
+                request_batching: false,
+                api_transport: 'XHR',
+                persistence: 'memory',
+                bootstrap: { featureFlags: { [FEATURE_FLAGS.WORKFLOWS_WIZARD_JOURNEY_FIRST]: variant } },
+            },
+            `wizard-exposure-${sdkRuns}`
+        )
+        jest.mocked(posthog.getFeatureFlag).mockImplementation((flag, options) => sdk.getFeatureFlag(flag, options))
+        return { mocks: { post: { '/e/': recordCapture } }, exposures }
+    }
+
+    it.each<[WorkflowsOnboardingPath, string, string[], boolean]>([
+        ['messaging', 'test', ['test'], true],
+        ['messaging', 'control', ['control'], false],
+        ['broadcast', 'test', ['test'], true],
+        ['broadcast', 'control', ['control'], false],
+        ['automation', 'test', [], false],
     ])(
-        'records exposure when a person enters the %s wizard in the %s arm: %s',
-        async (path, variant, exposed, journeyFirst) => {
+        'sends the exposure when a person enters the %s wizard in the %s arm',
+        async (path, variant, sentVariants, journeyFirst) => {
             setJourneyFirstVariant(variant)
-            const recordExposure = jest.mocked(posthog.getFeatureFlag)
-            const journeyFirstExposures = (): number =>
-                recordExposure.mock.calls.filter(([flag]) => flag === FEATURE_FLAGS.WORKFLOWS_WIZARD_JOURNEY_FIRST)
-                    .length
+            const { mocks, exposures } = recordCapturedExposures(variant)
+            useMocks(mocks)
             logic = workflowsOnboardingWizardLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            expect(journeyFirstExposures()).toBe(0)
+            expect(exposures).toEqual([])
 
             await enterWizard(path)
 
-            expect(journeyFirstExposures() > 0).toBe(exposed)
+            await waitFor(() => expect(exposures.map((exposure) => exposure.variant)).toEqual(sentVariants))
             expect(logic.values.journeyFirst).toBe(journeyFirst)
         }
     )
