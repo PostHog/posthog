@@ -365,6 +365,11 @@ function ancestorFolders(path: string): string[] {
     return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
 }
 
+// A folder pill opens its folder instead of filtering rows; a negated one still filters.
+function withoutFolderScope(value: FacetSearchValue): FacetSearchValue {
+    return { ...value, filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated) }
+}
+
 function displayedParent(path: string): string {
     return displayedFolder(parentPath(path))
 }
@@ -539,6 +544,16 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             },
         ],
     })),
+    reducers(() => ({
+        otherFileCounts: {
+            [projectTreeDataLogic.actionTypes.movedItem]: (counts, { item, oldPath, newPath }) =>
+                counts && item.type === 'folder'
+                    ? Object.fromEntries(
+                          Object.entries(counts).map(([p, n]) => [reparentPath(p, oldPath, newPath) ?? p, n])
+                      )
+                    : counts,
+        },
+    })),
     selectors({
         browserLoadFailed: [(s) => [s.folderScanFailed], (folderScanFailed: boolean): boolean => folderScanFailed],
         // The shared tree applies a folder move only once its request lands, so a second change queued before then
@@ -598,17 +613,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 value: FacetSearchValue,
                 facets: FacetDefinition<WorkflowListRow>[],
                 matchesText: MatchesText<WorkflowListRow>
-            ): WorkflowListRow[] =>
-                rows.filter(
-                    createFacetMatcher(
-                        {
-                            ...value,
-                            filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated),
-                        },
-                        facets,
-                        matchesText
-                    )
-                ),
+            ): WorkflowListRow[] => rows.filter(createFacetMatcher(withoutFolderScope(value), facets, matchesText)),
         ],
         hasActiveQuery: [
             (s) => [s.value],
@@ -637,11 +642,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 facets: FacetDefinition<WorkflowFolderFileRow>[],
                 matchesText: MatchesText<WorkflowFolderFileRow>
             ): FileSystemEntry[] => {
-                const matches = createFacetMatcher(
-                    { ...value, filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated) },
-                    facets,
-                    matchesText
-                )
+                const matches = createFacetMatcher(withoutFolderScope(value), facets, matchesText)
                 return items.flatMap((item) => (item.kind === 'email_template' && matches(item) ? [item.entry] : []))
             },
         ],
@@ -671,9 +672,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         continue
                     }
                     counts['']++
-                    const parts = splitPath(parentPath(entry.path))
-                    for (let depth = 1; depth <= parts.length; depth++) {
-                        const folder = joinPath(parts.slice(0, depth))
+                    for (const folder of ancestorFolders(parentPath(entry.path))) {
                         counts[folder] = (counts[folder] ?? 0) + 1
                     }
                 }
@@ -855,10 +854,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }: { items: FileSystemEntry[] }) => {
             cache.changes = changeCount(cache) + 1
             const ids = new Set(items.map((item) => item.id))
-            const folders = items.filter((item) => item.type === 'folder').map((item) => item.path)
+            const folders = new Set(
+                items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
+            )
             const index = fileIndex(cache)
             for (const [id, entry] of index) {
-                if (ids.has(id) || folders.some((path) => isPathUnder(entry.path, path))) {
+                if (ids.has(id) || ancestorFolders(entry.path).some((path) => folders.has(path))) {
                     index.delete(id)
                 }
             }
@@ -975,6 +976,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 // Only a complete folder load is the truth: a folder cut short, loading its next page or failed may still hold the file.
                 if (!present.has(id) && folder in folders && values.folderStates[folder] === 'loaded') {
                     index.delete(id)
+                    cache.changes = changeCount(cache) + 1
                 }
             }
             for (const entry of present.values()) {

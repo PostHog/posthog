@@ -196,12 +196,41 @@ describe('FacetSearchBar', () => {
         expect(shown('text')).toEqual(text)
     })
 
-    it('turns a pasted query into pills', () => {
+    it.each([
+        ['a pasted query', 'status:draft -status:archived'],
+        [
+            'a pasted quoted value that ends in a backslash',
+            serializeFacetQuery([
+                { facet: 'sends', value: 'Path C:\\', negated: false },
+                { facet: 'status', value: 'active', negated: false },
+            ]),
+        ],
+    ])('turns %s into pills', (_, query) => {
         setup()
         clickInput()
-        changeInput('status:draft -status:archived ')
-        expect(shown('query')).toEqual('status:draft -status:archived')
+        changeInput(`${query} `)
+        expect(shown('query')).toEqual(query)
         expect(input()).toHaveValue('')
+    })
+
+    it.each([
+        ['pasted', (text: string) => changeInput(text)],
+        ['typed one character at a time', typeText],
+    ])('reads a long query with quotes and escapes the same way when %s', (_, enter) => {
+        const filters = [
+            ...Array.from({ length: 12 }, (_, index) => ({
+                facet: 'sends',
+                value: `Deal ${index} "x status:active \\`,
+                negated: false,
+            })),
+            { facet: 'status', value: 'draft', negated: false },
+        ]
+        const openQuote = 'sends:"Open status:archived '
+        setup()
+        clickInput()
+        enter(`${serializeFacetQuery(filters)} ${openQuote}`)
+        expect(shown('query')).toEqual(serializeFacetQuery(filters))
+        expect(input()).toHaveValue(openQuote)
     })
 
     it('adds a pasted token once, even when the paste repeats it', () => {

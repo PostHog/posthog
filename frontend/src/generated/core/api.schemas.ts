@@ -5224,7 +5224,7 @@ export interface FileSystemFolderCountApi {
 }
 
 export interface FileSystemFolderCountsApi {
-    /** One row per folder that directly holds a counted file. */
+    /** Each folder that directly holds a counted file. */
     results: FileSystemFolderCountApi[]
 }
 
@@ -7585,7 +7585,7 @@ export type FileSystemDestroyParams = {
 
 export type FileSystemFolderCountsRetrieveParams = {
     /**
-     * The file list's search, such as '-type:hog_flow', to pick the files counted.
+     * Picks the files counted, as in the list.
      */
     search?: string
 }

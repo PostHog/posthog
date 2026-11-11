@@ -344,10 +344,28 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
     })
 
-    it('keeps a rename the shared tree refreshes while an older folder scan is still loading', async () => {
+    it.each([
+        [
+            'keeps a rename the shared tree refreshes while an older folder scan is still loading',
+            'Billing/Cards/Receipt v2',
+            () => projectTreeDataLogic.asyncActions.syncTypeAndRef('message_template', 'template-receipt', true),
+        ],
+        [
+            'keeps a file out once a full folder reload drops it while an older folder scan is still loading',
+            null,
+            () =>
+                projectTreeDataLogic.actions.loadFolderSuccess(
+                    'Billing/Cards',
+                    [{ id: 'nested', path: 'Billing/Cards/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id }],
+                    false,
+                    1,
+                    true
+                ),
+        ],
+    ])('%s', async (_name, newPath: string | null, refreshTree: () => unknown) => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing/Cards')
-        let receiptPath = 'Billing/Cards/Receipt'
+        let receiptPath: string | null = 'Billing/Cards/Receipt'
         let releaseScan!: () => void
         const scanHeld = new Promise<void>((resolve) => (releaseScan = resolve))
         let scanStarted = false
@@ -355,28 +373,28 @@ describe('workflowFoldersLogic', () => {
             get: {
                 '/api/projects/:team_id/file_system/': async ({ request }) => {
                     const params = new URL(request.url).searchParams
-                    const receipt = { ...templateReceipt, path: receiptPath }
+                    const receipts = receiptPath ? [{ ...templateReceipt, path: receiptPath }] : []
                     if (params.get('ref') === 'template-receipt') {
-                        return [200, paginated([receipt])]
+                        return [200, paginated(receipts)]
                     }
                     const search = params.get('search')
                     if (search === 'type:message_template' && !scanStarted) {
                         scanStarted = true
                         await scanHeld
                     }
-                    return [200, paginated(search === 'type:message_template' ? [receipt] : [])]
+                    return [200, paginated(search === 'type:message_template' ? receipts : [])]
                 },
             },
         })
         logic.actions.loadBrowser()
         await waitFor(() => expect(scanStarted).toBe(true))
-        receiptPath = 'Billing/Cards/Receipt v2'
-        await projectTreeDataLogic.asyncActions.syncTypeAndRef('message_template', 'template-receipt', true)
+        receiptPath = newPath
+        await refreshTree()
         releaseScan()
         await waitFor(() => expect(logic.values.browserReadyLoading).toBe(false))
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
+        expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(newPath ? [newPath] : [])
     })
 
     it.each([
@@ -743,6 +761,17 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.currentFolder).toBe('Archive/Cards')
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Archive/Cards/Receipt'])
+    })
+
+    it("still counts other products' files in a folder after it moves, and still hides it", async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        projectTreeDataLogic.actions.movedItem({ id: 'dashboards', path: 'Reports', type: 'folder' }, 'Reports', 'Old')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Old')
+
+        expect(logic.values.otherProductFileCount).toBe(1)
+        expect(logic.values.folderPaths).not.toContain('Old')
     })
 
     it('refuses a second rename of a folder or its subfolders until the first one lands', async () => {

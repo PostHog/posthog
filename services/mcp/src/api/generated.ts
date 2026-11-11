@@ -51703,7 +51703,7 @@ export namespace Schemas {
     }
 
     export interface FileSystemFolderCounts {
-      /** One row per folder that directly holds a counted file. */
+      /** Each folder that directly holds a counted file. */
       results: FileSystemFolderCount[];
     }
 
@@ -133264,7 +133264,7 @@ export namespace Schemas {
 
     export type FileSystemFolderCountsRetrieveParams = {
     /**
-     * The file list's search, such as '-type:hog_flow', to pick the files counted.
+     * Picks the files counted, as in the list.
      */
     search?: string;
     };

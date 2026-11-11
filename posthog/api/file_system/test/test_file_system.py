@@ -851,22 +851,29 @@ class TestFileSystemAPI(APIBaseTest):
             ("Reports/Weekly/Signups", "insight", False),
             ("Reports/Weekly/Welcome", "hog_flow", False),
             ("Q3\\/Q4/Plan", "notebook", False),
+            ("Ops\\\\/Runbook", "notebook", False),
+            ("Ideas\\//Draft", "notebook", False),
+            ("Plans/Q1\\/Q2", "notebook", False),
             ("Root insight", "insight", False),
         ]:
             FileSystem.objects.create(
                 team=self.team, path=path, type=file_type, shortcut=shortcut, depth=1, created_by=self.user
             )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/file_system/folder_counts/",
-            {"search": "-type:hog_flow -type:message_template"},
-        )
+        with self.assertNumQueries(6):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/folder_counts/",
+                {"search": "-type:hog_flow -type:message_template"},
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(
             response.json()["results"],
             [
                 {"folder": "", "count": 1},
+                {"folder": "Ideas\\/", "count": 1},
+                {"folder": "Ops\\\\", "count": 1},
+                {"folder": "Plans", "count": 1},
                 {"folder": "Q3\\/Q4", "count": 1},
                 {"folder": "Reports", "count": 2},
                 {"folder": "Reports/Weekly", "count": 1},

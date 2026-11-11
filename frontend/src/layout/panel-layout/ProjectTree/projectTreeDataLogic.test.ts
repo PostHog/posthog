@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { useMocks } from '~/mocks/jest'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
@@ -657,6 +658,24 @@ describe('projectTreeDataLogic', () => {
         }).toFinishAllListeners()
 
         expect(error).toHaveBeenCalledWith('Error moving item: Error: nope')
+    })
+
+    it('drops the cached contents of stale folders and their subfolders, and nothing that only shares a prefix', () => {
+        const folder = (path: string): FileSystemEntry => ({ id: path, path, type: 'folder' })
+        const file = (path: string): FileSystemEntry => ({ id: path, path, type: 'notebook', ref: path })
+        const results = [
+            ...['A', 'A/B', 'A/B/C', 'A/B/C/D', 'AB', 'X', 'X\\/Y'].map(folder),
+            ...['A/B/C/D/Deepest', 'A/B/C/Deep', 'A/B/Middle', 'A/Top', 'AB/Prefix', 'X/Gone', 'X\\/Y/Escaped'].map(
+                file
+            ),
+        ]
+        logic.actions.addLoadedResults({ searchTerm: '', results, hasMore: false, lastCount: results.length })
+
+        logic.actions.dropStaleItems([folder('A/B'), folder('X')])
+
+        expect(Object.keys(logic.values.folders).sort()).toEqual(['', 'A', 'AB', 'X\\/Y'])
+        expect(logic.values.folders[''].map((entry) => entry.path).sort()).toEqual(['A', 'AB', 'X\\/Y'])
+        expect(logic.values.folders['A'].map((entry) => entry.path)).toEqual(['A/Top'])
     })
 
     it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {

@@ -47,6 +47,7 @@ import {
     isFileSystemEntryTypeEnabled,
     isGroupViewShortcut,
     isPathUnder,
+    joinPath,
     matchesRefType,
     parentPath,
     refTypeParams,
@@ -1240,12 +1241,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             newState[folder] = newState[folder].filter((item) => !ids.has(item.id))
                         }
                     }
-                    const droppedFolders = items.filter((item) => item.type === 'folder').map((item) => item.path)
-                    if (droppedFolders.length > 0) {
-                        for (const folder of Object.keys(newState)) {
-                            if (droppedFolders.some((path) => isPathUnder(folder, path))) {
-                                delete newState[folder]
-                            }
+                    const dropped = new Set(
+                        items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
+                    )
+                    for (const folder of Object.keys(newState)) {
+                        const parts = splitPath(folder)
+                        if (parts.some((_, index) => dropped.has(joinPath(parts.slice(0, index + 1))))) {
+                            delete newState[folder]
                         }
                     }
                     return newState
