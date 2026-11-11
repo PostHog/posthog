@@ -14,7 +14,7 @@ type CreateResponse = [number, Record<string, any>]
 describe('AddDeliveryWebhookModal', () => {
     let releaseCreate: ((response: CreateResponse) => void) | null
     let createdBody: Record<string, any> | null
-    let templatesLoad: 'fails' | 'succeeds'
+    let templatesLoad: 'fails' | 'denied' | 'succeeds'
 
     beforeEach(() => {
         releaseCreate = null
@@ -25,14 +25,18 @@ describe('AddDeliveryWebhookModal', () => {
                 '/api/projects/:team_id/messaging_templates/': () =>
                     templatesLoad === 'fails'
                         ? [500, { detail: 'Server error' }]
-                        : [
-                              200,
-                              {
-                                  count: 1,
-                                  next: null,
-                                  results: [{ id: 'template-1', name: 'Receipt', transactional_hog_flow_id: 'flow-1' }],
-                              },
-                          ],
+                        : templatesLoad === 'denied'
+                          ? [403, { detail: 'You do not have permission to perform this action.' }]
+                          : [
+                                200,
+                                {
+                                    count: 1,
+                                    next: null,
+                                    results: [
+                                        { id: 'template-1', name: 'Receipt', transactional_hog_flow_id: 'flow-1' },
+                                    ],
+                                },
+                            ],
             },
             post: {
                 '/api/projects/:team_id/hog_functions/': async ({ request }) => {
@@ -143,15 +147,26 @@ describe('AddDeliveryWebhookModal', () => {
         templatesLoad = 'fails'
         openModal()
 
-        const banner = (await screen.findByText(/Couldn't load your transactional emails/)).closest('.LemonBanner')!
+        const banner = (await screen.findByText(/Couldn't load your transactional emails: Server error/)).closest(
+            '.LemonBanner'
+        )!
         expect(screen.queryByText(/No transactional emails yet/)).not.toBeInTheDocument()
+        expect(document.querySelector('.Toastify__toast')).toBeNull()
 
         templatesLoad = 'succeeds'
         fireEvent.click(within(banner as HTMLElement).getAllByText('Try again')[0])
+        fireEvent.click(screen.getByPlaceholderText('All transactional emails'))
 
-        await waitFor(() =>
-            expect(screen.queryByText(/Couldn't load your transactional emails/)).not.toBeInTheDocument()
-        )
+        expect(await screen.findByText('Receipt')).toBeInTheDocument()
+        expect(screen.queryByText(/Couldn't load your transactional emails/)).not.toBeInTheDocument()
+    })
+
+    it('says which access is missing when the user cannot read email templates', async () => {
+        templatesLoad = 'denied'
+        openModal()
+
+        expect(await screen.findByText(/You don't have access to this project's email templates/)).toBeInTheDocument()
+        expect(screen.queryByText('Try again')).not.toBeInTheDocument()
     })
 
     it('shows a bad URL as a field error, without a failure toast', async () => {

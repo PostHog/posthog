@@ -30,6 +30,11 @@ export interface DeliveryWebhookForm {
     workflowIds: string[]
 }
 
+export interface TransactionalEmailOptionsError {
+    message: string
+    accessDenied: boolean
+}
+
 export interface TransactionalEmailOption {
     key: string
     label: string
@@ -60,7 +65,7 @@ export interface deliveryWebhooksLogicValues {
     isWebhookFormValid: boolean
     showWebhookFormErrors: boolean
     transactionalEmailOptions: TransactionalEmailOption[]
-    transactionalEmailOptionsLoadFailed: boolean
+    transactionalEmailOptionsError: TransactionalEmailOptionsError | null
     transactionalEmailOptionsLoading: boolean
     webhookForm: DeliveryWebhookForm
     webhookFormAllErrors: Record<string, any>
@@ -180,11 +185,14 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
                 closeAddModal: () => false,
             },
         ],
-        transactionalEmailOptionsLoadFailed: [
-            false,
+        transactionalEmailOptionsError: [
+            null as TransactionalEmailOptionsError | null,
             {
-                loadTransactionalEmailOptions: () => false,
-                loadTransactionalEmailOptionsFailure: () => true,
+                loadTransactionalEmailOptions: () => null,
+                loadTransactionalEmailOptionsFailure: (_, { error, errorObject }) => ({
+                    message: error,
+                    accessDenied: errorObject?.status === 403,
+                }),
             },
         ],
         // The secret is encrypted on save and never readable again, so the modal shows it once and then drops it.
@@ -226,7 +234,7 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
                         key: template.transactional_hog_flow_id!,
                         label:
                             nameCounts.get(template.name)! > 1
-                                ? `${template.name} (${template.id.slice(0, 8)})`
+                                ? `${template.name} (${template.id.slice(-8)})`
                                 : template.name,
                     }))
                 },
