@@ -1244,14 +1244,24 @@ def _has_exact_string_filter(filters: dict, key: str) -> bool:
     return False
 
 
-def _existing_email_from_by_action(instance: WorkflowEditState, *, include_draft: bool = True) -> dict[str, list[dict]]:
-    """Stored email sender overrides keyed by action id, live and draft variants both kept.
+def _sender_step_key(action: dict) -> tuple[str, str, str]:
+    step_type = action.get("type")
+    if not isinstance(step_type, str):
+        step_type = ""
+    template_id = (action.get("config") or {}).get("template_id") or _FIXED_TEMPLATE_IDS.get(step_type)
+    return (str(action.get("id") or ""), step_type, template_id if isinstance(template_id, str) else "")
+
+
+def _existing_email_from_by_step(
+    instance: WorkflowEditState, *, include_draft: bool = True
+) -> dict[tuple[str, str, str], list[dict]]:
+    """Stored email sender overrides keyed by step id, type and template, live and draft variants both kept.
 
     Which variant a save should be compared against depends on how the request routes (a
     builder save targets the draft, a raw API write targets live), so validation grandfathers
     a value matching either - both are values already stored on the workflow.
     """
-    result: dict[str, list[dict]] = {}
+    result: dict[tuple[str, str, str], list[dict]] = {}
     draft = instance.draft if isinstance(instance.draft, dict) and include_draft else {}
     for actions in (instance.actions, draft.get("actions")):
         for stored_action in actions or []:
@@ -1261,7 +1271,7 @@ def _existing_email_from_by_action(instance: WorkflowEditState, *, include_draft
             value = email_input.get("value") if isinstance(email_input, dict) else None
             from_value = value.get("from") if isinstance(value, dict) else None
             if isinstance(from_value, dict):
-                result.setdefault(stored_action["id"], []).append(from_value)
+                result.setdefault(_sender_step_key(stored_action), []).append(from_value)
     return result
 
 
@@ -2346,8 +2356,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                     # sender address is checked against the integration's verified domain at
                     # save time, while an unchanged stored value is grandfathered.
                     "get_team": self.context.get("get_team"),
-                    "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(data.get("id")),
-                    "live_email_from": (self.context.get("live_action_email_from") or {}).get(data.get("id")),
+                    "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
+                        _sender_step_key(data)
+                    ),
+                    "live_email_from": (self.context.get("live_action_email_from") or {}).get(_sender_step_key(data)),
                     # Request-scoped: a drip sequence's steps share senders, and the actions
                     # list validates one action at a time (mirrors _message_template_cache).
                     "email_integration_domain_cache": self.context.setdefault("_email_integration_domain_cache", {}),
@@ -3801,8 +3813,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
-            self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
-            self.context["live_action_email_from"] = _existing_email_from_by_action(instance, include_draft=False)
+            self.context["existing_action_email_from"] = _existing_email_from_by_step(instance)
+            self.context["live_action_email_from"] = _existing_email_from_by_step(instance, include_draft=False)
             # Live "Run scout" notes, so only a new or changed note needs skill editor access.
             self.context["live_run_scout_notes"] = _live_run_scout_notes_by_action(instance)
 

@@ -87,13 +87,24 @@ FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]
 MAX_FROM_OVERRIDE_EMAIL_LENGTH = 254
 
 
+def _is_integration_id(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _as_integration_id(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
 def _sender_integration_ids(from_value: dict) -> set[int]:
     rotation = from_value.get("integrationIds")
-    return {
-        integration_id
-        for integration_id in [from_value.get("integrationId"), *(rotation if isinstance(rotation, list) else [])]
-        if isinstance(integration_id, int) and not isinstance(integration_id, bool)
-    }
+    candidates = [from_value.get("integrationId"), *(rotation if isinstance(rotation, list) else [])]
+    return {integration_id for integration_id in map(_as_integration_id, candidates) if integration_id is not None}
 
 
 def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
@@ -1038,6 +1049,12 @@ class InputsItemSerializer(serializers.Serializer):
                         {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
                     )
 
+                integration_id = from_value.get("integrationId")
+                if integration_id is not None and not _is_integration_id(integration_id):
+                    raise serializers.ValidationError(
+                        {"input": "Expected 'from.integrationId' to be an Integration ID."}
+                    )
+
                 integration_ids = from_value.get("integrationIds")
                 if integration_ids is not None:
                     if not isinstance(integration_ids, list):
@@ -1048,10 +1065,7 @@ class InputsItemSerializer(serializers.Serializer):
                         raise serializers.ValidationError(
                             {"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."}
                         )
-                    if not all(
-                        isinstance(integration_id, int) and not isinstance(integration_id, bool)
-                        for integration_id in integration_ids
-                    ):
+                    if not all(map(_is_integration_id, integration_ids)):
                         raise serializers.ValidationError(
                             {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
                         )

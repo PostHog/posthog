@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from typing import Any
 
@@ -299,3 +300,70 @@ class TestSandboxEmailSteps(APIBaseTest):
         assert response.status_code == expected, response.json()
         if expected == 400:
             assert "This sender can't send email from a workflow" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("decimal_on_publish", ".0", "active", "Expected 'from.integrationId' to be an Integration ID"),
+            ("exponent_on_publish", "e0", "active", "Expected 'from.integrationId' to be an Integration ID"),
+            ("decimal_in_a_web_draft_save", ".0", "draft", "This sender can't send email from a workflow"),
+            ("exponent_in_a_web_draft_save", "e0", "draft", "This sender can't send email from a workflow"),
+        ]
+    )
+    def test_an_email_step_cannot_pick_the_sandbox_row_by_a_float_spelling_of_its_id(
+        self, _name: str, spelling: str, saved_status: str, error: str
+    ) -> None:
+        sync_template_to_db(_email_function_template())
+        sandbox_row = Integration.objects.create(
+            team=self.team, kind="email_sandbox", integration_id="posthog-managed-sandbox", config={}
+        )
+        flow = HogFlow.objects.create(team=self.team, name="Own email flow", status="draft", actions=[_trigger()])
+        body = json.dumps(
+            {
+                "status": saved_status,
+                "actions": [_trigger(), _own_email_step(sandbox_row.id)],
+                "edges": [{"from": "trigger_node", "to": OWN_EMAIL_STEP_ID, "type": "continue"}],
+            }
+        ).replace(f'"integrationId": {sandbox_row.id}', f'"integrationId": {sandbox_row.id}{spelling}')
+
+        response = self.client.patch(self._url(str(flow.id)), body, content_type="application/json")
+
+        assert response.status_code == 400, response.json()
+        assert error in response.json()["detail"]
+        assert HogFlow.objects.get(id=flow.id).actions == [_trigger()]
+
+    @parameterized.expand(
+        [
+            ("delay_step", "delay", {"delay_duration": "1h", "template_id": "template-email"}),
+            ("email_step_on_another_template", "function_email", {"template_id": "template-webhook"}),
+        ]
+    )
+    def test_an_email_step_cannot_take_over_a_sender_parked_on_another_step(
+        self, _name: str, parked_type: str, parked_config: dict[str, Any]
+    ) -> None:
+        sync_template_to_db(_email_function_template())
+        sandbox_row = Integration.objects.create(
+            team=self.team, kind="email_sandbox", integration_id="posthog-managed-sandbox", config={}
+        )
+        parked = {
+            "id": OWN_EMAIL_STEP_ID,
+            "name": "Parked",
+            "type": parked_type,
+            "config": {**parked_config, "inputs": _own_email_step(sandbox_row.id)["config"]["inputs"]},
+        }
+        flow = HogFlow.objects.create(
+            team=self.team, name="Own email flow", status="draft", actions=[_trigger(), parked]
+        )
+
+        response = self.client.patch(
+            self._url(str(flow.id)),
+            {
+                "status": "active",
+                "actions": [_trigger(), _own_email_step(sandbox_row.id)],
+                "edges": [{"from": "trigger_node", "to": OWN_EMAIL_STEP_ID, "type": "continue"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "This sender can't send email from a workflow" in response.json()["detail"]
+        assert HogFlow.objects.get(id=flow.id).actions[1] == parked
