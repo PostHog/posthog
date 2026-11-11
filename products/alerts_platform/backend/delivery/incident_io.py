@@ -48,9 +48,11 @@ def incident_io_body(message: AlertMessage) -> dict[str, Any]:
         "status": _STATUSES[message.incident_action],
         "deduplication_key": dedup_key(message),
         "source_url": message.alert_url,
-        # incident.io alert routes filter and pick escalation paths on these, so they carry the alert's labels.
-        # The platform's own keys come last, so a label with the same name cannot replace them.
+        # incident.io alert routes filter and pick escalation paths on these, so they carry the alert's own
+        # labels, which PostHog routes match on, and then its group's. The platform's own keys come last, so a
+        # label with the same name cannot replace them.
         "metadata": {
+            **(message.rule_labels or {}),
             **transition.labels,
             "posthog_configuration_id": message.configuration_id,
             "posthog_source_kind": message.source.value,

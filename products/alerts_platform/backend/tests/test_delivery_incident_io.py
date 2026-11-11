@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from typing import Any, cast
 
 import pytest
@@ -45,7 +46,9 @@ class TestIncidentIoTransport(SimpleTestCase):
     def test_a_trigger_and_its_resolve_post_to_the_alert_source_under_one_key(self) -> None:
         with pinned_post(202) as adapter:
             for action in (IncidentAction.TRIGGER, IncidentAction.RESOLVE):
-                handle = IncidentIoTransport().deliver(team_id=2, target=TARGET, message=_message(action))
+                # The alert's own labels reach incident.io too, and the group's value wins on a shared name.
+                message = replace(_message(action), rule_labels={"team": "infra", "service": "unset"})
+                handle = IncidentIoTransport().deliver(team_id=2, target=TARGET, message=message)
 
         trigger, resolve = adapter.sent
         assert handle is None
@@ -57,7 +60,12 @@ class TestIncidentIoTransport(SimpleTestCase):
             "deduplication_key": "cfg-1::2026-09-30T09:00:00+00:00",
             "source_url": ALERT_URL,
             "description": "**Value:** 312",
-            "metadata": {"service": "checkout", "posthog_configuration_id": "cfg-1", "posthog_source_kind": "logs"},
+            "metadata": {
+                "team": "infra",
+                "service": "checkout",
+                "posthog_configuration_id": "cfg-1",
+                "posthog_source_kind": "logs",
+            },
         }
         resolved = json.loads(resolve.body or b"")
         assert (resolved["status"], resolved["deduplication_key"]) == ("resolved", "cfg-1::2026-09-30T09:00:00+00:00")

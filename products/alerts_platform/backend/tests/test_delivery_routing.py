@@ -196,3 +196,5 @@ class TestDeliverRoutes(APIBaseTest):
 
         assert [target for target, _ in RecordingTransport.sends] == expected_targets
         assert [message.incident_action for _, message in RecordingTransport.sends] == expected_actions
+        # The labels the routes matched on, which incident.io routes on in turn.
+        assert all(message.rule_labels == {"team": "infra"} for _, message in RecordingTransport.sends)

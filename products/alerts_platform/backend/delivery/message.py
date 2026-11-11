@@ -87,6 +87,8 @@ class AlertMessage:
     source_incident_key: str | None = None
     # The project the alert belongs to, which a reader with alerts in several projects needs.
     project: MessageLink | None = None
+    # The labels set on the alert itself, which routes match on. Only a provider that routes on them reads these.
+    rule_labels: dict[str, str] | None = None
 
     @property
     def title(self) -> str:
@@ -172,6 +174,7 @@ def build_message(
     overflowed: int = 0,
     source_incident_key: str | None = None,
     project: MessageLink | None = None,
+    rule_labels: dict[str, str] | None = None,
 ) -> AlertMessage:
     """The message for one transition.
 
@@ -225,4 +228,5 @@ def build_message(
         incident_action=incident_action,
         source_incident_key=source_incident_key,
         project=project,
+        rule_labels=rule_labels,
     )

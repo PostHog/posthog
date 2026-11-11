@@ -90,7 +90,7 @@ def deliver_routes(request: AlertDeliveryRequest) -> int:
             request,
             incident_actions={key: action for key, action in request.incident_actions.items() if key not in stale},
         )
-    return _deliver_to(receivers, request=request, team=team, announced=announced)
+    return _deliver_to(receivers, request=request, team=team, announced=announced, rule_labels=labels or {})
 
 
 def _sends(
@@ -120,6 +120,7 @@ def _deliver_to(
     request: AlertDeliveryRequest,
     team: Team,
     announced: EvaluationAnnouncement,
+    rule_labels: dict[str, str],
 ) -> int:
     thread_store = DatabaseThreadStore(request.team_id)
     project = MessageLink(label=team.name, url=absolute_uri(f"/project/{team.id}"))
@@ -145,6 +146,7 @@ def _deliver_to(
                     incident_action=action,
                     source_alert_url=request.source_alert_url,
                     project=project,
+                    rule_labels=rule_labels,
                 )
         except ThreadBusy as error:
             busy.append(str(error))

@@ -62,6 +62,7 @@ def deliver(
     source_alert_url: str | None = None,
     source_incident_key: str | None = None,
     project: MessageLink | None = None,
+    rule_labels: dict[str, str] | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
     source = announcement.source.value
@@ -108,6 +109,7 @@ def deliver(
                     overflowed=overflowed,
                     source_incident_key=source_incident_key,
                     project=project,
+                    rule_labels=rule_labels,
                 ),
                 in_reply_to=claim.handle,
             )
