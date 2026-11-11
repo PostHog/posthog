@@ -1,10 +1,10 @@
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { randomUUID } from 'node:crypto'
-import { AddressInfo, Server, Socket, connect, createServer } from 'node:net'
 import { Pool } from 'pg'
 
 import { createExampleInvocation, insertHogFunction, insertIntegration } from '~/cdp/_tests/fixtures'
+import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
 import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
@@ -24,7 +24,7 @@ jest.setTimeout(60_000)
 
 const RETURN_TWILIO_AUTH_TOKEN = ['_h', 32, 'auth_token', 32, 'twilio', 32, 'inputs', 1, 3, 38]
 const FETCH_RETRIES = 3
-const BACKOFF_MS = 2000
+const BACKOFF_MS = 60_000
 
 class HogQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
     constructor(
@@ -59,54 +59,6 @@ class HogQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
     }
 }
 
-class IntegrationLookupFault {
-    url = ''
-    failing = false
-    dropped = 0
-    private readonly sockets = new Set<Socket>()
-    private readonly server: Server = createServer((client) => this.forward(client))
-
-    static async start(upstream: URL): Promise<IntegrationLookupFault> {
-        const fault = new IntegrationLookupFault(upstream)
-        await new Promise<void>((resolve) => fault.server.listen(0, '127.0.0.1', resolve))
-        const url = new URL(upstream)
-        url.host = `127.0.0.1:${(fault.server.address() as AddressInfo).port}`
-        fault.url = url.toString()
-        return fault
-    }
-
-    private constructor(private readonly upstream: URL) {}
-
-    async close(): Promise<void> {
-        for (const socket of this.sockets) {
-            socket.destroy()
-        }
-        await new Promise((resolve) => this.server.close(resolve))
-    }
-
-    private forward(client: Socket): void {
-        const upstream = connect(Number(this.upstream.port || 5432), this.upstream.hostname)
-        for (const socket of [client, upstream]) {
-            this.sockets.add(socket)
-            socket.on('error', () => undefined)
-            socket.on('close', () => {
-                this.sockets.delete(socket)
-                client.destroy()
-                upstream.destroy()
-            })
-        }
-        upstream.pipe(client)
-        client.on('data', (chunk: Buffer) => {
-            if (this.failing && chunk.toString('latin1').includes('fetchIntegrations')) {
-                this.dropped++
-                client.destroy()
-                return
-            }
-            upstream.write(chunk)
-        })
-    }
-}
-
 type JobRow = { status: string; scheduled: Date; attempts: number | undefined }
 
 describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
@@ -114,8 +66,9 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
     let db: Pool
     let team: Team
     let queueName: string
-    let fault: IntegrationLookupFault
-    let integrationsDb: PostgresRouter
+    let lookupFails: boolean
+    let droppedLookups: number
+    let integrationsDb: { postgres: PostgresRouter; close: () => Promise<void> }
     let worker: CdpCyclotronWorker | undefined
     let producer: HogQueueOfOneTest
 
@@ -134,18 +87,22 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         worker = undefined
         team = (await createTestTeamFixture(hub.postgres)).team
         mockProducerObserver.resetKafkaProducer()
-        fault = await IntegrationLookupFault.start(new URL(hub.DATABASE_URL))
-        integrationsDb = new PostgresRouter({ ...hub, DATABASE_URL: fault.url, DATABASE_READONLY_URL: '' })
+        lookupFails = false
+        droppedLookups = 0
+        integrationsDb = await postgresThatDropsConnections(hub.DATABASE_URL, (message) => {
+            const drops = lookupFails && message.toString('latin1').includes('fetchIntegrations')
+            droppedLookups += drops ? 1 : 0
+            return drops
+        })
         producer = new HogQueueOfOneTest(queueName, hub)
         await producer.startAsProducer()
     })
 
     afterEach(async () => {
-        fault.failing = false
+        lookupFails = false
         await worker?.stop()
         await producer.stopProducer()
-        await integrationsDb.end()
-        await fault.close()
+        await integrationsDb.close()
         await db.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1 OR queue_name LIKE $2', [
             queueName,
             `${queueName}/%`,
@@ -162,7 +119,7 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         }
         const integrationManager = new IntegrationManagerService(
             hub.pubSub,
-            new PostgresIntegrationSource(integrationsDb, hub.encryptedFields)
+            new PostgresIntegrationSource(integrationsDb.postgres, hub.encryptedFields)
         )
         worker = new CdpCyclotronWorker(
             config,
@@ -208,7 +165,7 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
 
     it('retries a job whose integration lookup fails on a dropped connection, then completes it once the lookup recovers', async () => {
         const id = await queueJobWithIntegrationRef(0)
-        fault.failing = true
+        lookupFails = true
         await startWorker()
 
         const retried = await waitForExpect(
@@ -220,20 +177,21 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
             15_000,
             50
         )
-        expect(fault.dropped).toBeGreaterThan(0)
-        expect(retried.scheduled.getTime()).toBeGreaterThan(Date.now())
+        expect(droppedLookups).toBeGreaterThan(0)
+        expect(retried.scheduled.getTime()).toBeGreaterThan(Date.now() + BACKOFF_MS / 2)
 
-        fault.failing = false
+        lookupFails = false
+        await db.query('UPDATE cyclotron_jobs SET scheduled = now() WHERE id = $1', [id])
 
         await waitForExpect(async () => expect((await jobRow(id)).status).toBe('completed'), 15_000, 50)
     })
 
     it('fails a job once its integration lookup has used its last retry', async () => {
         const id = await queueJobWithIntegrationRef(FETCH_RETRIES - 1)
-        fault.failing = true
+        lookupFails = true
         await startWorker()
 
         await waitForExpect(async () => expect((await jobRow(id)).status).toBe('failed'), 15_000, 50)
-        expect(fault.dropped).toBeGreaterThan(0)
+        expect(droppedLookups).toBeGreaterThan(0)
     })
 })
