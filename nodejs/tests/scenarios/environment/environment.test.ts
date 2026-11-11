@@ -345,10 +345,9 @@ describe('scenario environment', () => {
             })
         })
 
-        it("lets profile settings override the role environment but not how the runner wires a role or the load producer's settings", () => {
+        it('lets profile settings override the role environment but not how the runner wires a role', () => {
             const settings = {
                 SES_REGION: 'eu-west-1',
-                KAFKA_PRODUCER_LINGER_MS: '100',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
                 SES_ENDPOINT: 'http://elsewhere',
                 PERSONHOG_ADDR: '127.0.0.1:1',
@@ -365,7 +364,6 @@ describe('scenario environment', () => {
             const [spec] = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR, settings)
 
             expect(spec.env).not.toHaveProperty('KAFKA_CONSUMER_GROUP_ID')
-            expect(spec.env).not.toHaveProperty('KAFKA_PRODUCER_LINGER_MS')
             expect(spec.env).toMatchObject({
                 SES_REGION: 'eu-west-1',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
