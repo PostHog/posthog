@@ -409,7 +409,11 @@ export class PluginServer implements NodeServer {
                 const queue = createSandboxEmailQueue(this.config)
                 const worker = new CdpCyclotronWorkerEmailSandbox(
                     this.config,
-                    { ...cdpDeps!, frequencyCapValkey: createFrequencyCapValkeyPool(this.config), sandboxEmail },
+                    {
+                        ...cdpDeps!,
+                        frequencyCapValkey: createFrequencyCapValkeyPool(this.config, { exitOnRepeatedErrors: false }),
+                        sandboxEmail,
+                    },
                     queue
                 )
                 this.lifecycle.expressApp.use(
