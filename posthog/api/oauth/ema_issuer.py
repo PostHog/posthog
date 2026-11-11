@@ -26,8 +26,8 @@ The flow:
 The setup call repeats every consent check, because membership, plan and domains can change
 in between. A failure is an RFC 6749 style `error` and `error_description`, which the client
 shows to the admin: `access_denied` when the person no longer administers the organization or
-it can't use XAA, `issuer_in_use` when another configuration in the organization or another
-organization's client-registered configuration already trusts the issuer, and
+it can't use XAA, `issuer_in_use` when another configuration in the organization already trusts
+the issuer, and
 `invalid_request` for a malformed issuer. A second registration from the same client replaces
 its configuration, so ID-JAGs from the previous issuer stop working.
 
@@ -43,7 +43,6 @@ from typing import Any, cast
 from urllib.parse import urlsplit
 
 from django.db import connection, transaction
-from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -57,6 +56,7 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.helpers.email_utils import email_domain
 from posthog.ip_restrictions import enforce_credential_ip_restrictions
 from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, lock_id_jag_issuer
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAccessLevel
@@ -115,7 +115,9 @@ def _ineligibility_reason(
     """
     if membership_level is None or membership_level < OrganizationMembership.Level.ADMIN:
         return "Only admins of this organization can set up enterprise-managed auth."
-    if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization):
+    if organization.enforce_verified_domains and (email_domain(user.email) or "").lower() not in {
+        domain.lower() for domain in verified_domains
+    }:
         return (
             "This organization only admits emails on its verified domains. Sign in with one of those, then try again."
         )
@@ -263,27 +265,20 @@ def register_ema_issuer(access_token: OAuthAccessToken, raw_issuer: str) -> EmaR
             .filter(organization=organization, id_jag_registered_by_application=application)
             .first()
         )
-        # A hand-entered config in another organization doesn't conflict: the verified email domain
-        # already decides which organization an ID-JAG is for, and counting it would let any
-        # organization block another's setup by typing in its issuer.
+        # Other organizations may trust the same issuer. The email's verified domain and the required
+        # `aud_tenant` already decide which organization an ID-JAG is for, and a global reservation
+        # would let any organization block another's setup.
         others_with_issuer = (
             IdentityProviderConfig.objects.for_scope(ConfigScope.ID_JAG)
             .with_id_jag_issuer(issuer)
-            .filter(Q(organization=organization) | Q(id_jag_registered_by_application__isnull=False))
+            .filter(organization=organization)
         )
         if own_config is not None:
             others_with_issuer = others_with_issuer.exclude(pk=own_config.pk)
-        conflicting_organization_id = others_with_issuer.values_list("organization_id", flat=True).first()
-        if conflicting_organization_id == organization.id:
+        if others_with_issuer.exists():
             raise EmaSetupError(
                 "issuer_in_use",
                 "This organization already trusts this issuer in another XAA configuration. Remove that configuration in PostHog's authentication settings, then try again.",
-                status.HTTP_409_CONFLICT,
-            )
-        if conflicting_organization_id is not None:
-            raise EmaSetupError(
-                "issuer_in_use",
-                "Another PostHog organization already trusts this issuer. Remove it from that organization's authentication settings, then try again.",
                 status.HTTP_409_CONFLICT,
             )
 

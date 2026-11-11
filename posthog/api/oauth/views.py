@@ -97,6 +97,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
+from posthog.helpers.two_factor_session import missing_two_factor_step
 from posthog.ip_restrictions import enforce_credential_ip_restrictions, enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
@@ -1970,13 +1971,19 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code
                 )
             try:
-                validate_ema_grant(
+                ema_organization = validate_ema_grant(
                     request.user,
                     application,
                     serializer.validated_data.get("scoped_organizations") or [],
                     impersonated=_impersonator_id_for_request(request) is not None,
                     access_level=serializer.validated_data.get("access_level"),
                 )
+                if missing_two_factor_step(request._request, request.user, organization=ema_organization):
+                    raise EmaSetupError(
+                        "access_denied",
+                        "This organization requires two-factor authentication. Set it up or verify it, then try again.",
+                        status.HTTP_403_FORBIDDEN,
+                    )
             except EmaSetupError as error:
                 posthoganalytics.capture(
                     distinct_id=str(request.user.distinct_id),

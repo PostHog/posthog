@@ -221,7 +221,7 @@ class TestEmaIssuerSetup(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("issuer_in_another_organization", "taken", status.HTTP_409_CONFLICT, "issuer_in_use"),
+            ("issuer_in_another_config_of_the_organization", "taken", status.HTTP_409_CONFLICT, "issuer_in_use"),
             ("demoted_after_consent", "demoted", status.HTTP_403_FORBIDDEN, "access_denied"),
             ("issuer_not_https", "http://identity.example.com/issuers/first", 400, "invalid_request"),
             ("issuer_not_a_url", "https://[invalid", 400, "invalid_request"),
@@ -233,11 +233,7 @@ class TestEmaIssuerSetup(APIBaseTest):
         issuer = ISSUER
         token = self._setup_token(scope="feature_flag:read" if case == "other_scope" else EMA_ISSUER_MANAGE_SCOPE)
         if case == "taken":
-            IdentityProviderConfig.objects.create(
-                organization=Organization.objects.create(name="Other organization"),
-                id_jag_issuer_url=f"{ISSUER}/",
-                id_jag_registered_by_application=self.application,
-            )
+            IdentityProviderConfig.objects.create(organization=self.organization, id_jag_issuer_url=f"{ISSUER}/")
         elif case == "demoted":
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
@@ -248,12 +244,15 @@ class TestEmaIssuerSetup(APIBaseTest):
 
         self.assertEqual(response.status_code, expected_status, response.json())
         self.assertEqual(response.json()["error"], expected_error)
-        self.assertFalse(IdentityProviderConfig.objects.filter(organization=self.organization).exists())
+        self.assertFalse(IdentityProviderConfig.objects.filter(id_jag_registered_by_application__isnull=False).exists())
         self.assertTrue(OAuthAccessToken.objects.filter(pk=token.pk).exists())
 
-    def test_hand_entered_issuer_in_another_organization_does_not_block_setup(self):
+    @parameterized.expand([("hand_entered", False), ("client_registered", True)])
+    def test_issuer_trusted_by_another_organization_does_not_block_setup(self, _name, client_registered):
         IdentityProviderConfig.objects.create(
-            organization=Organization.objects.create(name="Other organization"), id_jag_issuer_url=ISSUER
+            organization=Organization.objects.create(name="Other organization"),
+            id_jag_issuer_url=ISSUER,
+            id_jag_registered_by_application=self.application if client_registered else None,
         )
 
         response = self._put_issuer(self._setup_token(), ISSUER)
@@ -274,8 +273,17 @@ class TestEmaIssuerSetup(APIBaseTest):
         )
         return organization
 
-    def test_admin_outside_the_enforced_domains_cannot_grant_setup(self):
-        organization = self._other_admin_organization(enforce_verified_domains=True)
+    @parameterized.expand(
+        [
+            ("two_factor", {"enforce_2fa": True}),
+            ("verified_email_domains", {"enforce_verified_domains": True}),
+        ]
+    )
+    def test_consent_follows_the_policy_of_the_selected_organization(self, _name, policy):
+        organization = self._other_admin_organization(**policy)
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = 1_800_000_000
+        session.save()
 
         response = self.client.post(
             "/oauth/authorize/", self._consent(scoped_organizations=[str(organization.id)]), format="json"

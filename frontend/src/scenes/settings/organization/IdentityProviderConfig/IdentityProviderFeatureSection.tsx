@@ -8,7 +8,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
+import { ConfigScopeEnumApi, IdentityProviderConfigApi } from '~/generated/core/api.schemas'
 
 import { ScimLogsModal } from '../VerifiedDomains/ScimLogsModal'
 import { verifiedDomainsLogic } from '../VerifiedDomains/verifiedDomainsLogic'
@@ -24,6 +24,21 @@ const STATUS_DISPLAY = {
     configured: { label: 'Configured', icon: <IconCheckCircle className="size-6 text-success" /> },
     partially_configured: { label: 'Partially configured', icon: <IconWarning className="size-6 text-warning" /> },
     not_configured: { label: 'Not configured', icon: <IconCircleDashed className="size-6 text-muted" /> },
+}
+
+function ManagedByTag({ config }: { config: IdentityProviderConfigApi | undefined }): JSX.Element | null {
+    if (!config?.id_jag_registered_by_application_name) {
+        return null
+    }
+    return (
+        <LemonTag type="warning" className="ml-2">
+            Set up from {config.id_jag_registered_by_application_name}
+        </LemonTag>
+    )
+}
+
+function configureButtonLabel(config: IdentityProviderConfigApi | undefined): string {
+    return config?.id_jag_registered_by_application_name ? 'View' : 'Configure'
 }
 
 export function IdentityProviderFeatureSection({ configScope }: { configScope: ConfigScopeEnumApi }): JSX.Element {
@@ -89,11 +104,7 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
                                                     {config.name}
                                                 </span>
                                             )}
-                                            {config?.id_jag_registered_by_application_name && (
-                                                <LemonTag type="warning" className="ml-2">
-                                                    Set up from {config.id_jag_registered_by_application_name}
-                                                </LemonTag>
-                                            )}
+                                            <ManagedByTag config={config} />
                                         </div>
                                         <p className="mb-0 text-sm text-tertiary">
                                             {statusDescription.text}
@@ -125,7 +136,7 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
                                         disabledReason={restrictionReason}
                                         data-attr={`configure-${configScope}-identity-provider`}
                                     >
-                                        {config?.id_jag_registered_by_application_name ? 'View' : 'Configure'}
+                                        {configureButtonLabel(config)}
                                     </LemonButton>
                                 </div>
                             </LemonCard>
