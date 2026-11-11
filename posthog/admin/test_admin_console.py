@@ -9,6 +9,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django import forms
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.models import DELETION, LogEntry
@@ -31,6 +32,7 @@ from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
+from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
@@ -39,6 +41,7 @@ from posthog.admin.console.user_panels import is_acting_as
 from posthog.csp_middleware import CSPMiddleware
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.utils import activity_visibility_manager
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
@@ -285,6 +288,29 @@ class TestAdminConsoleTheme(SimpleTestCase):
         assert all(f'nonce="{allowed.group(1)}"' in tag for tag in inline_scripts), inline_scripts
 
 
+class TestAdminConsoleFormField(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("password_input_hides_the_key", "key", False),
+            ("text_input_keeps_what_staff_typed", "note", True),
+        ]
+    )
+    def test_a_form_shown_again_after_an_error_keeps_secrets_out(
+        self, _name: str, field_name: str, value_shown: bool
+    ) -> None:
+        class _KeyForm(ApiKeySearchForm):
+            note = forms.CharField()
+
+        form = _KeyForm(data={"key": "phx_pasted_secret_key", "note": "typed note"})
+        form.is_valid()
+        form.add_error(field_name, "Not found.")
+
+        html = render_to_string("admin_console/_form_field.html", {"field": form[field_name]})
+
+        assert "Not found." in html
+        assert ("phx_pasted_secret_key" in html or "typed note" in html) == value_shown
+
+
 class TestAdminConsoleViews(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -474,6 +500,36 @@ class TestAdminConsoleViews(BaseTest):
         assert "This is the Django admin" in content
         for panel_key in panel_keys:
             assert f"/admin/console/{plural}/{obj.pk}/#panel-{panel_key}" in content
+
+    @parameterized.expand(
+        [
+            ("team_change_form", "team", "teams", []),
+            (
+                "organization_change_form_suggests_deactivation_reasons",
+                "organization",
+                "organizations",
+                [
+                    'list="id_is_not_active_reason_suggestions"',
+                    f'<option value="{Organization.DeactivationReason.DESKTOP_ABUSE}">',
+                ],
+            ),
+            ("changelist", None, None, []),
+        ]
+    )
+    def test_the_django_admin_banner_opens_the_console_page_of_the_record(
+        self, _name: str, record: str | None, plural: str | None, expected: list[str]
+    ) -> None:
+        obj = {"team": self.team, "organization": self.organization}.get(record or "")
+        url = f"/admin/posthog/{record}/{obj.pk}/change/" if obj is not None else "/admin/posthog/team/"
+
+        response = self.client.get(url)
+
+        assert response.status_code == 200
+        console_url = f"/admin/console/{plural}/{obj.pk}/" if obj is not None else "/admin/console/"
+        content = response.content.decode()
+        assert f'<a href="{console_url}">Open PostHog Admin</a>' in content
+        for text in expected:
+            assert text in content
 
     @parameterized.expand(
         [
@@ -1010,6 +1066,102 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         assert "Open this page from the Remote config cache panel" in response.content.decode()
+
+    @parameterized.expand(
+        [
+            (
+                "values_list_the_matching_keys",
+                "/admin/redisvalues?q=cache:*",
+                "/admin/console/tools/redis-values/?q=cache:*",
+                ["cache:key", "x" * 200 + "...", "Next keys", "1:00:00"],
+            ),
+            (
+                "edit_ttl_opens_the_form_for_the_key",
+                "/admin/redis/edit-ttl?key=cache:key&c=0",
+                "/admin/console/tools/redis-values/set-ttl/?key=cache:key&c=0",
+                ['value="cache:key"', 'value="3600"'],
+            ),
+        ]
+    )
+    @patch("posthog.admin.console.redis_tool.get_client")
+    def test_the_old_redis_pages_open_the_redis_tool(
+        self, _name: str, old_url: str, new_url: str, expected: list[str], get_client: MagicMock
+    ) -> None:
+        redis_client = get_client.return_value
+        redis_client.scan.return_value = (5, [b"cache:key"])
+        redis_client.type.return_value = b"string"
+        redis_client.ttl.return_value = 3600
+        redis_client.memory_usage.return_value = 300
+        redis_client.get.return_value = "x" * 300
+
+        response = self.client.get(old_url, follow=True)
+
+        assert response.redirect_chain == [(new_url, 302)]
+        content = response.content.decode()
+        for text in expected:
+            assert text in content
+
+    @patch("posthog.admin.console.redis_tool.get_client")
+    def test_the_redis_tool_shows_the_whole_value_of_one_key(self, get_client: MagicMock) -> None:
+        redis_client = get_client.return_value
+        redis_client.type.return_value = b"string"
+        redis_client.ttl.return_value = -1
+        redis_client.memory_usage.return_value = 300
+        redis_client.get.return_value = "x" * 300
+
+        response = self.client.get("/admin/console/tools/redis-values/", {"key": "cache:key"})
+
+        content = response.content.decode()
+        assert "x" * 300 in content
+        assert "No TTL" in content
+
+    @parameterized.expand(
+        [
+            ("set", 3600, "7200", 302, "ttl_updated", "Set TTL to 7200s on Redis key cache:key"),
+            ("remove", 3600, "", 302, "ttl_removed", "Removed TTL from Redis key cache:key"),
+            ("missing_key", -2, "7200", 404, None, None),
+            ("without_reason", 3600, "7200", 400, None, None),
+            ("ttl_too_large", 3600, str(10**12), 400, None, None),
+        ]
+    )
+    @patch("posthog.admin.console.redis_tool.get_client")
+    def test_setting_a_redis_ttl_changes_the_key_and_logs_who_did_it(
+        self,
+        name: str,
+        current_ttl: int,
+        ttl_seconds: str,
+        expected_status: int,
+        expected_activity: str | None,
+        expected_detail: str | None,
+        get_client: MagicMock,
+    ) -> None:
+        redis_client = get_client.return_value
+        redis_client.ttl.return_value = current_ttl
+
+        response = self.client.post(
+            "/admin/console/tools/redis-values/set-ttl/?key=cache:key",
+            {"key": "cache:key", "ttl_seconds": ttl_seconds, "reason": "" if name == "without_reason" else "Stuck"},
+        )
+
+        assert response.status_code == expected_status
+        logs = ActivityLog.objects.filter(scope="Admin", item_id="cache:key")
+        if expected_activity is None:
+            redis_client.expire.assert_not_called()
+            redis_client.persist.assert_not_called()
+            assert not logs.exists()
+            return
+        assert response["Location"] == "/admin/console/tools/redis-values/?key=cache:key"
+        if ttl_seconds:
+            redis_client.expire.assert_called_once_with("cache:key", int(ttl_seconds))
+        else:
+            redis_client.persist.assert_called_once_with("cache:key")
+        log = logs.get()
+        assert (log.activity, log.user, log.organization_id) == (expected_activity, self.user, self.organization.id)
+        assert log.detail is not None
+        assert log.detail["name"] == expected_detail
+        assert log.detail["type"] == f"previous_ttl:{current_ttl}"
+        assert log.detail["context"] == {"reason": "Stuck"}
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
 
     @parameterized.expand(
         [
