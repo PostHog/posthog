@@ -42,8 +42,8 @@ import {
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { clickableHrefs, textLinksTo } from './helpers/clickable-links'
-import { escapeHtml } from './helpers/escape-html'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
+import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
