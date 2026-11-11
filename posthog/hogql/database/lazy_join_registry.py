@@ -27,6 +27,7 @@ from posthog.hogql.database.schema.sessions_v1 import join_events_table_to_sessi
 from posthog.hogql.database.schema.sessions_v2 import join_events_table_to_sessions_table_v2
 from posthog.hogql.database.schema.sessions_v3 import join_events_table_to_sessions_table_v3
 from posthog.hogql.database.schema.system import (
+    definition_metadata_join,
     definition_tags_join,
     endpoint_current_version_join,
     ticket_assignment_join,
@@ -91,6 +92,7 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: join_with_error_tracking_fingerprint_issue_state_table,
     tags.TICKET_TAGS: ticket_tags_join,
     tags.DEFINITION_TAGS: definition_tags_join,
+    tags.DEFINITION_METADATA: definition_metadata_join,
     tags.TICKET_ASSIGNMENT: ticket_assignment_join,
     tags.ENDPOINT_CURRENT_VERSION: endpoint_current_version_join,
     tags.ACCOUNT_TAGS: account_tags_join,

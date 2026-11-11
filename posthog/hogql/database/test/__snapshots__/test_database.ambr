@@ -6860,6 +6860,118 @@
                   "schema_valid": true,
                   "table": "definition_tags",
                   "type": "lazy_table"
+              },
+              "description": {
+                  "chain": [
+                      "metadata",
+                      "description"
+                  ],
+                  "description": "Description of the event, written by a person; NULL if nobody described it.",
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified": {
+                  "chain": [
+                      "metadata",
+                      "verified"
+                  ],
+                  "description": "1 if a person marked the event as verified, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "verified",
+                  "id": null,
+                  "name": "verified",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified_at": {
+                  "chain": [
+                      "metadata",
+                      "verified_at"
+                  ],
+                  "description": "When a person marked the event as verified.",
+                  "fields": null,
+                  "hogql_value": "verified_at",
+                  "id": null,
+                  "name": "verified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified_by_id": {
+                  "chain": [
+                      "metadata",
+                      "verified_by_id"
+                  ],
+                  "description": "User who marked the event as verified.",
+                  "fields": null,
+                  "hogql_value": "verified_by_id",
+                  "id": null,
+                  "name": "verified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "hidden": {
+                  "chain": [
+                      "metadata",
+                      "hidden"
+                  ],
+                  "description": "1 if a person hid the event from the lists in PostHog, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "hidden",
+                  "id": null,
+                  "name": "hidden",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "updated_at": {
+                  "chain": [
+                      "metadata",
+                      "updated_at"
+                  ],
+                  "description": "When a person last edited the event's metadata; NULL if nobody edited it.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "updated_by_id": {
+                  "chain": [
+                      "metadata",
+                      "updated_by_id"
+                  ],
+                  "description": "User who last edited the event's metadata.",
+                  "fields": null,
+                  "hogql_value": "updated_by_id",
+                  "id": null,
+                  "name": "updated_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "owner_id": {
+                  "chain": [
+                      "metadata",
+                      "owner_id"
+                  ],
+                  "description": "User who owns the event; NULL if it has no owner.",
+                  "fields": null,
+                  "hogql_value": "owner_id",
+                  "id": null,
+                  "name": "owner_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
               }
           },
           "id": "system.event_definitions",
@@ -13612,6 +13724,104 @@
                   "schema_valid": true,
                   "table": "definition_tags",
                   "type": "lazy_table"
+              },
+              "description": {
+                  "chain": [
+                      "metadata",
+                      "description"
+                  ],
+                  "description": "Description of the property, written by a person; NULL if nobody described it.",
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified": {
+                  "chain": [
+                      "metadata",
+                      "verified"
+                  ],
+                  "description": "1 if a person marked the property as verified, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "verified",
+                  "id": null,
+                  "name": "verified",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified_at": {
+                  "chain": [
+                      "metadata",
+                      "verified_at"
+                  ],
+                  "description": "When a person marked the property as verified.",
+                  "fields": null,
+                  "hogql_value": "verified_at",
+                  "id": null,
+                  "name": "verified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified_by_id": {
+                  "chain": [
+                      "metadata",
+                      "verified_by_id"
+                  ],
+                  "description": "User who marked the property as verified.",
+                  "fields": null,
+                  "hogql_value": "verified_by_id",
+                  "id": null,
+                  "name": "verified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "hidden": {
+                  "chain": [
+                      "metadata",
+                      "hidden"
+                  ],
+                  "description": "1 if a person hid the property from the lists in PostHog, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "hidden",
+                  "id": null,
+                  "name": "hidden",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "updated_at": {
+                  "chain": [
+                      "metadata",
+                      "updated_at"
+                  ],
+                  "description": "When a person last edited the property's metadata; NULL if nobody edited it.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "updated_by_id": {
+                  "chain": [
+                      "metadata",
+                      "updated_by_id"
+                  ],
+                  "description": "User who last edited the property's metadata.",
+                  "fields": null,
+                  "hogql_value": "updated_by_id",
+                  "id": null,
+                  "name": "updated_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
               }
           },
           "id": "system.property_definitions",
@@ -23604,6 +23814,118 @@
                   "schema_valid": true,
                   "table": "definition_tags",
                   "type": "lazy_table"
+              },
+              "description": {
+                  "chain": [
+                      "metadata",
+                      "description"
+                  ],
+                  "description": "Description of the event, written by a person; NULL if nobody described it.",
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified": {
+                  "chain": [
+                      "metadata",
+                      "verified"
+                  ],
+                  "description": "1 if a person marked the event as verified, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "verified",
+                  "id": null,
+                  "name": "verified",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified_at": {
+                  "chain": [
+                      "metadata",
+                      "verified_at"
+                  ],
+                  "description": "When a person marked the event as verified.",
+                  "fields": null,
+                  "hogql_value": "verified_at",
+                  "id": null,
+                  "name": "verified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified_by_id": {
+                  "chain": [
+                      "metadata",
+                      "verified_by_id"
+                  ],
+                  "description": "User who marked the event as verified.",
+                  "fields": null,
+                  "hogql_value": "verified_by_id",
+                  "id": null,
+                  "name": "verified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "hidden": {
+                  "chain": [
+                      "metadata",
+                      "hidden"
+                  ],
+                  "description": "1 if a person hid the event from the lists in PostHog, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "hidden",
+                  "id": null,
+                  "name": "hidden",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "updated_at": {
+                  "chain": [
+                      "metadata",
+                      "updated_at"
+                  ],
+                  "description": "When a person last edited the event's metadata; NULL if nobody edited it.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "updated_by_id": {
+                  "chain": [
+                      "metadata",
+                      "updated_by_id"
+                  ],
+                  "description": "User who last edited the event's metadata.",
+                  "fields": null,
+                  "hogql_value": "updated_by_id",
+                  "id": null,
+                  "name": "updated_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "owner_id": {
+                  "chain": [
+                      "metadata",
+                      "owner_id"
+                  ],
+                  "description": "User who owns the event; NULL if it has no owner.",
+                  "fields": null,
+                  "hogql_value": "owner_id",
+                  "id": null,
+                  "name": "owner_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
               }
           },
           "id": "system.event_definitions",
@@ -30356,6 +30678,104 @@
                   "schema_valid": true,
                   "table": "definition_tags",
                   "type": "lazy_table"
+              },
+              "description": {
+                  "chain": [
+                      "metadata",
+                      "description"
+                  ],
+                  "description": "Description of the property, written by a person; NULL if nobody described it.",
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified": {
+                  "chain": [
+                      "metadata",
+                      "verified"
+                  ],
+                  "description": "1 if a person marked the property as verified, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "verified",
+                  "id": null,
+                  "name": "verified",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified_at": {
+                  "chain": [
+                      "metadata",
+                      "verified_at"
+                  ],
+                  "description": "When a person marked the property as verified.",
+                  "fields": null,
+                  "hogql_value": "verified_at",
+                  "id": null,
+                  "name": "verified_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "verified_by_id": {
+                  "chain": [
+                      "metadata",
+                      "verified_by_id"
+                  ],
+                  "description": "User who marked the property as verified.",
+                  "fields": null,
+                  "hogql_value": "verified_by_id",
+                  "id": null,
+                  "name": "verified_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "hidden": {
+                  "chain": [
+                      "metadata",
+                      "hidden"
+                  ],
+                  "description": "1 if a person hid the property from the lists in PostHog, 0 otherwise.",
+                  "fields": null,
+                  "hogql_value": "hidden",
+                  "id": null,
+                  "name": "hidden",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "updated_at": {
+                  "chain": [
+                      "metadata",
+                      "updated_at"
+                  ],
+                  "description": "When a person last edited the property's metadata; NULL if nobody edited it.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "updated_by_id": {
+                  "chain": [
+                      "metadata",
+                      "updated_by_id"
+                  ],
+                  "description": "User who last edited the property's metadata.",
+                  "fields": null,
+                  "hogql_value": "updated_by_id",
+                  "id": null,
+                  "name": "updated_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
               }
           },
           "id": "system.property_definitions",
