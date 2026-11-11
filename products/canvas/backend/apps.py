@@ -48,10 +48,10 @@ class CanvasConfig(AppConfig):
 
             return visibility.filter_file_system_rows(rows, request, project_id)
 
-        def _filter_access_rule_targets(canvases: QuerySet, request: Any) -> QuerySet:
+        def _access_rule_target_ids(team_id: int, user_id: int | None, sandboxed: bool) -> set[str]:
             from products.canvas.backend.logic import visibility  # noqa: PLC0415
 
-            return visibility.filter_access_rule_targets(canvases, request)
+            return visibility.access_rule_target_ids(team_id, user_id, sandboxed)
 
         def _authorize_delete(context: DeletionContext, canvas: Canvas) -> None:
             from posthog.oauth_provenance import is_sandbox_oauth_request  # noqa: PLC0415
@@ -80,6 +80,6 @@ class CanvasConfig(AppConfig):
                 raise ValidationError({"detail": UNDO_DELETE_REFUSED})
 
         register_file_system_visibility_filter("canvas", _filter_rows)
-        register_object_visibility_filter("canvas", _filter_access_rule_targets)
+        register_object_visibility_filter("canvas", _access_rule_target_ids)
         register_pre_delete_hook("canvas", _authorize_delete)
         register_pre_restore_hook("canvas", _authorize_restore)
