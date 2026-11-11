@@ -556,7 +556,7 @@ describe('server readiness with a database', () => {
                 await db.query(`GRANT SELECT, INSERT ON audit_log TO ${role}`)
                 await db.query(`ALTER SCHEMA "${nspname}" OWNER TO ${role}`)
 
-                await boot({ url: url.toString(), poolSize: 2 }, 'prod-us')
+                await boot({ url: url.toString(), poolSize: 2 }, undefined, false, 'prod-us')
 
                 expect(bootedServer().integrationsPool()).toBeUndefined()
             } finally {
