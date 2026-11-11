@@ -396,8 +396,8 @@ class MaterializeViewResult:
     should_trigger_cdp_producer: bool = False
 
 
-def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
-    return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{normalized_name}"
+def _build_model_table_uri(team_id: int, saved_query_id_hex: str, storage_name: str) -> str:
+    return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{storage_name}"
 
 
 def get_aws_storage_options() -> dict[str, str]:
@@ -884,7 +884,7 @@ def _get_matview_input_objects(
         raise InvalidNodeTypeException(f"Node {node.name} has no saved_query")
     # we explicitly get the saved query to avoid sync_to_async issues later for things like folder_path
     saved_query = (
-        DataWarehouseSavedQuery.objects.prefetch_related("team")
+        DataWarehouseSavedQuery.objects.select_related("team", "table")
         .exclude(deleted=True)
         .get(id=node.saved_query.id, team_id=inputs.team_id)
     )
@@ -1289,7 +1289,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
-    table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
+    table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.storage_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
 
     storage_options = get_aws_storage_options()
