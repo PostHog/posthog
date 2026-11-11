@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
@@ -37,6 +37,7 @@ export function TodayProductRow({
     position,
 }: TodayProductRowProps): JSX.Element {
     const { productOpened } = useActions(todayProductsLogic)
+    const { analyticsPaneHrefs } = useValues(todayProductsLogic)
     // The shared card stores the payload, so it must keep its identity between renders.
     const preview = useMemo(() => productPreview(label, product), [label, product])
     return (
@@ -47,7 +48,11 @@ export function TodayProductRow({
                 icon={<NavProductIcon item={product} />}
                 to={to}
                 active={active}
-                action={<TodayProductStarButton product={product} starred={starred} />}
+                action={
+                    analyticsPaneHrefs.has(product.href ?? '') ? null : (
+                        <TodayProductStarButton product={product} starred={starred} />
+                    )
+                }
                 // Like the current navigation, a starred row keeps its filled star in view.
                 actionVisible={starred && !inStarredGroup}
                 onClick={() => productOpened(product, inStarredGroup ? 'starred' : 'all', category, position)}

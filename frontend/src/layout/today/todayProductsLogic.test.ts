@@ -60,6 +60,37 @@ describe('todayProductsLogic', () => {
         )
     })
 
+    test.each([
+        [true, [urls.replay(ReplayTabs.Home)]],
+        [false, [urls.dashboards(), urls.replay(ReplayTabs.Home), urls.webAnalytics()]],
+    ])('with today-rail-nav %s, Starred shows %j', async (railNav, starred) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system_shortcut/': {
+                    results: [
+                        productShortcut('1', 'Dashboards', urls.dashboards()),
+                        productShortcut('2', 'Session replay', urls.replay(ReplayTabs.Home)),
+                        productShortcut('3', 'Web analytics', urls.webAnalytics()),
+                    ],
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: railNav })
+        const logic = todayProductsLogic()
+        logic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+
+        expect(logic.values.starredProducts.map((item) => item.href)).toEqual(starred)
+        expect([...logic.values.starredHrefs]).toEqual(starred)
+        // The Analytics pane products keep their All products rows, without a star to toggle.
+        expect(logic.values.products.map((item) => item.href)).toEqual(
+            expect.arrayContaining([urls.dashboards(), urls.webAnalytics()])
+        )
+        expect(logic.values.analyticsPaneHrefs.has(urls.dashboards())).toBe(railNav)
+        expect(logic.values.analyticsPaneHrefs.has(urls.replay(ReplayTabs.Home))).toBe(false)
+    })
+
     // Cohorts and groups are not products in the Products pane, so the rule is tested on the paths.
     test.each([
         [urls.cohorts(), true],
