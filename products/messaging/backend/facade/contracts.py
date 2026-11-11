@@ -177,8 +177,6 @@ MessageCategoryKind = Literal["marketing", "transactional"]
 
 @frozen
 class SendCategoryDefinition:
-    """A category a code send defines by key. The send creates it, or brings the existing one in line with it."""
-
     key: str
     type: MessageCategoryKind
     name: str
