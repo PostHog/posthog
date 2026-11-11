@@ -352,6 +352,13 @@ class MessageTemplateContentSerializer(serializers.Serializer):
         "complete object.",
     )
 
+    def to_representation(self, instance: Any) -> Any:
+        data = super().to_representation(instance)
+        # Only push templates have push content, so email templates read back as they did before push existed.
+        if data.get("push") is None:
+            data.pop("push", None)
+        return data
+
 
 @extend_schema_field(OpenApiTypes.UUID)
 class MessageTemplateCategoryField(serializers.Field):
