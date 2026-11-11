@@ -20,8 +20,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import AutoQuarantineMode, QuarantineLiftState, ShiftBandKind
-from .enums import NoRunNeededOutcome, QuarantineLiftState, RunGate, ShiftBandKind
+from .enums import AutoQuarantineMode, NoRunNeededOutcome, QuarantineLiftState, RunGate, ShiftBandKind
 
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
