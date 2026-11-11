@@ -155,7 +155,6 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `uploaded_media` - uploaded_media
  * * `usage_metric` - usage_metric
  * * `user` - user
- * * `user_interview` - user_interview
  * * `vision_action` - vision_action
  * * `vision_alert` - vision_alert
  * * `visual_review` - visual_review
@@ -282,7 +281,6 @@ export const ScopeObjectEnumApi = {
     UploadedMedia: 'uploaded_media',
     UsageMetric: 'usage_metric',
     User: 'user',
-    UserInterview: 'user_interview',
     VisionAction: 'vision_action',
     VisionAlert: 'vision_alert',
     VisualReview: 'visual_review',
@@ -432,7 +430,6 @@ export interface ProjectAccessSourceApi {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -602,7 +599,6 @@ export interface AccessControlObjectRuleApi {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -1000,7 +996,6 @@ export interface AccessControlObjectRuleResourceApi {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
@@ -1293,7 +1288,6 @@ export interface ResolvedAccessApi {
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
      * * `user` - user
-     * * `user_interview` - user_interview
      * * `vision_action` - vision_action
      * * `vision_alert` - vision_alert
      * * `visual_review` - visual_review
