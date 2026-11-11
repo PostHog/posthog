@@ -1061,10 +1061,13 @@ class TestAutoProjectMiddleware(APIBaseTest):
         )
 
         response = self.client.get(f"/project/{self.second_team.pk}/home")
+        fetched = self.client.get(f"/project/{self.second_team.pk}/_app_context")
 
         assert response.status_code == 200
-        assert self.app_context(response)["current_team"] is None
-        assert self.app_context(response)["current_project"] is None
+        assert self.app_context(response)["deferred"] is True
+        assert fetched.status_code == 200
+        assert fetched.json()["app_context"]["current_team"] is None
+        assert fetched.json()["app_context"]["current_project"] is None
         self.user.refresh_from_db()
         assert self.user.current_team_id is None
 
