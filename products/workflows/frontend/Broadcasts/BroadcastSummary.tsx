@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconLetter } from '@posthog/icons'
@@ -421,6 +422,7 @@ export function BroadcastSummary(): JSX.Element {
         batchJobStatuses: hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null,
         onMoveToDraft: confirmMoveToDraft,
         onSendAgain: duplicateBroadcast,
+        onOpenWorkflow: () => router.actions.push(urls.workflow(broadcastId ?? '', 'workflow')),
         onRestore: restoreBroadcast,
         onArchive: archiveBroadcast,
         onDelete: deleteBroadcast,
