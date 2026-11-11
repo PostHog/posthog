@@ -15,6 +15,7 @@ import { AccessControlLevel } from '~/types'
 
 import type { HogFlowListSummaryApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { workflowFoldersLogic } from './Workflows/WorkflowsListV2/workflowFoldersLogic'
 import {
     FIXTURE_METRICS,
     FIXTURE_WORKFLOWS,
@@ -142,6 +143,7 @@ describe('WorkflowsScene', () => {
         )
 
         await waitFor(() => expect(answerLaterPage).toHaveLength(1))
+        await waitFor(() => expect(workflowFoldersLogic.values.browserReady).toBe(true))
         await waitFor(() => expect(document.body).toHaveTextContent('Loading more workflows'))
         expect(document.body).not.toHaveTextContent('Nothing matches')
 
@@ -158,7 +160,7 @@ describe('WorkflowsScene', () => {
         fireEvent.click(document.querySelector('[data-attr="workflows-list-v2-retry"]')!)
         await waitFor(() => expect(answerLaterPage).toHaveLength(2))
         act(() => answerLaterPage[1](200, paginated([buildWorkflowRow({ id: 'wf-draft', name: 'Draft flow' })])))
-        await waitFor(() => expect(shownRowNames()).toEqual(['Live flow', 'Draft flow']))
+        await waitFor(() => expect(shownRowNames()).toEqual(['Draft flow', 'Live flow']))
         expect(document.body).not.toHaveTextContent("Couldn't load all workflows")
     })
 

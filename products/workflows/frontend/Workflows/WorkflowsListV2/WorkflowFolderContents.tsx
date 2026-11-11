@@ -47,8 +47,16 @@ export function WorkflowFolderContents(): JSX.Element {
         otherProductFileCount,
     } = useValues(workflowFoldersLogic)
     const { openFolder } = useActions(workflowFoldersLogic)
-    const { shownColumns, metricsLoading, listLoaded, serverSearchStatus, hasHealthFilter, metricsLoaded, value } =
-        useValues(workflowsListV2Logic)
+    const {
+        shownColumns,
+        metricsLoading,
+        listLoaded,
+        listComplete,
+        serverSearchStatus,
+        hasHealthFilter,
+        metricsLoaded,
+        value,
+    } = useValues(workflowsListV2Logic)
     // Health pills match nothing until run metrics arrive, so wait instead of showing an empty folder.
     const healthPending = hasHealthFilter && !metricsLoaded
     const { searchParams } = useValues(router)
@@ -126,11 +134,14 @@ export function WorkflowFolderContents(): JSX.Element {
             },
         })
     )
-    const empty = hasActiveQuery
-        ? 'Nothing matches. Remove a filter or the folder to see more.'
-        : currentFolder === 'Unfiled'
-          ? 'Every workflow and email template is in a folder.'
-          : 'This folder is empty.'
+    // Rows on pages still to come, or on a page that failed, could land here, so nothing is empty yet.
+    const empty = !listComplete
+        ? 'Nothing here among the workflows loaded so far.'
+        : hasActiveQuery
+          ? 'Nothing matches. Remove a filter or the folder to see more.'
+          : currentFolder === 'Unfiled'
+            ? 'Every workflow and email template is in a folder.'
+            : 'This folder is empty.'
     return (
         <>
             {otherProductFileCount > 0 && (
