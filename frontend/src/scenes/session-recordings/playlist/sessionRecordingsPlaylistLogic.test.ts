@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -3066,6 +3067,23 @@ describe('sessionRecordingsPlaylistLogic', () => {
             const result = getDefaultFilters()
             expect(result.filter_test_accounts).toBe(false)
         })
+
+        it.each([
+            { saved: true, browser: 'false', expected: true },
+            { saved: false, browser: 'true', expected: false },
+            { saved: undefined, browser: 'true', expected: true },
+        ])(
+            'filter_test_accounts is $expected with account value $saved and browser value $browser',
+            ({ saved, browser, expected }) => {
+                localStorage.setItem('default_filter_test_accounts', browser)
+                userLogic.mount()
+                userLogic.actions.loadUserSuccess({
+                    ...MOCK_DEFAULT_USER,
+                    ui_configuration: { version: 1, session_replay: { filter_test_accounts: saved } },
+                })
+                expect(getDefaultFilters().filter_test_accounts).toBe(expected)
+            }
+        )
 
         it('returns date_from as -30d for person recordings', () => {
             const result = getDefaultFilters('person-uuid')

@@ -2899,6 +2899,10 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("unknown_analytics_list_key", {"version": 1, "analytics_list": {"columns": ["owner"]}}),
             ("non_boolean_hide_insights", {"version": 1, "analytics_list": {"hide_insights": "nope"}}),
             ("non_list_ticket_sidebar_order", {"version": 1, "ticket_sidebar": {"order": "activity"}}),
+            (
+                "non_boolean_session_replay_filter_test_accounts",
+                {"version": 1, "session_replay": {"filter_test_accounts": "nope"}},
+            ),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):

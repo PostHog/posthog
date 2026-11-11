@@ -36,12 +36,16 @@ import { toParams } from 'lib/utils/url'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { UI_CONFIGURATION_VERSION, uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import {
     NodeKind,
     RecordingOrder,
     RecordingsQuery,
     RecordingsQueryResponse,
+    SessionReplayListConfiguration,
+    UserUIConfiguration,
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
@@ -223,8 +227,29 @@ const memoizeListResponse = (memoKey: string, response: RecordingsQueryResponse,
 export const clearMemoizedListResponses = (): void => landedListResponses().clear()
 
 const getDefaultFilterTestAccounts = (): boolean => {
-    const stored = localStorage.getItem('default_filter_test_accounts')
-    return stored === 'true'
+    // uiCustomizationLogic holds the optimistic value while a save is in flight, but it is only mounted
+    // once a filters panel renders, so the loaded user is the fallback.
+    const uiConfiguration =
+        uiCustomizationLogic.findMounted()?.values.uiConfiguration ??
+        userLogic.findMounted()?.values.user?.ui_configuration
+    const saved = uiConfiguration?.session_replay?.filter_test_accounts
+    if (saved !== undefined) {
+        return saved
+    }
+    // The per-browser value from before the preference was saved to the account.
+    return localStorage.getItem('default_filter_test_accounts') === 'true'
+}
+
+// The server replaces ui_configuration wholesale, so the patch keeps every other setting in it.
+export function withSessionReplayListPatch(
+    configuration: UserUIConfiguration | null,
+    patch: Partial<SessionReplayListConfiguration>
+): UserUIConfiguration {
+    return {
+        version: UI_CONFIGURATION_VERSION,
+        ...configuration,
+        session_replay: { ...configuration?.session_replay, ...patch },
+    }
 }
 
 // Keyed per team so a sort preference does not leak across accounts.
