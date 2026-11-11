@@ -127,11 +127,52 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=7, end=7)
         assert len(results.suggestions) != 0
 
-    def test_autocomplete_functions(self):
-        query = "select  from events"
-        results = self._select(query=query, start=7, end=7)
-        assert "toDateTime" in [suggestion.label for suggestion in results.suggestions]
-        assert "toDateTime()" in [suggestion.insertText for suggestion in results.suggestions]
+    @parameterized.expand(
+        [
+            (
+                "function",
+                "select  from events",
+                7,
+                7,
+                "toDateTime",
+                "toDateTime()",
+                AutocompleteCompletionItemKind.FUNCTION,
+            ),
+            (
+                "case_snippet",
+                "select  from events",
+                7,
+                7,
+                "CASE WHEN",
+                "CASE WHEN condition THEN result ELSE other END",
+                AutocompleteCompletionItemKind.SNIPPET,
+            ),
+            (
+                "case_snippet_partial_word",
+                "select ca",
+                7,
+                9,
+                "CASE WHEN",
+                "CASE WHEN condition THEN result ELSE other END",
+                AutocompleteCompletionItemKind.SNIPPET,
+            ),
+        ]
+    )
+    def test_autocomplete_functions(
+        self,
+        _name: str,
+        query: str,
+        start: int,
+        end: int,
+        label: str,
+        insert_text: str,
+        kind: AutocompleteCompletionItemKind,
+    ):
+        results = self._select(query=query, start=start, end=end)
+        assert any(
+            suggestion.label == label and suggestion.insertText == insert_text and suggestion.kind == kind
+            for suggestion in results.suggestions
+        )
 
     def test_autocomplete_includes_direct_connection_functions(self):
         database = Database.create_for(team=self.team)

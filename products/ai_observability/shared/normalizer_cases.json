@@ -1990,6 +1990,196 @@
             }
         },
         {
+            "name": "LangChain envelope keeps a system role",
+            "call": "normalizeMessages",
+            "input": {
+                "lc": 1,
+                "type": "constructor",
+                "id": ["langchain_core", "messages", "SystemMessage"],
+                "kwargs": {
+                    "content": "Be brief.",
+                    "additional_kwargs": {}
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Be brief."
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain envelope keeps a human role with block content",
+            "call": "normalizeMessages",
+            "input": {
+                "lc": 1,
+                "type": "constructor",
+                "id": ["langchain", "schema", "messages", "HumanMessage"],
+                "kwargs": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Hi"
+                        }
+                    ]
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Hi"
+                            }
+                        ]
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain envelope keeps AI tool calls",
+            "call": "normalizeMessages",
+            "input": {
+                "lc": 1,
+                "type": "constructor",
+                "id": ["langchain_core", "messages", "AIMessage"],
+                "kwargs": {
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "name": "search",
+                            "args": {
+                                "q": "x"
+                            },
+                            "id": "c1",
+                            "type": "tool_call"
+                        }
+                    ]
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "id": "c1",
+                                "function": {
+                                    "name": "search",
+                                    "arguments": {
+                                        "q": "x"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain envelope keeps a chunk class",
+            "call": "normalizeMessages",
+            "input": {
+                "lc": 1,
+                "type": "constructor",
+                "id": ["langchain_core", "messages", "AIMessageChunk"],
+                "kwargs": {
+                    "content": "Hello"
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": "Hello"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain envelope keeps a tool result as a tool message",
+            "call": "normalizeMessages",
+            "input": {
+                "lc": 1,
+                "type": "constructor",
+                "id": ["langchain_core", "messages", "ToolMessage"],
+                "kwargs": {
+                    "content": "42",
+                    "tool_call_id": "c1"
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "tool",
+                        "content": "42",
+                        "tool_call_id": "c1"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain envelope keeps a chat message role",
+            "call": "normalizeMessages",
+            "input": {
+                "lc": 1,
+                "type": "constructor",
+                "id": ["langchain_core", "messages", "ChatMessage"],
+                "kwargs": {
+                    "content": "Hey",
+                    "role": "critic"
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "critic",
+                        "content": "Hey"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
+            "name": "LangChain envelope of an unknown class keeps the default role",
+            "call": "normalizeMessages",
+            "input": {
+                "lc": 1,
+                "type": "constructor",
+                "id": ["langchain_core", "messages", "FancyThing"],
+                "kwargs": {
+                    "content": "?"
+                }
+            },
+            "default_role": "user",
+            "expected": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "?"
+                    }
+                ],
+                "recognized": true
+            }
+        },
+        {
             "name": "OTel parts format normalizes a single text part into a string content",
             "call": "normalizeMessage",
             "input": {

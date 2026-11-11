@@ -3,6 +3,7 @@ import {
     IntegrationInputRef,
     IntegrationInputRefsRollout,
     isSignedIntegrationRef,
+    markServerResolvedIntegration,
     replaceIntegrationInputsWithRefs,
     signIntegrationRef,
 } from './integration-input-refs'
@@ -19,13 +20,24 @@ describe('signed integration references', () => {
 
     it('signs each resolved integration with the input key and verifies it for the same team, key and id', () => {
         const inputs = replaceIntegrationInputsWithRefs(
-            { twilio: { $integration_id: 41, auth_token: 'fake-token' }, channels: [{ $integration_id: 42 }] },
+            {
+                twilio: markServerResolvedIntegration({ $integration_id: 41, auth_token: 'fake-token' }),
+                channels: [markServerResolvedIntegration({ $integration_id: 42 })],
+            },
             (key, id) => signIntegrationRef(signer, 7, key, id)
         )
 
         expect(JSON.stringify(inputs)).not.toContain('fake-token')
         expect(isSignedIntegrationRef(signer, 7, 'twilio', inputs.twilio)).toBe(true)
         expect(isSignedIntegrationRef(signer, 7, 'channels', inputs.channels[0])).toBe(true)
+    })
+
+    it('does not sign an object that event data shaped like a resolved integration', () => {
+        const inputs = { payload: { $integration_id: 41 }, channels: [{ $integration_id: 42 }] }
+
+        expect(replaceIntegrationInputsWithRefs(inputs, (key, id) => signIntegrationRef(signer, 7, key, id))).toBe(
+            inputs
+        )
     })
 
     it.each<[string, () => { verifier: EncryptedFields; teamId: number; key: string; ref: IntegrationInputRef }]>([

@@ -18,8 +18,9 @@ export type IntegrationInputRef = { [INTEGRATION_REF_KEY]: IntegrationType['id']
 export type IntegrationRefSigner = Pick<EncryptedFields, 'sign' | 'signatures'>
 
 // The signature binds the team and the input key, so a reference is valid only where the server wrote it.
+// JSON encoding keeps the base unambiguous when an input key holds ':'.
 const integrationRefSigningBase = (teamId: number, inputKey: string, id: IntegrationType['id']): string =>
-    `${teamId}:${inputKey}:${id}`
+    JSON.stringify([teamId, inputKey, String(id)])
 
 export const signIntegrationRef = (
     signer: IntegrationRefSigner,
@@ -56,13 +57,23 @@ const isIntegrationId = (value: unknown): value is IntegrationType['id'] =>
 export const isIntegrationRef = (value: unknown): value is IntegrationInputRef =>
     isPlainObject(value) && isIntegrationId(value[INTEGRATION_REF_KEY])
 
+// Event data can hold an object shaped like a resolved integration, so only the objects that HogInputsService
+// itself resolved become signed references. Anything else stays as it is.
+const serverResolvedIntegrations = new WeakSet<object>()
+
+export const markServerResolvedIntegration = <T extends object>(value: T): T => {
+    serverResolvedIntegrations.add(value)
+    return value
+}
+
 export const hasIntegrationRef = (inputs: Record<string, unknown>): boolean =>
     Object.values(inputs).some(
         (value) => isIntegrationRef(value) || (Array.isArray(value) && value.some(isIntegrationRef))
     )
 
 /**
- * Replaces each resolved integration input (and each item of an integration_multi input) with a signed reference.
+ * Replaces each integration input that the server resolved (and each such item of an integration_multi input) with a
+ * signed reference.
  * Returns the same object when no input holds a resolved integration.
  */
 export function replaceIntegrationInputsWithRefs(
@@ -73,7 +84,7 @@ export function replaceIntegrationInputsWithRefs(
     const result: Record<string, any> = {}
     for (const [key, value] of Object.entries(inputs)) {
         const toRef = (item: unknown): unknown =>
-            isPlainObject(item) && isIntegrationId(item.$integration_id)
+            isPlainObject(item) && serverResolvedIntegrations.has(item) && isIntegrationId(item.$integration_id)
                 ? {
                       [INTEGRATION_REF_KEY]: item.$integration_id,
                       [INTEGRATION_REF_SIG_KEY]: signRef(key, item.$integration_id),

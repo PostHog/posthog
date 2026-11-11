@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { HogVMErrorKind, HogVMException, convertHogToJS } from '@posthog/hogvm'
 
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
@@ -18,6 +20,7 @@ import {
     IntegrationInputRef,
     isIntegrationRef,
     isSignedIntegrationRef,
+    markServerResolvedIntegration,
 } from '../utils/integration-input-refs'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID, getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
@@ -241,7 +244,7 @@ export class HogInputsService {
         if (isWarehouseSourceIntegration(integration)) {
             return null
         }
-        return {
+        return markServerResolvedIntegration({
             $integration_id: integration.id,
             ...integration.config,
             ...integration.sensitive_config,
@@ -251,7 +254,7 @@ export class HogInputsService {
                       access_token_raw: integration.sensitive_config.access_token ?? integration.config?.access_token,
                   }
                 : {}),
-        }
+        })
     }
 
     /**
@@ -510,6 +513,28 @@ export const formatHogInput = async (
     return bytecode
 }
 
+const liquidRenderFailures = new Counter({
+    name: 'cdp_liquid_render_failures_total',
+    help: 'Liquid inputs that failed to render, by reason',
+    labelNames: ['reason'],
+})
+
+const LIQUID_LIMIT_REASONS: [string, string][] = [
+    ['template render limit', 'time'],
+    ['memory alloc limit', 'memory'],
+    ['output limit', 'output'],
+    ['parse length limit', 'parse_length'],
+]
+
+// Exported at 0 from startup, so a restarted pod shows a counter reset instead of hiding the failures
+// it counts before its first scrape.
+for (const reason of [...LIQUID_LIMIT_REASONS.map(([, reason]) => reason), 'data', 'contract']) {
+    liquidRenderFailures.inc({ reason }, 0)
+}
+
+const liquidFailureReason = (message: string, kind: HogVMErrorKind): string =>
+    LIQUID_LIMIT_REASONS.find(([text]) => message.includes(text))?.[1] ?? kind
+
 /**
  * A parse error or a refused filter fails the template on every event. Any other render error is
  * the template meeting this event's values, so another event may pass. A budget is a limit.
@@ -557,7 +582,9 @@ export const formatLiquidInput = (
         } catch (error) {
             // The renderer's message names the template line the owner has to fix, so it stays as is.
             const message = error instanceof Error ? error.message : String(error)
-            throw new Error(message, { cause: new HogVMException(message, liquidErrorKind(error)) })
+            const kind = liquidErrorKind(error)
+            liquidRenderFailures.inc({ reason: liquidFailureReason(message, kind) })
+            throw new Error(message, { cause: new HogVMException(message, kind) })
         }
     }
 

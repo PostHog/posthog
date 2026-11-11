@@ -7,11 +7,13 @@ finds missing tables, type errors and functions the deployed Trino lacks. Nothin
 
 from __future__ import annotations
 
+import re
+import uuid
 from collections import Counter
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import nullcontext
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
@@ -25,17 +27,19 @@ from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.managed_warehouse.backend.common import ducklake_data_modeling_schema
 from products.managed_warehouse.backend.trino_compiler import TrinoTarget, TrinoTargetUnavailable, resolve_trino_target
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_materialization import compile_trino_shadow_query
 
 if TYPE_CHECKING:
-    from trino.dbapi import Connection, Cursor
+    from trino.dbapi import Connection
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 _MESSAGE_LIMIT = 300
 _COMPILE_ERRORS = (BaseHogQLError, TrinoTargetUnavailable, ValidationError)
+UPSTREAM_NOT_BUILT = "UPSTREAM_NOT_BUILT"
 
 
 class TrinoCompileCheckStage(StrEnum):
@@ -51,10 +55,23 @@ class TrinoCompileCheckRow:
     """The last stage that ran: the stage that failed, or the last stage that passed."""
     error_code: str | None = None
     message: str | None = None
+    upstream_saved_query_id: str | None = None
+    """The saved query whose table is missing, when the model fails because that upstream was never built."""
 
     @property
     def ok(self) -> bool:
         return self.error_code is None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "saved_query_id": self.saved_query_id,
+            "name": self.name,
+            "stage": self.stage.value,
+            "status": "ok" if self.ok else "failed",
+            "error_code": self.error_code,
+            "message": self.message,
+            "upstream_saved_query_id": self.upstream_saved_query_id,
+        }
 
 
 @frozen
@@ -84,12 +101,8 @@ def check_trino_compile(
     Yields one row per saved query as soon as it is checked, so a caller can keep partial results.
     """
     saved_queries = _load_saved_queries(team.pk, saved_query_ids, limit, skip_ids)
-    target: TrinoTarget | TrinoTargetUnavailable | None = None
-    if saved_queries:
-        try:
-            target = resolve_trino_target(team)
-        except TrinoTargetUnavailable as error:
-            target = error
+    # Raised before any row is yielded, so a missing or flaky target never lands in a resume file as a model failure.
+    target = resolve_trino_target(team) if saved_queries else None
     connection_context = (
         connect_managed_warehouse_trino(
             str(team.organization_id), principal=f"posthog:trino-compile-check:team:{team.pk}"
@@ -119,7 +132,7 @@ def _load_saved_queries(
 def _check(
     team: Team,
     saved_query: DataWarehouseSavedQuery,
-    target: TrinoTarget | TrinoTargetUnavailable | None,
+    target: TrinoTarget | None,
     connection: Connection | None,
 ) -> TrinoCompileCheckRow:
     from trino.exceptions import TrinoQueryError  # noqa: PLC0415 -- keeps the optional driver off startup paths
@@ -127,8 +140,6 @@ def _check(
     saved_query_id, name = str(saved_query.id), saved_query.name
     # Endpoint models are rebuilt from their endpoint version before each build. That rebuild writes,
     # so the check reads the stored query, which is the last rebuild.
-    if isinstance(target, TrinoTargetUnavailable):
-        return _failed(saved_query_id, name, TrinoCompileCheckStage.COMPILE, type(target).__name__, target)
     try:
         compiled = compile_trino_shadow_query(team, HogQLQuery.model_validate(saved_query.query), target=target)
     except _COMPILE_ERRORS as error:
@@ -140,24 +151,55 @@ def _check(
     sql, parameters = convert_pyformat_placeholders(compiled.sql, compiled.values)
     cursor = connection.cursor()
     try:
-        cursor.execute(_explain_statement(cursor, sql, parameters))
+        cursor.execute(_explain_statement(sql, parameters))
         cursor.fetchall()
     except TrinoQueryError as error:
         code = error.error_name or type(error).__name__
-        return _failed(saved_query_id, name, TrinoCompileCheckStage.EXPLAIN, code, error)
+        row = _failed(saved_query_id, name, TrinoCompileCheckStage.EXPLAIN, code, error)
+        upstream = missing_upstream_saved_query_id(team.pk, row.message) if code == "TABLE_NOT_FOUND" else None
+        if upstream is None:
+            return row
+        return TrinoCompileCheckRow(
+            saved_query_id=saved_query_id,
+            name=name,
+            stage=TrinoCompileCheckStage.EXPLAIN,
+            error_code=UPSTREAM_NOT_BUILT,
+            message=row.message,
+            upstream_saved_query_id=upstream,
+        )
+    except BaseHogQLError as error:
+        # escape_trino_string refuses a NUL, which the printer binds instead of inlining.
+        return _failed(saved_query_id, name, TrinoCompileCheckStage.EXPLAIN, type(error).__name__, error)
     finally:
         cursor.close()
     return TrinoCompileCheckRow(saved_query_id=saved_query_id, name=name, stage=TrinoCompileCheckStage.EXPLAIN)
 
 
-def _explain_statement(cursor: Cursor, sql: str, parameters: list[object]) -> str:
+def _explain_statement(sql: str, parameters: list[object]) -> str:
     if not parameters:
         return f"EXPLAIN {sql}"
     # Trino plans the statement inside EXPLAIN without the values bound to the outer statement, so a
     # parameterized EXPLAIN fails with "Incorrect number of parameters". EXPLAIN EXECUTE IMMEDIATE binds the
-    # values to the planned statement. The client formats them the same way when the shadow build executes.
-    values = ", ".join(cursor._format_prepared_param(value) for value in parameters)
+    # values to the planned statement.
+    values = ", ".join(_explain_literal(value) for value in parameters)
     return f"EXPLAIN EXECUTE IMMEDIATE {escape_trino_string(sql)} USING {values}"
+
+
+def _explain_literal(value: object) -> str:
+    # The Trino printer binds only strings. Any other type means the printer changed, and its literal form
+    # must be decided here rather than guessed.
+    if not isinstance(value, str):
+        raise TypeError(f"Trino compile check cannot bind a {type(value).__name__} value to EXPLAIN")
+    return escape_trino_string(value)
+
+
+def missing_upstream_saved_query_id(team_id: int, message: str | None) -> str | None:
+    """Return the saved query id behind a missing table in the team's data modeling schema, if it is one."""
+    # A model table is named after its saved query id without dashes, with a `model_` prefix when the id
+    # starts with a digit. See ducklake_data_modeling_table_name.
+    pattern = rf"\b{re.escape(ducklake_data_modeling_schema(team_id))}\.(?:model_)?([0-9a-f]{{32}})\b"
+    match = re.search(pattern, message or "")
+    return str(uuid.UUID(match.group(1))) if match else None
 
 
 def _failed(

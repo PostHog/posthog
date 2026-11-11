@@ -1392,7 +1392,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. "
             "Title/summary edits are best-effort: the pipeline may later re-research them. "
             "Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated "
-            "predecessor PRs close only after the replacement completes with verified open PRs."
+            "predecessor PRs close only after the replacement completes with verified open PRs. "
+            "Set `pull_requests` to link a fix that already exists, so the report resolves when it merges."
         ),
         operation_id="signals_scout_edit_report",
     )
@@ -1443,6 +1444,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority_explanation=data.get("priority_explanation"),
                 tags=data.get("tags"),
                 source_issues=_to_source_issue_urls(data.get("source_issues")),
+                pull_requests=data.get("pull_requests"),
             )
         except (InvalidScoutReportError, ReviewerWriteError, ValueError) as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1455,6 +1457,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "evidence_appended": result.evidence_appended,
                     "links_appended": result.links_appended,
                     "source_issues_appended": result.source_issues_appended,
+                    "pull_requests_linked": result.pull_requests_linked,
                     "reviewers_set": result.reviewers_set,
                     "repository_set": result.repository_set,
                     "repository": result.repository,
@@ -2835,7 +2838,11 @@ def _upsert_scout_config(
         )
     )
     save_kwargs: dict[str, Any] = {}
-    if not config.enabled and update.validated_data.get("enabled"):
+    # An explicit enable also claims a row the inbox seed switched on, so it reads as chosen. Not on a
+    # locked row: `enabled_by` decides who holds the lock, and a no-op enable never passes the lock gate.
+    if update.validated_data.get("enabled") and (
+        not config.enabled or (config.enabled_by_id is None and not config.lifecycle_locked)
+    ):
         save_kwargs["enabled_by"] = request.user
     # Provenance is create-only, so the update serializer does not carry it. Stamp it here for the
     # row someone else created first, or the owning product would never find its own scout.
@@ -3812,8 +3819,14 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             if enabling:
                 _reject_if_enabled_cap_reached(team_id, config.skill_name, cap=max_enabled_scouts)
             # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
+            # An explicit enable of a seeded row nobody switched on records the caller too, except on a
+            # locked row, where `enabled_by` decides who holds the lock and a no-op enable skips the gate.
             save_kwargs: dict[str, Any] = {}
-            if enabling:
+            if enabling or (
+                serializer.validated_data.get("enabled")
+                and config.enabled_by_id is None
+                and not config.lifecycle_locked
+            ):
                 save_kwargs["enabled_by"] = request.user
             instance = serializer.save(**save_kwargs)
         if suggestion_id and instance.enabled:

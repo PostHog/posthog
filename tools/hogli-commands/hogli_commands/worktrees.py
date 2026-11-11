@@ -628,12 +628,21 @@ def _boxes_of_removed_worktrees(
         admin_dir = Path(record.git_dir)
         admin_dir_is_its_own = record.tracks_worktree(admin_dir) if record.worktree_id else admin_dir.exists()
         worktree_is_live = admin_dir_is_its_own and not _git_would_prune(admin_dir)
-        if Path(path).exists() or worktree_is_live or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
+        if (
+            _holds_a_worktree(Path(path))
+            or worktree_is_live
+            or _resolve(admin_dir.parent.parent) != _resolve(repo_common)
+        ):
             continue
         if selected_sources is not None and _source_under(_resolve(Path(path)), repo_root) not in selected_sources:
             continue
         boxes.append(WorktreeBox(worktree_path=Path(path), record=record))
     return boxes
+
+
+def _holds_a_worktree(path: Path) -> bool:
+    admin_dir = _gitdir_for(path)
+    return admin_dir is not None and admin_dir.is_dir() and not _git_would_prune(admin_dir)
 
 
 def _git_would_prune(admin_dir: Path) -> bool:
@@ -741,7 +750,7 @@ def _clean_boxes_of_removed_worktrees(
         click.echo(f"[DRY-RUN] Would {box_action} {which}.\n")
         return
     if yes or click.confirm(f"{box_action.capitalize()} them now?", default=False):
-        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff)
+        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff, require_removed=True)
     click.echo()
 
 
@@ -813,7 +822,7 @@ def _clean_worktree_boxes(
 
 
 def _worktree_came_back(box: WorktreeBox) -> bool:
-    return box.worktree_path.exists() or load_worktree_boxes().get(str(box.worktree_path)) != box.record
+    return _holds_a_worktree(box.worktree_path) or load_worktree_boxes().get(str(box.worktree_path)) != box.record
 
 
 def _ready_to_act_on(

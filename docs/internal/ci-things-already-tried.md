@@ -506,6 +506,9 @@ The large Python and frontend test jobs do not use it. Their checkout is complet
 Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.
 Validate its frozen install, workspace build, and agent tests from the sparse tree when changing those inputs.
 
+Desktop Quality keeps `products/desktop/`, `packages/agent/`, and the root `.gitignore` for Biome's VCS ignore rules.
+Compare both Biome passes and the host-boundary check against a full checkout when changing these inputs.
+
 The HCL schema guard checks out `posthog/clickhouse/hcl/`, which contains its scripts, manifest, layers, golden dumps, and generated SQL.
 Keep the full directory so every environment and role remains available to validation and drift checks.
 
