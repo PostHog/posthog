@@ -350,6 +350,7 @@ def _persist_slug(
 
     new_base: dict[str, BaselineFile] = {}
     changed: dict[str, bytes] = {}
+    read_bytes = 0
     for entry in entries:
         old = base.get(entry.name)
         if old is not None and old.size == entry.size and old.mtime == entry.mtime:
@@ -368,6 +369,11 @@ def _persist_slug(
             if old is not None:
                 new_base[entry.name] = old
             continue
+        read_bytes += len(content)
+        if read_bytes > MAX_SLUG_BYTES:
+            # Files can grow between the listing and the read, so the budget holds on the bytes read.
+            counts.skip("slug_too_large")
+            return None
         digest = _md5(content)
         new_base[entry.name] = BaselineFile(md5=digest, size=len(content), mtime=entry.mtime)
         if old is not None and old.md5 == digest:

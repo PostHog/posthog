@@ -65,6 +65,8 @@ class FakeSandbox:
         self.clock = 1.0
         self.failing_writes: set[str] = set()
         self.memory_writes = 0
+        # Content returned for every read, to model files that grow after the listing.
+        self.grown_on_read: bytes | None = None
         self.list_limits: list[int | None] = []
 
     def _is_dir(self, path: str) -> bool:
@@ -94,6 +96,8 @@ class FakeSandbox:
 
     def read_file(self, path: str, max_bytes: int) -> bytes | None:
         self.reads.append(path)
+        if self.grown_on_read is not None and path in self.files:
+            return self.grown_on_read
         return self.files.get(path)
 
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
@@ -401,6 +405,18 @@ def test_a_retry_after_a_failed_upload_does_not_resend_the_files_already_saved(s
 
     assert storage.writes == [_key(REPO_SLUG, "a.md"), _key(REPO_SLUG, "b.md")]
     assert storage.objects[_key(REPO_SLUG, "a.md")] == b"a v2, saved by another sandbox meanwhile"
+
+
+def test_files_that_grow_after_the_listing_cannot_exceed_the_slug_byte_budget(storage: FakeStorage) -> None:
+    names = [f"n{i}.md" for i in range(10)]
+    sandbox = FakeSandbox({_memory_path(REPO_SLUG, name): b"" for name in names})
+    sandbox.set_baseline({})
+    sandbox.grown_on_read = b"x" * MAX_FILE_BYTES
+
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert counts.skipped == {"slug_too_large": 1}
+    assert storage.writes == []
 
 
 def test_a_refused_baseline_checkpoint_fails_the_persist(storage: FakeStorage) -> None:
