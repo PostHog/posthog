@@ -1,9 +1,12 @@
-import posthog from 'posthog-js'
+import posthog, { CaptureResult } from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
 import { FacetDefinition, FacetSearchValue } from './facetQuery'
 import { facetSearchBarLogic } from './facetSearchBarLogic'
+
+// The real SDK, so the analytics cases read the events it would send rather than calls to a mock.
+jest.unmock('posthog-js')
 
 interface Item {
     name: string
@@ -57,6 +60,28 @@ const ITEMS: Item[] = [
 
 const matchesText = (item: Item, text: string): boolean => item.name.toLowerCase().includes(text.toLowerCase())
 
+/** Records the events posthog-js would send, and drops them before any request. The test setup opts capturing out. */
+function recordSentEvents(): { events: CaptureResult[]; stop: () => void } {
+    const events: CaptureResult[] = []
+    posthog.set_config({
+        capture_pageview: false,
+        before_send: (event) => {
+            if (event) {
+                events.push(event)
+            }
+            return null
+        },
+    })
+    posthog.opt_in_capturing({ captureEventName: false })
+    return {
+        events,
+        stop: () => {
+            posthog.opt_out_capturing()
+            posthog.set_config({ before_send: undefined })
+        },
+    }
+}
+
 describe('facetSearchBarLogic', () => {
     let onChange: jest.Mock
     let logic: ReturnType<typeof facetSearchBarLogic.build>
@@ -67,7 +92,7 @@ describe('facetSearchBarLogic', () => {
     }
 
     beforeEach(() => {
-        initKeaTests()
+        initKeaTests(false)
         onChange = jest.fn()
     })
 
@@ -284,11 +309,16 @@ describe('facetSearchBarLogic', () => {
             { change: 'removed', facet: 'sends', negated: true, source: 'backspace' },
         ],
     ])('reports a pill %s', (_, value, act, properties) => {
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const sent = recordSentEvents()
         mountWith(value)
         act()
-        expect(capture.mock.calls).toEqual([['search bar filter changed', { search_bar: 'test', ...properties }]])
-        capture.mockRestore()
+        sent.stop()
+        expect(sent.events).toEqual([
+            expect.objectContaining({
+                event: 'search bar filter changed',
+                properties: expect.objectContaining({ search_bar: 'test', ...properties }),
+            }),
+        ])
     })
 
     it.each([
