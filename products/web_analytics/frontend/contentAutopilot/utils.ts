@@ -19,9 +19,16 @@ export const ENGINE_LABELS: Record<string, string> = {
     'exa-answer': 'Exa',
     'gemini-google-search': 'Gemini',
     'perplexity-web-search': 'Perplexity',
+    'claude-no-search': 'Claude (no search)',
+    'openai-no-search': 'ChatGPT (no search)',
 }
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
+
+/** Engines that answer from training data alone. They never cite, so their columns show mentions. */
+const NO_SEARCH_ENGINES = new Set(['claude-no-search', 'openai-no-search'])
+
+export const isNoSearchEngine = (engine: string): boolean => NO_SEARCH_ENGINES.has(engine)
 
 export interface PromptSearches {
     /** The search to show for the prompt: the one most engines ran, else the first one. */

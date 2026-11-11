@@ -137,6 +137,7 @@ class PromptCheck:
     id: str
     run_id: str
     engine: str
+    mode: CheckMode
     model: str
     created_at: dt.datetime
     cited: bool

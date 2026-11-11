@@ -2,7 +2,6 @@ import type {
     AEOPromptApi,
     AEOPromptCheckApi,
     AEOPromptSetCountsApi,
-    AEOPromptSetModeComparisonApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
@@ -262,7 +261,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     latest_checks: [
         {
             engine: 'claude-web-search',
+            mode: 'web_search',
             cited: true,
+            mentioned: true,
             check_failed: false,
             target_best_position: 1,
             search_queries: [
@@ -273,7 +274,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
         },
         {
             engine: 'openai-web-search',
+            mode: 'web_search',
             cited: false,
+            mentioned: false,
             check_failed: false,
             target_best_position: null,
             search_queries: ['best open source product analytics for startups 2026'],
@@ -281,9 +284,21 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
         },
         {
             engine: 'exa-answer',
+            mode: 'web_search',
             cited: true,
+            mentioned: true,
             check_failed: false,
             target_best_position: 3,
+            search_queries: [],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'claude-no-search',
+            mode: 'no_search',
+            cited: false,
+            mentioned: true,
+            check_failed: false,
+            target_best_position: null,
             search_queries: [],
             checked_at: '2026-09-29T09:00:00Z',
         },
@@ -299,7 +314,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'claude-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: ['funnel analysis without SQL breakdown by country'],
@@ -307,7 +324,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
             },
             {
                 engine: 'openai-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: true,
                 target_best_position: null,
                 search_queries: [],
@@ -315,7 +334,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
             },
             {
                 engine: 'gemini-google-search',
+                mode: 'web_search',
                 cited: true,
+                mentioned: true,
                 check_failed: false,
                 target_best_position: 2,
                 search_queries: [],
@@ -342,7 +363,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'exa-answer',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: [],
@@ -361,7 +384,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'claude-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: [],
@@ -401,6 +426,7 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     id: '00000000-0000-4000-8000-000000000401',
     run_id: '00000000-0000-4000-8000-000000000501',
     engine: 'claude-web-search',
+    mode: 'web_search',
     model: 'example-model-large',
     created_at: '2026-09-29T09:00:00Z',
     cited: true,
@@ -566,30 +592,6 @@ const setCounts = (
     }
 }
 
-/** Claude names the brand more often with search; ChatGPT less, so both gap directions show. */
-export const EXAMPLE_MEMORY_VS_SEARCH: AEOPromptSetModeComparisonApi[] = [
-    {
-        engine: 'openai-web-search',
-        prompts: 42,
-        no_search_answers: 41,
-        no_search_mentioned: 21,
-        web_search_answers: 205,
-        web_search_mentioned: 92,
-        no_search_mention_rate: 21 / 41,
-        web_search_mention_rate: 92 / 205,
-    },
-    {
-        engine: 'claude-web-search',
-        prompts: 42,
-        no_search_answers: 42,
-        no_search_mentioned: 13,
-        web_search_answers: 210,
-        web_search_mentioned: 99,
-        no_search_mention_rate: 13 / 42,
-        web_search_mention_rate: 99 / 210,
-    },
-]
-
 export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     days: 30,
     window_from: '2026-09-01',
@@ -698,7 +700,6 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
             ],
         },
     ],
-    memory_vs_search: EXAMPLE_MEMORY_VS_SEARCH,
 }
 
 const RANKED_BRANDS: AEOPromptSetRankingsApi['brands'] = [

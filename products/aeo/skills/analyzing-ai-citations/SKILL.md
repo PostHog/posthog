@@ -129,8 +129,8 @@ Three things break the first query against `system.aeo_citation_checks`:
    `arrayJoin(arrayMap(x -> JSONExtractString(x), JSONExtractArrayRaw(toString(cited_urls))))`.
 
 Rates also need `mode = 'web_search'`.
-A `no_search` row is a weekly answer with the search tool off, so it never cites and would pull a citation rate down.
-Compare its mention rate against the `web_search` answers to the same prompts instead.
+A `no_search` row comes from `claude-no-search` or `openai-no-search`, engines that answer with the search tool off. It never cites and would pull a citation rate down.
+Compare its mention rate against the same model's `web_search` answers to the same prompts instead.
 
 Every recipe in [citation-queries](./references/citation-queries.md) follows these.
 

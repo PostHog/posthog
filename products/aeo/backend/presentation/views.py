@@ -264,6 +264,9 @@ class AEOPromptCheckSerializer(DataclassSerializer):
             "id": {"help_text": "Check id."},
             "run_id": {"help_text": "Groups the checks of one daily run across prompts and engines."},
             "engine": {"help_text": ENGINE_HELP},
+            "mode": {
+                "help_text": "'web_search' when the engine could search the web, 'no_search' when it answered from training data alone and so never cites."
+            },
             "model": {"help_text": "Engine model that answered."},
             "created_at": {"help_text": "When the check ran."},
             "cited": {"help_text": "Whether the answer cited a URL on one of the target domains."},

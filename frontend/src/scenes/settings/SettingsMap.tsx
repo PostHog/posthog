@@ -85,6 +85,7 @@ import { OrganizationEventsRetentionSetting } from 'products/product_analytics/f
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { AiVisibilityBrandsSetting } from 'products/web_analytics/frontend/contentAutopilot/AiVisibilityBrandsSetting'
+import { AiVisibilityEnginesSetting } from 'products/web_analytics/frontend/contentAutopilot/AiVisibilityEnginesSetting'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsDailyLimitsSettings'
@@ -1907,6 +1908,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 // The brands API answers only with the AEO flag on, so the setting needs it as well as the page flag.
                 flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
                 keywords: ['competitors', 'brands', 'aeo', 'ai visibility', 'rankings'],
+            },
+            {
+                id: 'ai-visibility-engines',
+                title: 'AI visibility engines',
+                description:
+                    'Choose which AI engines answer your tracked prompts, and how often. Each engine gets its own column in AI visibility.',
+                component: <AiVisibilityEnginesSetting />,
+                // The engines API answers only with the AEO flag on, so the setting needs it as well as the page flag.
+                flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
+                keywords: ['engines', 'models', 'no search', 'aeo', 'ai visibility', 'chatgpt', 'claude'],
             },
         ],
     },

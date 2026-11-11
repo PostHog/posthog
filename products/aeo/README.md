@@ -23,7 +23,6 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.                                                                          |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
 | `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
-| `AEO_NO_SEARCH_ENABLED`                    | Adds weekly no-search checks (default off). See below.                                                                         |
 
 The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
 
@@ -101,17 +100,16 @@ A prompt keeps its id, so its checks, stats and detail view stay in one place. I
 - `DELETE` or `PATCH {"archived": true}` archives a prompt: it is turned off, never runs, and keeps its versions and checks. `PATCH {"archived": false}` restores it, and it stays off unless the same request sends `"active": true`. An archived prompt accepts no other change until it is restored.
 - Each check records the version that ran in `prompt_version`. Checks recorded before versions existed have none.
 
-### No-search checks
+### Engines and how often they run
 
-With `AEO_NO_SEARCH_ENABLED` on, each prompt also runs once a week on Claude and OpenAI with the web search tool left out, so the answer comes from the model's training data alone.
-It is the baseline for "what the model remembers about us": training-data familiarity shapes even the answers that search.
+Each project chooses which answer engines run and how often, in Web analytics settings under AI visibility engines (`/api/projects/:team_id/aeo_engines/`).
+A project with no setting for an engine gets its default, so only the engines someone changed have a row in `posthog_aeo_engine_setting`.
 
-- A prompt gets its no-search checks on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day.
-- They run in the same daily run, as extra engine-mode pairs, and are written in the same per-prompt claim as the web-search checks. A dispatch that resumes a killed run skips the prompts that already have no-search checks that run day.
-- They use the same engine id, model, gateway route and `$ai_generation` tags as the web-search checks, plus `aeo_mode`, so their cost is attributed the same way.
+- The web-search engines (Claude, OpenAI, Perplexity, Exa) default to on and daily. An engine the deployment cannot run (no gateway, no Exa key, or the Perplexity gate off) never runs, whatever its setting says.
+- `claude-no-search` and `openai-no-search` send the same model the prompt without its web search tool, so the answer comes from training data alone. They default to off. They are their own engines, so they get their own column wherever engines are split.
+- A daily engine checks every due prompt. A weekly engine checks a prompt on the run day whose UTC weekday equals a SHA-256 hash of its id modulo 7, so about a seventh of the set runs each day and a prompt keeps its day. A dispatch that resumes a killed run skips the weekly engines a prompt already has a check from that run day.
 - A no-search check stores `mode = 'no_search'`, the answer text, and empty citations, retrieved URLs and searches. It is never `cited`, so only the mention rate and sentiment apply.
-- Exa answers from its own search results, so it has no no-search variant.
-- Every citation and mention rate, ranking, gap, stat and opportunity reads web-search checks only. The overview's `memory_vs_search` compares each engine's mention rate without search against with search, over the same prompts.
+- The overview, rankings, gaps, opportunities, the "needs improvement" filter and the prompt page KPIs read web-search checks only. A prompt's per-engine stats, check history and the prompts table show every engine, no-search ones included.
 
 ### Which prompts a run takes
 
@@ -198,7 +196,7 @@ Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-
 Measured in October 2026: about \$0.06 per OpenAI check and \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
 A daily run of 1,000 prompts on both engines is about \$200.
 Exa adds \$5 per 1,000 requests (`cost_usd` on the check event).
-No-search checks cost about a quarter (Claude) to two fifths (OpenAI) of a web-search check, since they pay no search fees and read no search results. On the weekly rotation a set of about 1,300 prompts runs about 190 a day, roughly \$8 a day (an estimate, not measured).
+No-search checks cost about a quarter (Claude) to two fifths (OpenAI) of a web-search check, since they pay no search fees and read no search results. Set weekly, a set of about 1,300 prompts runs about 190 a day on each no-search engine (an estimate, not measured).
 
 ## Out of scope
 

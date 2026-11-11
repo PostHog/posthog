@@ -13,7 +13,6 @@ import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
-import { ContentAutopilotPromptsMemoryVsSearch } from './ContentAutopilotPromptsMemoryVsSearch'
 import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
@@ -24,16 +23,8 @@ import { promptSourcesContext } from './promptReportColumns'
 import { brandedAnswersNote, engineLabel, segmentPrompts } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
-    const {
-        overview,
-        overviewLoading,
-        overviewError,
-        overviewKpis,
-        hasChecks,
-        citationQuery,
-        sourcesQuery,
-        memoryVsSearch,
-    } = useValues(contentAutopilotPromptsOverviewLogic)
+    const { overview, overviewLoading, overviewError, overviewKpis, hasChecks, citationQuery, sourcesQuery } =
+        useValues(contentAutopilotPromptsOverviewLogic)
     const { loadPromptSetOverview, selectOverviewTopic, openOverviewSearchPrompt } = useActions(
         contentAutopilotPromptsOverviewLogic
     )
@@ -183,8 +174,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 }
                 data-attr="content-autopilot-prompts-overview-citations-tile"
             />
-
-            <ContentAutopilotPromptsMemoryVsSearch rows={memoryVsSearch} />
 
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
