@@ -142,13 +142,15 @@ def test_string_side_following_a_message_list_becomes_one_message_with_its_defau
     assert texts(content.input) == ["plain input"]
 
 
-def test_a_normalizer_that_fails_to_build_is_tried_once_per_read():
+def test_a_normalizer_that_fails_to_build_is_tried_and_reported_once_per_read():
     build_normalizer = MagicMock(side_effect=RuntimeError("boom"))
 
-    content = content_of("generation", "Hi", "Hello", build_normalizer)
+    with patch("products.ai_observability.backend.logic.traces.step_content.capture_exception") as capture:
+        content = content_of("generation", "Hi", "Hello", build_normalizer)
 
     assert (content.input.kind, content.output.kind) == ("json", "json")
     assert build_normalizer.call_count == 1
+    assert capture.call_count == 1
 
 
 def test_a_json_span_side_builds_the_normalizer_once_and_stays_json_without_team_recipes():

@@ -9,7 +9,7 @@ from ...facade import contracts
 from ..message_normalizer.errors import RecipeRuntimeError
 from ..message_normalizer.normalizer import RecipeNormalizer
 from ..message_normalizer.run_limits import time_limit
-from ..message_normalizer.values import CompatMessage, Value
+from ..message_normalizer.values import MISSING, CompatMessage, Value
 from .message_lists import conversation_of
 from .step_messages import to_messages
 
@@ -55,20 +55,30 @@ def step_content(
         )
 
 
+class _NormalizerUnavailableError(RecipeRuntimeError):
+    pass
+
+
 def _built_once(build: Callable[[], RecipeNormalizer]) -> Callable[[], RecipeNormalizer]:
-    # A build that fails would fail again for the other side, so the failure is kept and raised again too.
+    # A build that fails would fail again for the other side, so the failure is kept. The first side raises it and
+    # reports it, and a later side raises a bounded error so the same failure reaches error tracking once.
     built: list[RecipeNormalizer | Exception] = []
 
     def normalizer() -> RecipeNormalizer:
-        if not built:
-            try:
-                built.append(build())
-            except Exception as error:
-                built.append(error)
-        result = built[0]
-        if isinstance(result, Exception):
-            raise result
-        return result
+        if built:
+            result = built[0]
+            if isinstance(result, Exception):
+                raise _NormalizerUnavailableError(
+                    "The team's normalizer failed to build earlier in this read"
+                ) from result
+            return result
+        try:
+            team_normalizer = build()
+        except Exception as error:
+            built.append(error)
+            raise
+        built.append(team_normalizer)
+        return team_normalizer
 
     return normalizer
 
@@ -84,11 +94,12 @@ def _conversation_side(
     normalizer: Callable[[], RecipeNormalizer],
     team_id: int,
 ) -> contracts.TraceMessagesSide | contracts.TraceJsonSide | None:
-    if not _is_messages_side(kind, value, other=other):
+    source = _conversation_source(kind, value, other=other)
+    if source is _NOT_A_CONVERSATION:
         return None
     return _guarded(
         lambda: _messages_side(
-            _unwrapped(kind, value),
+            source,
             default_role=default_role,
             id_prefix=id_prefix,
             node_id=node_id,
@@ -155,20 +166,20 @@ def _is_empty(value: object) -> bool:
     return value is None or value == ""
 
 
-def _is_messages_side(kind: contracts.TraceNodeKind, value: Value, *, other: Value) -> bool:
-    if kind == "generation":
-        return True
-    if conversation_of(value) is not None:
-        return True
-    return (_is_empty(value) or isinstance(value, str)) and conversation_of(other) is not None
+# No event value is MISSING, so it marks a side that is not a conversation, while None stays an empty conversation.
+_NOT_A_CONVERSATION: Final = MISSING
 
 
-def _unwrapped(kind: contracts.TraceNodeKind, value: Value) -> Value:
+def _conversation_source(kind: contracts.TraceNodeKind, value: Value, *, other: Value) -> Value:
     # A generation's input is a provider request, so its built-in recipes read it whole.
     if kind == "generation":
         return value
     conversation = conversation_of(value)
-    return value if conversation is None else conversation
+    if conversation is not None:
+        return conversation
+    if (_is_empty(value) or isinstance(value, str)) and conversation_of(other) is not None:
+        return value
+    return _NOT_A_CONVERSATION
 
 
 def _messages_side(

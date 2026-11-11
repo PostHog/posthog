@@ -1,4 +1,5 @@
 import dataclasses
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from contextvars import ContextVar
 from types import MappingProxyType
@@ -36,8 +37,15 @@ MAX_DEPTH: Final = 10
 # The operation budget alone still allows seconds of CPU per run, so the time limit is what bounds a run.
 TIME_LIMIT_SECONDS: Final = 1.0
 
-# One pipeline serves concurrent runs, so each run collects the recipes that matched in its own context.
-_matched_recipe_ids: ContextVar[set[str] | None] = ContextVar("recipe_matched_ids", default=None)
+
+@frozen
+class _RunRecord:
+    matched_recipe_ids: set[str] = dataclasses.field(default_factory=set)
+    non_text_content_types: Counter[str] = dataclasses.field(default_factory=Counter)
+
+
+# One pipeline serves concurrent runs, so each run keeps its record in its own context.
+_active_run: ContextVar[_RunRecord | None] = ContextVar("recipe_active_run", default=None)
 
 ROLE_TAG_ROLES: Final[Mapping[RoleTag, str]] = MappingProxyType(
     {
@@ -129,8 +137,13 @@ class SlotCoercer:
                 return value[0] if len(value) == 1 else [{"type": "text", "text": item} for item in value]
             return value
         # Reaching here is a recipe bug or a coverage gap, since recipes opt into rendering arbitrary values with
-        # `stringify`. Log only the type, because the value may be sensitive.
-        logger.warning("llma_recipe_produced_non_text_content", content_type=_type_name(value))
+        # `stringify`. Log only the type, because the value may be sensitive. A run logs once with a count per type,
+        # because a recipe that matches every item of a list would otherwise log once per item.
+        run = _active_run.get()
+        if run is None:
+            logger.warning("llma_recipe_produced_non_text_content", content_types={_type_name(value): 1})
+        else:
+            run.non_text_content_types[_type_name(value)] += 1
         return ""
 
 
@@ -141,24 +154,26 @@ class RecipePipeline:
         self.time_limit_seconds = time_limit_seconds
 
     def run(self, value: Value, default_role: str) -> RunOutcome:
-        matched_ids: set[str] = set()
-        token = _matched_recipe_ids.set(matched_ids)
+        run = _RunRecord()
+        token = _active_run.set(run)
         try:
             with run_limits(self.time_limit_seconds):
                 matched = self._match(value, default_role, 0)
                 if not isinstance(matched, NoMatch):
                     return RunOutcome(
-                        messages=tuple(matched), recognized=True, matched_recipe_ids=frozenset(matched_ids)
+                        messages=tuple(matched), recognized=True, matched_recipe_ids=frozenset(run.matched_recipe_ids)
                     )
                 salvaged = self._salvage(value, default_role)
         except RecursionError as error:
             raise RecipeRuntimeError("RecipeNormalizer: the input nests too deeply to normalize") from error
         finally:
-            _matched_recipe_ids.reset(token)
+            _active_run.reset(token)
+            if run.non_text_content_types:
+                logger.warning("llma_recipe_produced_non_text_content", content_types=dict(run.non_text_content_types))
         return RunOutcome(
             messages=() if isinstance(salvaged, NoMatch) else tuple(salvaged),
             recognized=False,
-            matched_recipe_ids=frozenset(matched_ids),
+            matched_recipe_ids=frozenset(run.matched_recipe_ids),
         )
 
     def dispatch(self, value: Value, inherited_role: str, depth: int) -> DispatchResult:
@@ -258,6 +273,6 @@ def _type_name(value: Value) -> str:
 
 
 def _record_match(recipe_id: str) -> None:
-    matched_ids = _matched_recipe_ids.get()
-    if matched_ids is not None:
-        matched_ids.add(recipe_id)
+    run = _active_run.get()
+    if run is not None:
+        run.matched_recipe_ids.add(recipe_id)

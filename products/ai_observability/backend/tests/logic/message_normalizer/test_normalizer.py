@@ -47,6 +47,25 @@ def test_a_run_reports_every_recipe_that_matched_including_nested_dispatches() -
     assert outcome.matched_recipe_ids - {"echo"}, "the built-in that split the list is reported too"
 
 
+def test_a_run_logs_non_text_content_once_with_a_count_per_type() -> None:
+    each_as_content = compile_recipe(
+        {
+            "id": "each-as-content",
+            "rules": [
+                {"on": {"items": {"is": "array"}}, "delegateEach": "$.items"},
+                {"on": {"k": {"exists": True}}, "emit": {"content": "$"}},
+            ],
+        }
+    )
+
+    with structlog.testing.capture_logs() as logs:
+        RecipeNormalizer([each_as_content]).normalize_messages({"items": [{"k": 1}, {"k": 2}, {"k": 3}]}, "user")
+
+    assert [(log["event"], log["content_types"]) for log in logs] == [
+        ("llma_recipe_produced_non_text_content", {"object": 3})
+    ]
+
+
 def test_custom_recipe_ids_leave_out_the_bundled_recipes() -> None:
     assert RecipeNormalizer([*default_recipes(), ECHO]).custom_recipe_ids == frozenset({"echo"})
     assert RecipeNormalizer().custom_recipe_ids == frozenset()
