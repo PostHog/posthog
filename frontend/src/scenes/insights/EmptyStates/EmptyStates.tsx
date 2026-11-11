@@ -24,6 +24,7 @@ import { dayjs } from 'lib/dayjs'
 import { useInterval } from 'lib/hooks/useInterval'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { useExplainEmptyInsight } from 'lib/insights/explainEmptyInsightContext'
 import { getRetryCooldown } from 'lib/insights/sharedUtils'
 import { IconChristmasOrnament, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -99,6 +100,7 @@ export function InsightEmptyState({
 }): JSX.Element {
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
     const quillSurface = useQuillSurface()
+    const explainEmptyInsight = useExplainEmptyInsight()
 
     // Before a project has ingested any events, "no matching events" is misleading — every chart is
     // empty because nothing is flowing in yet. Show clearly-fake sample data instead, explaining on
@@ -132,7 +134,7 @@ export function InsightEmptyState({
         const quillIcon = iconProp ?? (isChristmas() ? <IconChristmasOrnament /> : undefined)
         return (
             <Empty data-attr="insight-empty-state" className="border-none px-4 py-6">
-                {hasCustomCopy ? (
+                {hasCustomCopy || !explainEmptyInsight ? (
                     <EmptyHeader>
                         <QuillInsightEmptyStateIcon icon={quillIcon ?? <IconLineGraph />} />
                         <EmptyTitle>{heading}</EmptyTitle>
