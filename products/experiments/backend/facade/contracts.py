@@ -253,6 +253,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
     FLAG_SHARED = "flag_shared"
+    STALE_EXPERIMENT = "stale_experiment"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -315,6 +316,8 @@ class ExperimentHealthFindingActionKind(LabeledStrEnum):
     ADD_SECONDARY_METRIC = "add_secondary_metric"
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     EDIT_RELEASE_CONDITIONS = "edit_release_conditions"
+    END_EXPERIMENT = "end_experiment"
+    FREEZE_EXPOSURE = "freeze_exposure"
 
 
 class ExperimentHealthCheckKey(LabeledStrEnum):
@@ -339,6 +342,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    STALE_EXPERIMENT = "stale_experiment"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     SRM = "srm"

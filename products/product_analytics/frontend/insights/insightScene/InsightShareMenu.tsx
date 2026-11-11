@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconShare } from '@posthog/icons'
+import { IconChevronDown, IconGlobe, IconShare } from '@posthog/icons'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { analyticsShareLogic, shareTargetKey } from 'scenes/analytics/analyticsShareLogic'
 import { ShareToSpaceModal } from 'scenes/analytics/ShareToSpaceModal'
 import { urls } from 'scenes/urls'
@@ -43,6 +42,7 @@ export function useInsightShareItems(insight: InsightShareMenuProps['insight']):
         },
         {
             label: 'Share publicly or embed',
+            icon: <IconGlobe />,
             onClick: () => push(urls.insightSharing(shortId as InsightShortId)),
             dataAttr: 'insight-share-publicly',
         },
@@ -72,18 +72,21 @@ export function InsightShareMenu({ insight }: InsightShareMenuProps): JSX.Elemen
     }
     return (
         <>
-            <LemonMenu
-                items={shareItems.map(({ label, icon, onClick, dataAttr }) => ({
-                    label,
-                    icon,
-                    onClick,
-                    'data-attr': dataAttr,
-                }))}
-            >
-                <LemonButton type="secondary" size="small" icon={<IconShare />} data-attr="insight-share-menu">
+            <DropdownMenu>
+                <DropdownMenuTrigger render={<Button variant="outline" data-attr="insight-share-menu" />}>
+                    <IconShare />
                     Share
-                </LemonButton>
-            </LemonMenu>
+                    <IconChevronDown />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    {shareItems.map(({ label, icon, onClick, dataAttr }) => (
+                        <DropdownMenuItem key={dataAttr} onClick={onClick} data-attr={dataAttr}>
+                            {icon}
+                            {label}
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
             <ShareToSpaceModal />
         </>
     )

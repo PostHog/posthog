@@ -1291,6 +1291,7 @@ jobs:
     # cargo-dist generates the jobs below, so per-job failure steps do not survive `dist generate`,
     # and the 7-target matrix would alert 7 times. The release job stays out of the condition: a
     # rejected approval marks it failed, and a rejection must not raise a release-failure alert.
+    # A retired runner label or a build timeout ends a job as cancelled, not failed, so both count.
     notify-publish-failed:
         name: Notify Slack - Publish Failed
         needs:
@@ -1306,9 +1307,13 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
-            always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'
-            || needs.build-global-artifacts.result == 'failure' || needs.host-release.result == 'failure'
-            || needs.publish-npm.result == 'failure' || needs.publish-homebrew.result == 'failure' || needs.publish-cargo.result == 'failure')
+            always() && (contains(fromJSON('["failure", "cancelled"]'), needs.plan-release.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.build-local-artifacts.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.build-global-artifacts.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.host-release.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish-npm.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish-homebrew.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish-cargo.result))
         steps:
             - name: Collect failed jobs
               id: failure-metadata
@@ -1318,7 +1323,7 @@ jobs:
                   set -euo pipefail
 
                   failed_jobs=$(printf '%s' "$NEEDS_JSON" | jq -r '
-                      to_entries | map(select(.value.result == "failure") | .key) | join(", ")
+                      to_entries | map(select(.value.result == "failure" or .value.result == "cancelled") | .key) | join(", ")
                   ')
                   [ -n "$failed_jobs" ] || failed_jobs='unknown'
                   echo "failed-jobs=$failed_jobs" >> "$GITHUB_OUTPUT"

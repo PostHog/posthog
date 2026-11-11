@@ -30,6 +30,8 @@ import { ReportChartMarkers } from './ReportChartMarkers'
 // starts far enough down for the upper half of that label to stay inside the chart box.
 const BAR_MARGINS = { top: 9 }
 const MARKER_MARGINS = { top: 26 }
+// The default bottom margin fits one row of date labels; a footer overlay sits below them.
+const DATE_LABELS_MARGIN = 32
 
 /** Height of the chart. A month of daily buckets needs this much room for the bar heights to
  *  separate and for the date row to stay smaller than the plot. The skeleton that stands in while
@@ -53,6 +55,7 @@ export function ReportObservationChart({
     goalValue,
     goalLines,
     markers,
+    footer,
 }: {
     metric: ReportMetricApi
     points: ReportMetricSeriesPoints
@@ -61,7 +64,9 @@ export function ReportObservationChart({
     goalValue?: number
     goalLines?: GoalLineConfig[]
     markers?: ReferenceLineProps[]
+    footer?: { node: React.ReactNode; height: number }
 }): JSX.Element {
+    const footerMargin = footer ? { bottom: DATE_LABELS_MARGIN + footer.height } : undefined
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
 
@@ -87,7 +92,7 @@ export function ReportObservationChart({
     const lineConfig = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
             xAxis,
-            margins: markers?.length ? MARKER_MARGINS : undefined,
+            margins: markers?.length ? { ...MARKER_MARGINS, ...footerMargin } : footerMargin,
             goalLines: goalLines ?? (goalValue === undefined ? undefined : [{ value: goalValue, label: 'Goal' }]),
             // Rates and durations emphasize change, so the value axis floats to the observed range.
             yAxis: { startAtZero: false, tickFormatter: yAxisValueFormatter },
@@ -95,7 +100,7 @@ export function ReportObservationChart({
             showCrosshair: true,
             tooltip: { pinnable: false, valueFormatter },
         }),
-        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, goalLines, markers?.length]
+        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, goalLines, markers?.length, footer?.height]
     )
     const barConfig = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
@@ -107,10 +112,10 @@ export function ReportObservationChart({
             barCornerRadius: 1,
             bandPadding: 0.25,
             minBarSize: 2,
-            margins: markers?.length ? MARKER_MARGINS : BAR_MARGINS,
+            margins: { ...(markers?.length ? MARKER_MARGINS : BAR_MARGINS), ...footerMargin },
             tooltip: { pinnable: false, hitArea: 'band', valueFormatter },
         }),
-        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, goalLines, markers?.length]
+        [xAxis, yAxisValueFormatter, valueFormatter, goalValue, goalLines, markers?.length, footer?.height]
     )
 
     return (
@@ -122,10 +127,12 @@ export function ReportObservationChart({
             {type === 'bar' ? (
                 <TimeSeriesBarChart series={series} labels={points.labels} theme={theme} config={barConfig}>
                     {markers && <ReportChartMarkers markers={markers} />}
+                    {footer?.node}
                 </TimeSeriesBarChart>
             ) : (
                 <TimeSeriesLineChart series={series} labels={points.labels} theme={theme} config={lineConfig}>
                     {markers && <ReportChartMarkers markers={markers} />}
+                    {footer?.node}
                 </TimeSeriesLineChart>
             )}
         </div>

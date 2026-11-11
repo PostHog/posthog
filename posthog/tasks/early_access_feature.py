@@ -220,6 +220,7 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
             distinct_id=distinct_id,
             properties={
                 "from": from_stage,
+                "$update_person_last_seen_at": False,
                 "to": to_stage,
                 "feature_flag_key": feature_flag.key,
                 "feature_id": instance.id,

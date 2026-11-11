@@ -33,6 +33,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
+from posthog.api.fields import OmittableBooleanField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -544,7 +545,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
         "`template_id`, which refuses any file here.",
     )
-    capture_engagement = serializers.BooleanField(
+    capture_engagement = OmittableBooleanField(
         required=False,
         help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
         "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
