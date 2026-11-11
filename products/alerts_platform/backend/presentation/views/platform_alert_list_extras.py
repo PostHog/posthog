@@ -39,6 +39,14 @@ class ConfigurationExtras:
     destination_types: tuple[str, ...]
 
 
+def _current_group_states(configuration: PlatformAlertConfigurationView) -> dict[str, PlatformAlertState]:
+    """Each group's state now. A failing check names no group, so its failure stands for the whole alert."""
+    states = {alert.grouping_key: PlatformAlertState(alert.state) for alert in configuration.alerts}
+    if configuration.check_status in (PlatformAlertState.ERRORED, PlatformAlertState.BROKEN):
+        states[""] = PlatformAlertState(configuration.check_status)
+    return states
+
+
 def list_extras(
     *, team_id: int, configurations: Sequence[PlatformAlertConfigurationView]
 ) -> dict[UUID, ConfigurationExtras]:
@@ -74,9 +82,7 @@ def list_extras(
             state_timeline=platform_api.state_timeline(
                 history=histories.get(configuration.id),
                 control=controls.get(configuration.id),
-                current_group_states={
-                    alert.grouping_key: PlatformAlertState(alert.state) for alert in configuration.alerts
-                },
+                current_group_states=_current_group_states(configuration),
                 current_enabled=configuration.enabled,
                 snooze_until=configuration.snooze_until,
                 window=window,

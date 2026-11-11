@@ -22,24 +22,33 @@ OK = PlatformAlertState.NOT_FIRING
 FIRING = PlatformAlertState.FIRING
 
 
-def _history(*changes: tuple[datetime, PlatformAlertState, PlatformAlertState, str]) -> PlatformAlertHistory:
+def _history(
+    *changes: tuple[datetime, PlatformAlertState, PlatformAlertState, str], last_checked_at: datetime = END
+) -> PlatformAlertHistory:
     return PlatformAlertHistory(
         state_changes=tuple(
             PlatformStateChange(occurred_at=at, previous_state=before, state=after, grouping_key=group)
             for at, before, after, group in changes
         ),
-        last_checked_at=END,
+        last_checked_at=last_checked_at,
         last_error_message=None,
     )
 
 
 def _control(
-    *changes: tuple[datetime, ControlChangeKind], toggle_before: ControlChangeKind | None = None
+    *changes: tuple[datetime, ControlChangeKind] | tuple[datetime, ControlChangeKind, PlatformAlertState],
+    toggle_before: ControlChangeKind | None = None,
 ) -> PlatformControlHistory:
     return PlatformControlHistory(
         changes=tuple(
-            PlatformControlChange(occurred_at=at, evaluation_key="", kind=kind, previous_state=OK, state=OK)
-            for at, kind in changes
+            PlatformControlChange(
+                occurred_at=change[0],
+                evaluation_key="",
+                kind=change[1],
+                previous_state=change[2] if len(change) > 2 else OK,
+                state=OK,
+            )
+            for change in changes
         ),
         oldest_at=START,
         toggle_before=toggle_before,
@@ -83,6 +92,22 @@ SNOOZED = PlatformAlertState.SNOOZED
             {"checkout": OK, "payments": OK},
             None,
             [(START, MID, OK, True), (MID, LATER, FIRING, True), (LATER, END, OK, True)],
+        ),
+        (
+            "a failure recorded against the whole alert ends by the last check when it is not failing now",
+            _history((MID, OK, PlatformAlertState.ERRORED, ""), last_checked_at=LATER),
+            None,
+            {"checkout": OK},
+            None,
+            [(START, MID, OK, True), (MID, LATER, PlatformAlertState.ERRORED, True), (LATER, END, OK, True)],
+        ),
+        (
+            "a reset shows the alert was broken before it, though it broke before the window",
+            None,
+            _control((MID, ControlChangeKind.RESET, PlatformAlertState.BROKEN)),
+            {"": OK},
+            None,
+            [(START, MID, PlatformAlertState.BROKEN, True), (MID, END, OK, True)],
         ),
         (
             "a snooze ends when it runs out, though no check moved",
