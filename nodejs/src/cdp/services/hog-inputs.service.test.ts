@@ -1293,17 +1293,38 @@ describe('Hog Inputs', () => {
             })
         })
 
-        it('gives the function the same integration values as a fresh build', async () => {
-            const built = await hogInputsService.buildInputs(hogFunction, createHogExecutionGlobals())
+        it.each([
+            { mode: 'observe mode', enforced: false, auth: undefined, exposesToken: true },
+            { mode: 'enforce mode', enforced: true, auth: undefined, exposesToken: false },
+            {
+                mode: 'a schema that declares auth',
+                enforced: false,
+                auth: { scheme: 'bearer' as const },
+                exposesToken: false,
+            },
+        ])('gives the function the same integration values as a fresh build in $mode', async (row) => {
+            const service = new HogInputsService(
+                hub.integrationManager,
+                recipientTokensService,
+                hub.encryptedFields,
+                row.enforced ? String(team.id) : ''
+            )
+            const fn = createHogFunction({
+                ...hogFunction,
+                inputs_schema: hogFunction.inputs_schema!.map((schema) =>
+                    schema.key === 'oauth' && row.auth ? { ...schema, auth: row.auth } : schema
+                ),
+            })
+            const built = await service.buildInputs(fn, createHogExecutionGlobals())
             const persisted = replaceIntegrationInputsWithRefs(built, (key, id) =>
                 signIntegrationRef(hub.encryptedFields, team.id, key, id)
             )
             expect(JSON.stringify(persisted)).not.toContain('token')
 
-            const resolved = await hogInputsService.resolveIntegrationRefs(hogFunction, persisted)
+            const resolved = await service.resolveIntegrationRefs(fn, persisted)
 
             expect(resolved).toEqual(built)
-            expect(resolved.oauth.access_token_raw).toBe('token')
+            expect('access_token_raw' in resolved.oauth).toBe(row.exposesToken)
         })
 
         it('keeps the secrets out of the persisted job when built through the real enqueue path', async () => {

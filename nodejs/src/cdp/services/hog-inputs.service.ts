@@ -262,12 +262,18 @@ export class HogInputsService {
     }
 
     // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
+    // A queued job resolves its reference here again, so it gets the same shape as the first build.
     private resolveIntegration(
         integration: IntegrationType | null | undefined,
-        teamId: HogFunctionType['team_id'],
-        decryptFailed = false
+        hogFunction: HogFunctionType,
+        inputKey: string,
+        {
+            multi,
+            countLegacy,
+            decryptFailed = false,
+        }: { multi: boolean; countLegacy: boolean; decryptFailed?: boolean }
     ): Record<string, any> | null {
-        if (!integration || integration.team_id !== teamId) {
+        if (!integration || integration.team_id !== hogFunction.team_id) {
             return null
         }
         // A `posthog` connection holds its creator's grant into another project, and only the creator
@@ -283,6 +289,20 @@ export class HogInputsService {
         // per-channel push send can fail just this channel.
         if (decryptFailed) {
             return markServerResolvedIntegration({ $integration_id: integration.id, ...integration.config })
+        }
+        // The kind decides, because a schema edit can drop `auth` or add a second input on the same connection.
+        if (appliesIntegrationCredential(integration.kind)) {
+            const declaresAuth = allInputSchemas(hogFunction).some((schema) => schema.key === inputKey && schema.auth)
+            if (declaresAuth || this.credentialAuthEnforced(hogFunction.team_id)) {
+                return markServerResolvedIntegration({
+                    $integration_id: integration.id,
+                    ...publicIntegrationConfig(integration.config, integration.sensitive_config),
+                    ...(multi ? {} : credentialHandle(inputKey)),
+                })
+            }
+            if (countLegacy) {
+                credentialAuthCounter.inc({ outcome: 'legacy_integration', mode: 'observe' })
+            }
         }
         return markServerResolvedIntegration({
             $integration_id: integration.id,
@@ -337,12 +357,15 @@ export class HogInputsService {
 
         // An empty value would reach the third party as a request with no credentials, so a reference that
         // does not resolve fails the invocation.
-        const resolveRef = (key: string, value: unknown): unknown => {
+        const resolveRef = (key: string, value: unknown, multi: boolean): unknown => {
             if (!isIntegrationRef(value)) {
                 return value
             }
             const resolved = isTrustedRef(key, value)
-                ? this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction.team_id)
+                ? this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction, key, {
+                      multi,
+                      countLegacy: false,
+                  })
                 : null
             if (resolved && (decryptFailures[value[INTEGRATION_REF_KEY]]?.length ?? 0) > 0) {
                 throw new HogConfigurationError(decryptIntegrationMessage(key))
@@ -358,8 +381,8 @@ export class HogInputsService {
         const resolvedInputs = { ...inputs }
         for (const [key, value] of refEntries) {
             resolvedInputs[key] = Array.isArray(value)
-                ? value.map((item) => resolveRef(key, item))
-                : resolveRef(key, value)
+                ? value.map((item) => resolveRef(key, item, true))
+                : resolveRef(key, value, false)
         }
         return resolvedInputs
     }
@@ -407,33 +430,12 @@ export class HogInputsService {
         const decryptFailures = await this.integrationManager.getDecryptFailures(allIds)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
-        const handleKeys = new Set(allSchemas.filter((schema) => schema.auth).map((schema) => schema.key))
-        const enforced = this.credentialAuthEnforced(hogFunction.team_id)
-
-        const resolveIntegration = (id: number, inputKey: string, multi: boolean): Record<string, any> | null => {
-            const resolved = this.resolveIntegration(
-                integrations[id],
-                hogFunction.team_id,
-                (decryptFailures[id]?.length ?? 0) > 0
-            )
-            if (!resolved) {
-                return null
-            }
-            const integration = integrations[id]!
-            // The kind decides, because a schema edit can drop `auth` or add a second input on the same connection.
-            const appliesCredential = appliesIntegrationCredential(integration.kind)
-            if (appliesCredential && (enforced || handleKeys.has(inputKey))) {
-                return markServerResolvedIntegration({
-                    $integration_id: integration.id,
-                    ...publicIntegrationConfig(integration.config, integration.sensitive_config),
-                    ...(multi ? {} : credentialHandle(inputKey)),
-                })
-            }
-            if (appliesCredential && newGlobals) {
-                credentialAuthCounter.inc({ outcome: 'legacy_integration', mode: 'observe' })
-            }
-            return resolved
-        }
+        const resolveIntegration = (id: number, inputKey: string, multi: boolean): Record<string, any> | null =>
+            this.resolveIntegration(integrations[id], hogFunction, inputKey, {
+                multi,
+                countLegacy: Boolean(newGlobals),
+                decryptFailed: (decryptFailures[id]?.length ?? 0) > 0,
+            })
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
             // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
