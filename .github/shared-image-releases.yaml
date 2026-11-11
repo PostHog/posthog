@@ -194,6 +194,11 @@ filters:
         - 'products/*/backend/migrations/**'
         - 'posthog/clickhouse/migrations/**'
         - posthog/exceptions.py
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
     genericWorker:
         - 'products/batch_exports/backend/**'
         - 'posthog/settings/**'
