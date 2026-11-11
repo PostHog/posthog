@@ -58,7 +58,6 @@ export function BroadcastAudienceSuggestions(): JSX.Element | null {
     if (!generating && suggestions.length === 0) {
         return null
     }
-    // Until the integrations load, nothing says the sender is missing.
     const senderMissing =
         integrations !== null &&
         !integrations.some((integration) => integration.kind === 'email' && integration.config?.verified === true)
