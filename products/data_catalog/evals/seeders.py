@@ -87,7 +87,6 @@ from products.data_catalog.evals.constants import (
     INVOICE_LINES_ROWS,
     INVOICE_LINES_SCHEMA_NAME,
     INVOICE_LINES_TABLE_NAME,
-    LATE_VIEW_BACKING_SCHEMA_NAME,
     LATE_VIEW_BACKING_TABLE_NAME,
     LATE_VIEW_HISTORY_DAYS,
     LATE_VIEW_NAME,
@@ -171,7 +170,7 @@ from products.posthog_ai.evals.data_warehouse.seeder import seed_warehouse_schem
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.contracts import SyncedWarehouseTable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows
+from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows, create_table_from_rows
 from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableFormat,
     ExternalDataSourceType,
@@ -792,11 +791,15 @@ def _synced_table(
         description_source=description_source,
         test_bucket="eval_catalog",
     )
+    _raise_unless_readable(team, user, table_name, row_count=len(rows))
+    return synced
+
+
+def _raise_unless_readable(team: Team, user: User, table_name: str, *, row_count: int) -> None:
     # A table ClickHouse cannot read would score the agent 0 for an infrastructure fault, so fail the seed instead.
     response = execute_hogql_query(f"SELECT count() FROM {table_name}", team=team, user=user)
-    if getattr(response, "error", None) or not response.results or response.results[0][0] != len(rows):
-        raise RuntimeError(f"Seeded synced table '{table_name}' did not return its {len(rows)} rows.")
-    return synced
+    if getattr(response, "error", None) or not response.results or response.results[0][0] != row_count:
+        raise RuntimeError(f"Seeded table '{table_name}' did not return its {row_count} rows.")
 
 
 def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions: dict[str, str]) -> None:
@@ -882,27 +885,19 @@ def seed_late_certified_view(context: CustomPromptSandboxContext) -> dict[str, A
         ),
         descriptions={},
     )
-    backing = _synced_table(
+    # A materialized view's table belongs to the view, not to a source, so it must not carry source sync state.
+    backing_rows = tuple(
+        (day(days_ago), late_view_signups_on(days_ago))
+        for days_ago in range(LATE_VIEW_REFRESHED_DAYS_AGO + 1, LATE_VIEW_HISTORY_DAYS + 1)
+    )
+    backing = create_table_from_rows(
         team,
-        user,
-        source_type=ExternalDataSourceType.POSTGRES,
-        schema_name=LATE_VIEW_BACKING_SCHEMA_NAME,
         table_name=LATE_VIEW_BACKING_TABLE_NAME,
         columns={"day": _STRING_COLUMN, "signups": _INTEGER_COLUMN},
-        rows=tuple(
-            (day(days_ago), late_view_signups_on(days_ago))
-            for days_ago in range(LATE_VIEW_REFRESHED_DAYS_AGO + 1, LATE_VIEW_HISTORY_DAYS + 1)
-        ),
-        descriptions={},
+        rows=backing_rows,
+        test_bucket="eval_catalog",
     )
-    # A materialized view's table belongs to the view, not to a source, so it must not carry source sync state.
-    backing_table = DataWarehouseTable.objects.get(team=team, id=backing.table_id)
-    backing_source = backing_table.external_data_source
-    backing_table.external_data_source = None
-    backing_table.save(update_fields=["external_data_source"])
-    if backing_source is not None:
-        backing_source.schemas.all().delete()
-        backing_source.delete()
+    _raise_unless_readable(team, user, LATE_VIEW_BACKING_TABLE_NAME, row_count=len(backing_rows))
 
     view = DataWarehouseSavedQuery.objects.create(
         team=team,
@@ -910,7 +905,7 @@ def seed_late_certified_view(context: CustomPromptSandboxContext) -> dict[str, A
         name=LATE_VIEW_NAME,
         columns={"day": _STRING_COLUMN, "signups": _INTEGER_COLUMN},
         query={"kind": "HogQLQuery", "query": LATE_VIEW_SQL},
-        table=backing_table,
+        table_id=backing.table_id,
         is_materialized=True,
         status=DataWarehouseSavedQuery.Status.COMPLETED,
     )

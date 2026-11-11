@@ -467,7 +467,6 @@ INJECTION_RELATIONSHIP_REASONING = (
 LATE_VIEW_NAME = "eval_catalog_trial_signups_daily"
 LATE_VIEW_SOURCE_SCHEMA_NAME = "trial_signups"
 LATE_VIEW_SOURCE_TABLE_NAME = "postgres_trial_signups"
-LATE_VIEW_BACKING_SCHEMA_NAME = "trial_signups_daily_store"
 LATE_VIEW_BACKING_TABLE_NAME = "eval_catalog_trial_signups_daily_store"
 LATE_VIEW_SQL = f"SELECT signup_date AS day, count() AS signups FROM {LATE_VIEW_SOURCE_TABLE_NAME} GROUP BY signup_date"
 LATE_VIEW_REFRESHED_DAYS_AGO = 4

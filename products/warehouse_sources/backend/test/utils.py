@@ -127,6 +127,59 @@ def create_data_warehouse_table_from_csv(
     return (table, source, credential, df, cleanUp)
 
 
+def _object_storage_keys() -> tuple[str, str]:
+    access_key, access_secret = OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
+    if not access_key or not access_secret:
+        raise Exception("Missing S3 credentials")
+    return access_key, access_secret
+
+
+def _write_rows_csv(
+    team: Team,
+    *,
+    table_name: str,
+    columns: Mapping[str, Mapping[str, str | bool]],
+    rows: Sequence[Sequence[object]],
+    test_bucket: str,
+) -> str:
+    access_key, access_secret = _object_storage_keys()
+    folder = f"{OBJECT_STORAGE_BUCKET}/{test_bucket}{XDIST_SUFFIX}/team_{team.id}/{table_name}"
+    fs = s3fs.S3FileSystem(
+        client_kwargs={
+            "region_name": "us-east-1",
+            "endpoint_url": OBJECT_STORAGE_ENDPOINT,
+            "aws_access_key_id": access_key,
+            "aws_secret_access_key": access_secret,
+        },
+    )
+    with fs.open(f"{folder}/data.csv", "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(columns)
+        writer.writerows(rows)
+    return f"{_CLICKHOUSE_OBJECT_STORAGE_ENDPOINT}/{folder}/*.csv"
+
+
+def _csv_table(
+    team: Team,
+    *,
+    table_name: str,
+    columns: Mapping[str, Mapping[str, str | bool]],
+    url_pattern: str,
+    source: ExternalDataSource | None,
+) -> DataWarehouseTable:
+    access_key, access_secret = _object_storage_keys()
+    credential = DataWarehouseCredential.objects.create(team=team, access_key=access_key, access_secret=access_secret)
+    return DataWarehouseTable.objects.create(
+        team=team,
+        name=table_name,
+        format=DataWarehouseTable.TableFormat.CSVWithNames,
+        external_data_source=source,
+        credential=credential,
+        url_pattern=url_pattern,
+        columns=columns,
+    )
+
+
 def create_synced_table_from_rows(
     team: Team,
     *,
@@ -142,23 +195,7 @@ def create_synced_table_from_rows(
     """Install the state a completed source sync leaves: rows in object storage, the source, schema and table rows,
     and the table's annotations. ``""`` in ``descriptions`` is the table-level one.
     """
-    access_key, access_secret = OBJECT_STORAGE_ACCESS_KEY_ID, OBJECT_STORAGE_SECRET_ACCESS_KEY
-    if not access_key or not access_secret:
-        raise Exception("Missing S3 credentials")
-
-    folder = f"{OBJECT_STORAGE_BUCKET}/{test_bucket}{XDIST_SUFFIX}/team_{team.id}/{table_name}"
-    fs = s3fs.S3FileSystem(
-        client_kwargs={
-            "region_name": "us-east-1",
-            "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-            "aws_access_key_id": access_key,
-            "aws_secret_access_key": access_secret,
-        },
-    )
-    with fs.open(f"{folder}/data.csv", "w", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(columns)
-        writer.writerows(rows)
+    url_pattern = _write_rows_csv(team, table_name=table_name, columns=columns, rows=rows, test_bucket=test_bucket)
 
     source = ExternalDataSource.objects.create(
         team=team,
@@ -167,16 +204,7 @@ def create_synced_table_from_rows(
         status=ExternalDataSource.Status.COMPLETED,
         source_type=source_type,
     )
-    credential = DataWarehouseCredential.objects.create(team=team, access_key=access_key, access_secret=access_secret)
-    table = DataWarehouseTable.objects.create(
-        team=team,
-        name=table_name,
-        format=DataWarehouseTable.TableFormat.CSVWithNames,
-        external_data_source=source,
-        credential=credential,
-        url_pattern=f"{_CLICKHOUSE_OBJECT_STORAGE_ENDPOINT}/{folder}/*.csv",
-        columns=columns,
-    )
+    table = _csv_table(team, table_name=table_name, columns=columns, url_pattern=url_pattern, source=source)
     ExternalDataSchema.objects.create(
         team=team,
         name=schema_name,
@@ -194,4 +222,18 @@ def create_synced_table_from_rows(
             description_source=description_source,
             is_user_edited=description_source == WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
         )
+    return SyncedWarehouseTable(table_id=table.id, name=table.name)
+
+
+def create_table_from_rows(
+    team: Team,
+    *,
+    table_name: str,
+    columns: Mapping[str, Mapping[str, str | bool]],
+    rows: Sequence[Sequence[object]],
+    test_bucket: str,
+) -> SyncedWarehouseTable:
+    """Install a table over rows in object storage that no source owns, such as a materialized view's table."""
+    url_pattern = _write_rows_csv(team, table_name=table_name, columns=columns, rows=rows, test_bucket=test_bucket)
+    table = _csv_table(team, table_name=table_name, columns=columns, url_pattern=url_pattern, source=None)
     return SyncedWarehouseTable(table_id=table.id, name=table.name)
