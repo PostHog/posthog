@@ -31,6 +31,8 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
+from posthog.integrations import IntegrationManager
+
 from products.slack_app.backend.models import SlackThreadTaskMapping, SlackUserProfileCache
 
 logger = structlog.get_logger(__name__)
@@ -379,8 +381,14 @@ def _build_people(
     # Name precedence matches `slack_messages`, so one person reads the same on the
     # leaderboard as in forwarded thread context.
     names: dict[str, str] = {}
+    integration_ids = [
+        row.id
+        for row in IntegrationManager.kinds("slack", "slack-posthog-code", auth_types="any").list_by_external_id(
+            slack_workspace_id
+        )
+    ]
     for profile in SlackUserProfileCache.objects.filter(
-        integration__integration_id=slack_workspace_id,
+        integration_id__in=integration_ids,
         slack_user_id__in=slack_user_ids,
     ).values("slack_user_id", "real_name", "display_name"):
         name = profile["display_name"] or profile["real_name"]
