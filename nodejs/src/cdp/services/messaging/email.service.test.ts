@@ -1798,6 +1798,20 @@ describe('EmailService', () => {
                 }
             )
 
+            it('sends without the ownership check once that check failed on each of its retries', async () => {
+                const emailService = sender()
+                emailService.checkJobOwnershipBeforeSend(() =>
+                    Promise.reject(new Error('Connection terminated unexpectedly'))
+                )
+                send([pdf])
+                invocation.queueMetadata = { ...invocation.queueMetadata, ownershipCheckRetries: 5 }
+
+                const result = await emailService.executeSendEmail(invocation)
+
+                expect(outcomeOf(result)).toEqual(sent)
+                expect(deliveredTo(ses, recipient)).toHaveLength(1)
+            })
+
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
                 bucket.answer = 'stallFileBodies'

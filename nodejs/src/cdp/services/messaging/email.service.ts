@@ -176,6 +176,7 @@ const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
 const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
 const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
+const MAX_OWNERSHIP_CHECK_RETRIES = 5
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
 
 class EmailSendDeadlineError extends Error {
@@ -224,10 +225,6 @@ const isAttachmentLoadFailure = (error: unknown): boolean =>
 
 const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
     invocation.queueMetadata?.attachmentLoadRetries ?? 0
-
-function pickOwnershipCheckRetryDelayMs(): number {
-    return 1_000 + Math.floor(Math.random() * 1_000)
-}
 
 function pickAttachmentLoadRetryDelayMs(retries: number): number {
     return Math.min(1_000 * retries + Math.floor(Math.random() * 1_000), 60_000)
@@ -917,8 +914,13 @@ export class EmailService {
                 ? AbortSignal.timeout(this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS)
                 : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
-            const ownership = isTest ? 'owner' : await this.jobOwnershipBeforeSend(invocation, deadline)
+            const ownershipCheckRetries: number = invocation.queueMetadata?.ownershipCheckRetries ?? 0
+            const ownership =
+                isTest || ownershipCheckRetries >= MAX_OWNERSHIP_CHECK_RETRIES
+                    ? 'owner'
+                    : await this.jobOwnershipBeforeSend(invocation, deadline)
             if (ownership !== 'owner') {
+                const retries = ownershipCheckRetries + 1
                 emailSendsStoppedForJobOwnershipTotal.inc({ reason: ownership })
                 logger.warn('Stopped an email send right before it because this worker may not hold its job', {
                     invocationId: invocation.id,
@@ -929,10 +931,11 @@ export class EmailService {
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = {
                     ...invocation.queueMetadata,
+                    ownershipCheckRetries: retries,
                     ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
                 }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({
-                    milliseconds: pickOwnershipCheckRetryDelayMs(),
+                    milliseconds: pickAttachmentLoadRetryDelayMs(retries),
                 })
                 return result
             }

@@ -326,12 +326,9 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     private async writeResult(job: CyclotronV2DequeuedJob, result: CyclotronJobInvocationResult): Promise<void> {
-        if (result.error) {
-            await job.fail()
-        } else if (result.canceled) {
-            await job.cancel()
-        } else if (result.finished) {
-            await job.ack()
+        const operation = releaseOperationOf(result)
+        if (operation !== 'reschedule') {
+            await job[operation]()
         } else {
             const stateBuffer = serializeState(result.invocation)
             await job.reschedule({
@@ -505,7 +502,7 @@ type CyclotronV2JobData = Pick<
 > &
     Partial<Pick<CyclotronV2DequeuedJob, 'lockId'>>
 
-function releaseOperationOf(result: CyclotronJobInvocationResult): string {
+function releaseOperationOf(result: CyclotronJobInvocationResult): 'fail' | 'cancel' | 'ack' | 'reschedule' {
     if (result.error) {
         return 'fail'
     }

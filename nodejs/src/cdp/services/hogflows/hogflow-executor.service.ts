@@ -81,6 +81,7 @@ const PER_SEND_METADATA_KEYS = [
     'teamCapped',
     'suppressionLookupAttempts',
     'attachmentLoadRetries',
+    'ownershipCheckRetries',
     'teamBudgetClaimed',
 ] as const
 
