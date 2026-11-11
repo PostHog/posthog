@@ -106,6 +106,51 @@ describe('WorkflowsScene', () => {
         expect(document.querySelector('[data-attr="workflows-list-v2-retry"]')).toBeNull()
     })
 
+    it('waits for later pages before saying nothing matches, and keeps the loaded rows when one fails', async () => {
+        const answerLaterPage: ((status: number, body: unknown) => void)[] = []
+        const firstPage = paginated(
+            [
+                buildWorkflowRow({
+                    id: 'wf-live',
+                    name: 'Live flow',
+                    status: 'active',
+                    updated_at: '2026-09-02T00:00:00Z',
+                }),
+            ],
+            'http://localhost/api/projects/997/hog_flows/summaries/?offset=100'
+        )
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new URL(request.url).searchParams.get('offset')
+                        ? new Promise((resolve) => answerLaterPage.push((status, body) => resolve([status, body])))
+                        : [200, firstPage],
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'status:draft' })
+        render(
+            <Provider>
+                <WorkflowsScene />
+            </Provider>
+        )
+
+        await waitFor(() => expect(answerLaterPage).toHaveLength(1))
+        await waitFor(() => expect(document.body).toHaveTextContent('Loading more workflows'))
+        expect(document.body).not.toHaveTextContent('No workflows match these filters')
+
+        act(() => answerLaterPage[0](500, { detail: 'Boom' }))
+        act(() => workflowsListV2Logic.actions.clearFilters())
+        await waitFor(() => expect(document.body).toHaveTextContent("Couldn't load all workflows"))
+        expect(shownRowNames()).toEqual(['Live flow'])
+
+        fireEvent.click(document.querySelector('[data-attr="workflows-list-v2-retry"]')!)
+        await waitFor(() => expect(answerLaterPage).toHaveLength(2))
+        act(() => answerLaterPage[1](200, paginated([buildWorkflowRow({ id: 'wf-draft', name: 'Draft flow' })])))
+        await waitFor(() => expect(shownRowNames()).toEqual(['Live flow', 'Draft flow']))
+        expect(document.body).not.toHaveTextContent("Couldn't load all workflows")
+    })
+
     it('keeps guided automation setup on an empty automation view', async () => {
         workflows = FIXTURE_WORKFLOWS.filter((workflow) => workflow.type === 'messaging')
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })

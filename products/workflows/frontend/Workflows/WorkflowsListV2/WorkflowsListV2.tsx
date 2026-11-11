@@ -24,6 +24,8 @@ export function WorkflowsListV2(): JSX.Element {
         matchesText,
         value,
         listLoaded,
+        listComplete,
+        loadingMoreWorkflows,
         workflowsLoading,
         loadFailed,
         loadErrorDetail,
@@ -41,23 +43,25 @@ export function WorkflowsListV2(): JSX.Element {
         workflowLogic.findMounted({ id: 'new' })?.unmount()
     })
 
+    const renderLoadError = (title: string): JSX.Element => (
+        <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
+            <span className="font-semibold">{title}</span>
+            {loadErrorDetail && <span className="text-secondary">{loadErrorDetail}</span>}
+            <LemonButton
+                type="secondary"
+                size="small"
+                loading={workflowsLoading}
+                onClick={loadWorkflows}
+                data-attr="workflows-list-v2-retry"
+            >
+                Retry
+            </LemonButton>
+        </div>
+    )
+
     const renderBody = (): JSX.Element => {
         if (loadFailed && !listLoaded) {
-            return (
-                <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
-                    <span className="font-semibold">Couldn't load workflows</span>
-                    {loadErrorDetail && <span className="text-secondary">{loadErrorDetail}</span>}
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        loading={workflowsLoading}
-                        onClick={loadWorkflows}
-                        data-attr="workflows-list-v2-retry"
-                    >
-                        Retry
-                    </LemonButton>
-                </div>
-            )
+            return renderLoadError("Couldn't load workflows")
         }
         const searchPending = serverSearchStatus === 'pending'
         const healthPending = hasHealthFilter && !metricsLoaded
@@ -76,10 +80,11 @@ export function WorkflowsListV2(): JSX.Element {
                 </div>
             )
         }
-        if (listLoaded && filteredRows.length === 0 && isUnfilteredAutomationView && !searchPending) {
+        // Rows on pages still to come, or on a page that failed, could match, so nothing is empty yet.
+        if (listComplete && filteredRows.length === 0 && isUnfilteredAutomationView && !searchPending) {
             return <AutomationEmptyState />
         }
-        if (listLoaded && rows.length > 0 && filteredRows.length === 0 && !searchPending && !healthPending) {
+        if (listComplete && rows.length > 0 && filteredRows.length === 0 && !searchPending && !healthPending) {
             return (
                 <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
                     <span>No workflows match these filters</span>
@@ -95,20 +100,29 @@ export function WorkflowsListV2(): JSX.Element {
             )
         }
         return (
-            <LemonTable
-                // A new filter starts again on page one, as the flag-off list does.
-                key={`${serializeFacetQuery(value.filters)}\n${value.text}`}
-                size="small"
-                dataSource={filteredRows}
-                // Until the server search answers, a match in an email body can still add rows.
-                loading={!listLoaded || searchPending || healthPending}
-                rowKey="id"
-                columns={buildWorkflowsListV2Columns(shownColumns, metricsLoading)}
-                // Client-side pages stay out of the URL; `page` there is an old list param.
-                pagination={{ pageSize: PAGE_SIZE, useUrl: false }}
-                nouns={['workflow', 'workflows']}
-                emptyState="No workflows yet"
-            />
+            <>
+                {loadFailed && !listComplete && renderLoadError("Couldn't load all workflows")}
+                <LemonTable
+                    // A new filter starts again on page one, as the flag-off list does.
+                    key={`${serializeFacetQuery(value.filters)}\n${value.text}`}
+                    size="small"
+                    dataSource={filteredRows}
+                    // Until the server search answers, a match in an email body can still add rows.
+                    loading={
+                        !listLoaded ||
+                        searchPending ||
+                        healthPending ||
+                        (loadingMoreWorkflows && filteredRows.length === 0)
+                    }
+                    rowKey="id"
+                    columns={buildWorkflowsListV2Columns(shownColumns, metricsLoading)}
+                    // Client-side pages stay out of the URL; `page` there is an old list param.
+                    pagination={{ pageSize: PAGE_SIZE, useUrl: false }}
+                    nouns={['workflow', 'workflows']}
+                    emptyState={listComplete ? 'No workflows yet' : 'None of the workflows loaded so far match'}
+                />
+                {loadingMoreWorkflows && <div className="text-xs text-secondary">Loading more workflows…</div>}
+            </>
         )
     }
 
