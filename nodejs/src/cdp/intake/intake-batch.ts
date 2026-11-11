@@ -13,7 +13,14 @@ import { EMAIL_QUEUE_PRIORITY, cdpEmailQueuedTotal } from '../services/messaging
 import { EmailStatusService } from '../services/messaging/email-status.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocation, CyclotronJobQueueKind, HogFlowInvocationContext } from '../types'
-import { IntakeMessage, RunKind, claimFingerprint, decodeIntakeMessage, intakeJobInit } from './message'
+import {
+    IntakeDeadLetterReason,
+    IntakeMessage,
+    RunKind,
+    claimFingerprint,
+    decodeIntakeMessage,
+    intakeJobInit,
+} from './message'
 
 export const SEND_DEADLINE_EXCEEDED = 'send_deadline_exceeded'
 
@@ -75,17 +82,21 @@ export async function insertIntakeBatch(
     services: IntakeBatchServices,
     options: IntakeBatchOptions
 ): Promise<void> {
-    const runs = firstOfEachRun(parseOrDeadLetter(messages, services.deadLetters, options.kind), options.kind)
+    const { runs: parsed, unparseable } = parse(messages)
+    const runs = firstOfEachRun(parsed, options.kind)
     const now = Date.now()
     const late = runs.filter((run) => isPastSendBy(run.message, now))
     const onTime = runs.filter((run) => !isPastSendBy(run.message, now))
 
-    await failLateRuns(late, services, options.kind)
+    // Nothing is buffered until the claim commits, so a batch that fails before it leaves nothing for its retry to repeat.
+    const unclaimedLate = await withoutLiveClaims(late, services.cyclotron, options.kind)
     await claimRuns(onTime, services, options)
+    failLateRuns(unclaimedLate, services, options.kind)
     // Before the dead letters, so a failure there cannot leave the rows of committed runs queued for a redelivery to drop.
     const { produced } = await services.invocationResults.handOffQueuedRows()
     await Promise.all([produced, services.emailStatus.flush()])
 
+    unparseable.forEach(({ source, reason }) => deadLetter(source, reason, services.deadLetters, options.kind))
     try {
         await services.deadLetters.produceForBatch(messages)
     } catch (error) {
@@ -96,29 +107,42 @@ export async function insertIntakeBatch(
     }
 }
 
-function parseOrDeadLetter(
-    messages: Message[],
-    deadLetters: IntakeBatchServices['deadLetters'],
-    kind: RunKind
-): IntakeRun[] {
-    return messages.flatMap((source) => {
+function parse(messages: Message[]): {
+    runs: IntakeRun[]
+    unparseable: { source: Message; reason: IntakeDeadLetterReason }[]
+} {
+    const runs: IntakeRun[] = []
+    const unparseable: { source: Message; reason: IntakeDeadLetterReason }[] = []
+    for (const source of messages) {
         const decoded = decodeIntakeMessage(source.value)
         if (decoded.status === 'decoded') {
-            return [{ message: decoded.message, invocation: intakeInvocation(decoded.message) }]
+            runs.push({ message: decoded.message, invocation: intakeInvocation(decoded.message) })
+        } else {
+            unparseable.push({ source, reason: decoded.reason })
         }
-        const position = { kind, topic: source.topic, partition: source.partition, offset: source.offset }
-        if (!deadLetters.recordMessageFailure(source, { step: 'parse', error: decoded.reason })) {
-            throw new Error(
-                `Intake message at ${source.topic}[${source.partition}]@${source.offset} is ${decoded.reason} and ` +
-                    'dead letters are off, so the batch fails rather than skip it'
-            )
-        }
-        deadLettersCounter.labels({ kind, reason: decoded.reason }).inc()
-        logger.warn('[CdpIntake] Dead-lettered an intake message that can never insert', {
-            ...position,
-            reason: decoded.reason,
-        })
-        return []
+    }
+    return { runs, unparseable }
+}
+
+function deadLetter(
+    source: Message,
+    reason: IntakeDeadLetterReason,
+    deadLetters: IntakeBatchServices['deadLetters'],
+    kind: RunKind
+): void {
+    if (!deadLetters.recordMessageFailure(source, { step: 'parse', error: reason })) {
+        throw new Error(
+            `Intake message at ${source.topic}[${source.partition}]@${source.offset} is ${reason} and ` +
+                'dead letters are off, so the batch fails rather than skip it'
+        )
+    }
+    deadLettersCounter.labels({ kind, reason }).inc()
+    logger.warn('[CdpIntake] Dead-lettered an intake message that can never insert', {
+        kind,
+        topic: source.topic,
+        partition: source.partition,
+        offset: source.offset,
+        reason,
     })
 }
 
@@ -142,16 +166,26 @@ function isPastSendBy(message: IntakeMessage, now: number): boolean {
 
 // A late run that is already claimed belongs to a job that exists, such as one the route claimed in shadow mode.
 // Its rows share that job's id, so a failed row here would replace the job's own status.
-async function failLateRuns(late: IntakeRun[], services: IntakeBatchServices, kind: RunKind): Promise<void> {
+async function withoutLiveClaims(
+    late: IntakeRun[],
+    cyclotron: IntakeBatchServices['cyclotron'],
+    kind: RunKind
+): Promise<IntakeRun[]> {
     if (late.length === 0) {
-        return
+        return []
     }
-    const claimed = await services.cyclotron.findLiveIdempotencyKeys(late.map((run) => run.message.job.id))
-    for (const run of late) {
-        if (claimed.has(run.message.job.id.toLowerCase())) {
+    const claimed = await cyclotron.findLiveIdempotencyKeys(late.map((run) => run.message.job.id))
+    return late.filter((run) => {
+        const isClaimed = claimed.has(run.message.job.id.toLowerCase())
+        if (isClaimed) {
             claimsCounter.labels({ kind, outcome: 'replayed' }).inc()
-            continue
         }
+        return !isClaimed
+    })
+}
+
+function failLateRuns(late: IntakeRun[], services: IntakeBatchServices, kind: RunKind): void {
+    for (const run of late) {
         deadlineFailuresCounter.labels({ kind }).inc()
         services.invocationResults.queueLifecycleRow(run.invocation, 'failed', {
             error: 'The run passed its send-by deadline before it was queued',

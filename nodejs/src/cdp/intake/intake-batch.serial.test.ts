@@ -290,6 +290,23 @@ describe('insertIntakeBatch', () => {
         ).rejects.toThrow('dead letters are off')
     })
 
+    it('parks a dead letter once when the batch is retried after Postgres was down', async () => {
+        const batch = [
+            send().message,
+            kafkaMessage(Buffer.from('not json')),
+            ...Array.from({ length: 30 }, () => send().message),
+        ]
+        const down: IntakeBatchServices['cyclotron'] = {
+            createJobsIdempotently: () => Promise.reject(new Error('Connection terminated')),
+            findLiveIdempotencyKeys: () => Promise.reject(new Error('Connection terminated')),
+        }
+        await expect(insertIntakeBatch(batch, { ...services, cyclotron: down }, OPTIONS)).rejects.toThrow()
+
+        await insertIntakeBatch(batch, services, OPTIONS)
+
+        expect(deadLetters()).toHaveLength(1)
+    })
+
     it('writes the rows of the runs it created even when parking a dead letter fails', async () => {
         const run = send()
         const brokerDown: IntakeBatchServices['deadLetters'] = {
