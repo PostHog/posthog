@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { logger } from '~/common/utils/logger'
 
 import type { CdpOutputs } from '../../cdp-services'
@@ -84,7 +85,11 @@ export class PoisonQuarantine {
             throw error
         }
 
-        if (poisoned.length > MAX_QUARANTINED_PER_BATCH || poisoned.length === outcomes.length) {
+        if (
+            poisoned.length > MAX_QUARANTINED_PER_BATCH ||
+            poisoned.length === outcomes.length ||
+            poisoned.some(({ error }) => error instanceof DependencyUnavailableError)
+        ) {
             logger.error('☣️', 'cdp_poison_too_many_failed_alone', {
                 consumerGroup: source.consumerGroup,
                 failedAlone: poisoned.length,
