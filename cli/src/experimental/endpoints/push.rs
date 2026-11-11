@@ -9,10 +9,10 @@ use inquire::Confirm;
 use crate::invocation_context::context;
 
 use super::{
-    compute_changes_for_push, create_insight_variable, fetch_all_endpoints,
-    fetch_insight_variables, format_change_summary, get_remote_variable_names, print_diff, Change,
-    CreateInsightVariableRequest, EndpointResponse, EndpointVariable, EndpointYaml,
-    InsightVariable, PushArgs, ResolvedVariables, VALID_SYNC_FREQUENCIES,
+    compute_changes_for_push, create_insight_variable, debug_request, debug_request_body,
+    fetch_all_endpoints, fetch_insight_variables, format_change_summary, get_remote_variable_names,
+    print_diff, Change, CreateInsightVariableRequest, EndpointResponse, EndpointVariable,
+    EndpointYaml, InsightVariable, PushArgs, ResolvedVariables, VALID_SYNC_FREQUENCIES,
 };
 
 /// Represents a variable change for display in the diff
@@ -643,12 +643,8 @@ fn create_endpoint(
     };
     let request_body = endpoint.to_api_request(resolved_opt);
 
-    if debug {
-        crate::safe_eprintln!("  {} POST endpoints/", "DEBUG".cyan().bold());
-        if let Ok(json) = serde_json::to_string_pretty(&request_body) {
-            crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
-        }
-    }
+    debug_request(debug, "POST", "endpoints/");
+    debug_request_body(debug);
 
     let result = client.send_post(client.env_url("endpoints/")?, |req| req.json(&request_body));
 
@@ -678,16 +674,8 @@ fn update_endpoint(
     let request_body = endpoint.to_api_request(resolved_opt);
     let url = client.env_url(&format!("endpoints/{}/", endpoint.name))?;
 
-    if debug {
-        crate::safe_eprintln!(
-            "  {} PATCH endpoints/{}/",
-            "DEBUG".cyan().bold(),
-            endpoint.name
-        );
-        if let Ok(json) = serde_json::to_string_pretty(&request_body) {
-            crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
-        }
-    }
+    debug_request(debug, "PATCH", &format!("endpoints/{}/", endpoint.name));
+    debug_request_body(debug);
 
     let result = client.send_request(reqwest::Method::PATCH, url, |req| req.json(&request_body));
 

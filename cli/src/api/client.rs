@@ -1,5 +1,5 @@
 use std::{
-    fmt::Display,
+    fmt::{Debug, Display},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -14,7 +14,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::debug;
 
-use crate::{invocation_context::InvocationConfig, utils::throttler::Throttler};
+use crate::{
+    invocation_context::InvocationConfig,
+    utils::{redact_request_error, redact_url, throttler::Throttler},
+};
 const ONE_MINUTE_IN_MS: u64 = 60 * 1000;
 
 #[derive(Clone)]
@@ -47,6 +50,34 @@ mod tests {
     }
 
     #[test]
+    fn error_diagnostics_exclude_response_data_and_url_credentials() {
+        for body in [
+            r#"{"type":"validation_error","code":"invalid","detail":"BODY_SECRET","attr":"FIELD_SECRET","extra":{"key":"EXTRA_SECRET"}}"#,
+            "BODY_SECRET FIELD_SECRET EXTRA_SECRET",
+        ] {
+            let error = ClientError::ApiError(
+                400,
+                Box::new(Url::parse("https://user:HOST_SECRET@example.com/api/test?token=QUERY_SECRET#FRAGMENT_SECRET").unwrap()),
+                body.to_string(),
+            );
+            for output in [error.to_string(), format!("{error:?}")] {
+                assert!(output.contains("400"), "{output}");
+                assert!(output.contains("/api/test"), "{output}");
+                for secret in [
+                    "HOST_SECRET",
+                    "QUERY_SECRET",
+                    "FRAGMENT_SECRET",
+                    "BODY_SECRET",
+                    "FIELD_SECRET",
+                    "EXTRA_SECRET",
+                ] {
+                    assert!(!output.contains(secret), "{output}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn falls_back_to_body_match_for_legacy_errors() {
         let error = api_error("legacy release_id_mismatch response");
 
@@ -54,7 +85,7 @@ mod tests {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error)]
 pub enum ClientError {
     RequestError(reqwest::Error),
     // All invalid status codes
@@ -65,29 +96,41 @@ pub enum ClientError {
 impl Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ClientError::RequestError(err) => write!(f, "Request error: {err}"),
+            ClientError::RequestError(err) => {
+                write!(f, "Request failed")?;
+                if let Some(url) = err.url() {
+                    write!(f, " for {}", redact_url(url))?;
+                }
+                if err.is_timeout() {
+                    write!(f, " (timeout)")?;
+                } else if err.is_connect() {
+                    write!(f, " (connection error)")?;
+                }
+                Ok(())
+            }
             ClientError::InvalidUrl(msg) => {
                 write!(f, "Failed to build URL: {msg}")
             }
             ClientError::ApiError(status, url, body) => {
-                // We only parse api error on display to catch all errors even when the body is not JSON
-                match serde_json::from_str::<ApiErrorResponse>(body) {
-                    Ok(api_error) => {
-                        write!(f, "API error: {api_error}")
-                    }
-                    Err(_) => write!(
-                        f,
-                        "API error: status='{status}' url='{url}' message='{body}'",
-                    ),
+                write!(f, "API error: status='{status}' url='{}'", redact_url(url))?;
+                if let Ok(api_error) = serde_json::from_str::<ApiErrorResponse>(body) {
+                    write!(f, " {api_error}")?;
                 }
+                Ok(())
             }
         }
     }
 }
 
+impl Debug for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
 impl From<reqwest::Error> for ClientError {
     fn from(error: reqwest::Error) -> Self {
-        ClientError::RequestError(error)
+        ClientError::RequestError(redact_request_error(error))
     }
 }
 
@@ -124,21 +167,11 @@ fn api_error_code(body: &str) -> Option<String> {
 pub struct ApiErrorResponse {
     r#type: String,
     code: String,
-    detail: String,
-    attr: Option<String>,
 }
 
 impl Display for ApiErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "error='{}' code='{}' details='{}'",
-            self.r#type, self.code, self.detail
-        )?;
-        if let Some(attr) = &self.attr {
-            write!(f, ", attributes='{attr}'")?;
-        }
-        Ok(())
+        write!(f, "error='{}' code='{}'", self.r#type, self.code)
     }
 }
 
@@ -239,7 +272,7 @@ impl PHClient {
 
     fn create_request(&self, method: Method, url: Url) -> RequestBuilder {
         let headers = self.build_headers();
-        debug!("building request for {method} {url}");
+        debug!("building request for {method} {}", redact_url(&url));
         self.client
             .request(method, url)
             .bearer_auth(&self.config.api_key)
@@ -273,13 +306,11 @@ impl PHClient {
         let env_id = self.config.env_id.clone();
 
         let base_url = Url::parse(&host)
-            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}")))?
+            .map_err(|e| ClientError::InvalidUrl(e.to_string()))?
             .join(&format!("api/{base}/{env_id}/"))
-            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}/api/{base}/{env_id}")))?
+            .map_err(|e| ClientError::InvalidUrl(e.to_string()))?
             .join(path)
-            .map_err(|e| {
-                ClientError::InvalidUrl(format!("{e} {host}/api/{base}/{env_id}/{path}"))
-            })?;
+            .map_err(|e| ClientError::InvalidUrl(e.to_string()))?;
         Ok(base_url)
     }
 }

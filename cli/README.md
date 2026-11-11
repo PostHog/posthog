@@ -93,6 +93,12 @@ These variables can also be loaded from a dotenv-style file via `--dotenv-file <
 
 Full precedence: CLI args → process env → `--dotenv-file` → `~/.posthog/credentials.json` (from `posthog-cli login`).
 
+## Diagnostic logging
+
+Request diagnostics omit URL credentials and query strings.
+Endpoint `--debug` output also omits request and response bodies.
+These protections do not change the requests or the command results: query results and task output can still contain the data you requested.
+
 ## Uploading native debug symbols
 
 `posthog-cli symbol-sets upload --directory <dir>` scans a directory for native debug symbols and uploads them so PostHog can symbolicate native stack frames.

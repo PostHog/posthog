@@ -36,13 +36,16 @@ pub fn debug_request(debug: bool, method: &str, path: &str) {
     }
 }
 
-/// Log a debug response body. Only prints if debug is true.
-#[inline]
-pub fn debug_response_body<T: serde::Serialize>(debug: bool, body: &T) {
+pub fn debug_request_body(debug: bool) {
     if debug {
-        if let Ok(json) = serde_json::to_string_pretty(body) {
-            crate::safe_eprintln!("  Response:\n{}", json.dimmed());
-        }
+        crate::safe_eprintln!("  Request body omitted from debug output");
+    }
+}
+
+#[inline]
+pub fn debug_response_body<T: serde::Serialize>(debug: bool, _body: &T) {
+    if debug {
+        crate::safe_eprintln!("  Response body omitted from debug output");
     }
 }
 
@@ -805,19 +808,14 @@ pub fn fetch_insight_variables(debug: bool) -> Result<Vec<InsightVariable>> {
 }
 
 /// Create a new insight variable
-/// If debug is true, prints the request body and any error response
 pub fn create_insight_variable(
     request: &CreateInsightVariableRequest,
     debug: bool,
 ) -> Result<InsightVariable> {
     let client = &context().client;
 
-    if debug {
-        crate::safe_eprintln!("  {} POST insight_variables/", "DEBUG".cyan().bold());
-        if let Ok(json) = serde_json::to_string_pretty(request) {
-            crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
-        }
-    }
+    debug_request(debug, "POST", "insight_variables/");
+    debug_request_body(debug);
 
     let result = client.send_post(client.env_url("insight_variables/")?, |req| {
         req.json(request)
