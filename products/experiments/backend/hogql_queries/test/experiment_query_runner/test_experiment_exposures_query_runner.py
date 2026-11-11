@@ -2814,7 +2814,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         [
             ("end_date_only", datetime(2024, 1, 10), None, datetime(2024, 1, 10)),
             ("as_of_on_running_experiment", None, datetime(2024, 1, 12), datetime(2024, 1, 12)),
-            ("as_of_before_end_date", datetime(2024, 1, 20), datetime(2024, 1, 12), datetime(2024, 1, 12)),
+            ("as_of_before_end_date", datetime(2024, 1, 14), datetime(2024, 1, 12), datetime(2024, 1, 12)),
             ("as_of_after_end_date", datetime(2024, 1, 10), datetime(2024, 1, 12), datetime(2024, 1, 10)),
             ("as_of_after_now_clamps_to_now", None, datetime(9999, 12, 31), datetime(2024, 1, 15)),
             ("as_of_before_start_date_is_ignored", None, datetime(2023, 12, 20), datetime(2024, 1, 15)),
