@@ -301,35 +301,52 @@ class TestSandboxEmailSteps(APIBaseTest):
         if expected == 400:
             assert "This sender can't send email from a workflow" in response.json()["detail"]
 
+    def _patch_with_float_sender_id(self, flow: HogFlow, sender_id: int, spelling: str, saved_status: str) -> Any:
+        body = json.dumps(
+            {
+                "status": saved_status,
+                "actions": [_trigger(), _own_email_step(sender_id)],
+                "edges": [{"from": "trigger_node", "to": OWN_EMAIL_STEP_ID, "type": "continue"}],
+            }
+        ).replace(f'"integrationId": {sender_id}', f'"integrationId": {sender_id}{spelling}')
+        return self.client.patch(self._url(str(flow.id)), body, content_type="application/json")
+
     @parameterized.expand(
         [
-            ("decimal_on_publish", ".0", "active", "Expected 'from.integrationId' to be an Integration ID"),
-            ("exponent_on_publish", "e0", "active", "Expected 'from.integrationId' to be an Integration ID"),
-            ("decimal_in_a_web_draft_save", ".0", "draft", "This sender can't send email from a workflow"),
-            ("exponent_in_a_web_draft_save", "e0", "draft", "This sender can't send email from a workflow"),
+            ("decimal_on_publish", ".0", "active"),
+            ("exponent_on_publish", "e0", "active"),
+            ("decimal_in_a_web_draft_save", ".0", "draft"),
+            ("exponent_in_a_web_draft_save", "e0", "draft"),
         ]
     )
     def test_an_email_step_cannot_pick_the_sandbox_row_by_a_float_spelling_of_its_id(
-        self, _name: str, spelling: str, saved_status: str, error: str
+        self, _name: str, spelling: str, saved_status: str
     ) -> None:
         sync_template_to_db(_email_function_template())
         sandbox_row = Integration.objects.create(
             team=self.team, kind="email_sandbox", integration_id="posthog-managed-sandbox", config={}
         )
         flow = HogFlow.objects.create(team=self.team, name="Own email flow", status="draft", actions=[_trigger()])
-        body = json.dumps(
-            {
-                "status": saved_status,
-                "actions": [_trigger(), _own_email_step(sandbox_row.id)],
-                "edges": [{"from": "trigger_node", "to": OWN_EMAIL_STEP_ID, "type": "continue"}],
-            }
-        ).replace(f'"integrationId": {sandbox_row.id}', f'"integrationId": {sandbox_row.id}{spelling}')
 
-        response = self.client.patch(self._url(str(flow.id)), body, content_type="application/json")
+        response = self._patch_with_float_sender_id(flow, sandbox_row.id, spelling, saved_status)
 
         assert response.status_code == 400, response.json()
-        assert error in response.json()["detail"]
+        assert "This sender can't send email from a workflow" in response.json()["detail"]
         assert HogFlow.objects.get(id=flow.id).actions == [_trigger()]
+
+    @parameterized.expand([("decimal", ".0"), ("exponent", "e0")])
+    def test_publishing_accepts_an_email_sender_id_written_as_a_whole_float(self, _name: str, spelling: str) -> None:
+        sync_template_to_db(_email_function_template())
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"email": "hello@example.com"}
+        )
+        flow = HogFlow.objects.create(team=self.team, name="Own email flow", status="draft", actions=[_trigger()])
+
+        response = self._patch_with_float_sender_id(flow, sender.id, spelling, "active")
+
+        assert response.status_code == 200, response.json()
+        stored_step = HogFlow.objects.get(id=flow.id).actions[1]
+        assert stored_step["config"]["inputs"]["email"]["value"]["from"]["integrationId"] == sender.id
 
     @parameterized.expand([("new_value", False), ("unchanged_stored_value", True)])
     def test_publishing_rejects_a_sender_id_written_as_a_string(self, _name: str, stored: bool) -> None:

@@ -1049,8 +1049,9 @@ class InputsItemSerializer(serializers.Serializer):
                         {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
                     )
 
+                # JSON has one number type, so 2.0 names Integration 2: the kind check below reads it as such.
                 integration_id = from_value.get("integrationId")
-                if integration_id is not None and not _is_integration_id(integration_id):
+                if integration_id is not None and _as_integration_id(integration_id) is None:
                     raise serializers.ValidationError(
                         {"input": "Expected 'from.integrationId' to be an Integration ID."}
                     )
