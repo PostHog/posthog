@@ -1166,6 +1166,8 @@ export interface WarehouseTrinoStatusApi {
      * @nullable
      */
     ready_at: string | null
+    /** Whether the organization's Trino catalog is backed by hoglake. Hoglake credentials reach nothing otherwise. */
+    hoglake: boolean
     /** Trino connection target. Null until Trino is ready and reachable. */
     connection: WarehouseTrinoConnectionApi | null
 }
@@ -2193,6 +2195,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
@@ -2321,6 +2325,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.

@@ -801,6 +801,10 @@ export type McpAnalyticsSessionsToolCallsParams = {
      */
     date_from?: string
     /**
+     * Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops there instead of reading up to now. Unbounded when omitted or unparseable.
+     */
+    date_to?: string
+    /**
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */
     filter_test_accounts?: boolean

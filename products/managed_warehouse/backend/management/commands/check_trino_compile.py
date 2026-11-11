@@ -24,6 +24,7 @@ from products.managed_warehouse.backend.trino_compile_check import (
     TrinoCompileCheckStage,
     check_trino_compile,
 )
+from products.managed_warehouse.backend.trino_compiler import TrinoTargetUnavailable
 
 
 class Command(BaseCommand):
@@ -65,6 +66,8 @@ class Command(BaseCommand):
                     sink.write(json.dumps(_row_json(row)) + "\n")
                     sink.flush()
                 self._write_row(row, options["format"])
+        except TrinoTargetUnavailable as error:
+            raise CommandError(f"No Trino target for team {team.pk}, nothing was checked: {error}") from error
         finally:
             if sink is not None:
                 sink.close()

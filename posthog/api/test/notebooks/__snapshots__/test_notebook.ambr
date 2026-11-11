@@ -467,26 +467,32 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.16
   '''
-  SELECT "posthog_sharingconfiguration"."id",
-         "posthog_sharingconfiguration"."team_id",
-         "posthog_sharingconfiguration"."dashboard_id",
-         "posthog_sharingconfiguration"."insight_id",
-         "posthog_sharingconfiguration"."recording_id",
-         "posthog_sharingconfiguration"."notebook_id",
-         "posthog_sharingconfiguration"."interviewee_context_id",
-         "posthog_sharingconfiguration"."shared_by_id",
-         "posthog_sharingconfiguration"."created_at",
-         "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token",
-         "posthog_sharingconfiguration"."expires_at",
-         "posthog_sharingconfiguration"."settings",
-         "posthog_sharingconfiguration"."password_required"
-  FROM "posthog_sharingconfiguration"
-  WHERE "posthog_sharingconfiguration"."notebook_id" = '00000000000000000000000000000000'::uuid
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."content_type_id",
+         "posthog_taggeditem"."object_id",
+         "posthog_taggeditem"."object_uuid",
+         "posthog_taggeditem"."team_id"
+  FROM "posthog_taggeditem"
+  WHERE ("posthog_taggeditem"."content_type_id" = 99999
+         AND "posthog_taggeditem"."object_uuid" = '00000000000000000000000000000000'::uuid)
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.17
   '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."content_type_id",
+         "posthog_taggeditem"."object_id",
+         "posthog_taggeditem"."object_uuid",
+         "posthog_taggeditem"."team_id"
+  FROM "posthog_taggeditem"
+  WHERE ("posthog_taggeditem"."content_type_id" = 99999
+         AND "posthog_taggeditem"."object_uuid" = '00000000000000000000000000000000'::uuid)
+  '''
+# ---
+# name: TestNotebooks.test_updates_notebook.18
+  '''
   SELECT "posthog_sharingconfiguration"."id",
          "posthog_sharingconfiguration"."team_id",
          "posthog_sharingconfiguration"."dashboard_id",
@@ -505,24 +511,24 @@
   WHERE "posthog_sharingconfiguration"."notebook_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.18
-  '''
-  SELECT "posthog_resourcenotebook"."id",
-         "posthog_resourcenotebook"."notebook_id",
-         "posthog_resourcenotebook"."group_id",
-         "posthog_resourcenotebook"."account_id"
-  FROM "posthog_resourcenotebook"
-  WHERE "posthog_resourcenotebook"."notebook_id" = '00000000000000000000000000000000'::uuid
-  '''
-# ---
 # name: TestNotebooks.test_updates_notebook.19
   '''
-  SELECT "posthog_resourcenotebook"."id",
-         "posthog_resourcenotebook"."notebook_id",
-         "posthog_resourcenotebook"."group_id",
-         "posthog_resourcenotebook"."account_id"
-  FROM "posthog_resourcenotebook"
-  WHERE "posthog_resourcenotebook"."notebook_id" = '00000000000000000000000000000000'::uuid
+  SELECT "posthog_sharingconfiguration"."id",
+         "posthog_sharingconfiguration"."team_id",
+         "posthog_sharingconfiguration"."dashboard_id",
+         "posthog_sharingconfiguration"."insight_id",
+         "posthog_sharingconfiguration"."recording_id",
+         "posthog_sharingconfiguration"."notebook_id",
+         "posthog_sharingconfiguration"."interviewee_context_id",
+         "posthog_sharingconfiguration"."shared_by_id",
+         "posthog_sharingconfiguration"."created_at",
+         "posthog_sharingconfiguration"."enabled",
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at",
+         "posthog_sharingconfiguration"."settings",
+         "posthog_sharingconfiguration"."password_required"
+  FROM "posthog_sharingconfiguration"
+  WHERE "posthog_sharingconfiguration"."notebook_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.2
@@ -582,6 +588,26 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.20
   '''
+  SELECT "posthog_resourcenotebook"."id",
+         "posthog_resourcenotebook"."notebook_id",
+         "posthog_resourcenotebook"."group_id",
+         "posthog_resourcenotebook"."account_id"
+  FROM "posthog_resourcenotebook"
+  WHERE "posthog_resourcenotebook"."notebook_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestNotebooks.test_updates_notebook.21
+  '''
+  SELECT "posthog_resourcenotebook"."id",
+         "posthog_resourcenotebook"."notebook_id",
+         "posthog_resourcenotebook"."group_id",
+         "posthog_resourcenotebook"."account_id"
+  FROM "posthog_resourcenotebook"
+  WHERE "posthog_resourcenotebook"."notebook_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestNotebooks.test_updates_notebook.22
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -627,7 +653,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.21
+# name: TestNotebooks.test_updates_notebook.23
   '''
   SELECT "posthog_resourcenotebook"."id",
          "posthog_resourcenotebook"."account_id"
@@ -638,7 +664,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.22
+# name: TestNotebooks.test_updates_notebook.24
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -724,7 +750,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.23
+# name: TestNotebooks.test_updates_notebook.25
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -862,7 +888,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.24
+# name: TestNotebooks.test_updates_notebook.26
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -917,7 +943,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.25
+# name: TestNotebooks.test_updates_notebook.27
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_activitylog"
@@ -925,7 +951,7 @@
          AND "posthog_activitylog"."team_id" = 99999)
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.26
+# name: TestNotebooks.test_updates_notebook.28
   '''
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",

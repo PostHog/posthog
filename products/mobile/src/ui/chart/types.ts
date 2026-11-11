@@ -3,7 +3,7 @@ import type { Accent } from '@/model/types'
 export type ChartKind = 'line' | 'bar'
 export type BarLayout = 'grouped' | 'stacked'
 
-export type ChartInterval = 'hour' | 'day' | 'week' | 'month'
+export type ChartInterval = 'minute' | 'hour' | 'day' | 'week' | 'month'
 
 /**
  * `compact`: a pin in a list, 96pt high, no y labels, first and last x labels.
@@ -84,6 +84,8 @@ export interface ChartCanvasSlot {
 interface MetricChartBaseProps {
     kind: ChartKind
     barLayout?: BarLayout
+    /** Draws every bar in one view instead of paging when bars get narrow, for a short fixed window such as Live's. */
+    fitAllBars?: boolean
     interval: ChartInterval
     /** The chart's name, for the accessibility summary. With `points`, also the tooltip row label. */
     label: string

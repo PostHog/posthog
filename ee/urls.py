@@ -42,7 +42,7 @@ def extend_api_router() -> None:
         r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
     )
     projects_router.register(r"billing", project_billing.ProjectBillingViewSet, "project_billing", ["team_id"])
-    root_router.register(r"integrations", integration.PublicIntegrationViewSet)
+    root_router.register(r"integrations", integration.PublicIntegrationViewSet, "integration")
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 
     projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])
@@ -66,7 +66,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
     from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
     admin_urlpatterns = [
@@ -95,12 +94,12 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/tophog/",
-            admin.site.admin_view(tophog_dashboard_view),
+            MovedToConsole.page_redirect("TopHog", "/admin/console/tools/tophog/"),
             name="tophog-dashboard",
         ),
         path(
             "admin/tophog/restrictions/",
-            admin.site.admin_view(tophog_restrictions_view),
+            MovedToConsole.page_redirect("TopHog restrictions", "/admin/console/tools/tophog/"),
             name="tophog-restrictions",
         ),
         path(

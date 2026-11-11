@@ -1,8 +1,10 @@
+import gc
 import os
 import time
 import errno
 import threading
 
+from django.conf import settings
 from django.dispatch import receiver
 
 import structlog
@@ -16,8 +18,10 @@ from celery.signals import (
     task_prerun,
     task_retry,
     task_success,
+    worker_init,
     worker_process_init,
     worker_process_shutdown,
+    worker_ready,
 )
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
@@ -208,6 +212,21 @@ def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=N
     _tag_celery_span_with_team_id(kwargs)
 
 
+@worker_init.connect
+def freeze_objects_before_pool_forks(**kwargs) -> None:
+    if not settings.GC_FREEZE_BEFORE_POOL_FORK:
+        return
+    # Celery sends worker_init after it imports the task modules and before the prefork pool forks
+    # its children, so the frozen objects include the tasks. Children that the pool forks again
+    # later, for example after --max-tasks-per-child, inherit the same frozen objects. The garbage
+    # collector writes to every object it scans, so a child's first full collection turns the memory
+    # it shares with this process into private copies. Frozen objects are never scanned, so the
+    # children keep sharing them. The collection runs first because a frozen garbage cycle is never
+    # freed.
+    gc.collect()
+    gc.freeze()
+
+
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
     from posthoganalytics import setup
@@ -244,6 +263,18 @@ def on_worker_start(**kwargs) -> None:
 
     # Initialize metrics that need to survive pod restarts
     _initialize_worker_metrics()
+
+
+@worker_ready.connect
+def write_heartbeat_when_worker_is_ready(**kwargs) -> None:
+    from posthog.cloud_utils import is_hobby
+    from posthog.tasks.tasks import redis_heartbeat
+
+    # Hobby schedules the heartbeat every 60 seconds, and beat first runs an interval task one
+    # interval after it starts. Without this write, preflight shows Celery offline on a new install
+    # until that first run.
+    if is_hobby():
+        redis_heartbeat()
 
 
 _ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0
