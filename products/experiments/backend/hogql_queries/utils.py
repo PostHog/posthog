@@ -187,17 +187,6 @@ _ALIAS_TO_STATS_FIELD: dict[str, str] = {
     "quantile_grid": "quantile_grid",
 }
 
-_OVERALL_QUANTILE_ALIAS_TO_STATS_FIELD: dict[str, str] = {
-    "variant": "key",
-    "num_users": "number_of_samples",
-    "overall_total_sum": "sum",
-    "overall_total_sum_of_squares": "sum_squares",
-    "denominator_sum": "denominator_sum",
-    "denominator_sum_squares": "denominator_sum_squares",
-    "overall_numerator_denominator_sum_product": "numerator_denominator_sum_product",
-    "overall_quantile_grid": "quantile_grid",
-}
-
 
 def get_variant_result(
     row: tuple,
@@ -241,11 +230,13 @@ def get_overall_variant_results(
     Parse the rows of a query with breakdowns into stats that add up to the overall stats of each variant.
 
     The quantiles of the breakdowns do not give the quantile of the whole variant, so a quantile query returns
-    separate overall columns for this. The stats of other metrics add up as they are.
+    an overall_<alias> column for each stat that does not add up, and that column replaces <alias>. The stats
+    of other metrics add up as they are.
     """
-    alias_to_field = (
-        _OVERALL_QUANTILE_ALIAS_TO_STATS_FIELD if "overall_quantile_grid" in columns else _ALIAS_TO_STATS_FIELD
-    )
+    alias_to_field = {
+        (f"overall_{alias}" if f"overall_{alias}" in columns else alias): field
+        for alias, field in _ALIAS_TO_STATS_FIELD.items()
+    }
     return [get_variant_result(row, columns, alias_to_field) for row in rows]
 
 
