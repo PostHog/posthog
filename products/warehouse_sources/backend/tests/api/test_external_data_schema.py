@@ -2184,14 +2184,10 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={"cdc_mode": "snapshot", "primary_key_columns": []},
         )
 
-        with mock.patch(
-            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
-            return_value=True,
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data=data,
-            )
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data=data,
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "primary key" in str(response.json()).lower()
