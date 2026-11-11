@@ -44,6 +44,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import (
     CORRUPTED_PARQUET_METADATA_MESSAGE,
+    INTERNAL_CH_ERROR_USER_MESSAGES,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -1554,6 +1555,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         if user_facing_message is not None:
             raise Exception(user_facing_message)
+
+        # NETWORK_ERROR, SOCKET_TIMEOUT and the other codes in INTERNAL_CH_ERROR_USER_MESSAGES are
+        # ClickHouse-infrastructure conditions with nothing to do with the customer's bucket.
+        # wrap_clickhouse_query_error already gave them their own safe, generic message; the bucket
+        # fallback below would otherwise send the customer chasing credentials for a problem on our end.
+        code_name = getattr(err, "code_name", None)
+        if code_name and (infra_message := INTERNAL_CH_ERROR_USER_MESSAGES.get(code_name.upper())):
+            raise Exception(infra_message)
 
         raise Exception(
             "Could not read the files from your storage bucket. Check that the files URL pattern, file format, "
