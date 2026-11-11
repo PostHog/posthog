@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { buildToolResultPayload } from '@/lib/build-tool-result'
-import { findRecoverableApiError, PostHogValidationError } from '@/lib/errors'
+import { findRecoverableApiError, handleToolError, PostHogValidationError } from '@/lib/errors'
 import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
 import { addCellHandler, NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
 import { findCellTag, readExpressionProp, readStringProp } from '@/tools/notebooks/cellTags'
@@ -624,6 +624,11 @@ describe('notebook cell tools', () => {
                 'Cell upstream produces events_df. Run it with notebooks-run-cell, then run this cell again.'
             )
             expect((error as Error).message).not.toContain('BODY_SECRET')
+            const formatted = JSON.stringify(handleToolError(error, 'notebooks-run-cell'))
+            expect(formatted).toContain(
+                'Cell upstream produces events_df. Run it with notebooks-run-cell, then run this cell again.'
+            )
+            expect(formatted).not.toContain('BODY_SECRET')
             expect(findRecoverableApiError(error)).toBeInstanceOf(PostHogValidationError)
             expect(findRecoverableApiError(error)).toMatchObject({ detail: state.runDispatchError })
         })

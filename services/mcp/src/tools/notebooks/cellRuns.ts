@@ -203,12 +203,12 @@ function withUnrunUpstreamHint(error: unknown, cells: CellTagBlock[]): unknown {
     if (!upstream) {
         return error
     }
-    // The original stays as the cause, so the error handler still finds the 400 and treats the
-    // mistake as recoverable rather than as an internal failure.
-    return wrapError(
-        `${message} Cell ${upstream.nodeId} produces ${name}. Run it with notebooks-run-cell, then run this cell again.`,
-        error
-    )
+    const hint = `Cell ${upstream.nodeId} produces ${name}. Run it with notebooks-run-cell, then run this cell again.`
+    if (apiError instanceof PostHogValidationError) {
+        // MCP and CLI formatters unwrap errors, so the typed error must carry the safe hint.
+        return new PostHogValidationError({ ...apiError, message: `${apiError.message} ${hint}` })
+    }
+    return wrapError(`${message} ${hint}`, error)
 }
 
 /**
