@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, TypeVar
 
 import structlog
 from anthropic import Anthropic
@@ -16,7 +16,8 @@ from .gather import MergeEvidence
 
 logger = structlog.get_logger(__name__)
 
-JudgeDeclineCause = Literal["validation_error", "refusal", "no_parsed_output"]
+DeclineCause = Literal["validation_error", "refusal", "no_parsed_output"]
+ParsedOutput = TypeVar("ParsedOutput", bound=BaseModel)
 
 JudgedChangeKind = Literal[DocsChangeKind.UPDATE, DocsChangeKind.CREATE, DocsChangeKind.REMOVE]
 JUDGE_MODEL = "claude-sonnet-5-5"
@@ -51,6 +52,11 @@ class JudgeVerdict(BaseModel):
 
 
 @dataclass(frozen=True)
+class Declined:
+    cause: DeclineCause
+
+
+@dataclass(frozen=True)
 class Decision:
     needs_docs: bool
     change_kind: DocsChangeKind | None
@@ -70,12 +76,9 @@ def judge_client(commit_sha: str) -> Anthropic:
 
 
 def decide_with_judge(
-    anthropic_client: Anthropic,
-    evidence: MergeEvidence,
-    *,
-    docs_page_paths: list[str],
-    page_text_by_key: dict[str, str],
+    anthropic_client: Anthropic, evidence: MergeEvidence, *, page_text_by_key: dict[str, str]
 ) -> Decision:
+    docs_page_paths = evidence.docs_page_paths
     verdict = judge_merge(
         anthropic_client,
         title=evidence.title,
@@ -140,31 +143,51 @@ def judge_merge(
     docs_page_paths: list[str],
     page_text_by_key: dict[str, str],
 ) -> JudgeVerdict:
-    page_texts = "".join(f'<page path="{key}">\n{text}\n</page>\n\n' for key, text in page_text_by_key.items())
+    page_texts = page_tags(page_text_by_key, separator="\n\n")
+    parsed = parse_structured_output(
+        anthropic_client,
+        JudgeVerdict,
+        model=JUDGE_MODEL,
+        timeout_seconds=JUDGE_TIMEOUT_SECONDS,
+        max_retries=JUDGE_MAX_RETRIES,
+        system=system_with_cached_page_list(JUDGE_INSTRUCTIONS, docs_page_paths),
+        content=f"Commit title: {title}\n\n{page_texts}<diff>\n{judged_diff[:MAX_DIFF_CHARACTERS]}\n</diff>",
+    )
+    if isinstance(parsed, Declined):
+        logger.warning("knowledge_writer_judge_declined", cause=parsed.cause)
+        return JudgeVerdict(needs_docs=False, change_kind=None, page_urls=[], reason="judge_declined")
+    return parsed
+
+
+def parse_structured_output(
+    anthropic_client: Anthropic,
+    output_format: type[ParsedOutput],
+    *,
+    model: str,
+    timeout_seconds: int,
+    max_retries: int,
+    system: str | list[TextBlockParam],
+    content: str,
+) -> ParsedOutput | Declined:
     try:
-        response = anthropic_client.with_options(
-            timeout=JUDGE_TIMEOUT_SECONDS, max_retries=JUDGE_MAX_RETRIES
-        ).messages.parse(
-            model=JUDGE_MODEL,
+        response = anthropic_client.with_options(timeout=timeout_seconds, max_retries=max_retries).messages.parse(
+            model=model,
             max_tokens=4096,
-            system=system_with_cached_page_list(JUDGE_INSTRUCTIONS, docs_page_paths),
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Commit title: {title}\n\n{page_texts}<diff>\n{judged_diff[:MAX_DIFF_CHARACTERS]}\n</diff>"
-                    ),
-                }
-            ],
-            output_format=JudgeVerdict,
+            system=system,
+            messages=[{"role": "user", "content": content}],
+            output_format=output_format,
         )
     except ValidationError:
-        return declined_verdict("validation_error")
+        return Declined("validation_error")
     if response.stop_reason == "refusal":
-        return declined_verdict("refusal")
+        return Declined("refusal")
     if response.parsed_output is None:
-        return declined_verdict("no_parsed_output")
+        return Declined("no_parsed_output")
     return response.parsed_output
+
+
+def page_tags(page_text_by_key: dict[str, str], *, separator: str) -> str:
+    return "".join(f'<page path="{key}">\n{text}\n</page>{separator}' for key, text in page_text_by_key.items())
 
 
 def system_with_cached_page_list(instructions: str, docs_page_paths: list[str]) -> list[TextBlockParam]:
@@ -176,11 +199,6 @@ def system_with_cached_page_list(instructions: str, docs_page_paths: list[str]) 
             "cache_control": {"type": "ephemeral", "ttl": "1h"},
         },
     ]
-
-
-def declined_verdict(cause: JudgeDeclineCause) -> JudgeVerdict:
-    logger.warning("knowledge_writer_judge_declined", cause=cause)
-    return JudgeVerdict(needs_docs=False, change_kind=None, page_urls=[], reason="judge_declined")
 
 
 def is_quoted_in(quote: str, text: str) -> bool:

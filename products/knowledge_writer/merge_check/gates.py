@@ -6,16 +6,7 @@ from anthropic import Anthropic, APIError
 
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
-from .facts import (
-    DOCS_DOC_IMPACTS,
-    FACTS_MODEL,
-    Audience,
-    DocImpact,
-    MergeFacts,
-    ReleaseState,
-    check_named_pages,
-    is_verified_finding,
-)
+from .facts import DOCS_DOC_IMPACTS, FACTS_MODEL, Audience, DocImpact, MergeFacts, ReleaseState, verified_page_findings
 from .gather import MergeEvidence
 from .judge import Decision
 
@@ -34,14 +25,8 @@ class GateResult:
 
 def rule_gates(evidence: MergeEvidence) -> GateResult:
     path_class_counts = Counter(evidence.path_class_by_path.values())
-    writer_docs_pull_requests = [
-        pull_request.url for pull_request in evidence.docs_pull_requests if pull_request.is_opened_by_knowledge_writer
-    ]
-    other_docs_pull_requests = [
-        pull_request.url
-        for pull_request in evidence.docs_pull_requests
-        if not pull_request.is_opened_by_knowledge_writer
-    ]
+    writer_docs_pull_requests = evidence.writer_docs_pull_request_urls
+    other_docs_pull_requests = evidence.other_docs_pull_request_urls
     shipping_version = evidence.release_line.shipping_version if evidence.release_line else None
     has_undocumented_version = (
         bool(evidence.docs_versions) and shipping_version is not None and shipping_version not in evidence.docs_versions
@@ -80,7 +65,7 @@ def rule_gates(evidence: MergeEvidence) -> GateResult:
             criterion="docs_version",
             value="undocumented" if has_undocumented_version else "documented",
             source=GATHER_SOURCE,
-            evidence=release_line_text(evidence),
+            evidence=evidence.release_text,
             effect=CriterionEffect.NEUTRAL,
         ),
     ]
@@ -169,14 +154,13 @@ def decide_with_rules(
         return rules_decision(True, change_kind, named_page_keys, reason="named_pages_unread", low_confidence=True)
     unread_page_keys = tuple(key for key in named_page_keys if key not in readable_pages)
     try:
-        findings = check_named_pages(anthropic_client, evidence, page_text_by_key=readable_pages)
+        verified_findings = verified_page_findings(anthropic_client, evidence, page_text_by_key=readable_pages)
     except APIError:
         if not is_final_attempt:
             raise
-        findings = None
-    if findings is None:
+        verified_findings = None
+    if verified_findings is None:
         return rules_decision(True, change_kind, named_page_keys, reason="page_check_unavailable", low_confidence=True)
-    verified_findings = [finding for finding in findings if is_verified_finding(finding, evidence, readable_pages)]
     page_check_row = CriterionResult(
         criterion="page_check",
         value=str(bool(verified_findings)).lower(),
@@ -249,24 +233,14 @@ def first_blocking_criterion(rows: list[CriterionResult]) -> str | None:
     return next((row.criterion for row in rows if row.effect == CriterionEffect.BLOCKS), None)
 
 
-def release_line_text(evidence: MergeEvidence) -> str:
-    release_line = evidence.release_line
-    if release_line is None:
-        return "No GitHub releases."
-    if release_line.newest_prerelease:
-        return (
-            f"Newest release {release_line.newest_prerelease} is a prerelease ahead of the latest stable "
-            f"release {release_line.latest_stable or 'none'}, so this merge ships in the prerelease."
-        )
-    return f"Latest release {release_line.latest_stable} is stable."
+def gate_row(criterion: str) -> CriterionResult:
+    return CriterionResult(
+        criterion=criterion, value="true", source=RULE_GATE_SOURCE, evidence="", effect=CriterionEffect.BLOCKS
+    )
 
 
 def with_existing_docs_pull_requests(report: MergeCheckReport, evidence: MergeEvidence) -> MergeCheckReport:
-    other_docs_pull_request_urls = tuple(
-        pull_request.url
-        for pull_request in evidence.docs_pull_requests
-        if not pull_request.is_opened_by_knowledge_writer
-    )
+    other_docs_pull_request_urls = evidence.other_docs_pull_request_urls
     if not report.needs_docs or not other_docs_pull_request_urls:
         return report
     return dataclasses.replace(

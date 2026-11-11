@@ -1,19 +1,15 @@
-from dataclasses import dataclass
-
 import httpx
 from anthropic import Anthropic, APIError
 
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
-from ..backend.facade.enums import CriterionEffect
 from ..backend.settings import DocsSource
 from .facts import MergeFacts, extract_facts, verify_quotes
-from .gates import decide_with_rules, fact_gates, release_line_text, rule_gates, with_existing_docs_pull_requests
+from .gates import decide_with_rules, fact_gates, gate_row, rule_gates, with_existing_docs_pull_requests
 from .gather import DocsPage, MergeEvidence, gather_merge
 from .judge import Decision, Variant, decide_with_judge
 from .sources import (
     GitHubReader,
     LandedChange,
-    MergedPullRequest,
     merged_pull_request,
     reached_default_branch,
     read_numbered_pull_request,
@@ -101,13 +97,8 @@ def merge_reports_by_variant(
             low_confidence=gates.low_confidence,
         )
         return dict.fromkeys(variants, gated_report)
-    page_by_key = {page.url.removeprefix(source.docs_url_prefix).strip("/"): page for page in evidence.editable_pages}
-    docs_page_paths = list(page_by_key)
-    release_text = release_line_text(evidence)
     try:
-        extracted_facts = extract_facts(
-            anthropic_client, evidence, release_text=release_text, docs_page_paths=docs_page_paths
-        )
+        extracted_facts = extract_facts(anthropic_client, evidence)
     except APIError:
         if not is_final_attempt:
             raise
@@ -115,9 +106,7 @@ def merge_reports_by_variant(
     are_quotes_verified = True
     facts = extracted_facts
     if extracted_facts is not None:
-        facts, has_dropped_quotes = verify_quotes(
-            extracted_facts, evidence, release_text=release_text, docs_page_paths=docs_page_paths
-        )
+        facts, has_dropped_quotes = verify_quotes(extracted_facts, evidence)
         are_quotes_verified = not has_dropped_quotes
     fact_gate = fact_gates(facts, are_quotes_verified=are_quotes_verified)
     gate_rows = (*gates.rows, *fact_gate.rows)
@@ -134,20 +123,11 @@ def merge_reports_by_variant(
     named_page_keys = [page.page_path for page in facts.changed_pages] if facts is not None else []
     source_path_by_key = {
         key: page.source_path
-        for key, page in page_by_key.items()
+        for key, page in evidence.page_by_key.items()
         if key in named_page_keys and page.source_path is not None
     }
     page_text_by_key = read_page_sources(
         github, source.docs_repository, source_path_by_key, docs_commit_sha=evidence.docs_commit_sha
-    )
-    gated = GatedMerge(
-        change=change,
-        pull_request=pull_request,
-        evidence=evidence,
-        gate_rows=gate_rows,
-        low_confidence=low_confidence,
-        page_by_key=page_by_key,
-        facts=facts,
     )
     report_by_variant: dict[Variant, MergeCheckReport] = {}
     for variant in variants:
@@ -160,56 +140,53 @@ def merge_reports_by_variant(
                 is_final_attempt=is_final_attempt,
             )
             if variant == Variant.RULES
-            else decide_with_judge(
-                anthropic_client, evidence, docs_page_paths=docs_page_paths, page_text_by_key=page_text_by_key
-            )
+            else decide_with_judge(anthropic_client, evidence, page_text_by_key=page_text_by_key)
         )
-        report_by_variant[variant] = decided_report(gated, decision)
+        report_by_variant[variant] = decided_report(
+            evidence, decision, facts=facts, gate_rows=gate_rows, low_confidence=low_confidence
+        )
     return report_by_variant
 
 
-@dataclass(frozen=True)
-class GatedMerge:
-    change: LandedChange
-    pull_request: MergedPullRequest
-    evidence: MergeEvidence
-    gate_rows: tuple[CriterionResult, ...]
-    low_confidence: bool
-    page_by_key: dict[str, DocsPage]
-    facts: MergeFacts | None
-
-
-def decided_report(gated: GatedMerge, decision: Decision) -> MergeCheckReport:
-    criteria = (*gated.gate_rows, *decision.rows)
-    low_confidence = gated.low_confidence or decision.low_confidence
-    title = gated.pull_request.title
+def decided_report(
+    evidence: MergeEvidence,
+    decision: Decision,
+    *,
+    facts: MergeFacts | None,
+    gate_rows: tuple[CriterionResult, ...],
+    low_confidence: bool,
+) -> MergeCheckReport:
+    change = evidence.change
+    criteria = (*gate_rows, *decision.rows)
+    is_low_confidence = low_confidence or decision.low_confidence
     if not decision.needs_docs or decision.change_kind is None:
         return no_docs_report(
-            gated.change, title=title, reason=decision.reason, criteria=criteria, low_confidence=low_confidence
+            change, title=evidence.title, reason=decision.reason, criteria=criteria, low_confidence=is_low_confidence
         )
+    page_by_key = evidence.page_by_key
     report = MergeCheckReport(
-        commit_sha=gated.change.after,
-        commit_url=commit_url_for(gated.change),
-        title=title,
+        commit_sha=change.after,
+        commit_url=commit_url_for(change),
+        title=evidence.title,
         needs_docs=True,
         reason=decision.reason,
-        repository=gated.change.repository,
-        pull_request_number=gated.change.pull_request_number,
-        low_confidence=low_confidence,
+        repository=change.repository,
+        pull_request_number=change.pull_request_number,
+        low_confidence=is_low_confidence,
         criteria=criteria,
         change_kind=decision.change_kind,
-        page_urls=tuple(gated.page_by_key[key].url for key in decision.page_keys if key in gated.page_by_key),
-        evidence="\n".join([gated.pull_request.url, *finding_lines(gated, decision)]),
+        page_urls=tuple(page_by_key[key].url for key in decision.page_keys if key in page_by_key),
+        evidence="\n".join([evidence.url, *finding_lines(page_by_key, facts, decision)]),
     )
-    return with_existing_docs_pull_requests(report, gated.evidence)
+    return with_existing_docs_pull_requests(report, evidence)
 
 
-def finding_lines(gated: GatedMerge, decision: Decision) -> list[str]:
-    changed_pages = gated.facts.changed_pages if gated.facts is not None else []
+def finding_lines(page_by_key: dict[str, DocsPage], facts: MergeFacts | None, decision: Decision) -> list[str]:
+    changed_pages = facts.changed_pages if facts is not None else []
     page_lines = [
-        f'- {gated.page_by_key[page.page_path].url} ({page.change_kind}): "{single_line(page.quote)}"'
+        f'- {page_by_key[page.page_path].url} ({page.change_kind}): "{single_line(page.quote)}"'
         for page in changed_pages
-        if page.page_path in decision.page_keys and page.page_path in gated.page_by_key
+        if page.page_path in decision.page_keys and page.page_path in page_by_key
     ]
     sentence_lines = [f'- outdated: "{single_line(sentence)}"' for sentence in decision.verified_sentences]
     return [*page_lines, *sentence_lines]
@@ -241,10 +218,4 @@ def no_docs_report(
         pull_request_number=change.pull_request_number,
         low_confidence=low_confidence,
         criteria=criteria or (gate_row(reason),),
-    )
-
-
-def gate_row(criterion: str) -> CriterionResult:
-    return CriterionResult(
-        criterion=criterion, value="true", source="rule_gate", evidence="", effect=CriterionEffect.BLOCKS
     )

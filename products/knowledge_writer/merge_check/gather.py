@@ -8,7 +8,6 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
-import requests
 
 from ..backend.logic.pull_requests import MAX_PULL_REQUEST_PAGES, PULL_REQUESTS_PER_PAGE, writer_pull_request
 from ..backend.settings import DocsSource
@@ -21,6 +20,7 @@ from .sources import (
     read_diff_by_path,
     read_generated_path_patterns,
     read_github,
+    read_github_or_none,
 )
 
 DOCS_SOURCE_EXTENSIONS = (".md", ".mdx")
@@ -70,6 +70,7 @@ JUDGED_PATH_CLASSES = frozenset({PathClass.CODE, PathClass.DOCS, PathClass.CI})
 @dataclass(frozen=True)
 class DocsPage:
     url: str
+    key: str
     source_path: str | None
     version: int | None
 
@@ -77,8 +78,6 @@ class DocsPage:
 @dataclass(frozen=True)
 class DocsPullRequest:
     url: str
-    author: str
-    is_merged: bool
     is_opened_by_knowledge_writer: bool
 
 
@@ -121,6 +120,40 @@ class MergeEvidence:
     @property
     def docs_versions(self) -> frozenset[int]:
         return frozenset(page.version for page in self.editable_pages if page.version is not None)
+
+    @property
+    def page_by_key(self) -> dict[str, DocsPage]:
+        return {page.key: page for page in self.editable_pages}
+
+    @property
+    def docs_page_paths(self) -> list[str]:
+        return list(self.page_by_key)
+
+    @property
+    def writer_docs_pull_request_urls(self) -> list[str]:
+        return [
+            pull_request.url for pull_request in self.docs_pull_requests if pull_request.is_opened_by_knowledge_writer
+        ]
+
+    @property
+    def other_docs_pull_request_urls(self) -> list[str]:
+        return [
+            pull_request.url
+            for pull_request in self.docs_pull_requests
+            if not pull_request.is_opened_by_knowledge_writer
+        ]
+
+    @property
+    def release_text(self) -> str:
+        release_line = self.release_line
+        if release_line is None:
+            return "No GitHub releases."
+        if release_line.newest_prerelease:
+            return (
+                f"Newest release {release_line.newest_prerelease} is a prerelease ahead of the latest stable "
+                f"release {release_line.latest_stable or 'none'}, so this merge ships in the prerelease."
+            )
+        return f"Latest release {release_line.latest_stable} is stable."
 
 
 def gather_merge(
@@ -237,6 +270,7 @@ def docs_page(url: str, docs_url_prefix: str, source_path_by_suffix: Mapping[str
     first_segment = page_key.split("/", 1)[0]
     return DocsPage(
         url=url,
+        key=page_key,
         source_path=source_path_by_suffix.get(page_key) or source_path_by_suffix.get(url_path),
         version=major_version(first_segment),
     )
@@ -295,12 +329,16 @@ def read_release_line(github: GitHubReader, repository: str, *, published_by: da
 def read_releases(
     github: GitHubReader, repository: str, *, published_by: datetime | None
 ) -> list[dict[str, Any]] | None:
+    path = f"/repos/{repository}/releases"
+    endpoint = "/repos/{owner}/{repo}/releases"
     if published_by is None:
-        response = read_releases_page(github, repository, {"per_page": MAX_RELEASES})
+        response = read_github_or_none(github, path, endpoint=endpoint, params={"per_page": MAX_RELEASES})
         return None if response is None else response.json()
     releases: list[dict[str, Any]] = []
     for page in range(1, MAX_RELEASE_PAGES + 1):
-        response = read_releases_page(github, repository, {"per_page": RELEASES_PER_PAGE, "page": page})
+        response = read_github_or_none(
+            github, path, endpoint=endpoint, params={"per_page": RELEASES_PER_PAGE, "page": page}
+        )
         if response is None:
             return None
         listed_page = response.json()
@@ -310,19 +348,6 @@ def read_releases(
     raise UnexpectedGitHubResponse(
         f"{repository} has no stable release before {published_by.isoformat()} in {MAX_RELEASE_PAGES} pages"
     )
-
-
-def read_releases_page(github: GitHubReader, repository: str, params: dict[str, str | int]) -> requests.Response | None:
-    response = github.api_request(
-        "GET",
-        f"/repos/{repository}/releases",
-        endpoint="/repos/{owner}/{repo}/releases",
-        params=params,
-    )
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-    return response
 
 
 def has_stable_release_by(releases: list[dict[str, Any]], published_by: datetime) -> bool:
@@ -369,8 +394,8 @@ def read_docs_pull_requests(
             github, docs_repository, listed["number"], docs_source_paths
         ):
             continue
-        found_by_url[listed["html_url"]] = docs_pull_request(
-            listed, is_merged=is_merged, is_opened_by_knowledge_writer=is_by_writer
+        found_by_url[listed["html_url"]] = DocsPullRequest(
+            url=listed["html_url"], is_opened_by_knowledge_writer=is_by_writer
         )
     if writer_login is None:
         return tuple(found_by_url.values())
@@ -383,21 +408,10 @@ def read_docs_pull_requests(
             github, docs_repository, listed["number"], reference_pattern
         )
         if is_referenced:
-            found_by_url[listed["html_url"]] = docs_pull_request(
-                listed, is_merged=False, is_opened_by_knowledge_writer=True
+            found_by_url[listed["html_url"]] = DocsPullRequest(
+                url=listed["html_url"], is_opened_by_knowledge_writer=True
             )
     return tuple(found_by_url.values())
-
-
-def docs_pull_request(
-    listed: Mapping[str, Any], *, is_merged: bool, is_opened_by_knowledge_writer: bool
-) -> DocsPullRequest:
-    return DocsPullRequest(
-        url=listed["html_url"],
-        author=str((listed.get("user") or {}).get("login", "")),
-        is_merged=is_merged,
-        is_opened_by_knowledge_writer=is_opened_by_knowledge_writer,
-    )
 
 
 def title_and_body(listed: Mapping[str, Any]) -> str:
