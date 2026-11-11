@@ -27,7 +27,7 @@ FlagVisibilityLookup = Callable[[list[int]], contracts.FlagVisibility]
 
 
 def _check_flags(flag_ids: list[int], flag_visibility: FlagVisibilityLookup) -> None:
-    unknown = sorted(set(flag_ids) - flag_visibility(flag_ids).visible)
+    unknown = sorted(set(flag_ids) - flag_visibility(flag_ids).linkable)
     if unknown:
         raise contracts.UnknownFeatureFlagsError(unknown)
 

@@ -25,6 +25,7 @@ class UnknownFeatureFlagsError(Exception):
 class FlagVisibility:
     existing: frozenset[int]
     visible: frozenset[int]
+    linkable: frozenset[int]
 
     @property
     def hidden(self) -> frozenset[int]:

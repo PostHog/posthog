@@ -32,11 +32,13 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     path_parameters = {"pk": UUID}
 
     def _flag_visibility(self, flag_ids: list[int]) -> contracts.FlagVisibility:
+        access_control = self.user_access_control
         return contracts.FlagVisibility(
-            existing=frozenset(existing_flag_ids(flag_ids, team_id=self.team_id)),
+            existing=frozenset(existing_flag_ids(flag_ids, team_id=self.team_id, include_deleted=True)),
             visible=frozenset(
-                existing_flag_ids(flag_ids, team_id=self.team_id, access_control=self.user_access_control)
+                existing_flag_ids(flag_ids, team_id=self.team_id, access_control=access_control, include_deleted=True)
             ),
+            linkable=frozenset(existing_flag_ids(flag_ids, team_id=self.team_id, access_control=access_control)),
         )
 
     @extend_schema(responses={200: ReleaseSerializer(many=True)})

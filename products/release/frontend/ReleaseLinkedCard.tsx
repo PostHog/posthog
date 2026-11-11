@@ -83,7 +83,7 @@ const LINKED_LIMIT = 8
 
 export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
     const [visible, setVisible] = useState(LINKED_LIMIT)
-    const { unlinkFlag } = useActions(releaseLogic)
+    const { updateRelease } = useActions(releaseLogic)
     const items: LinkedObject[] = [
         ...row.flags.map((flag) => ({
             key: `flag-${flag.id}`,
@@ -129,22 +129,36 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                 <CardTitle>In this release</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-                {row.missingFlagIds.map((flagId) => (
-                    <Item key={flagId} variant="outline" tone="warning" size="sm">
+                {row.missingFlagIds.length > 0 && (
+                    <Item variant="outline" tone="warning" size="sm" data-attr="release-missing-flags">
                         <ItemMedia variant="icon">
                             <IconWarning />
                         </ItemMedia>
                         <ItemContent>
-                            <ItemTitle>A linked flag was deleted</ItemTitle>
-                            <ItemDescription>Remove it, or link the flag that replaced it.</ItemDescription>
+                            <ItemTitle>
+                                {row.missingFlagIds.length === 1
+                                    ? 'A linked flag was deleted'
+                                    : `${row.missingFlagIds.length} linked flags were deleted`}
+                            </ItemTitle>
+                            <ItemDescription>
+                                {row.missingFlagIds.length === 1
+                                    ? 'Remove it, or link the flag that replaced it.'
+                                    : 'Remove them, or link the flags that replaced them.'}
+                            </ItemDescription>
                         </ItemContent>
                         <ItemActions>
-                            <Button size="sm" variant="outline" onClick={() => unlinkFlag(row.id, flagId)}>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                    updateRelease(row.id, { feature_flag_ids: row.flags.map((flag) => flag.id) })
+                                }
+                            >
                                 Remove
                             </Button>
                         </ItemActions>
                     </Item>
-                ))}
+                )}
                 {items.length > 0 ? (
                     <CardGroup>
                         {shown.map((item) => (

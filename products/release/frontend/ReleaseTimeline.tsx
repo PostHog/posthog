@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Badge, Dot, Text, cn } from '@posthog/quill'
 
@@ -34,8 +34,11 @@ function markersByDay(
     const end = start.add(total, 'day')
     const days = new Map<string, ReleaseEvent[]>()
     for (const event of events) {
+        if (!event.upcoming) {
+            continue
+        }
         const date = dayjs(event.date)
-        if (!event.upcoming || date.isBefore(start) || !date.isBefore(end)) {
+        if (date.isBefore(start) || !date.isBefore(end)) {
             continue
         }
         const day = date.format('YYYY-MM-DD')
@@ -53,6 +56,12 @@ export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, search, stageFilter, decisionOnly } = useValues(releaseLogic)
     const today = dayjs().startOf('day')
     const start = today.subtract(BEFORE, 'day')
+    const windowStart = start.format('YYYY-MM-DD')
+    const markers = useMemo(
+        () =>
+            new Map(filteredRows.map((row) => [row.id, markersByDay(row.events, dayjs(windowStart), BEFORE + AFTER)])),
+        [filteredRows, windowStart]
+    )
     const total = BEFORE + AFTER
     const days = Array.from({ length: total }, (_, index) => start.add(index, 'day'))
     const x = (date: string): number => Math.max(0, Math.min(total, dayjs(date).diff(start, 'day'))) * DAY
@@ -207,7 +216,7 @@ export function ReleaseTimeline(): JSX.Element {
                                     </div>
                                 ) : null
                             })}
-                            {markersByDay(row.events, start, total).map(({ day, events }) => (
+                            {(markers.get(row.id) ?? []).map(({ day, events }) => (
                                 <div
                                     key={day}
                                     title={events

@@ -56,7 +56,10 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
-    def test_hidden_flags_are_omitted_and_kept_while_deleted_flags_still_show(self) -> None:
+    @parameterized.expand([("active", False), ("soft_deleted", True)])
+    def test_hidden_flags_are_omitted_and_kept_while_deleted_flags_still_show(
+        self, _name: str, hidden_flag_deleted: bool
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -77,6 +80,11 @@ class TestReleaseAPI(APIBaseTest):
             {"access_level": "none"},
             format="json",
         )
+        if hidden_flag_deleted:
+            deleted = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{hidden_id}/", {"deleted": True}, format="json"
+            )
+            assert deleted.status_code == status.HTTP_200_OK, deleted.json()
         admin = self.user
         self.client.force_login(self._create_user("member@example.com"))
 
