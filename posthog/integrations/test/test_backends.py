@@ -1,21 +1,27 @@
 import time
+import tempfile
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized, parameterized_class
 
 from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationPatch, IntegrationRecord, usages
 from posthog.integrations.accessors import IntegrationReader
+from posthog.integrations.backend import use_backend
 from posthog.integrations.backend.fake_backend import FakeBackend
+from posthog.integrations.backend.service_backend import ServiceBackend
 from posthog.integrations.contracts import IntegrationConflict, IntegrationInUse, IntegrationNotFound, IntegrationUsage
 from posthog.integrations.references import IntegrationReference
+from posthog.integrations.test.credentials_service_stub import CredentialsServiceStub, write_signing_key
 from posthog.integrations.testing import fake_integrations_backend
 from posthog.models import Team
-from posthog.models.integration import ANY, Integration
+from posthog.models.integration import ANY, Integration, UndecryptedIntegrationSecretError
 from posthog.models.integration.oauth import OauthIntegration
 
 MARKER = "warehouse_source_type"
@@ -41,7 +47,7 @@ def _refreshed_tokens(record: IntegrationRecord) -> IntegrationPatch:
     return IntegrationPatch(sensitive_config_patch={"access_token": "new", "refresh_token": "r2"})
 
 
-@parameterized_class(("backend",), [("django",), ("fake",)])
+@parameterized_class(("backend",), [("django",), ("fake",), ("service",)])
 class TestBackendsBehaveTheSame(BaseTest):
     backend: str
 
@@ -51,6 +57,18 @@ class TestBackendsBehaveTheSame(BaseTest):
         self.fake: FakeBackend | None = None
         if self.backend == "fake":
             self.fake = self.enterContext(fake_integrations_backend(token_refresher=self._count_refresh))
+        elif self.backend == "service":
+            self.fake = FakeBackend(token_refresher=self._count_refresh)
+            key_path, public_key = write_signing_key(self.enterContext(tempfile.TemporaryDirectory()))
+            self.enterContext(
+                override_settings(
+                    CREDENTIALS_SERVICE_URL="http://credentials-service.test",
+                    CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH=key_path,
+                )
+            )
+            self.enterContext(
+                use_backend(ServiceBackend(session=cast(Any, CredentialsServiceStub(self.fake, public_key))))
+            )
         else:
             self.enterContext(
                 patch.object(
@@ -63,6 +81,10 @@ class TestBackendsBehaveTheSame(BaseTest):
         self.other_team = Team.objects.create(organization=self.organization, name="Other")
         self.ids = {name: self._seed(name, kind, config) for name, (kind, config) in ROWS.items()}
         self.other_id = self._seed("github_oauth", "github", {}, team=self.other_team)
+
+    def _skip_without_service_route(self) -> None:
+        if self.backend == "service":
+            self.skipTest("The credentials service has no route for this operation yet")
 
     def _count_refresh(self, record: IntegrationRecord) -> IntegrationPatch:
         self.refreshes.append(record.id)
@@ -481,8 +503,14 @@ class TestBackendsBehaveTheSame(BaseTest):
 
         stored = self._stored(row_id)
         for record in (updated, stored):
-            sensitive_config: object = record.sensitive_config
-            assert (record.config, sensitive_config) == ({"login": "x"}, "raw")
+            assert record.config == {"login": "x"}
+            if self.backend == "service":
+                # The service never returns a raw secret. A read of an unreadable secret raises.
+                with self.assertRaises(UndecryptedIntegrationSecretError):
+                    _ = record.access_token
+            else:
+                sensitive_config: object = record.sensitive_config
+                assert sensitive_config == "raw"
 
     @parameterized.expand(
         [
@@ -496,6 +524,7 @@ class TestBackendsBehaveTheSame(BaseTest):
     def test_change_external_id(
         self, _name: str, row_name: str, external_id: str, expected: str | type[Exception]
     ) -> None:
+        self._skip_without_service_route()
         row_id = self.ids[row_name]
 
         if isinstance(expected, type):
@@ -510,6 +539,7 @@ class TestBackendsBehaveTheSame(BaseTest):
         assert self._stored(self.other_id, self.other_team).integration_id == "github_oauth"
 
     def test_change_external_id_stays_in_the_team(self) -> None:
+        self._skip_without_service_route()
         with self.assertRaises(IntegrationNotFound):
             IntegrationManager.github.oauth.change_external_id(self.other_team.id, self.ids["github_oauth"], "x")
 
@@ -577,6 +607,7 @@ class TestBackendsBehaveTheSame(BaseTest):
         token: str,
         errors: str,
     ) -> None:
+        self._skip_without_service_route()
         config: dict[str, Any] = {"expires_in": 900, "refreshed_at": int(time.time()) - refreshed_ago}
         if fail:
             config["fail_refresh"] = True
@@ -602,6 +633,7 @@ class TestBackendsBehaveTheSame(BaseTest):
     def test_refresh_access_token_reads_an_empty_stale_token_as_no_token(
         self, _name: str, stored_token: str | None, token: str
     ) -> None:
+        self._skip_without_service_route()
         sensitive_config: dict[str, Any] = {"refresh_token": "r1"}
         if stored_token is not None:
             sensitive_config["access_token"] = stored_token
