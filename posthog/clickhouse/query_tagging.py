@@ -113,6 +113,7 @@ class Feature(StrEnum):
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
     WAREHOUSE_SUGGESTIONS = "warehouse_suggestions"
+    EVAL_SUGGESTIONS = "eval_suggestions"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
     INGESTION_WARNINGS = "ingestion_warnings"
