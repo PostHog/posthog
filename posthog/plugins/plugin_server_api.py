@@ -288,14 +288,13 @@ WORKFLOWS_RESUME_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
 )
 
 
-def _mint_transactional_email_jwt(team_id: int, hog_flow_id: str, **route_claims: str) -> str:
-    """Short-lived scoped JWT for one transactional email send, pinned to the team and the transactional email's
-    workflow so a leaked token can only send that email. Verified in the plugin server's CdpApi."""
+def _mint_transactional_email_jwt(team_id: int, **route_claims: str) -> str:
+    """Short-lived scoped JWT for one transactional email request, pinned to the team and to its route's claims,
+    such as the transactional email's workflow, so a leaked token can only make that request. Verified in the
+    plugin server's CdpApi."""
     if not WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.enabled():
         raise RuntimeError("WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET is not configured — cannot send email")
-    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint(
-        {"team_id": team_id, "hog_flow_id": hog_flow_id, **route_claims}
-    )
+    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint({"team_id": team_id, **route_claims})
 
 
 def send_transactional_email(
@@ -306,7 +305,7 @@ def send_transactional_email(
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email",
         json=payload,
-        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
+        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id)}"},
         timeout=timeout,
     )
 
@@ -319,7 +318,22 @@ def send_accepted_transactional_email(
         data=json.dumps(payload, ensure_ascii=False).encode(),
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id, kind='code_send')}",
+            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id=hog_flow_id, kind='code_send')}",
+        },
+        timeout=timeout,
+    )
+
+
+def prepare_transactional_email_attachment_uploads(
+    team_id: int, payload: dict, *, timeout: float = 10
+) -> requests.Response:
+    """Ask where to upload each of a send's files. 200 answers each file as present or with a signed PUT."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/transactional_email/attachments/uploads",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, kind='attachment_upload')}",
         },
         timeout=timeout,
     )
@@ -456,6 +470,8 @@ def rerun_hog_invocations(
         CDP_API_URL + f"/api/projects/{team_id}/{function_kind}s/{function_id}/rerun",
         json=payload,
         headers=get_internal_api_headers(),
+        # The call only enqueues a wrapper job, so a stalled CDP API must not hold a replay of many functions open.
+        timeout=30,
     )
 
 
