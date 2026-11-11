@@ -364,6 +364,22 @@ describe('scenario environment', () => {
             await expect(holdRunLock(stateDir)).rejects.toThrow(`Scenario runner ${other.child.pid} is already running`)
         }, 20_000)
 
+        it('names the process that holds the state dir, not what it answers, when the answer is not a pid', async () => {
+            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+            const impostor = net.createServer((socket) => socket.end('1; rm -rf ~'))
+            await new Promise<void>((resolve) => impostor.listen(lockAddress(stateDir), resolve))
+            try {
+                const refusal = await holdRunLock(stateDir).catch((error: Error & { exitCode?: number }) => error)
+
+                expect(refusal).toMatchObject({ exitCode: 2 })
+                expect((refusal as Error).message).toBe(
+                    `Scenario runner ${process.pid} holds ${stateDir} but does not answer; it may be suspended (resume it with fg). Run \`kill -CONT ${process.pid}; kill ${process.pid}\`, then run the scenario again.`
+                )
+            } finally {
+                impostor.close()
+            }
+        }, 20_000)
+
         it('names a suspended runner that holds the state dir, and how to stop it', async () => {
             const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
             const other = await lockFromAnotherRunner(stateDir)
