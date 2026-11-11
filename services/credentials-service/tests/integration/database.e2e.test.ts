@@ -4,14 +4,12 @@
 import { serve } from '@hono/node-server'
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import { SignJWT } from 'jose'
-import { generateKeyPairSync, randomBytes } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { PostgresReplayStore } from '@/auth/replay-postgres'
 import { AUDIENCE } from '@/auth/types'
 import {
     getIntegration,
@@ -22,14 +20,10 @@ import {
     type NewIntegration,
 } from '@/db/integrations'
 import { runMigrations } from '@/db/migrate'
-import type { Config, DatabaseConfig, KmsConfig } from '@/lib/config'
+import type { Config, DatabaseConfig } from '@/lib/config'
 import { CredentialsServer } from '@/server'
 
-const MIGRATIONS = [
-    '1794323815130_initial-schema',
-    '1794323815131_runtime-role-grants',
-    '1794323815132_idempotency-deployment',
-]
+const MIGRATIONS = ['1794323815130_initial-schema', '1794323815131_runtime-role-grants']
 const TABLES = ['audit_log', 'audit_log_default', 'auth_jti', 'idempotency_keys', 'integration_secrets', 'integrations']
 const TEAM: IntegrationOwner = { type: 'team', id: 1 }
 const OTHER_TEAM: IntegrationOwner = { type: 'team', id: 2 }
@@ -137,44 +131,6 @@ describe('runtime role grants', () => {
     it('skips the grants when no runtime role is given', async () => {
         const url = await createDatabase('runtime_role_unset')
         expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual(MIGRATIONS)
-    })
-})
-
-describe('postgres replay store', () => {
-    let db: Pool
-    let store: PostgresReplayStore
-
-    beforeAll(async () => {
-        const url = await createDatabase('replay_store')
-        await runMigrations({ databaseUrl: url, direction: 'up' })
-        db = new Pool({ connectionString: url })
-        store = new PostgresReplayStore(db)
-    })
-
-    afterAll(async () => {
-        await db?.end()
-    })
-
-    it('accepts a token id once per deployment', async () => {
-        const expires = Date.now() + 60_000
-        expect(await store.claim('web', 'jti-1', expires)).toBe(true)
-        expect(await store.claim('web', 'jti-1', expires)).toBe(false)
-        expect(await store.claim('worker', 'jti-1', expires)).toBe(true)
-    })
-
-    it('accepts only one of many concurrent claims of the same id', async () => {
-        const results = await Promise.all(
-            Array.from({ length: 8 }, () => store.claim('web', 'jti-race', Date.now() + 60_000))
-        )
-        expect(results.filter(Boolean)).toHaveLength(1)
-    })
-
-    it('deletes expired rows and keeps live ones', async () => {
-        await store.claim('web', 'jti-old', Date.now() - 1000)
-        await store.claim('web', 'jti-live', Date.now() + 60_000)
-        await store.deleteExpired()
-        const rows = await db.query<{ jti: string }>(`SELECT jti FROM auth_jti WHERE jti IN ('jti-old', 'jti-live')`)
-        expect(rows.rows.map((row) => row.jti)).toEqual(['jti-live'])
     })
 })
 
@@ -315,8 +271,8 @@ describe('integrations queries', () => {
 
     it('expires idempotency keys 24 hours after they are stored', async () => {
         const result = await db.query<{ seconds: string }>(
-            `INSERT INTO idempotency_keys (deployment, owner_type, owner_id, operation, key, request_hash)
-             VALUES ('posthog-django', 'team', 1, 'create', 'key-1', '\\x00')
+            `INSERT INTO idempotency_keys (owner_type, owner_id, operation, key, request_hash)
+             VALUES ('team', 1, 'create', 'key-1', '\\x00')
              RETURNING extract(epoch FROM expires_at - created_at)::text AS seconds`
         )
         expect(Number(result.rows[0]?.seconds)).toBe(24 * 60 * 60)
@@ -334,12 +290,7 @@ describe('server readiness with a database', () => {
         await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
     })
 
-    async function boot(
-        database: DatabaseConfig | undefined,
-        kms?: KmsConfig,
-        withIntegrationKeys = false,
-        env = 'test'
-    ): Promise<number> {
+    async function boot(database: DatabaseConfig | undefined, env = 'test'): Promise<number> {
         const mountDir = await mkdtemp(join(tmpdir(), 'credentials-db-e2e-'))
         dirs.push(mountDir)
         await writeFile(join(mountDir, KEY), 'not-a-real-secret')
@@ -356,19 +307,6 @@ describe('server readiness with a database', () => {
         }
         if (database) {
             config.database = database
-        }
-        if (kms) {
-            config.kms = kms
-        }
-        if (withIntegrationKeys) {
-            const integrationKeysDir = await mkdtemp(join(tmpdir(), 'credentials-integration-keys-e2e-'))
-            dirs.push(integrationKeysDir)
-            const { publicKey } = generateKeyPairSync('ed25519')
-            await writeFile(
-                join(integrationKeysDir, 'posthog-web-django.pub'),
-                publicKey.export({ type: 'spki', format: 'pem' })
-            )
-            config.integrationCallerPublicKeysDir = integrationKeysDir
         }
 
         let announce!: (port: number) => void
@@ -423,19 +361,6 @@ describe('server readiness with a database', () => {
         expect(await resolveStatus(port)).toBe(200)
     })
 
-    // Integration routes need a database, a KMS, and public keys.
-    it.each([
-        ['a database, a KMS, and public keys', true, true, 401],
-        ['a database and a KMS without public keys', true, false, 404],
-        ['a database and no KMS', false, true, 404],
-    ])('with %s, the integration routes answer %i', async (_label, withKms, withKeys, status) => {
-        const kms: KmsConfig | undefined = withKms ? { provider: 'local', keys: [randomBytes(32)] } : undefined
-        const port = await boot({ url: container.getConnectionUri(), poolSize: 2 }, kms, withKeys)
-
-        expect((await fetch(`http://127.0.0.1:${port}/v1/integrations`)).status).toBe(status)
-        expect(await resolveStatus(port)).toBe(200)
-    })
-
     describe('runtime role check', () => {
         const RUNTIME_ROLE = 'credentials_guard_runtime'
         const PASSWORD = 'not-a-real-password'
@@ -484,7 +409,7 @@ describe('server readiness with a database', () => {
         ] as [string, string, () => DatabaseConfig, boolean][])(
             'in %s with %s, integrations enabled is %s',
             async (env, _label, database, enabled) => {
-                const port = await boot(database(), undefined, false, env)
+                const port = await boot(database(), env)
 
                 expect(bootedServer().integrationsPool() !== undefined).toBe(enabled)
                 expect((await fetch(`http://127.0.0.1:${port}/_readiness`)).status).toBe(200)
@@ -493,23 +418,15 @@ describe('server readiness with a database', () => {
         )
 
         it.each([
-            ['prod-us', () => ({ url: migratedUrl, poolSize: 2 }), 404],
-            ['prod-us', () => ({ url: runtimeUrl, poolSize: 2 }), 401],
-            ['dev', () => ({ url: migratedUrl, poolSize: 2 }), 401],
-        ] as [string, () => DatabaseConfig, number][])(
-            'in %s, the integration routes answer %i with the role as configured',
-            async (env, database, status) => {
-                const kms: KmsConfig = { provider: 'local', keys: [randomBytes(32)] }
-                const port = await boot(database(), kms, true, env)
-
-                expect((await fetch(`http://127.0.0.1:${port}/v1/integrations`)).status).toBe(status)
-            }
-        )
-
-        it.each([
-            ['DELETE on the default partition', 'GRANT DELETE ON audit_log_default TO'],
-            ['TRUNCATE on the default partition', 'GRANT TRUNCATE ON audit_log_default TO'],
-            ['column UPDATE on the audit log', 'GRANT UPDATE (outcome) ON audit_log TO'],
+            ['DELETE on the default partition', (role: string) => `GRANT DELETE ON audit_log_default TO ${role}`],
+            ['TRUNCATE on the default partition', (role: string) => `GRANT TRUNCATE ON audit_log_default TO ${role}`],
+            ['column UPDATE on the audit log', (role: string) => `GRANT UPDATE (outcome) ON audit_log TO ${role}`],
+            [
+                'NOINHERIT membership in the audit log owner',
+                (role: string) =>
+                    `DO $$ BEGIN EXECUTE format('GRANT %I TO ${role} WITH INHERIT FALSE', ` +
+                    `(SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'audit_log'::regclass)); END $$`,
+            ],
         ])('refuses a runtime role with %s', async (_label, grant) => {
             const role = `credentials_guard_${Math.random().toString(36).slice(2, 10)}`
             await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${PASSWORD}'`)
@@ -519,18 +436,48 @@ describe('server readiness with a database', () => {
             const db = new Pool({ connectionString: migratedUrl })
             try {
                 await db.query(`GRANT SELECT, INSERT ON audit_log TO ${role}`)
-                await db.query(`${grant} ${role}`)
+                await db.query(grant(role))
             } finally {
                 await db.end()
             }
 
-            await boot({ url: url.toString(), poolSize: 2 }, undefined, false, 'prod-us')
+            await boot({ url: url.toString(), poolSize: 2 }, 'prod-us')
 
             expect(bootedServer().integrationsPool()).toBeUndefined()
         })
 
+        it('refuses a runtime role that owns the schema of the audit log', async () => {
+            const role = `credentials_guard_${Math.random().toString(36).slice(2, 10)}`
+            await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${PASSWORD}'`)
+            const url = new URL(migratedUrl)
+            url.username = role
+            url.password = PASSWORD
+            const db = new Pool({ connectionString: migratedUrl })
+            const schema = await db.query<{ nspname: string; owner: string }>(
+                `SELECT n.nspname, pg_get_userbyid(n.nspowner) AS owner
+                 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE c.oid = 'audit_log'::regclass`
+            )
+            const row = schema.rows[0]
+            if (!row) {
+                throw new Error('audit_log has no schema')
+            }
+            const { nspname, owner } = row
+            try {
+                await db.query(`GRANT SELECT, INSERT ON audit_log TO ${role}`)
+                await db.query(`ALTER SCHEMA "${nspname}" OWNER TO ${role}`)
+
+                await boot({ url: url.toString(), poolSize: 2 }, 'prod-us')
+
+                expect(bootedServer().integrationsPool()).toBeUndefined()
+            } finally {
+                await db.query(`ALTER SCHEMA "${nspname}" OWNER TO "${owner}"`)
+                await db.end()
+            }
+        })
+
         it.each(['Prod-us', 'prod_us', 'PRODUCTION'])('treats the typo %s as production', async (env) => {
-            await boot({ url: migratedUrl, poolSize: 2 }, undefined, false, env)
+            await boot({ url: migratedUrl, poolSize: 2 }, env)
 
             expect(bootedServer().integrationsPool()).toBeUndefined()
         })

@@ -14,6 +14,7 @@ const SECRET_SOURCES: readonly SecretSourceKind[] = ['directory', 'kubernetes']
 export type KmsProviderKind = 'aws' | 'local'
 
 const KMS_PROVIDERS: readonly KmsProviderKind[] = ['aws', 'local']
+const LOCAL_KMS_REFUSED_ENVS: readonly string[] = ['prod-us', 'prod-eu']
 
 /** Wraps the per-record data keys with an AWS KMS key. */
 export interface AwsKmsConfig {
@@ -84,14 +85,14 @@ export interface Config {
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
 
+    /** Unset until CREDENTIALS_SERVICE_KMS_PROVIDER is set: no route needs a KMS yet. */
+    kms?: KmsConfig
+
     /**
      * Set when CREDENTIALS_SERVICE_DATABASE_URL is set. Without it the service serves platform
      * secrets only, and the integration features are off.
      */
     database?: DatabaseConfig
-
-    /** Set when CREDENTIALS_SERVICE_KMS_PROVIDER is set. The integration routes need it. */
-    kms?: KmsConfig
 
     /**
      * Directory of Ed25519 public keys for the integrations audience, one `<deployment>.pub`
@@ -193,6 +194,29 @@ export function loadDatabaseConfig(): DatabaseConfig | undefined {
     return database
 }
 
+/**
+ * What the migrate entry point needs. The migrate role owns the tables. The runtime role is the
+ * one the service connects as, and gets grants from the migrations.
+ */
+export interface MigrateConfig {
+    url: string
+    /** Empty in single-role local development: the grants are then skipped. */
+    runtimeRole: string
+}
+
+/** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
+export function loadMigrateConfig(): MigrateConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL || process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const runtimeRole = process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE ?? ''
+    if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
+        throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
+    }
+    return { url, runtimeRole }
+}
+
 function kmsFromEnv(env: string): KmsConfig | undefined {
     const raw = process.env.CREDENTIALS_SERVICE_KMS_PROVIDER
     if (!raw) {
@@ -207,7 +231,7 @@ function kmsFromEnv(env: string): KmsConfig | undefined {
 
     if (provider === 'local') {
         // The local keys sit in plain config, so they must never protect cloud customer data.
-        if (env.startsWith('prod')) {
+        if (LOCAL_KMS_REFUSED_ENVS.includes(env) || env.startsWith('prod')) {
             throw new Error(`CREDENTIALS_SERVICE_KMS_PROVIDER=local is not allowed in ${env}`)
         }
         return { provider, keys: localKmsKeysFromEnv() }
@@ -257,29 +281,6 @@ function httpUrlFromEnv(key: string, raw: string): string {
         throw new Error(`${key} must be an http(s) URL`)
     }
     return raw
-}
-
-/**
- * What the migrate entry point needs. The migrate role owns the tables. The runtime role is the
- * one the service connects as, and gets grants from the migrations.
- */
-export interface MigrateConfig {
-    url: string
-    /** Empty in single-role local development: the grants are then skipped. */
-    runtimeRole: string
-}
-
-/** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
-export function loadMigrateConfig(): MigrateConfig | undefined {
-    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL || process.env.CREDENTIALS_SERVICE_DATABASE_URL
-    if (!url) {
-        return undefined
-    }
-    const runtimeRole = process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE ?? ''
-    if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
-        throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
-    }
-    return { url, runtimeRole }
 }
 
 export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {

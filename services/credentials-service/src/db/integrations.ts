@@ -45,8 +45,6 @@ export interface IntegrationRow {
 }
 
 export interface NewIntegration {
-    /** Set when the caller needs the id before the insert, for example to seal the secret first. */
-    id?: string
     owner: IntegrationOwner
     kind: string
     externalId: string | null
@@ -65,7 +63,6 @@ export interface IntegrationChanges {
     config?: Record<string, unknown>
     errors?: string
     isSourceRow?: boolean
-    createdById?: number | null
 }
 
 export type InsertResult = { status: 'ok'; row: IntegrationRow } | { status: 'conflict' }
@@ -97,12 +94,12 @@ export function formatIntegrationRef(ref: IntegrationRef): string {
     return 'id' in ref ? ref.id : String(ref.legacyId)
 }
 
-export const COLUMNS = `
+const COLUMNS = `
     id, legacy_id, owner_type, owner_id, kind, external_id, auth_type, is_source_row, config, errors,
     created_by_id, created_at, updated_at, version, deleted_at, refresh_due_at, refresh_state,
     refresh_attempts, refresh_last_error, refresh_locked_until`
 
-export interface DbRow {
+interface DbRow {
     id: string
     legacy_id: string | null
     owner_type: OwnerType
@@ -134,7 +131,7 @@ function toInt(value: string): number {
     return parsed
 }
 
-export function toRow(row: DbRow): IntegrationRow {
+function toRow(row: DbRow): IntegrationRow {
     return {
         id: row.id,
         legacyId: row.legacy_id === null ? null : toInt(row.legacy_id),
@@ -170,11 +167,7 @@ function refValues(owner: IntegrationOwner, ref: IntegrationRef): unknown[] {
 }
 
 // Both types have many `query` overloads, so TypeScript cannot call `query` on the union. Narrow first.
-export function query<R extends QueryResultRow>(
-    db: Queryable,
-    text: string,
-    values: unknown[]
-): Promise<QueryResult<R>> {
+function query<R extends QueryResultRow>(db: Queryable, text: string, values: unknown[]): Promise<QueryResult<R>> {
     return db instanceof Pool ? db.query<R>(text, values) : db.query<R>(text, values)
 }
 
@@ -209,8 +202,8 @@ export async function insertIntegration(db: Queryable, input: NewIntegration): P
         const result = await query<DbRow>(
             db,
             `INSERT INTO integrations
-                (id, owner_type, owner_id, kind, external_id, auth_type, config, errors, is_source_row, created_by_id, legacy_id)
-             VALUES (COALESCE($11::uuid, gen_random_uuid()), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                (owner_type, owner_id, kind, external_id, auth_type, config, errors, is_source_row, created_by_id, legacy_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING ${COLUMNS}`,
             [
                 input.owner.type,
@@ -223,7 +216,6 @@ export async function insertIntegration(db: Queryable, input: NewIntegration): P
                 input.isSourceRow ?? false,
                 input.createdById ?? null,
                 input.legacyId ?? null,
-                input.id ?? null,
             ]
         )
         return { status: 'ok', row: toRow(result.rows[0] as DbRow) }
@@ -242,7 +234,6 @@ const CHANGE_COLUMNS: { [K in keyof Required<IntegrationChanges>]: string } = {
     config: 'config',
     errors: 'errors',
     isSourceRow: 'is_source_row',
-    createdById: 'created_by_id',
 }
 
 /**
