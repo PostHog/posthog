@@ -16,6 +16,7 @@ diffs them against committed baseline hashes, and gates the PR until every chang
 A PR with visual changes carries a `visual-review` GitHub status check, and usually a required CI job that reports the same verdict.
 Both stay red until each diffed snapshot is approved and finalized, tolerated, or quarantined, and the job re-runs:
 finalize does that for approvals, `recompute-create` for tolerations and quarantines. The run's `_posthogUrl` opens the VR UI, which offers the same actions.
+That holds for a run whose `gate` is `ci_job`. Read `gate` on the run first: see [Which gate the run has](#which-gate-the-run-has).
 A PR from a fork is usually the exception: it gets no Visual Review run at all.
 See [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
 
@@ -23,6 +24,17 @@ This skill teaches an agent how to answer the questions a human reviewer would a
 the VR MCP tools — instead of reaching for `gh pr view` and tab-hopping to the VR web UI. The read tools
 cover status / scope / history / triage. An agent may resolve flakes on its own, with a quarantine or, rarely, a toleration.
 It may not ship a visual change on its own: `finalize-create` commits the baseline and needs explicit per-run human confirmation.
+
+## Which gate the run has
+
+`posthog:visual-review-runs-retrieve` returns `gate`, fixed when the run was created.
+
+- `ci_job`: the CI job is the gate. The rest of this skill describes this case.
+- `commit_status`: the status `PostHog Visual Review / <run type>` is the required check, and the CI job passes on unresolved snapshots.
+  The status turns green on finalize, and on a toleration or quarantine that resolves the last snapshot.
+  Nothing is committed, no recompute is needed, and nothing in CI re-runs.
+  `recompute-create` still recounts and publishes the status, with `ci_rerun_triggered: false`, which is expected.
+  A finalized run with `stale_approval_count` above 0 stays red because another merge changed the baseline: update the branch from the default branch and review the new run.
 
 ## Decide first
 
@@ -145,7 +157,7 @@ Read tools (safe to call freely):
 | Tool                                                      | Purpose                                                                                                                                                                                                                                                                                                                           |
 | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `posthog:visual-review-runs-list`                         | List runs, filter by `pr_number` / `commit_sha` / `branch` / `review_state`. Start here.                                                                                                                                                                                                                                          |
-| `posthog:visual-review-runs-retrieve`                     | Full detail for a single run (status, summary counts, supersession). Carries the `repo_id` the repo tools need.                                                                                                                                                                                                                   |
+| `posthog:visual-review-runs-retrieve`                     | Full detail for a single run (status, summary counts, supersession, `gate`). Carries the `repo_id` the repo tools need.                                                                                                                                                                                                           |
 | `posthog:visual-review-runs-snapshots-list`               | Per-snapshot results inside a run: identifier, `result`, diff %, classification, baseline + current artifact URLs. Quarantined snapshots are excluded by default (see `quarantined_count`); pass `include_quarantined=true` to see them. Pass `exclude_unchanged=true` to skip the thousands of unchanged rows a large run holds. |
 | `posthog:visual-review-repos-flakiness-retrieve`          | Repo snapshots whose rendering is untrusted, with a `flakiness_state` and flake rates for each. The flake check starts here.                                                                                                                                                                                                      |
 | `posthog:visual-review-runs-snapshot-history-list`        | One story's baseline timeline on the default branch: one row per baseline change. Takes `{ id: <run_id>, identifier: <identifier> }`.                                                                                                                                                                                             |
@@ -157,7 +169,7 @@ Read tools (safe to call freely):
 | `posthog:visual-review-repos-toleration-pileups-retrieve` | Stories that keep getting tolerated: candidates for a fix in the story.                                                                                                                                                                                                                                                           |
 | `posthog:visual-review-runs-quarantine-lifts-list`        | Requests to lift a quarantine when the run's PR merges, with `state` and the latest check's `detail`. Takes `{ id: <run_id> }`.                                                                                                                                                                                                   |
 
-Triage tools (they do NOT change the baseline; the gate changes only after `recompute-create`, except a lift on merge, which a default-branch run applies on its own and needs no recompute):
+Triage tools (they do NOT change the baseline; on a `ci_job` run the gate changes only after `recompute-create`, except a lift on merge, which a default-branch run applies on its own and needs no recompute):
 
 | Tool                                                        | Purpose                                                                                                                                                                                      |
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -171,13 +183,14 @@ Triage tools (they do NOT change the baseline; the gate changes only after `reco
 
 Branch protection usually requires the CI job checks, not the `visual-review` status.
 So a quarantine or toleration unblocks the PR only after `recompute-create` re-runs the CI job recorded on the run.
+On a `commit_status` run the status is the required check, and it updates without `recompute-create`.
 Approved changes keep the gate red until finalize commits them, so recompute never ships an approval.
 
 Ship tool (irreversible, outward-facing — requires explicit per-run human confirmation; see [the gate](#the-finalize-gate)):
 
-| Tool                                         | Purpose                                                                                                          |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `posthog:visual-review-runs-finalize-create` | Commit the approved baseline to the PR branch and green the GitHub `visual-review` check. This ships the change. |
+| Tool                                         | Purpose                                                                                                                                                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog:visual-review-runs-finalize-create` | Commit the approved baseline to the PR branch and green the GitHub `visual-review` check. On a `commit_status` run it records the approval instead of committing. This ships the change. |
 
 Mark-reviewed call shape (`approve-create`):
 
@@ -190,7 +203,7 @@ Quarantine call shape (`quarantine-create`):
 - `identifier`, and a `reason` with the evidence, for example "unstable on master: 7 failed default-branch runs in 7 days, chart animation timing; unrelated to PR 1234".
 - `source_run_id` — the run that failed. `expires_at` — omit it for 30 days, or set an earlier date, never a later one.
 - `notify_owners: true` — posts the quarantine to the owning team's Slack channel, so the people who must fix the story hear about it.
-- Then call `recompute-create { id: <run_id> }` on the PR's newest non-stale run of the same `run_type`, and check `ci_rerun_triggered`.
+- Then call `recompute-create { id: <run_id> }` on the PR's newest non-stale run of the same `run_type`, and check `ci_rerun_triggered`. Skip this on a `commit_status` run.
 
 Toleration call shape — both fields are required:
 
@@ -205,6 +218,7 @@ Finalize call shape (`finalize-create`) — the all-or-nothing ship action:
 - It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. When a baseline commit is pushed, its SHA comes back on the run's `metadata.baseline_commit_sha`. It's absent when nothing needed committing (everything resolved by toleration/quarantine — finalize posts a green status, and the required check turns green when its job re-runs) or when the commit was skipped: no PR, or a `409 sha_mismatch` because the PR has newer commits (that one leaves the gate red — re-run CI on the latest commit and finalize again).
 
 If finalize fails with `409 stale_run`, the run has been superseded — `visual-review-runs-list { pr_number }` and finalize the newest one. A successful finalize often kicks off a fresh CI run, which is normal.
+On a `commit_status` run finalize commits nothing and starts no CI run: the status turns green at once, and `metadata.baseline_commit_sha` stays absent.
 
 ### The finalize gate
 

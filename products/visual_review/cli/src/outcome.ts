@@ -75,6 +75,9 @@ function warn(message: string): void {
  * not net `tolerated_matched` off: it double-counts, and since it also spans quarantined
  * snapshots it goes negative on a clean run, which reads as drift. Quarantined snapshots are
  * excluded from the counts server-side.
+ *
+ * A `commit_status` run is gated by the status, which turns green on approval while a failed job
+ * would stay red, so its unresolved changes pass the job. A run without `gate` is gated by the job.
  */
 export async function reportRunOutcome(
     client: VisualReviewClient,
@@ -110,6 +113,12 @@ export async function reportRunOutcome(
     if (unresolved > 0) {
         await logActionableSnapshots(client, runId, unresolved)
         log(`[run:${runId}] Visual changes detected — review at: ${reviewUrl}`)
+        if (run.gate === 'commit_status') {
+            log(
+                `[run:${runId}] The status "PostHog Visual Review / ${run.run_type}" turns green when these changes are approved. Nothing in CI needs to run again.`
+            )
+            return 0
+        }
         return 1
     }
 

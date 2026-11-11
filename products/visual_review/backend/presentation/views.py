@@ -39,6 +39,7 @@ from ..facade.contracts import (
     CreateRunInput,
     FinalizeRunRequestInput,
     LiftOnMergeInput,
+    NoRunNeededInput,
     QuarantineInput,
     UpdateRepoInput,
     UpdateRepoRequestInput,
@@ -59,6 +60,8 @@ from .serializers import (
     FlakinessOverviewSerializer,
     LiftOnMergeInputSerializer,
     MarkToleratedInputSerializer,
+    NoRunNeededInputSerializer,
+    NoRunNeededResultSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
     QuarantineLiftEntrySerializer,
@@ -589,6 +592,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = FacadeLimitOffsetPagination
     scope_object_write_actions = [
         "create",
+        "skip",
         "complete",
         "approve",
         "auto_approve",
@@ -667,6 +671,28 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Create a new run from a CI manifest."""
         result = api.create_run(request.validated_data, team_id=self.team_id)
         return Response(CreateRunResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=NoRunNeededInputSerializer,
+        responses={
+            200: OpenApiResponse(response=NoRunNeededResultSerializer),
+            404: OpenApiResponse(response=ErrorDetailSerializer, description="Repo not found"),
+            502: OpenApiResponse(response=ErrorDetailSerializer, description="GitHub did not accept the commit status"),
+        },
+    )
+    @action(detail=False, methods=["post"])
+    def skip(self, request: TypedRequest[NoRunNeededInput], **kwargs) -> Response:
+        """Report that CI decided a commit needs no visual run, so the required commit status passes.
+
+        Does nothing when a run of the commit and run type exists, or when the repo reads its baselines from the YAML file.
+        """
+        try:
+            result = api.report_no_run_needed(request.validated_data, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.CommitStatusNotPostedError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(NoRunNeededResultSerializer(instance=result).data)
 
     @extend_schema(responses={200: RunSerializer})
     def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:

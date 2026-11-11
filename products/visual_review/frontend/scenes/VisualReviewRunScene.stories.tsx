@@ -59,7 +59,9 @@ const run: RunApi = {
     purpose: 'review',
     is_stale: false,
     metadata: {},
+    gate: 'ci_job',
     search_match_type: null,
+    stale_approval_count: 0,
 }
 
 const snapshot = (overrides: Partial<SnapshotApi>): SnapshotApi => ({

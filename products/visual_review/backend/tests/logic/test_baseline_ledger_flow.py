@@ -67,6 +67,11 @@ def _drift(run: Run) -> tuple[int, int, int]:
     return run.changed_count, run.new_count, run.removed_count
 
 
+def _last_status(flow: LedgerFlow, commit_sha: str) -> tuple[str, str]:
+    posts = [call.kwargs for call in flow.statuses.call_args_list if call.args[1] == commit_sha]
+    return posts[-1]["state"], posts[-1]["description"]
+
+
 def _queue_run(flow: LedgerFlow, git: FakeGit, sha: str, pr_head: str, renders: dict[str, str]) -> Run:
     git.commit(sha, git.head, pr_head)
     return flow.run(sha, renders, branch=f"trunk-merge/{sha}", purpose=RunPurpose.OBSERVE)
@@ -83,6 +88,7 @@ class TestLedgerFlow:
 
         assert _approvals(repo) == [(1, "b1", "b0", "b0", BaselineApprovalState.OPEN, "")]
         flow.commit_to_github.assert_not_called()
+        flow.rerun.assert_not_called()
 
         # The default branch still renders the old picture, and a default-branch run records nothing.
         flow.run(SEED, {"Button": "b0", "Card": "c0"}, branch=DEFAULT_BRANCH, purpose=RunPurpose.OBSERVE)
@@ -158,3 +164,46 @@ class TestLedgerFlow:
             (2, "b2", "b0", "b1", BaselineApprovalState.PROMOTED, "reproduced"),
         ]
         assert _ledger(repo) == {"Button": "b2", "Card": "c0"}
+
+    def test_a_merge_of_the_same_story_turns_the_other_approval_red_until_a_revert(
+        self, repo, git, flow, finalize, django_capture_on_commit_callbacks
+    ) -> None:
+        git.open_pull_request(1, git.commit("p1a", SEED))
+        git.open_pull_request(2, git.commit("p2a", SEED))
+        finalize(flow.run("p1a", {"Button": "b1", "Card": "c0"}, branch="feat-1", pr_number=1))
+        finalize(flow.run("p2a", {"Button": "b2", "Card": "c0"}, branch="feat-2", pr_number=2))
+        assert _last_status(flow, "p2a") == ("success", "Visual changes approved")
+
+        git.merge(1, "m1")
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            ledger_advance.advance(repo)
+
+        assert _last_status(flow, "p2a") == (
+            "failure",
+            "Baseline changed after approval: 1 snapshot. Update the branch and review again",
+        )
+
+        git.open_pull_request(3, git.commit("p3a", "m1"))
+        finalize(flow.run("p3a", {"Button": "b0", "Card": "c0"}, branch="revert-1", pr_number=3))
+        git.merge(3, "m3")
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            ledger_advance.advance(repo)
+
+        assert _ledger(repo)["Button"] == "b0"
+        assert _last_status(flow, "p2a") == ("success", "Visual changes approved")
+
+    def test_a_stack_child_stays_green_when_its_parent_lands(
+        self, repo, git, flow, finalize, django_capture_on_commit_callbacks
+    ) -> None:
+        git.open_pull_request(1, git.commit("p1a", SEED))
+        finalize(flow.run("p1a", {"Button": "b1", "Card": "c0"}, branch="parent", pr_number=1))
+        git.open_pull_request(2, git.commit("p2a", "p1a"))
+        finalize(flow.run("p2a", {"Button": "b2", "Card": "c0"}, branch="child", pr_number=2))
+        flow.statuses.reset_mock()
+
+        git.merge(1, "m1")
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            ledger_advance.advance(repo)
+
+        assert _ledger(repo)["Button"] == "b1"
+        assert _last_status(flow, "p2a") == ("success", "Visual changes approved")

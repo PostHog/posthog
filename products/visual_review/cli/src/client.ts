@@ -12,6 +12,8 @@ import type {
     CreateRunInputApi,
     CreateRunResultApi,
     FinalizeResultApi,
+    NoRunNeededInputApi,
+    NoRunNeededResultApi,
     PaginatedSnapshotListApi,
     RunApi,
     SnapshotApi,
@@ -23,6 +25,8 @@ import type {
 export type {
     ArtifactApi as Artifact,
     CreateRunResultApi as CreateRunResult,
+    NoRunNeededInputApi as NoRunNeededInput,
+    NoRunNeededResultApi as NoRunNeededResult,
     RunApi as Run,
     SnapshotApi as Snapshot,
     SnapshotManifestItemApi as SnapshotManifestItem,
@@ -139,6 +143,13 @@ export class VisualReviewClient {
         return this.request<CreateRunResultApi>('/visual_review/runs/', {
             method: 'POST',
             body: JSON.stringify(body),
+        })
+    }
+
+    async reportNoRunNeeded(input: NoRunNeededInputApi): Promise<NoRunNeededResultApi> {
+        return this.request<NoRunNeededResultApi>('/visual_review/runs/skip/', {
+            method: 'POST',
+            body: JSON.stringify(input),
         })
     }
 
