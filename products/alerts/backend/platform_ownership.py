@@ -10,10 +10,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from django.db import transaction
+
+import posthoganalytics
 
 from posthog.models.team.team import Team
 
@@ -40,12 +42,14 @@ from products.alerts.backend.platform_insight_alert import (
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import (
     close_owned_firings_now,
+    create_configuration,
     delete_copy,
     update_configuration,
     update_owned_copy,
 )
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    Grouping,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
@@ -58,6 +62,75 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 # What an edit through either API can change on both rows. The cadence is a schedule, which the
 # platform's edit leaves out, so an insight edit writes it onto the copy separately.
 _EDITED_FIELDS = ("name", "source_config", "schedule_restriction")
+
+
+# Turns on, per team, insight alert creates that make no insight row. Off until insight's rollback
+# window closes, because rollback hands an alert back through its insight row.
+NATIVE_CREATE_FLAG: Final = "insight-alerts-native-create"
+
+
+def creates_native_alert(team_id: int) -> bool:
+    """Whether a new insight alert of the team gets no insight row. An environment keeps the row,
+    because the platform keeps its alerts on the project's team."""
+    team = Team.objects.only("id", "uuid", "organization_id", "parent_team_id").get(id=team_id)
+    if team.parent_team_id is not None:
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            NATIVE_CREATE_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                # Both regions read flags from one PostHog project, and project ids repeat across regions.
+                "project": {"id": str(team.id), "uuid": str(team.uuid)},
+            },
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def create_native_alert(alert: AlertConfiguration) -> PlatformAlertConfigurationView:
+    """Creates an insight alert with no insight row from an unsaved alert the insight API or the Max
+    tool checked, in the caller's transaction, after its limit checks. Its subscribers are the
+    caller's to write.
+
+    Raises `PlatformCannotOwn` for an alert the platform cannot evaluate, and like `create_configuration`.
+    """
+    upsert = platform_upsert_of(alert)
+    if upsert is None:
+        raise PlatformCannotOwn("The alerts platform can't run checks at this frequency.")
+    view = create_configuration(
+        team_id=alert.team_id,
+        source_kind=SourceKind.INSIGHT,
+        edit=PlatformAlertConfigurationEdit(
+            name=upsert.name,
+            enabled=upsert.enabled,
+            source_config=upsert.source_config,
+            grouping=Grouping(),
+            schedule_restriction=upsert.schedule_restriction,
+            evaluation_periods=upsert.evaluation_periods,
+            datapoints_to_alarm=upsert.datapoints_to_alarm,
+            cooldown_minutes=upsert.cooldown_minutes,
+            check_interval_minutes=upsert.check_interval_minutes,
+        ),
+        created_by_id=alert.created_by_id,
+        natively=True,
+    )
+    if upsert.anchor_time is None:
+        return view
+    # A create stores the kind's schedule, so a start time takes the cadence write an edit uses.
+    anchored = update_configuration(
+        team_id=alert.team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        configuration_id=view.id,
+        change=lambda stored: stored,
+        cadence=upsert,
+        rescheduled=True,
+        source_checked=True,
+    )
+    assert anchored is not None
+    return anchored
 
 
 def on_created(alert: AlertConfiguration, at: datetime) -> bool:
