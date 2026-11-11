@@ -7218,26 +7218,30 @@ snapshots:
         hash: v1.k794b7964.4f059c7baaf27703213dd545b602a2895498f592d171381453d1f826542d02ea.Zglpsr767jz-_6zt0OahlYMiaVcXH9hCTinkPNAvUYA
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table--empty--light:
         hash: v1.k794b7964.ca66faf69abd527fb52fc4d98ec6d0dd3a89a6486799ef5fb61f47081858e157.Wp0BoFLCuF6DxBtf8z7vVuJ0hK15cVaHlGtRiveBKto
+    products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table--grouped-by-several-labels--dark:
+        hash: v1.k794b7964.d7fe02e81c55d926885384c919a92f0c84a4d72aa8ac48b89d27b91222dbdbf9.VsijrMFP8LEadO9-OkLt54437-D-0CyyrUMKXwWxjUo
+    products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table--grouped-by-several-labels--light:
+        hash: v1.k794b7964.97fac1517ba4af1ae71d39ceb2f3c17c1a1772f35250060b0e79c9ca4f9624df.tlABqdb5yZJUNzc_6vVwCNbL5V0igE47G5XHr9gGUW8
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table--loading--dark:
         hash: v1.k794b7964.03aca61bb0c8ea2f3d48e2addd43b5ba803fb83be6a2913468a8ff5335b0d9f2.eRvBnERxtmd3l9eyLLyCMaQhJHFM2-zTibHpnbCZZI8
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table--loading--light:
         hash: v1.k794b7964.54abe4103afbd3d844f198b5935627f110110cb0504db7ce3c944195f804dc18.ac-70tksgF4sMOAMeeup0Tn1ec7JVashPi80RU7gNLo
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table--needs-configuration--dark:
-        hash: v1.k794b7964.73dcf83852546ff4b2a9ebd6344abc8f6775f301e9c3b36764e7a61a062b726f.Lc7N5LRfU4PcPc3iWvPaO7Hu4aZfHbEcwNBc4OKXhos
+        hash: v1.k794b7964.e3526e10a7d45232d612417810513432c7edffbeb1ad85c2d9654f71424f4175._F_9tPG5StqynmjqqJuJ96hUYzAaSM7155uNwGKdyus
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table--needs-configuration--light:
-        hash: v1.k794b7964.2e0bac53ede71c768bb6ab108a721aecbdc049a0173a4b1c0a2193afd4e97771.RpTMNdHSzOxfHSEfGwcoACYPgV6xrT-dlk-2fyCuNrg
+        hash: v1.k794b7964.8668ddf0cb23d7aa7a3b426a14b021226546a17e8a9481eeab69f846b2c147cf.TGqX_Y5Zv5d0V8G0NtxKIYzzMLbKeHwgEvu--YJvQA8
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table--populated--dark:
         hash: v1.k794b7964.6cd7457cfdc85c6490992ef5183b8980f4f754fe56969e46753678607cb2034e.x1xmmJY_75Pofu1CIGj1F7jcG5vgT7UQviMC9FFkUnQ
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table--populated--light:
         hash: v1.k794b7964.3c1d2490adb00af4bb4bc8511f44859314ae67af1ec35377185c9b64440b427c.ttT7T_9QP09WegASXIzXJ1Gl8FETEAr5snEq-BUSsp8
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table-widget-settings--default--dark:
-        hash: v1.k794b7964.beebe02f4c8beb3d2d0ebb2b48170612875433c65c51e62813ed213aaba4ce96.Dj5HdyBBSxNcb7P6b-l_NNcD3d8RK1-IUoUT3bQwc5w
+        hash: v1.k794b7964.11743f607609b8e0aba3e5d834aa22c19f0aef0a6fda616d7d625af35ce2f72b.zhjzkXJsXVcpOSKSa7psD2_Ei0Jo0uaflEHgRGUOnf0
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table-widget-settings--default--light:
-        hash: v1.k794b7964.7171961a60bd6a37343623923eb660ae317cc46a386eef36180f7e8463cdde11.21ZWnOQBA2U-pSWA70vFP9H6MKO8G7oPxkyAphEjzr4
+        hash: v1.k794b7964.78ce606e1ae8ccc344048b3fd6a171351dc68cacf7370d9f2094475fa5cfff66.M-iygxh5K0XSEia0hErfuH1IJ9QvGY1ERSX7UqKBgNw
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table-widget-settings--http-endpoints--dark:
-        hash: v1.k794b7964.107de478f533691402a10398806190f09e5a4bb40c5101ea57e8a0b912f90ca4.uYwHCrI1qLdkjFW9C7ifT2Z9QIogglIsL6f8h9m_VCM
+        hash: v1.k794b7964.06b68e340bef850edde4e97b1e1f834495552e8dc6d72a5a27c422d6b31fa957.soQqlGHGA-3zxfWj2fJMmM9yykcB80hL_PW8DT0_8-E
     products-dashboards-dashboard-widgets-widget-types-metrics-metrics-table-widget-settings--http-endpoints--light:
-        hash: v1.k794b7964.f3de9f26922943f2b0bb0653106553fa3f85156d0ca751a45ef2f602544b5f9e.KLSbgynV_Ybu8RAsSnGyHl99aJq3eQGyeLvzemOcIBY
+        hash: v1.k794b7964.566e63202cbff8891d0ceb2f71c9758abf89f1cde1ab029818c160a3930f055f.v4-URM1Ff2y9I20tYEAMO_theEud2xWhBzQZvD9LZTQ
     products-dashboards-dashboard-widgets-widget-types-session-replay-recent-recordings--default--dark:
         hash: v1.k794b7964.7177219f56d7df8c842229dc6fbf23a9bd463d51b97061640cf42f9752e0498d.mgZy3jf_6a54_CDi6PLHvryOAqzA_XPVc1tk_1mboBc
     products-dashboards-dashboard-widgets-widget-types-session-replay-recent-recordings--default--light:
