@@ -262,7 +262,12 @@ export interface commandKSearchLogicActions {
     ) => {
         failed: boolean
         query: string
-        results: RemoteResults
+        results: Partial<
+            Record<
+                'accounts' | 'events' | 'groups' | 'persons' | 'properties' | 'results' | 'tickets' | 'workflows',
+                RemotePage
+            >
+        >
     }
     requestsStarted: (queries: Record<string, string>) => {
         queries: Record<string, string>
