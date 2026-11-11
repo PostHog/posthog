@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import timedelta
 from types import SimpleNamespace
@@ -83,7 +84,8 @@ async def test_team_workflow_stops_at_scan_or_run_limit(
     assert result.scanned == 100 * expected_batches
     assert result.has_more == has_more
     summary = run_logger.info.call_args.kwargs["extra"]
-    assert run_logger.info.call_args.args == ("membership_run_summary",)
+    assert run_logger.info.call_args.args[0] == "membership_run_summary %s"
+    assert json.loads(run_logger.info.call_args.args[1]) == summary
     assert summary["stop_reason"] == stop_reason
     assert summary["scanned"] == result.scanned
     assert summary["batches"] == expected_batches
@@ -217,6 +219,14 @@ async def test_temporal_discovery_preserves_membership(
             )
     await database_sync_to_async(assert_candidates)()
     assert lost_result
+    summaries = [
+        json.JSONDecoder().raw_decode(record.getMessage().removeprefix("membership_run_summary "))[0]
+        for record in caplog.records
+        if record.getMessage().startswith("membership_run_summary ")
+    ]
+    assert {summary["scope"] for summary in summaries} == {"team", "coordinator"}
+    assert all(summary["job"] == "discovery" and summary["duration_seconds"] >= 0 for summary in summaries)
+    assert any(summary.get("teams_completed", 0) > 0 for summary in summaries)
 
 
 @pytest.mark.asyncio

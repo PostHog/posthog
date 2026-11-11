@@ -1,3 +1,4 @@
+import json
 import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -73,21 +74,24 @@ def record_membership_run(
         summary.stop_reason = "failure"
         raise
     finally:
-        if outcome == "success" and summary.counts.get("teams_failed", 0):
+        if outcome == "success" and (summary.counts.get("teams_failed", 0) or summary.counts.get("failed_batches", 0)):
             outcome = "partial_failure"
+        fields: dict[str, object] = {
+            "job": job,
+            "scope": scope,
+            "team_id": team_id,
+            "dry_run": dry_run,
+            "deletion_enabled": deletion_enabled,
+            "duration_seconds": (workflow.now() - started).total_seconds(),
+            "outcome": outcome,
+            "stop_reason": summary.stop_reason,
+            **summary.counts,
+        }
+        # The stdlib formatter drops extra fields, so keep the summary in the message too.
         workflow.logger.info(
-            "membership_run_summary",
-            extra={
-                "job": job,
-                "scope": scope,
-                "team_id": team_id,
-                "dry_run": dry_run,
-                "deletion_enabled": deletion_enabled,
-                "duration_seconds": (workflow.now() - started).total_seconds(),
-                "outcome": outcome,
-                "stop_reason": summary.stop_reason,
-                **summary.counts,
-            },
+            "membership_run_summary %s",
+            json.dumps(fields, sort_keys=True),
+            extra=fields,
         )
 
 
