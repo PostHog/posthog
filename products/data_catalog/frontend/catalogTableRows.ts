@@ -33,7 +33,7 @@ import {
 } from 'products/data_quality/frontend/generated/api.schemas'
 import { type SubjectGroup, subjectKeyOf } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { ColumnSort, SortValueGetters, sortByColumn } from './catalogSort'
+import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from './catalogSort'
 import type { CertificationTargetType } from './certificationsLogic'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
 
@@ -456,6 +456,8 @@ export type SortDirection = 'asc' | 'desc'
 
 export type TablesSort = ColumnSort<TablesSortColumn>
 
+export const DEFAULT_TABLES_SORT: TablesSort = { column: 'status', direction: 'asc' }
+
 const TRUST_RANK: Record<string, number> = { certified: 0, proposed: 1, deprecated: 2 }
 
 export function checkGroupCounts(group: SubjectGroup | null | undefined): CheckCounts | null {
@@ -500,8 +502,12 @@ const SORT_VALUES: SortValueGetters<CatalogTableRow, TablesSortColumn> = {
     freshness: (row) => row.refreshedAt,
 }
 
-export function sortCatalogTableRows(rows: CatalogTableRow[], sort: TablesSort | null): CatalogTableRow[] {
+export function sortCatalogTableRows(rows: CatalogTableRow[], sort: TablesSort): CatalogTableRow[] {
     return sortByColumn(rows, sort, SORT_VALUES, (row) => row.name)
+}
+
+export function nextTablesSort(current: TablesSort, column: TablesSortColumn): TablesSort {
+    return nextColumnSort(current, column) ?? DEFAULT_TABLES_SORT
 }
 
 export type ProposalDecision = 'accept' | 'reject'

@@ -7077,6 +7077,21 @@
             "readOnlyHint": true
         }
     },
+    "feature-flag-get-version": {
+        "description": "Rebuild a feature flag as it was at a past version, from its activity log. Returns the key, name, `filters` (release conditions, variants and payloads), enabled state and evaluation options at that version, plus `version_timestamp` and `modified_by` for the edit that produced it. The flag's current `version` is on `feature-flag-get-definition`; every saved edit adds one.\n\nUse it to compare a past version with the current flag before restoring it with `feature-flag-restore-version`. Returns 400 for a flag with encrypted payloads, 404 for a version above the current one, and 422 when the activity log is missing entries needed to rebuild that version.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get a past version of a feature flag",
+        "title": "Get a past version of a feature flag",
+        "required_scopes": ["feature_flag:read"],
+        "api_operations": ["GET /api/projects/{project_id}/feature_flags/{id}/versions/{version_number}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "feature-flag-restore": {
         "description": "Restore a soft-deleted feature flag by ID, undoing `delete-feature-flag` or a bulk delete. Requires the flag's numeric ID. Deleted flags are hidden from `feature-flag-get-all`, so take the ID from the delete call's response, the experiment that uses the flag, or `system.feature_flags` with `deleted = true` in `execute-sql`. There, match the key by prefix, because the delete may have renamed it as described below.\n\nSets `deleted` to false and never accepts or replaces the `filters` object. A flag linked to an experiment had its key renamed to `<key>:deleted:<id>` when it was deleted. Restoring puts the original key back, or adds a numeric suffix when another flag has taken that key since, so check the returned `key` and tell the user if it changed. The flag comes back enabled or disabled, as it was before the delete. A flag that was archived before the delete stays archived, so check the returned `archived` and call `feature-flag-unarchive` if the user wants it back in the flag list.\n\nReturns 400 when the flag's `filters.version` is 2: those flags cannot be restored yet. Returns 400 under `filters` when a release condition targets a cohort that has been deleted: name that condition to the user, and if they agree, remove it with `update-feature-flag` and retry. Returns 404 when the flag was removed for good, for example because a new flag took its key after the delete. Restoring a flag that is not deleted succeeds and leaves it as it was, so retrying is safe.",
         "category": "Feature flags",
@@ -7091,6 +7106,22 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "feature-flag-restore-version": {
+        "description": "Set a feature flag's release conditions, variants, payloads, name and evaluation options back to what they were at `version_number`. The key, the enabled state, the archived state, tags and evaluation contexts stay as they are. The restore is saved as a new version, so it can be undone by restoring the version before it.\n\nBefore calling, read the past version with `feature-flag-get-version`, show the user what will change against the current flag, and confirm. Send the flag's current `version` (not the version to restore), from `feature-flag-get-definition`; never guess it. A stale `version` returns 409: read the flag again. Returns 409 with a `change_request_id` when an approval policy gates the change: tell the user a change request was opened. Returns 400 for an archived flag, a flag with encrypted payloads, a flag whose `filters.version` is 2, or a past version that no longer validates, for example because it targets a deleted cohort. Restoring a version that matches the current configuration changes nothing.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Restore a past version of a feature flag",
+        "title": "Restore a past version of a feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "api_operations": ["POST /api/projects/{project_id}/feature_flags/{id}/versions/{version_number}/restore/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-feature-flag-restore-version"
     },
     "feature-flag-roll-out-to-everyone": {
         "description": "Serve a feature flag to its whole audience: every user, or every group of the configured type when the flag aggregates by groups. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nAdds a release condition with no property filters at 100% and keeps the existing conditions below it. This tool never accepts or replaces the `filters` object, so payloads, the holdout and the set of variants cannot change. On a boolean flag, removing the new condition puts the previous targeting back. On a multivariate flag the variant distribution is rewritten as well, so removing the condition restores the audience but not the old split. A flag that already leads with such a condition gains no second one.\n\nThis tool changes targeting only. A disabled flag still serves nobody, so check `active` in the response and use `feature-flag-enable` if it is false. A holdout is evaluated before release conditions, so users in one keep getting the holdout variant instead of the rollout. Early access enrollment is evaluated before both.\n\nCheck `filters.feature_enrollment` in the definition you read. When it is true, this tool refuses the rollout with 400 and writes nothing. Only the early access feature's own move to general availability with its roll out to everyone option clears the gate. That move writes the 100% condition itself, so do not call this tool after it. A plain stage change to general availability leaves `feature_enrollment` true, and this tool keeps returning 400. The API does not expose that option, so ask the person to make the move in the early access feature.\n\n`update-feature-flag` and `feature-flag-set-release-condition-rollout` are not gated on enrollment. A rollout written through either returns 200 while the enrollment marker still decides who is served. Do not use either tool to bypass the 400.\n\nCheck `filters.aggregation_group_type_index` in the definition you read. When it is set, the flag buckets groups of that type instead of people. The new condition then serves every group of that type, and a user evaluated without such a group is served nothing. Say groups when you report the change.\n\nA multivariate flag needs `variant_key`, and every other flag rejects it. A release condition decides who the flag serves and not which variant they get, so this also gives the named variant 100% of the variant distribution and every other variant 0%. When the user says \"roll it out to everyone\" about a multivariate flag, ask which variant they mean rather than guessing. To serve everyone and keep the current split between variants, use `update-feature-flag`.\n\nCheck `experiment_set_metadata` in the definition you read. When it lists an experiment with `is_running` true, ship the winner with `experiment-ship-variant`: that tool makes the same distribution change and also ends the experiment and records its conclusion. This tool leaves the experiment running with no end date, so every later exposure enters one variant and the comparison stops being valid. Use this tool on that flag only when the user wants the audience changed and the experiment kept running.\n\nRead the flag first and send the `version` that read returned. Returns 409 when anyone changed the flag after that version, and writes nothing. Read the flag again, check what changed, and decide the rollout against the current definition. Do not retry with the same version: after a call writes a change that version is no longer current, so a blind retry is the same 409. A call that finds the flag already rolled out to everyone writes nothing and returns the version unchanged.\n\nReturns 400 when the flag is gated on early access enrollment, when a multivariate flag has no `variant_key`, when the flag defines no such variant, or when `variant_key` is sent for a flag with no variants. Returns 409 when an approval policy gates rollout changes.",
@@ -14375,6 +14406,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
+    "stamphog-repo-configs-update": {
+        "description": "Change the settings of one repo config by id. Send only the fields to change. Turning reviews on (`enabled: true`) and `digest_enabled` need the Editor level on stamphog. Turning reviews off (`enabled: false`), `review_mode`, `trigger_label`, `routing_mode`, `routing_fork_labels` and `review_on_clean_external_review` need the Manager level, and a request without it is refused. `review_on_clean_external_review` works only with `review_mode: label`: the API refuses it with `all`, and setting `review_mode` to `all` turns it off. Turn it on only in a repository where PostHog Review runs automatic reviews when a pull request opens or is marked ready. To have reviewers requested only when stamphog does not approve, turn `review_on_clean_external_review` on first, then set `routing_mode` to `fallback`. `routing_fork_labels` replaces the whole map. `provider` and `repository` cannot change on an existing config.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Update stamphog repo config",
+        "title": "Update stamphog repo config",
+        "required_scopes": ["stamphog:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/stamphog/repo_configs/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "stamphog"
     },
