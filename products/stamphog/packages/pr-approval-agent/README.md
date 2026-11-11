@@ -392,6 +392,8 @@ The `stamphog_policy` category cannot carry the key, because a team that may app
 Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
 
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe).
+Only a check from the `tests-posthog` App counts, and the bypass covers the Django migration files the check lists and their `max_migration.txt`.
+Those files still count toward every other deny category.
 The check is the same signal humans see in the PR's Checks tab.
 See `migration_risk.py` for how the engine reads it.
 
