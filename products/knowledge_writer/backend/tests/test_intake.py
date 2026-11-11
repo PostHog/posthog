@@ -15,12 +15,14 @@ from posthog.models.integration import Integration
 from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource
-from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG
+from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
 from products.knowledge_writer.backend.logic.pull_requests import (
     COMPARE_FILE_LIMIT,
+    DRAFT_EVENT,
     LINK_BACK_START,
+    OPEN_PULL_REQUESTS_OFF,
     open_or_join_pull_request,
     section_label,
     section_marker,
@@ -58,6 +60,7 @@ WRITER_APP_LOGIN = "posthog-app[bot]"
 CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdict"
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 START_PUBLISH = "products.knowledge_writer.backend.temporal.client.start_publish"
+CAPTURE_DRAFT = "products.knowledge_writer.backend.logic.pull_requests.ph_scoped_capture"
 
 COMMAND = DocsCommandRequest(
     repository="PostHog/posthog",
@@ -87,8 +90,15 @@ def writer_env(team, user):
         ),
         patch(f"{GITHUB}.get_default_branch", return_value="master"),
         patch(LIST_PULL_REQUESTS, side_effect=_changed_on_branch(DOCS_PAGE_PATH)),
+        patch(FLAG_CHECK, side_effect=_flag_check()),
     ):
         yield
+
+
+def _flag_check(*flags_off: str, is_every_other_flag_on: bool = False) -> Callable[..., bool]:
+    return lambda flag, *args, **kwargs: (
+        flag not in flags_off and (is_every_other_flag_on or flag == OPEN_PULL_REQUESTS_FLAG)
+    )
 
 
 def _open_on_github(
@@ -464,6 +474,60 @@ def test_a_publish_retry_reclaims_the_claim_its_crashed_attempt_left_and_opens_t
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "open_pull_requests_reply, expected_deleted_branch_count, expected_outcomes",
+    [(False, 1, ["logged"]), (None, 0, [])],
+)
+def test_with_pull_requests_off_a_finished_run_is_logged_and_its_branch_deleted_but_an_unread_flag_keeps_it(
+    team,
+    writer_env,
+    django_capture_on_commit_callbacks,
+    monkeypatch,
+    open_pull_requests_reply,
+    expected_deleted_branch_count,
+    expected_outcomes,
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, _run_publish_workflow_inline)
+    monkeypatch.setenv("KNOWLEDGE_WRITER_DOCS_PATHS", "contents/docs")
+    with (
+        patch(FLAG_CHECK, side_effect=_flag_check(OPEN_PULL_REQUESTS_FLAG, is_every_other_flag_on=True)),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+    assert started.task_id is not None
+    patched_file = {"filename": DOCS_PAGE_PATH, "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new"}
+    with (
+        patch(
+            FLAG_CHECK,
+            side_effect=lambda flag, *args, **kwargs: (
+                open_pull_requests_reply if flag == OPEN_PULL_REQUESTS_FLAG else True
+            ),
+        ),
+        patch(CREATE_PULL_REQUEST) as create_pull_request,
+        patch(f"{GITHUB}.delete_branch", return_value={"success": True}) as delete_branch,
+        patch(CAPTURE_DRAFT) as scoped_capture,
+    ):
+        _finish_run(started.task_id, django_capture_on_commit_callbacks, changed_files=(patched_file,))
+
+    create_pull_request.assert_not_called()
+    assert delete_branch.call_count == expected_deleted_branch_count
+    capture = scoped_capture.return_value.__enter__.return_value
+    assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == expected_outcomes
+    if open_pull_requests_reply is None:
+        return
+    delete_branch.assert_called_once_with("posthog.com", _issued_branch(started.task_id))
+    assert (
+        tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
+        == OPEN_PULL_REQUESTS_OFF
+    )
+    event, properties = capture.call_args.args[0], capture.call_args.kwargs["properties"]
+    assert (event, properties["routed_page_urls"]) == (DRAFT_EVENT, [SECTION_PAGE])
+    assert properties["files"] == [{**patched_file, "is_patch_truncated": False}]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     "github_responses, handed_pages, withheld_pages",
     [
         (_open_on_github(published_page_paths=("logs/logql-api",)), (SECTION_PAGE,), (REPOSITORY_SOURCED_PAGE,)),
@@ -524,9 +588,16 @@ def test_a_request_whose_every_page_is_sourced_from_its_own_repository_starts_no
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("author_login, expected_status", [(WRITER_APP_LOGIN, "joined"), ("someone-else", "started")])
-def test_only_a_pull_request_the_writer_app_opened_can_be_joined(
-    team, writer_env, author_login, expected_status
+@pytest.mark.parametrize(
+    "author_login, flags_off, expected_status",
+    [
+        (WRITER_APP_LOGIN, (), "joined"),
+        ("someone-else", (), "started"),
+        (WRITER_APP_LOGIN, (OPEN_PULL_REQUESTS_FLAG,), "started"),
+    ],
+)
+def test_only_a_pull_request_the_writer_app_opened_can_be_joined_while_pull_requests_are_on(
+    team, writer_env, author_login, flags_off, expected_status
 ) -> None:
     verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
     assert verdict.request is not None
@@ -534,7 +605,7 @@ def test_only_a_pull_request_the_writer_app_opened_can_be_joined(
     assert section is not None
     lookalike_body = f"{LINK_BACK_START}\n{section_marker(section)}"
     with (
-        patch(FLAG_CHECK, return_value=True),
+        patch(FLAG_CHECK, side_effect=_flag_check(*flags_off, is_every_other_flag_on=True)),
         patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, lookalike_body), author_login=author_login)),
         patch(START_WORKFLOW),
     ):

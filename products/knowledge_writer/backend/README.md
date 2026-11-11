@@ -40,7 +40,7 @@ flox activate -- python manage.py knowledge_writer_pr_smoke \
 
 On a Coder workspace `SITE_URL` is the public URL, which the sandbox and self-capture cannot reach, so every process also needs `SELF_CAPTURE_HOST=http://localhost:8010`, `SANDBOX_API_URL=http://localhost:8010` and `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308`.
 
-Turn the `knowledge-writer-agent-launch` flag on at 100% for the team; otherwise intake runs in shadow mode and the command stops. Pick two merged pull requests whose change the section's docs lack, so the agent has something to write. Then:
+Turn the `knowledge-writer-agent-launch` and `knowledge-writer-open-prs` flags on at 100% for the team; otherwise intake runs in shadow mode and the command stops. Pick two merged pull requests whose change the section's docs lack, so the agent has something to write. Then:
 
 ```bash
 flox activate -- python manage.py knowledge_writer_pr_smoke \

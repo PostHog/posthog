@@ -21,7 +21,7 @@ from products.tasks.backend.facade.contracts import TaskRunDTO
 from ...adapters.registry import REGISTRY
 from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
 from ...facade.enums import DocsRequestSource
-from ...feature_flags import AGENT_LAUNCH_FLAG
+from ...feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG, is_team_flag_enabled
 from ...logic import intake
 from ...logic.intake import pull_request_to_join
 from ...logic.launch import start_writer
@@ -91,6 +91,8 @@ class Command(BaseCommand):
                 "Set KNOWLEDGE_WRITER_TEAM_ID, KNOWLEDGE_WRITER_USER_ID and KNOWLEDGE_WRITER_DOCS_REPOSITORY "
                 "to this team and repository"
             )
+        if not is_team_flag_enabled(OPEN_PULL_REQUESTS_FLAG, team):
+            raise CommandError(f"Turn the {OPEN_PULL_REQUESTS_FLAG} flag on at 100% for team {team.id}")
         github = connected_github(team.id, repository, options["installation_id"])
         section: str = options["section"]
         stale = pull_request_to_join(list_writer_pull_requests(writer), section)

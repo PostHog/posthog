@@ -13,7 +13,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskDetailDTO
 
 from ..facade.contracts import AdapterVerdict, IntakeOutcome, InvalidAdapterVerdict
-from ..feature_flags import is_agent_launch_enabled
+from ..feature_flags import is_agent_launch_enabled, open_pull_requests_flag_state
 from ..settings import writer_settings
 from .caps import (
     OPEN_PULL_REQUEST_CAP,
@@ -70,7 +70,11 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     if open_pull_requests is None:
         alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
-    joining = pull_request_to_join(open_pull_requests, routing.section)
+    joinable = pull_request_to_join(open_pull_requests, routing.section)
+    is_opening_pull_requests = open_pull_requests_flag_state(team)
+    if joinable is not None and is_opening_pull_requests is None:
+        return IntakeOutcome(status="section_busy")
+    joining = joinable if is_opening_pull_requests else None
     if joining is None and len(open_pull_requests) + in_flight.unpublished_runs >= OPEN_PULL_REQUEST_CAP:
         alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
