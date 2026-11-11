@@ -456,12 +456,25 @@ describe('Hog Inputs', () => {
             }
         })
 
-        it('fails the inputs with the deadline error when the deadline passes while a hog input queues behind another render', async () => {
+        it('fails every build that shares a deadline with the deadline error when it passes while their hog inputs queue behind another render', async () => {
             const onlyHog = createHogFunction({
                 ...hogFunction,
                 inputs: { only: { value: 'x', templating: 'hog', bytecode: ['_H', 1, 32, 'x'] } },
                 inputs_schema: [],
             })
+            const compiledUnder = (contract: string): HogFunctionType =>
+                createHogFunction({
+                    ...hogFunction,
+                    inputs: {
+                        only: {
+                            value: 'x',
+                            templating: 'hog',
+                            bytecode: ['_H', 1, 32, 'x'],
+                            bytecode_contract: contract,
+                        },
+                    },
+                    inputs_schema: [],
+                })
             const threshold = getEventLoopYieldThresholdMs()
             await new Promise((resolve) => setTimeout(resolve, 5))
             configureEventLoopYield(0)
@@ -488,22 +501,27 @@ describe('Hog Inputs', () => {
                     await nextTurn()
                 }
                 const deadline = new AbortController()
-                let queued: unknown
-                void hogInputsService.buildInputs(onlyHog, globals, undefined, undefined, deadline.signal).then(
-                    () => (queued = 'rendered'),
-                    (error: unknown) => (queued = error)
-                )
+                const contracts = ['older', 'newer']
+                const queued: unknown[] = contracts.map(() => undefined)
+                contracts.forEach((contract, index) => {
+                    void hogInputsService
+                        .buildInputs(compiledUnder(contract), globals, undefined, undefined, deadline.signal)
+                        .then(
+                            () => (queued[index] = 'rendered'),
+                            (error: unknown) => (queued[index] = error)
+                        )
+                })
                 for (let turn = 0; turn < 20; turn++) {
                     await nextTurn()
                 }
-                expect(queued).toBeUndefined()
+                expect(queued).toEqual([undefined, undefined])
 
                 deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
-                for (let turn = 0; queued === undefined && turn < 1000; turn++) {
+                for (let turn = 0; queued.includes(undefined) && turn < 1000; turn++) {
                     await nextTurn()
                 }
 
-                expect(queued).toMatchObject({ name: 'TimeoutError' })
+                expect(queued.map((outcome) => (outcome as Error).name)).toEqual(['TimeoutError', 'TimeoutError'])
                 expect(first).toBeUndefined()
                 for (let turn = 0; first === undefined && turn < 1000; turn++) {
                     jest.runOnlyPendingTimers()

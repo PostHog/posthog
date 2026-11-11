@@ -124,6 +124,9 @@ export class HogInputsService {
                 try {
                     return await formatHogInput(input.bytecode, newGlobals, key, signal)
                 } catch (error) {
+                    if (error === signal?.reason) {
+                        throw error
+                    }
                     throw withBytecodeContract(error, input.bytecode_contract)
                 }
             }
