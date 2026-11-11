@@ -33,6 +33,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.ph_client import ph_scoped_capture
+from posthog.utils import safe_cache_add
 
 from ..db import WRITER_DB
 from ..facade.contracts import (
@@ -114,8 +115,7 @@ def _is_clean(observation: Observation, default_baseline_hash: str) -> bool:
 
 def contains(later: TrustedRun, earlier: TrustedRun, history: History) -> bool:
     """Whether the tree of `later` holds all of the tree of `earlier`."""
-    if earlier.on_default_branch and later.on_default_branch:
-        return earlier.commit_sha != later.commit_sha and history.commit_contains(earlier.commit_sha, later.commit_sha)
+    # A re-run of the same default-branch commit holds it too, and is the strongest proof there is.
     if earlier.on_default_branch:
         return history.commit_contains(earlier.commit_sha, later.commit_sha)
     # A squash merge gives the default branch new commits, so no ancestry check can tell whether
@@ -378,6 +378,15 @@ def _capture_proof(
         logger.warning("visual_review.flake_proof_capture_failed", run_id=str(run.id), exc_info=True)
 
 
+def _first_report(repo: Repo, run_type: str, identifier: str) -> bool:
+    # A proof that is not applied stays provable, so without this every later run would report it again.
+    return safe_cache_add(
+        f"visual_review:flake_proven:{repo.id}:{run_type}:{identifier}",
+        True,
+        timeout=AUTO_QUARANTINE_PROOF_WINDOW_HOURS * 60 * 60,
+    )
+
+
 def quarantine_proven_flakes(run: Run) -> None:
     """Find the stories that this run completes a flake proof for, and act on them as the repo's mode says.
 
@@ -416,6 +425,8 @@ def quarantine_proven_flakes(run: Run) -> None:
             continue
         capped = mode == AutoQuarantineMode.ON and automatic_today >= AUTO_QUARANTINE_DAILY_LIMIT
         applied = mode == AutoQuarantineMode.ON and not capped
+        if not applied and not _first_report(repo, run.run_type, identifier):
+            continue
         reason = proof_reason(proof)
         if capped:
             logger.warning(

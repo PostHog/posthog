@@ -41,6 +41,7 @@ def _trusted(sha: str, hour: int, on_default_branch: bool) -> TrustedRun:
 # m1 and m2 are default-branch commits, m2 holds m1. Each queue run is a test branch on m1 unless named.
 _M1 = _trusted("m1", 0, True)
 _M2 = _trusted("m2", 2, True)
+_M1_RERUN = _trusted("m1", 1, True)
 _Q1 = _trusted("q1", 1, False)
 _Q2 = _trusted("q2", 3, False)
 _Q2_OFF_OTHER_BASE = _trusted("q2-other-base", 3, False)
@@ -83,6 +84,7 @@ class TestFindFlakeProof:
         "_name,observations,expected",
         [
             ("superset_master_in_master", [_failing(_M1), _clean(_M2)], ProofKind.SUPERSET),
+            ("superset_rerun_of_the_same_commit", [_failing(_M1), _clean(_M1_RERUN)], ProofKind.SUPERSET),
             ("superset_master_in_queue", [_failing(_M1), _clean(_Q2)], ProofKind.SUPERSET),
             ("superset_queue_in_queue", [_failing(_Q1), _clean(_Q2)], ProofKind.SUPERSET),
             ("disjoint_queue_runs", [_failing(_Q1), _failing(_Q3), _clean(_Q4)], ProofKind.DISJOINT),
@@ -216,6 +218,18 @@ class TestQuarantineProvenFlakes:
             assert (rows[0].source_run_id, rows[0].created_by_id) == (failing.id, None)
             expected_expiry = timezone.now() + timedelta(days=AUTO_QUARANTINE_DAYS)
             assert abs(rows[0].expires_at - expected_expiry) < timedelta(minutes=1)
+
+    def test_a_proof_left_in_place_is_reported_once(self, repo, github, capture):
+        repo.auto_quarantine_mode = AutoQuarantineMode.PREVIEW
+        repo.save()
+        _failing, first = self._superset_proof(repo)
+        auto_quarantine.quarantine_proven_flakes(first)
+        Run.objects.filter(id=first.id).update(status=RunStatus.COMPLETED, superseded_by=first)
+        second = _master_run(repo, "c" * 40, RunStatus.PROCESSING, 0, SnapshotResult.UNCHANGED)
+
+        auto_quarantine.quarantine_proven_flakes(second)
+
+        assert capture.call_count == 1
 
     def test_the_daily_limit_stops_more_automatic_quarantines(self, repo, github, capture):
         for index in range(AUTO_QUARANTINE_DAILY_LIMIT):

@@ -137,7 +137,7 @@ When a trusted run finishes, the backend looks at the trusted runs of the same r
 A flake is proven when the same code renders a story both ways against the same baseline:
 
 - **Superset proof.** The story changed in run A and was unchanged in run B, and B's tree holds all of A's tree.
-  A default-branch run holds an earlier default-branch commit by ancestry.
+  A default-branch run holds an earlier default-branch commit by ancestry, and a re-run of the same commit holds it too.
   A merge queue run holds another when its batch holds every pull request of the other batch and the other batch's base commit.
   A default-branch run never holds a merge queue run, because a squash merge writes new commits.
 - **Disjoint proof.** The story changed in two runs that share no pull request, and was unchanged in a run created after the earlier of the two.

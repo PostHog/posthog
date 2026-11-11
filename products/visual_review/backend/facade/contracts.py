@@ -705,7 +705,6 @@ AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
 
 # Automatic quarantines per repo in 24 hours, past which the next proof is logged and not applied.
 # Many new flakes at once mean the capture harness regressed, and quarantining them would hide that.
-# A backtest week with a harness regression produced 23 proofs in 8 days, a normal week fewer than 5.
 AUTO_QUARANTINE_DAILY_LIMIT = 10
 
 # Stories evaluated per finishing run, so that a storm of failures cannot stall run completion on
