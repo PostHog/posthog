@@ -37,7 +37,7 @@ export function TodayBroadcastBanner({ broadcast }: { broadcast: BroadcastPayloa
             </ItemMedia>
             <ItemContent>
                 <ItemTitle>{broadcast.title}</ItemTitle>
-                <ItemDescription>{broadcast.text}</ItemDescription>
+                <ItemDescription className="line-clamp-none">{broadcast.text}</ItemDescription>
             </ItemContent>
             <ItemActions>
                 <TodayPromoDismissButton

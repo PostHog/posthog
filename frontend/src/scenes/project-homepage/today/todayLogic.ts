@@ -154,7 +154,6 @@ export function signalReportSnapshot(report: SignalReport): TodayReportSnapshot 
     }
 }
 
-/** A Growth card that shows as a banner at the top of the page. The product push shows as a row instead. */
 export type TodayPromoBanner = Exclude<NavPanelSlotCard, { type: typeof NAV_PANEL_CARD_TYPE.PRODUCT_PUSH }>
 
 interface TodayRankedReport {
@@ -166,6 +165,7 @@ interface TodayRankedReport {
 export interface todayLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     activeCampaign: ProductPushCampaignApi | null // navPanelProductPushLogic
+    activeCampaignResolved: boolean // navPanelProductPushLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     recents: FileSystemEntry[] // recentItemsModel
     recentsHasLoaded: boolean // recentItemsModel
@@ -394,14 +394,15 @@ export interface todayLogicMeta {
             featureFlags: FeatureFlagsSet,
             isCloudOrDev: boolean | undefined,
             activeCampaign: ProductPushCampaignApi | null,
+            activeCampaignResolved: any,
             user: UserType | null
         ) => NavPanelSlotCard | null
         forYouProductPush: (
-            growthSlotCard: any,
+            growthSlotCard: NavPanelSlotCard | null,
             user: UserType | null,
             useSampleData: boolean
         ) => TodayProductPush | null
-        promoBanner: (growthSlotCard: any, useSampleData: boolean) => TodayPromoBanner | null
+        promoBanner: (growthSlotCard: NavPanelSlotCard | null, useSampleData: boolean) => TodayPromoBanner | null
         forYouRows: (
             reports: SignalReport[],
             loadedMoreReports: SignalReport[],
@@ -463,7 +464,7 @@ export const todayLogic = kea<todayLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             navPanelProductPushLogic,
-            ['activeCampaign'],
+            ['activeCampaign', 'activeCampaignResolved'],
             preflightLogic,
             ['isCloudOrDev'],
         ],
@@ -706,17 +707,19 @@ export const todayLogic = kea<todayLogicType>([
         ],
         growthSlotCard: [
             // featureFlags is a dependency so the broadcast payload is read again when flags reload.
-            (s) => [s.featureFlags, s.isCloudOrDev, s.activeCampaign, s.user],
+            (s) => [s.featureFlags, s.isCloudOrDev, s.activeCampaign, s.activeCampaignResolved, s.user],
             (
                 _featureFlags: FeatureFlagsSet,
                 isCloudOrDev: boolean | undefined,
                 activeCampaign: ProductPushCampaignApi | null,
+                activeCampaignResolved: boolean,
                 user: UserType | null
             ): NavPanelSlotCard | null =>
                 pickNavPanelSlotCard({
                     isCloudOrDev,
                     broadcastPayload: getFeatureFlagPayload(FEATURE_FLAGS.NAV_PANEL_BROADCAST),
                     activeCampaign,
+                    campaignResolved: activeCampaignResolved,
                     user,
                 }),
         ],

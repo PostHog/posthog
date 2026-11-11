@@ -35,7 +35,7 @@ export function TodayMcpCallout(): JSX.Element | null {
             </ItemMedia>
             <ItemContent className="min-w-0">
                 <ItemTitle>Connect your AI agent</ItemTitle>
-                <ItemDescription>
+                <ItemDescription className="line-clamp-none">
                     Let Claude Code, Cursor, or Codex work with your PostHog data. Run this in your terminal:
                 </ItemDescription>
                 <CommandBlock

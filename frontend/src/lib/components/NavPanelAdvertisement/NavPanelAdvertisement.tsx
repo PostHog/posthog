@@ -17,7 +17,7 @@ import { pickNavPanelSlotCard } from './navPanelSlotCard'
 // Growth owns this sidebar promotion slot and every card in it. Other teams must not add cards to the slot
 // or change which card wins it. Ask #team-growth to run a promotion for your product instead.
 export function NavPanelAdvertisement(): JSX.Element | null {
-    const { activeCampaign } = useValues(navPanelProductPushLogic)
+    const { activeCampaign, activeCampaignResolved } = useValues(navPanelProductPushLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
@@ -30,6 +30,7 @@ export function NavPanelAdvertisement(): JSX.Element | null {
         isCloudOrDev,
         broadcastPayload: getFeatureFlagPayload(FEATURE_FLAGS.NAV_PANEL_BROADCAST),
         activeCampaign,
+        campaignResolved: activeCampaignResolved,
         user,
     })
 

@@ -19,16 +19,18 @@ const NO_SUGGESTIONS_USER = { ...MOCK_DEFAULT_USER, allow_sidebar_suggestions: f
 
 describe('pickNavPanelSlotCard', () => {
     it.each([
-        ['a broadcast over a running campaign', true, BROADCAST, CAMPAIGN, MOCK_DEFAULT_USER, 'broadcast'],
-        ['the campaign when there is no broadcast', true, undefined, CAMPAIGN, MOCK_DEFAULT_USER, 'product_push'],
-        ['the MCP card between campaigns', true, undefined, null, MOCK_DEFAULT_USER, 'mcp_connect'],
-        ['the MCP card when suggestions are off', true, undefined, CAMPAIGN, NO_SUGGESTIONS_USER, 'mcp_connect'],
-        ['the MCP card for a malformed broadcast', true, { title: 'x' }, null, MOCK_DEFAULT_USER, 'mcp_connect'],
-        ['nothing on hobby', false, BROADCAST, CAMPAIGN, MOCK_DEFAULT_USER, null],
-        ['nothing before the user loads', true, undefined, null, null, null],
-    ])('picks %s', (_, isCloudOrDev, broadcastPayload, activeCampaign, user, expected) => {
-        expect(pickNavPanelSlotCard({ isCloudOrDev, broadcastPayload, activeCampaign, user })?.type ?? null).toBe(
-            expected
-        )
+        ['a broadcast over a running campaign', true, BROADCAST, CAMPAIGN, true, MOCK_DEFAULT_USER, 'broadcast'],
+        ['the campaign when there is no broadcast', true, undefined, CAMPAIGN, true, MOCK_DEFAULT_USER, 'product_push'],
+        ['the MCP card between campaigns', true, undefined, null, true, MOCK_DEFAULT_USER, 'mcp_connect'],
+        ['nothing while the campaign request is in flight', true, undefined, null, false, MOCK_DEFAULT_USER, null],
+        ['the MCP card when suggestions are off', true, undefined, CAMPAIGN, true, NO_SUGGESTIONS_USER, 'mcp_connect'],
+        ['the MCP card for a malformed broadcast', true, { title: 'x' }, null, true, MOCK_DEFAULT_USER, 'mcp_connect'],
+        ['nothing on hobby', false, BROADCAST, CAMPAIGN, true, MOCK_DEFAULT_USER, null],
+        ['nothing before the user loads', true, undefined, null, true, null, null],
+    ])('picks %s', (_, isCloudOrDev, broadcastPayload, activeCampaign, campaignResolved, user, expected) => {
+        expect(
+            pickNavPanelSlotCard({ isCloudOrDev, broadcastPayload, activeCampaign, campaignResolved, user })?.type ??
+                null
+        ).toBe(expected)
     })
 })

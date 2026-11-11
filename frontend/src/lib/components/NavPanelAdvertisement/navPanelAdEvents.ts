@@ -2,13 +2,12 @@ import posthog from 'posthog-js'
 
 import { BroadcastPayload, NAV_PANEL_CARD_TYPE, NavPanelPlacement } from './navPanelAdShared'
 
-// pinned: analytics event names. Renaming them breaks dashboards.
+// pinned: analytics event names in both maps. Renaming them breaks dashboards.
 const BROADCAST_EVENTS = {
     shown: 'nav panel broadcast shown',
     dismissed: 'nav panel broadcast dismissed',
 } as const
 
-// pinned: analytics event names. Renaming them breaks dashboards.
 const MCP_CARD_EVENTS = {
     shown: 'nav panel mcp card shown',
     dismissed: 'nav panel mcp card dismissed',

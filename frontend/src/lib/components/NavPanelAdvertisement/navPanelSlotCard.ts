@@ -14,11 +14,13 @@ export function pickNavPanelSlotCard({
     isCloudOrDev,
     broadcastPayload,
     activeCampaign,
+    campaignResolved,
     user,
 }: {
     isCloudOrDev: boolean | undefined
     broadcastPayload: unknown
     activeCampaign: ProductPushCampaignApi | null
+    campaignResolved: boolean
     user: UserType | null
 }): NavPanelSlotCard | null {
     // Every card promotes a cloud feature, so hobby gets none.
@@ -35,5 +37,5 @@ export function pickNavPanelSlotCard({
         return { type: NAV_PANEL_CARD_TYPE.PRODUCT_PUSH, campaign: activeCampaign }
     }
 
-    return user ? { type: NAV_PANEL_CARD_TYPE.MCP_CONNECT } : null
+    return user && campaignResolved ? { type: NAV_PANEL_CARD_TYPE.MCP_CONNECT } : null
 }
