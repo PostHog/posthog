@@ -226,6 +226,8 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
+
+    startImport: 'products.workflows.providerImportLogic', // Shows the refusal inside the import window
 }
 
 /*
