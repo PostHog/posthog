@@ -16,7 +16,7 @@ use tracing::debug;
 
 use crate::{
     invocation_context::InvocationConfig,
-    utils::{redact_request_error, redact_url, throttler::Throttler},
+    utils::{ci::detailed_diagnostics, redact_request_error, redact_url, throttler::Throttler},
 };
 const ONE_MINUTE_IN_MS: u64 = 60 * 1000;
 
@@ -81,6 +81,31 @@ mod tests {
     }
 
     #[test]
+    fn api_error_message_shows_posthog_details_only_outside_ci() {
+        let url =
+            Url::parse("https://user:HOST_SECRET@example.com/api/test?token=QUERY_SECRET").unwrap();
+        let drf = r#"{"type":"validation_error","code":"invalid","detail":"Release is locked.","attr":"release"}"#;
+        let base = "API error: status='400' url='https://example.com/api/test'";
+
+        for (body, show_detail, expected) in [
+            (
+                drf,
+                true,
+                format!("{base} error='validation_error' code='invalid' details='Release is locked.', attributes='release'"),
+            ),
+            (
+                drf,
+                false,
+                format!("{base}. PostHog's error details are hidden in CI. Run the command outside CI to see them."),
+            ),
+            ("<html>BODY_SECRET</html>", true, base.to_string()),
+            ("<html>BODY_SECRET</html>", false, base.to_string()),
+        ] {
+            assert_eq!(api_error_message(400, &url, body, show_detail), expected);
+        }
+    }
+
+    #[test]
     fn falls_back_to_body_match_for_legacy_errors() {
         let error = api_error("legacy release_id_mismatch response");
 
@@ -114,11 +139,47 @@ impl Display for ClientError {
             ClientError::InvalidUrl(msg) => {
                 write!(f, "Failed to build URL: {msg}")
             }
-            ClientError::ApiError(status, url, _) => {
-                write!(f, "API error: status='{status}' url='{}'", redact_url(url))
-            }
+            ClientError::ApiError(status, url, body) => write!(
+                f,
+                "{}",
+                api_error_message(*status, url, body, detailed_diagnostics())
+            ),
         }
     }
+}
+
+#[derive(Deserialize)]
+struct ApiErrorResponse {
+    r#type: String,
+    code: String,
+    detail: String,
+    attr: Option<String>,
+}
+
+// Only a body in PostHog's error shape is ever shown. Any other body can be a proxy page or text
+// that repeats the request, so it never appears, in CI or outside it.
+fn api_error_message(status: u16, url: &Url, body: &str, show_detail: bool) -> String {
+    let mut message = format!("API error: status='{status}' url='{}'", redact_url(url));
+
+    let Ok(api_error) = serde_json::from_str::<ApiErrorResponse>(body) else {
+        return message;
+    };
+
+    if !show_detail {
+        message.push_str(
+            ". PostHog's error details are hidden in CI. Run the command outside CI to see them.",
+        );
+        return message;
+    }
+
+    message.push_str(&format!(
+        " error='{}' code='{}' details='{}'",
+        api_error.r#type, api_error.code, api_error.detail
+    ));
+    if let Some(attr) = &api_error.attr {
+        message.push_str(&format!(", attributes='{attr}'"));
+    }
+    message
 }
 
 impl Debug for ClientError {

@@ -93,7 +93,7 @@ pub fn run_endpoint(args: &RunArgs) -> Result<()> {
         }
 
         debug_request(args.debug, "POST", "query/");
-        debug_request_body(args.debug);
+        debug_request_body(args.debug, &query_request);
 
         let api_result =
             client.send_post(client.env_url("query/")?, |req| req.json(&query_request));
@@ -118,7 +118,7 @@ pub fn run_endpoint(args: &RunArgs) -> Result<()> {
 
         let path = format!("endpoints/{name}/run/");
         debug_request(args.debug, "POST", &path);
-        debug_request_body(args.debug && !variables.is_empty());
+        debug_request_body(args.debug && !variables.is_empty(), &request_body);
 
         let url = client.env_url(&path)?;
         let api_result = client.send_post(url, |req| req.json(&request_body));

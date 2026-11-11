@@ -54,7 +54,23 @@ fn diagnostics_exclude_response_data_and_url_credentials() {
 }
 
 #[test]
-fn endpoint_debug_omits_payloads_without_changing_requests_or_results() {
+fn endpoint_debug_shows_payloads_only_outside_ci_without_changing_requests_or_results() {
+    for in_ci in [true, false] {
+        let (request, output) = run_endpoint_with_debug(in_ci);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(output.status.success(), "{stderr}");
+        assert_eq!(request["variables"]["api_token"], "REQUEST_SECRET");
+        assert!(stdout.contains("RESULT_SECRET"), "{stdout}");
+        assert!(stderr.contains("POST"), "{stderr}");
+        for secret in ["REQUEST_SECRET", "RESULT_SECRET"] {
+            assert_eq!(stderr.contains(secret), !in_ci, "in_ci={in_ci}: {stderr}");
+        }
+    }
+}
+
+fn run_endpoint_with_debug(in_ci: bool) -> (serde_json::Value, std::process::Output) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
@@ -83,10 +99,12 @@ fn endpoint_debug_omits_payloads_without_changing_requests_or_results() {
         write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
         request
     });
+
     let home = tempfile::tempdir().unwrap();
     let file = home.path().join("endpoint.yaml");
     std::fs::write(&file, "name: demo\nquery: SELECT 1\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_posthog-cli"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_posthog-cli"));
+    command
         .env_clear()
         .env("HOME", home.path())
         .env("POSTHOG_HOME", home.path())
@@ -95,17 +113,12 @@ fn endpoint_debug_omits_payloads_without_changing_requests_or_results() {
         .env("POSTHOG_CLI_HOST", format!("http://{address}"))
         .args(["exp", "endpoints", "run", "--file"])
         .arg(file)
-        .args(["--var", "api_token=REQUEST_SECRET", "--debug", "--json"])
-        .output()
-        .unwrap();
-    let request: serde_json::Value = serde_json::from_slice(&server.join().unwrap()).unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "{stderr}");
-    assert_eq!(request["variables"]["api_token"], "REQUEST_SECRET");
-    assert!(stdout.contains("RESULT_SECRET"), "{stdout}");
-    assert!(stderr.contains("POST"), "{stderr}");
-    for secret in ["REQUEST_SECRET", "RESULT_SECRET"] {
-        assert!(!stderr.contains(secret), "{stderr}");
+        .args(["--var", "api_token=REQUEST_SECRET", "--debug", "--json"]);
+    if in_ci {
+        command.env("CI", "true");
     }
+    let output = command.output().unwrap();
+
+    let request = serde_json::from_slice(&server.join().unwrap()).unwrap();
+    (request, output)
 }

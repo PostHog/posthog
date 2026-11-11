@@ -4,6 +4,7 @@ use tracing::error;
 
 pub mod auth;
 pub mod broken_pipe;
+pub mod ci;
 pub mod dotenv;
 pub mod files;
 pub mod git;

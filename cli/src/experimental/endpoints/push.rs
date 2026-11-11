@@ -644,7 +644,7 @@ fn create_endpoint(
     let request_body = endpoint.to_api_request(resolved_opt);
 
     debug_request(debug, "POST", "endpoints/");
-    debug_request_body(debug);
+    debug_request_body(debug, &request_body);
 
     let result = client.send_post(client.env_url("endpoints/")?, |req| req.json(&request_body));
 
@@ -675,7 +675,7 @@ fn update_endpoint(
     let url = client.env_url(&format!("endpoints/{}/", endpoint.name))?;
 
     debug_request(debug, "PATCH", &format!("endpoints/{}/", endpoint.name));
-    debug_request_body(debug);
+    debug_request_body(debug, &request_body);
 
     let result = client.send_request(reqwest::Method::PATCH, url, |req| req.json(&request_body));
 

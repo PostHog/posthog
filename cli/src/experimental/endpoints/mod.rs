@@ -22,7 +22,7 @@ pub use pull::pull_endpoints;
 pub use push::push_endpoints;
 pub use run::run_endpoint;
 
-use crate::invocation_context::context;
+use crate::{invocation_context::context, utils::ci::detailed_diagnostics};
 
 // ============================================================================
 // Debug logging utilities
@@ -36,16 +36,27 @@ pub fn debug_request(debug: bool, method: &str, path: &str) {
     }
 }
 
-pub fn debug_request_body(debug: bool) {
+pub fn debug_request_body<T: serde::Serialize>(debug: bool, body: &T) {
     if debug {
-        crate::safe_eprintln!("  Request body omitted from debug output");
+        debug_payload("Request body", body);
     }
 }
 
 #[inline]
-pub fn debug_response_body<T: serde::Serialize>(debug: bool, _body: &T) {
+pub fn debug_response_body<T: serde::Serialize>(debug: bool, body: &T) {
     if debug {
-        crate::safe_eprintln!("  Response body omitted from debug output");
+        debug_payload("Response body", body);
+    }
+}
+
+fn debug_payload<T: serde::Serialize>(label: &str, body: &T) {
+    if !detailed_diagnostics() {
+        crate::safe_eprintln!("  {label} omitted from debug output in CI");
+        return;
+    }
+
+    if let Ok(json) = serde_json::to_string_pretty(body) {
+        crate::safe_eprintln!("  {label}:\n{}", json.dimmed());
     }
 }
 
@@ -815,7 +826,7 @@ pub fn create_insight_variable(
     let client = &context().client;
 
     debug_request(debug, "POST", "insight_variables/");
-    debug_request_body(debug);
+    debug_request_body(debug, request);
 
     let result = client.send_post(client.env_url("insight_variables/")?, |req| {
         req.json(request)
