@@ -16,7 +16,6 @@ from typing import Any
 
 from django.utils import timezone
 
-from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.messaging.backend.models.message_category import MessageCategory
@@ -38,6 +37,7 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.sendgrid_templates import ConvertedSendGridTemplate, convert_version
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
@@ -312,18 +312,6 @@ def _key_fingerprint(api_key: str) -> str:
     return hashlib.sha256(api_key.encode()).hexdigest()[:16]
 
 
-def _normalized_email(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    email = value.strip().lower()
-    return email if email_domain(email) and not email.startswith("@") and len(email) <= 512 else None
-
-
-def _contact_email(value: Any) -> str | None:
-    # Unlike a suppression row, an opt-out matches the address a send names exactly, so the case stays as SendGrid has it.
-    return value.strip() if _normalized_email(value) else None
-
-
 def _timestamp(value: Any) -> datetime | None:
     # SendGrid writes these as Unix seconds. A value out of range or of another type says nothing useful.
     if not isinstance(value, int | float) or isinstance(value, bool):
@@ -416,7 +404,7 @@ def _save_suppressions(
     imported: dict[str, ImportedSuppression] = {}
     invalid = 0
     for entry in entries:
-        email = _normalized_email(entry.get("email")) if isinstance(entry, dict) else None
+        email = normalized_email(entry.get("email")) if isinstance(entry, dict) else None
         if email is None:
             invalid += 1
             continue
@@ -451,7 +439,7 @@ def _fetch_global_unsubscribes(
 
 
 def _save_global_unsubscribes(context: ImportContext, entries: list[dict[str, Any]]) -> SavedPage:
-    emails = {_contact_email(entry.get("email")) if isinstance(entry, dict) else None for entry in entries}
+    emails = {exact_email(entry.get("email")) if isinstance(entry, dict) else None for entry in entries}
     valid = {email: [ALL_MESSAGE_PREFERENCE_CATEGORY_ID] for email in emails if email}
     changed = import_opt_outs(context.team_id, valid, context.created_by_id)
     return SavedPage(imported=changed, counts={"opted_out": changed, "invalid": len(entries) - len(valid)})
@@ -491,7 +479,7 @@ def _save_group_unsubscribes(context: ImportContext, category: ImportedCategory 
     # A step's selection doesn't have to include the groups step, so the category may not exist yet.
     ids_by_key = import_categories(context.team_id, [category] if category else [], context.created_by_id).ids_by_key
     category_id = ids_by_key.get(category.key) if category else None
-    valid = {address for address in map(_contact_email, emails) if address}
+    valid = {address for address in map(exact_email, emails) if address}
     # A category someone deleted in PostHog has no id here, and stays deleted.
     changed = import_opt_outs(
         context.team_id, {address: [category_id] for address in valid} if category_id else {}, context.created_by_id
