@@ -25,6 +25,41 @@ const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }
 // with a throwing filter rather than unregistered, because an unknown filter silently acts as identity.
 const LIQUID_UNBOUNDED_FILTERS = ['where_exp', 'find_exp', 'find_index_exp', 'reject_exp', 'group_by_exp']
 
+export const EMAIL_BODY_TAG_LIMIT = 10_000
+
+const LIQUID_BLOCK_OPENER = /-?[\s\u180E]*liquid/y
+
+const countStatementLines = (body: string): number => {
+    let count = 0
+    for (const line of body.split('\n')) {
+        if (line.trim() !== '') {
+            count++
+        }
+    }
+    return count
+}
+
+export const countLiquidTags = (template: string): number => {
+    const parsed = decodeLiquidTags(template)
+    let count = 0
+    let statementsCountedUntil = 0
+    for (let at = parsed.indexOf('{'); at !== -1; at = parsed.indexOf('{', at + 1)) {
+        const next = parsed[at + 1]
+        if (next !== '{' && next !== '%') {
+            continue
+        }
+        count++
+        at++
+        LIQUID_BLOCK_OPENER.lastIndex = at + 1
+        if (next === '%' && at >= statementsCountedUntil && LIQUID_BLOCK_OPENER.test(parsed)) {
+            const end = parsed.indexOf('%}', LIQUID_BLOCK_OPENER.lastIndex)
+            statementsCountedUntil = end === -1 ? parsed.length : end
+            count += countStatementLines(parsed.slice(LIQUID_BLOCK_OPENER.lastIndex, statementsCountedUntil))
+        }
+    }
+    return count
+}
+
 export class LiquidRenderBudget {
     private usedMs = 0
     private outputChars = 0

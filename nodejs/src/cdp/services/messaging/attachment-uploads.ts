@@ -1,12 +1,21 @@
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { MAX_EMAIL_ATTACHMENTS } from '~/cdp/schema/cyclotron'
+import { EmailAttachmentMetadata, MAX_EMAIL_ATTACHMENTS } from '~/cdp/schema/cyclotron'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
-import { AttachmentStore, AttachmentStoreUnavailableError, DAY_MS, SHA256_HEX, UploadSlot } from './attachment-store'
+import { SEND_NEEDS_FILES_FOR_MS } from './attachment-horizon'
+import {
+    AttachmentRef,
+    AttachmentStore,
+    AttachmentStoreUnavailableError,
+    DAY_MS,
+    SHA256_HEX,
+    UploadSlot,
+    settleBeforeAbortEvenWhileCredentialsStall,
+} from './attachment-store'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 
 export const ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX = 'cdp-email-attachments-upload-bytes'
@@ -29,6 +38,25 @@ const UploadsRequestSchema = z.object({
 
 export type AttachmentUploadsSettings = { teams: string; maxBytesPerTeamDay: number }
 export type UploadsAnswer = { status: number; body: Record<string, unknown> }
+export type SendRefusal = {
+    status: number
+    body: {
+        error:
+            | 'attachment_not_uploaded'
+            | 'message_too_large'
+            | 'email_render_limit_exceeded'
+            | 'utm_value_too_long'
+            | 'email_body_too_many_tags'
+            | 'delivery_unavailable'
+        [key: string]: unknown
+    }
+}
+export type MessageBodies = { bodyBytes: number[]; subject: string }
+export type MessageBodySizing = MessageBodies | { refused: SendRefusal }
+export type AcceptedSendFiles = { files: EmailAttachmentMetadata[]; attachmentBytes: number }
+
+const DJANGO_SEND_TIMEOUT_MS = 10_000
+export const ATTACHMENT_VERIFICATION_DEADLINE_MS = DJANGO_SEND_TIMEOUT_MS / 2
 
 const uploadRequestsTotal = new Counter({
     name: 'cdp_email_attachments_upload_requests_total',
@@ -40,10 +68,10 @@ export function countUploadRequest(outcome: string): void {
     uploadRequestsTotal.inc({ outcome })
 }
 
-const DELIVERY_UNAVAILABLE: UploadsAnswer = { status: 503, body: { error: 'delivery_unavailable' } }
+const DELIVERY_UNAVAILABLE = { status: 503, body: { error: 'delivery_unavailable' } } as const satisfies SendRefusal
 
 export class AttachmentUploads {
-    private readonly isAllowed: (teamId: number) => boolean
+    public readonly isAllowed: (teamId: number) => boolean
 
     constructor(
         private readonly store: AttachmentStore | null,
@@ -120,6 +148,82 @@ export class AttachmentUploads {
         return { status: 200, body: { files: slots.map(toAnswer) } }
     }
 
+    public async acceptSend(
+        teamId: number,
+        refs: AttachmentRef[],
+        sizeMessageBodies: (deadline: AbortSignal) => Promise<MessageBodySizing>,
+        deadline: AbortSignal
+    ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
+        const store = this.store
+        if (!store) {
+            return { refused: unavailable(teamId, 'No attachment store to verify the files of a send', null) }
+        }
+        try {
+            return await settleBeforeAbortEvenWhileCredentialsStall(
+                deadline,
+                this.verifySend(store, teamId, refs, sizeMessageBodies, deadline)
+            )
+        } catch (error) {
+            if (deadline.aborted) {
+                return { refused: unavailable(teamId, 'Could not verify the files of a send in time', error) }
+            }
+            throw error
+        }
+    }
+
+    private async verifySend(
+        store: AttachmentStore,
+        teamId: number,
+        refs: AttachmentRef[],
+        sizeMessageBodies: (deadline: AbortSignal) => Promise<MessageBodySizing>,
+        deadline: AbortSignal
+    ): Promise<{ accepted: AcceptedSendFiles } | { refused: SendRefusal }> {
+        deadline.throwIfAborted()
+        let verified: Awaited<ReturnType<AttachmentStore['acceptForSend']>>
+        try {
+            const needsUntil = new Date(Date.now() + SEND_NEEDS_FILES_FOR_MS)
+            verified = await store.acceptForSend(teamId, refs, needsUntil, deadline)
+        } catch (error) {
+            deadline.throwIfAborted()
+            if (error instanceof AttachmentStoreUnavailableError) {
+                return { refused: unavailable(teamId, 'Could not verify the files of a send', error) }
+            }
+            throw error
+        }
+        if ('refusal' in verified) {
+            return { refused: { status: 400, body: { error: verified.refusal, sha256: verified.sha256 } } }
+        }
+        deadline.throwIfAborted()
+        let sizing: MessageBodySizing
+        try {
+            sizing = await sizeMessageBodies(deadline)
+        } catch (error) {
+            deadline.throwIfAborted()
+            return { refused: unavailable(teamId, 'Could not load the email step of a send', error) }
+        }
+        deadline.throwIfAborted()
+        if ('refused' in sizing) {
+            return sizing
+        }
+        const sizes = verified.files.map((file) => file.sizeBytes)
+        const attachmentBytes = sizes.reduce((total, size) => total + size, 0)
+        const messageBytes = estimateMessageBytes([...sizes, ...sizing.bodyBytes], [], sizing.subject)
+        if (messageBytes > MESSAGE_MAX_BYTES) {
+            return {
+                refused: {
+                    status: 400,
+                    body: {
+                        error: 'message_too_large',
+                        message_bytes: messageBytes,
+                        max_message_bytes: MESSAGE_MAX_BYTES,
+                        attachment_bytes: attachmentBytes,
+                    },
+                },
+            }
+        }
+        return { accepted: { files: verified.files, attachmentBytes } }
+    }
+
     private async chargeDailyUploadBytes(counter: RedisV2, teamId: number, bytes: number): Promise<boolean> {
         const key = `${ATTACHMENT_UPLOAD_QUOTA_KEY_PREFIX}:${teamId}:${new Date().toISOString().slice(0, 10)}`
         const charged = await counter.useClient({ name: 'email-attachments-upload-quota' }, (client) =>
@@ -129,8 +233,11 @@ export class AttachmentUploads {
     }
 }
 
-function unavailable(teamId: number, message: string, error: unknown): UploadsAnswer {
-    logger.warn('⚠️', message, { team_id: teamId, error: error instanceof Error ? error.message : String(error) })
+function unavailable(teamId: number, message: string, error: unknown): typeof DELIVERY_UNAVAILABLE {
+    logger.warn('⚠️', message, {
+        team_id: teamId,
+        ...(error !== null && { error: error instanceof Error ? error.message : String(error) }),
+    })
     return DELIVERY_UNAVAILABLE
 }
 
