@@ -142,6 +142,11 @@ A flake is proven when the same code renders a story both ways against the same 
   A default-branch run never holds a merge queue run, because a squash merge writes new commits.
 - **Disjoint proof.** The story changed in two runs that share no pull request, and was unchanged in a run created after the earlier of the two.
 
+Every proof includes the finishing run, as a failing run or as the clean run, because a proof without it was already there when its last run finished.
+That bounds the work: when the finishing run failed the story, only the newest `AUTO_QUARANTINE_CLEAN_RUNS_READ` window runs and the runs of its own commit are read for a clean render.
+At most `AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY` candidate proofs are checked per story, superset first and newest first.
+The decision is a pure function over the runs, the batches and the ancestry answers, and GitHub is asked only what the candidates need.
+
 The batch of a merge queue run comes from GitHub: Trunk writes one `Merging <head sha> into trunk-temp/...` commit per pull request, and the compare against the default branch names the base commit.
 A batch GitHub cannot read proves nothing.
 
@@ -151,7 +156,9 @@ Guards:
 - The baseline of a failing run must be the default branch's baseline for the story, which the newest full default-branch run holds. A different baseline means a pull request in the batch edited it, and the failure belongs to that pull request.
 - An approved, tolerated, or quarantined result is no evidence either way.
 - At most `AUTO_QUARANTINE_MAX_STORIES_PER_RUN` stories are checked per finishing run.
-- At most `AUTO_QUARANTINE_DAILY_LIMIT` automatic quarantines per repository in 24 hours. Past that, a proof is logged and not applied, because many new flakes at once mean the capture harness regressed.
+- At most `AUTO_QUARANTINE_DAILY_LIMIT` automatic quarantines per repository in 24 hours. Past that, a proof is logged and not applied, because many new flakes at once mean the capture harness regressed. The first proof the limit blocks in a window sends one Slack notice to whoever owns `products/visual_review/`, routed like the digest's items that no team owns.
+- Two runs that finish together take a short claim per story before they quarantine it, so only one quarantine and one notice go out.
+- A proof that is not applied is reported once per story per `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
 
 The check runs before the finishing run is counted, so when that run completes a proof, it passes.
 An error in the check is logged and never fails the run.

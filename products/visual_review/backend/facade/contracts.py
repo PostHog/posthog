@@ -704,12 +704,23 @@ AUTO_QUARANTINE_DAYS = 14
 AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
 
 # Automatic quarantines per repo in 24 hours, past which the next proof is logged and not applied.
-# Many new flakes at once mean the capture harness regressed, and quarantining them would hide that.
+# Many new flakes at once mean the capture harness regressed, and quarantining them would hide that,
+# so the limit sits above a busy normal day and below a regression.
+# As of November 2026, people opened at most 8 quarantines a day on 95 percent of days in this repo,
+# and a capture regression produced 12 proofs in 24 hours.
 AUTO_QUARANTINE_DAILY_LIMIT = 10
 
 # Stories evaluated per finishing run, so that a storm of failures cannot stall run completion on
 # GitHub requests.
 AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25
+
+# Proof candidates checked per story. Each candidate can cost a GitHub request, and the newest
+# candidates are the ones most likely to hold, so a few bound the work of a story that is no flake.
+AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY = 5
+
+# Newest window runs read for clean renders of a story when the finishing run failed it. A clean run
+# that holds the finishing run's tree is newer than it, or on its commit, and those runs come first.
+AUTO_QUARANTINE_CLEAN_RUNS_READ = 20
 
 # Safety cap on rows returned by the flakiness endpoint. The population is
 # already narrow (only identifiers carrying variants or a quarantine), so this

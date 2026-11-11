@@ -112,6 +112,41 @@ class TestSendQuarantineNotice:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestDailyLimitNotice:
+    @pytest.mark.parametrize("product_owner,posts", [("team-devex", 1), (UNOWNED_TEAM, 0)])
+    def test_goes_to_whoever_owns_visual_review(self, team, product_owner, posts):
+        repo = repos.create_repo(team_id=team.id, repo_external_id=66663, repo_full_name="org/test-limit")
+        channels = "products.visual_review.backend.logic.team_channels"
+        notice = "products.visual_review.backend.logic.quarantine_notice"
+        with (
+            patch(f"{notice}.fetcher_for_team"),
+            patch(
+                f"{notice}.resolve_path_owners",
+                return_value=PathOwnership(
+                    team_by_path={"products/visual_review/": product_owner}, registry={}, resolved=True
+                ),
+            ),
+            patch(f"{channels}.IntegrationManager") as manager,
+            patch(f"{channels}.SlackIntegration") as slack,
+            patch(
+                f"{channels}.fetch_channel_map",
+                return_value={"team-devex": SlackChannel(channel_id="C1", shared=False)},
+            ),
+            patch(f"{channels}.post_with_join", return_value="1700000000.1") as post,
+        ):
+            manager.slack.oauth.find.return_value = MagicMock()
+            slack.return_value.client.conversations_info.return_value = {"channel": {"is_shared": False}}
+            quarantine_notice.send_daily_limit_notice(repo.id, team.id, 10)
+
+        assert post.call_count == posts
+        if posts:
+            assert post.call_args.args[3].startswith(
+                "Visual review quarantined 10 stories automatically in org/test-limit in the last 24 hours. "
+                "The capture harness may have regressed."
+            )
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestQuarantineDispatchesNotice:
     @pytest.mark.parametrize(
         "notify_owners,broker_error",

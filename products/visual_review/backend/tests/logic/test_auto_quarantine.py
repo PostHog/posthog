@@ -18,11 +18,16 @@ from products.visual_review.backend.facade.enums import (
 )
 from products.visual_review.backend.logic import auto_quarantine, repos, runs
 from products.visual_review.backend.logic.auto_quarantine import (
-    FlakeProof,
     Observation,
+    ProofAction,
+    ProofCandidate,
     ProofKind,
     TrustedRun,
-    find_flake_proof,
+    ancestry_questions,
+    batch_runs,
+    first_proof,
+    proof_action,
+    proof_candidates,
 )
 from products.visual_review.backend.logic.github_api import MergeQueueBatch
 from products.visual_review.backend.models import QuarantinedIdentifier, Repo, Run, RunSnapshot
@@ -61,14 +66,6 @@ _BATCHES = {
 }
 
 
-class _FakeHistory:
-    def commit_contains(self, ancestor_sha: str, head_sha: str) -> bool:
-        return ancestor_sha == head_sha or (ancestor_sha, head_sha) in _ANCESTRY
-
-    def batch(self, run: TrustedRun) -> MergeQueueBatch | None:
-        return _BATCHES.get(run.commit_sha)
-
-
 def _failing(run: TrustedRun, **overrides) -> Observation:
     fields = {"result": SnapshotResult.CHANGED, "review_state": "", "baseline_hash": _BASE, "is_quarantined": False}
     return Observation(run=run, **{**fields, **overrides})
@@ -79,40 +76,81 @@ def _clean(run: TrustedRun, **overrides) -> Observation:
     return Observation(run=run, **{**fields, **overrides})
 
 
-class TestFindFlakeProof:
+def _prove(observations: list[Observation], finishing: TrustedRun) -> ProofCandidate | None:
+    candidates = proof_candidates(observations, _BASE, finishing)
+    batches = {run.id: _BATCHES.get(run.commit_sha) for run in batch_runs(candidates)}
+    ancestry = {question: question in _ANCESTRY for question in ancestry_questions(candidates, batches)}
+    return first_proof(candidates, batches, ancestry)
+
+
+class TestFlakeProof:
     @pytest.mark.parametrize(
-        "_name,observations,expected",
+        "_name,observations,finishing,expected",
         [
-            ("superset_master_in_master", [_failing(_M1), _clean(_M2)], ProofKind.SUPERSET),
-            ("superset_rerun_of_the_same_commit", [_failing(_M1), _clean(_M1_RERUN)], ProofKind.SUPERSET),
-            ("superset_master_in_queue", [_failing(_M1), _clean(_Q2)], ProofKind.SUPERSET),
-            ("superset_queue_in_queue", [_failing(_Q1), _clean(_Q2)], ProofKind.SUPERSET),
-            ("disjoint_queue_runs", [_failing(_Q1), _failing(_Q3), _clean(_Q4)], ProofKind.DISJOINT),
-            ("disjoint_master_and_queue", [_failing(_Q1), _failing(_M2), _clean(_Q4)], ProofKind.DISJOINT),
+            ("superset_master_in_master", [_failing(_M1), _clean(_M2)], _M2, ProofKind.SUPERSET),
+            ("superset_rerun_of_the_same_commit", [_failing(_M1), _clean(_M1_RERUN)], _M1_RERUN, ProofKind.SUPERSET),
+            # A clean render of the same commit holds the finishing run's tree, even when it came first.
+            ("superset_same_commit_clean_earlier", [_clean(_M1), _failing(_M1_RERUN)], _M1_RERUN, ProofKind.SUPERSET),
+            ("superset_master_in_queue", [_failing(_M1), _clean(_Q2)], _Q2, ProofKind.SUPERSET),
+            ("superset_queue_in_queue", [_failing(_Q1), _clean(_Q2)], _Q2, ProofKind.SUPERSET),
+            ("superset_failing_finish_held_later", [_failing(_Q1), _clean(_Q2)], _Q1, ProofKind.SUPERSET),
+            ("disjoint_queue_runs", [_failing(_Q1), _failing(_Q3), _clean(_Q4)], _Q4, ProofKind.DISJOINT),
+            ("disjoint_failing_finish", [_failing(_Q1), _clean(_Q2), _failing(_Q3)], _Q3, ProofKind.DISJOINT),
+            ("disjoint_master_and_queue", [_failing(_Q1), _failing(_M2), _clean(_Q4)], _Q4, ProofKind.DISJOINT),
+            # Earlier runs prove it, but that proof was there when its last run finished.
+            (
+                "refuses_a_proof_without_the_finishing_run",
+                [_failing(_M1), _clean(_M2), _clean(_Q2_OFF_OTHER_BASE)],
+                _Q2_OFF_OTHER_BASE,
+                None,
+            ),
+            ("refuses_a_finishing_run_without_the_story", [_failing(_M1), _clean(_M2)], _Q4, None),
             # A pull request in the batch broke the story, and the queue was right to fail.
-            ("refuses_a_queue_run_in_master", [_failing(_Q1), _clean(_M2)], None),
-            ("refuses_a_master_commit_not_held", [_failing(_Q1), _clean(_Q2_OFF_OTHER_BASE)], None),
-            ("refuses_an_unknown_batch", [_failing(_Q1), _clean(_Q_UNKNOWN)], None),
-            ("refuses_a_clean_run_before_both", [_failing(_Q3), _failing(_Q4), _clean(_Q_EARLY)], None),
-            ("refuses_failures_sharing_a_pr", [_failing(_Q1), _failing(_Q2), _clean(_Q4)], None),
-            ("refuses_disjoint_with_unknown_batch", [_failing(_Q1), _failing(_Q_UNKNOWN), _clean(_Q4)], None),
-            ("refuses_new", [_failing(_M1, result=SnapshotResult.NEW), _clean(_M2)], None),
-            ("refuses_removed", [_failing(_M1, result=SnapshotResult.REMOVED), _clean(_M2)], None),
+            ("refuses_a_queue_run_in_master", [_failing(_Q1), _clean(_M2)], _M2, None),
+            ("refuses_a_master_commit_not_held", [_failing(_Q1), _clean(_Q2_OFF_OTHER_BASE)], _Q2_OFF_OTHER_BASE, None),
+            ("refuses_an_unknown_batch", [_failing(_Q1), _clean(_Q_UNKNOWN)], _Q_UNKNOWN, None),
+            ("refuses_a_clean_run_before_both", [_failing(_Q3), _failing(_Q4), _clean(_Q_EARLY)], _Q4, None),
+            ("refuses_failures_sharing_a_pr", [_failing(_Q1), _failing(_Q2), _clean(_Q4)], _Q4, None),
+            ("refuses_disjoint_with_unknown_batch", [_failing(_Q1), _failing(_Q_UNKNOWN), _clean(_Q4)], _Q4, None),
+            ("refuses_new", [_failing(_M1, result=SnapshotResult.NEW), _clean(_M2)], _M2, None),
+            ("refuses_removed", [_failing(_M1, result=SnapshotResult.REMOVED), _clean(_M2)], _M2, None),
             # The batch carried its own baseline for the story.
-            ("refuses_another_baseline", [_failing(_Q1, baseline_hash="pr-edit"), _clean(_Q2)], None),
-            ("refuses_a_clean_run_on_another_baseline", [_failing(_M1), _clean(_M2, baseline_hash="old")], None),
-            ("refuses_a_quarantined_failure", [_failing(_M1, is_quarantined=True), _clean(_M2)], None),
-            ("refuses_a_quarantined_clean_run", [_failing(_M1), _clean(_M2, is_quarantined=True)], None),
-            ("refuses_an_approved_change", [_failing(_M1, review_state="approved"), _clean(_M2)], None),
+            ("refuses_another_baseline", [_failing(_Q1, baseline_hash="pr-edit"), _clean(_Q2)], _Q2, None),
+            ("refuses_a_clean_run_on_another_baseline", [_failing(_M1), _clean(_M2, baseline_hash="old")], _M2, None),
+            ("refuses_a_quarantined_failure", [_failing(_M1, is_quarantined=True), _clean(_M2)], _M2, None),
+            ("refuses_a_quarantined_clean_run", [_failing(_M1), _clean(_M2, is_quarantined=True)], _M2, None),
+            ("refuses_an_approved_change", [_failing(_M1, review_state="approved"), _clean(_M2)], _M2, None),
         ],
     )
-    def test_proof(self, _name: str, observations: list[Observation], expected: ProofKind | None) -> None:
-        proof = find_flake_proof(observations, _BASE, _FakeHistory())
+    def test_proof(
+        self, _name: str, observations: list[Observation], finishing: TrustedRun, expected: ProofKind | None
+    ) -> None:
+        proof = _prove(observations, finishing)
 
         assert (proof.kind if proof else None) == expected
 
+    def test_candidates_are_capped_per_story(self) -> None:
+        finishing = _trusted("m9", 9, True)
+        failing = [_failing(_trusted(f"m{hour}", hour, True)) for hour in range(8)]
+
+        candidates = proof_candidates([*failing, _clean(finishing)], _BASE, finishing)
+
+        assert [candidate.failing_runs[0].commit_sha for candidate in candidates] == ["m7", "m6", "m5", "m4", "m3"]
+
+    @pytest.mark.parametrize(
+        "mode,automatic_today,expected",
+        [
+            (AutoQuarantineMode.ON, 9, ProofAction.APPLY),
+            (AutoQuarantineMode.ON, 10, ProofAction.REPORT_CAPPED),
+            (AutoQuarantineMode.PREVIEW, 0, ProofAction.REPORT),
+            (AutoQuarantineMode.PREVIEW, 10, ProofAction.REPORT),
+        ],
+    )
+    def test_proof_action(self, mode: AutoQuarantineMode, automatic_today: int, expected: ProofAction) -> None:
+        assert proof_action(mode, automatic_today, limit=10) == expected
+
     def test_the_reason_names_both_runs_of_a_superset_proof(self) -> None:
-        proof = FlakeProof(
+        proof = ProofCandidate(
             kind=ProofKind.SUPERSET,
             failing_runs=(_trusted("a" * 40, 0, True),),
             clean_run=_trusted("b" * 40, 1, False),
@@ -130,12 +168,14 @@ _CLEAN_SHA = "b" * 40
 _GITHUB = "products.visual_review.backend.logic.github_api"
 
 
-def _master_run(repo: Repo, sha: str, status: RunStatus, hours_ago: int, result: SnapshotResult) -> Run:
+def _master_run(
+    repo: Repo, sha: str, status: RunStatus, hours_ago: int, result: SnapshotResult, branch: str = "master"
+) -> Run:
     run = Run.objects.create(
         team_id=repo.team_id,
         repo=repo,
         run_type=RunType.STORYBOOK,
-        branch="master",
+        branch=branch,
         commit_sha=sha,
         status=status,
         purpose=RunPurpose.OBSERVE,
@@ -174,9 +214,12 @@ class TestQuarantineProvenFlakes:
     def github(self):
         with (
             patch(f"{_GITHUB}.default_branch_name", return_value="master") as default_branch_name,
-            patch(f"{_GITHUB}.commit_contains", side_effect=lambda repo, a, b: (a, b) == (_FAILING_SHA, _CLEAN_SHA)),
-            patch(f"{_GITHUB}.merge_queue_batch", return_value=None),
+            # Every later commit holds the failing one.
+            patch(f"{_GITHUB}.commit_contains", side_effect=lambda repo, a, b: a == _FAILING_SHA) as commit_contains,
+            patch(f"{_GITHUB}.merge_queue_batch", return_value=None) as merge_queue_batch,
         ):
+            default_branch_name.commit_contains = commit_contains
+            default_branch_name.merge_queue_batch = merge_queue_batch
             yield default_branch_name
 
     def _superset_proof(self, repo: Repo) -> tuple[Run, Run]:
@@ -244,10 +287,36 @@ class TestQuarantineProvenFlakes:
             )
         _failing, finishing = self._superset_proof(repo)
 
-        auto_quarantine.quarantine_proven_flakes(finishing)
+        with patch("products.visual_review.backend.tasks.tasks.notify_auto_quarantine_limit.apply_async") as notice:
+            auto_quarantine.quarantine_proven_flakes(finishing)
 
         assert not self._auto_rows(repo).filter(identifier=_IDENTIFIER).exists()
         assert capture.call_args.kwargs["properties"]["capped"] is True
+        assert notice.call_args.kwargs["args"] == (repo.team_id, str(repo.id), AUTO_QUARANTINE_DAILY_LIMIT)
+
+    def test_two_runs_finishing_together_quarantine_once(self, repo, github, capture):
+        _failing, first = self._superset_proof(repo)
+        Run.objects.filter(id=first.id).update(superseded_by=first)
+        second = _master_run(repo, "c" * 40, RunStatus.PROCESSING, 0, SnapshotResult.UNCHANGED)
+
+        # Both runs read the quarantines before either wrote one.
+        with patch.object(auto_quarantine, "_active_quarantines", return_value=set()):
+            auto_quarantine.quarantine_proven_flakes(first)
+            auto_quarantine.quarantine_proven_flakes(second)
+
+        assert self._auto_rows(repo).filter(identifier=_IDENTIFIER).count() == 1
+
+    def test_a_story_without_a_candidate_asks_github_nothing(self, repo, github, capture):
+        _master_run(repo, _FAILING_SHA, RunStatus.COMPLETED, 3, SnapshotResult.CHANGED)
+        # The finishing queue run renders the story neither changed nor unchanged.
+        finishing = _master_run(
+            repo, _CLEAN_SHA, RunStatus.PROCESSING, 0, SnapshotResult.REMOVED, branch="trunk-merge/pr-7/abc"
+        )
+
+        auto_quarantine.quarantine_proven_flakes(finishing)
+
+        assert (github.commit_contains.call_count, github.merge_queue_batch.call_count) == (0, 0)
+        assert capture.call_count == 0
 
     def test_an_identifier_already_quarantined_is_left_alone(self, repo, github, capture):
         QuarantinedIdentifier.objects.create(
