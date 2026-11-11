@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom'
 
+import { DndContext, useDndContext } from '@dnd-kit/core'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
@@ -65,7 +66,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'health:failing' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() =>
@@ -75,12 +78,30 @@ describe('WorkflowsScene', () => {
         expect(document.body).not.toHaveTextContent('Nothing matches')
     })
 
+    it('keeps the Customer.io import next to the folder view', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_IMPORT]: true,
+        })
+        render(
+            <Provider>
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
+            </Provider>
+        )
+        await waitFor(() => expect(document.querySelector('[data-attr="workflows-folder-toolbar"]')).not.toBeNull())
+        expect(document.querySelector('[data-attr="workflows-import-customerio"]')).not.toBeNull()
+    })
+
     it('keeps the loaded rows when a reload fails', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
@@ -99,12 +120,20 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'kind:automation' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() =>
             expect(document.querySelector('[data-attr="workflows-automation-empty-state-guided-setup"]')).not.toBeNull()
         )
+        fireEvent.click(
+            document.querySelector<HTMLElement>(
+                '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+            )!
+        )
+        expect(document.querySelector('input[data-attr="workflows-new-folder-name"]')).not.toBeNull()
     })
 
     it('filters the list and writes pills to the URL', async () => {
@@ -112,7 +141,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -146,7 +177,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
@@ -169,7 +202,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()).toHaveLength(6))
@@ -191,13 +226,13 @@ describe('WorkflowsScene', () => {
     })
 
     it.each([
-        ['shows Owner when no columns are saved', null, ['Name', 'Status', 'Owner', 'Updated', '', '']],
+        ['shows Owner when no columns are saved', null, ['', 'Name', 'Status', 'Owner', 'Updated', '', '']],
         [
             'ignores a saved column the list no longer has',
             ['health', 'tags'],
-            ['Name', 'Status', 'Health', 'Updated', '', ''],
+            ['', 'Name', 'Status', 'Health', 'Updated', '', ''],
         ],
-        ['shows Kind beside the name', ['type', 'owner'], ['Name', 'Kind', 'Status', 'Owner', 'Updated', '', '']],
+        ['shows Kind beside the name', ['type', 'owner'], ['', 'Name', 'Kind', 'Status', 'Owner', 'Updated', '', '']],
     ])('%s', async (_, savedColumns, expectedHeaders) => {
         if (savedColumns) {
             localStorage.setItem(
@@ -209,7 +244,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -232,7 +269,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { type: 'messaging' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -255,7 +294,9 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { type: 'messaging' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -271,7 +312,9 @@ describe('WorkflowsScene', () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -287,18 +330,29 @@ describe('WorkflowsScene', () => {
 
     describe('project folders', () => {
         let files: FileSystemEntry[]
+        let droppables: ReturnType<typeof useDndContext>['droppableContainers'] | null
 
-        const renderScene = (q: string): void => {
+        function DroppableProbe(): null {
+            droppables = useDndContext().droppableContainers
+            return null
+        }
+
+        const renderFolder = async (folder: string, visibleWorkflow: string, filters = ''): Promise<void> => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
-            router.actions.push(urls.workflows(), { q })
+            router.actions.push(urls.workflows(), { q: `in:${folder}${filters}` })
             render(
                 <Provider>
-                    <WorkflowsScene />
+                    <DndContext>
+                        <DroppableProbe />
+                        <WorkflowsScene />
+                    </DndContext>
                 </Provider>
             )
+            await waitFor(() => expect(shownRowNames()).toContain(visibleWorkflow))
         }
 
         beforeEach(() => {
+            droppables = null
             files = [
                 { id: 'billing', path: 'Billing', type: 'folder' },
                 { id: 'cards', path: 'Billing/Cards', type: 'folder' },
@@ -322,15 +376,15 @@ describe('WorkflowsScene', () => {
                         ]
                     },
                 },
+                post: {
+                    '/api/projects/:team_id/file_system/': async ({ request }) => {
+                        const body = (await request.json()) as { path: string; type: string }
+                        const created = { id: `created-${body.path}`, ...body }
+                        files.push(created)
+                        return [201, created]
+                    },
+                },
             })
-        })
-
-        it('shows workflow descriptions inside a folder as the flat list does', async () => {
-            renderScene('in:Billing')
-            await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
-            expect(document.querySelector('[data-attr="workflows-list-v2-description"]')).toHaveTextContent(
-                'Greets new sign-ups'
-            )
         })
 
         it('shows no workflow as Unfiled until the project folders load', async () => {
@@ -344,7 +398,15 @@ describe('WorkflowsScene', () => {
                     },
                 },
             })
-            renderScene('in:Unfiled')
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+            router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+            render(
+                <Provider>
+                    <DndContext>
+                        <WorkflowsScene />
+                    </DndContext>
+                </Provider>
+            )
             await waitFor(() => expect(workflowsListV2Logic.values.listLoaded).toBe(true))
             expect(shownRowNames()).toEqual([])
 
@@ -352,6 +414,104 @@ describe('WorkflowsScene', () => {
             await waitFor(() => expect(shownRowNames()).toEqual(['Spring promo', 'Sync accounts to CRM']))
             act(() => router.actions.push(urls.workflows(), { q: 'in:Billing/Cards' }))
             await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder']))
+        })
+
+        it('shows workflow descriptions inside a folder as the flat list does', async () => {
+            await renderFolder('Billing', 'Welcome series')
+            expect(document.querySelector('[data-attr="workflows-list-v2-description"]')).toHaveTextContent(
+                'Greets new sign-ups'
+            )
+        })
+
+        it('opens the template chooser on the kind facet from the folder toolbar', async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT!,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control!,
+                    hog_flow: AccessControlLevel.Editor,
+                },
+            }
+            await renderFolder('Billing', 'Welcome series', ' kind:messaging')
+            fireEvent.click(
+                document.querySelector('[data-attr="workflows-folder-toolbar"] [data-attr="new-workflow"]')!
+            )
+            expect(workflowTemplatesLogic.values.typeFilter).toEqual('messaging')
+        })
+
+        it('keeps sidebar folders, breadcrumbs and the up row as separate drop targets', async () => {
+            await renderFolder('Billing/Cards', 'Renewal reminder')
+            const targets = [...(droppables?.values() ?? [])].map((droppable) => ({
+                folder: droppable.data.current?.treeId,
+                inSidebar: !!droppable.node.current?.closest('[role="tree"]'),
+                inBreadcrumbs: !!droppable.node.current?.closest('[data-attr="workflows-folder-toolbar"]'),
+            }))
+            const countOf = (folder: string, inSidebar: boolean, inBreadcrumbs: boolean): number =>
+                targets.filter(
+                    (target) =>
+                        target.folder === folder &&
+                        target.inSidebar === inSidebar &&
+                        target.inBreadcrumbs === inBreadcrumbs
+                ).length
+            expect(countOf('project://', true, false)).toBe(1)
+            expect(countOf('project://Billing', true, false)).toBe(1)
+            expect(countOf('project://', false, true)).toBe(1)
+            expect(countOf('project://Billing', false, true)).toBe(1)
+            expect(countOf('project://Billing', false, false)).toBe(1)
+        })
+
+        it('lists a subfolder in the open folder after naming it inline', async () => {
+            await renderFolder('Billing', 'Welcome series')
+            fireEvent.click(
+                document.querySelector<HTMLElement>(
+                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+                )!
+            )
+            const input = document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
+            expect(input).not.toBeNull()
+            fireEvent.change(input!, { target: { value: 'Invoices' } })
+            fireEvent.keyDown(input!, { key: 'Enter' })
+            await waitFor(() =>
+                expect(
+                    Array.from(document.querySelectorAll('[data-attr="workflows-folder-row"]')).map(
+                        (row) => row.textContent
+                    )
+                ).toContain('Invoices(0)')
+            )
+            expect(router.values.searchParams.q).toEqual('in:Billing')
+            expect(document.querySelector('[role="tree"]')?.textContent).toContain('Invoices')
+        })
+
+        const draftInputAfterNewFolder = async (): Promise<HTMLInputElement | null> => {
+            fireEvent.click(
+                document.querySelector<HTMLElement>(
+                    '[data-attr="workflows-folder-toolbar"] [data-attr="workflows-new-folder"]'
+                )!
+            )
+            return document.querySelector<HTMLInputElement>('input[data-attr="workflows-new-folder-name"]')
+        }
+
+        it('shows the inline folder name while a filter narrows the folder', async () => {
+            await renderFolder('Billing', 'Welcome series', ' status:active')
+            expect(await draftInputAfterNewFolder()).not.toBeNull()
+        })
+
+        it('shows the inline folder name from a later page of the folder', async () => {
+            workflows = Array.from({ length: 120 }, (_, i) =>
+                buildWorkflowRow({ id: `wf-${i}`, name: `Flow ${String(i).padStart(3, '0')}` })
+            )
+            files = [
+                { id: 'billing', path: 'Billing', type: 'folder' },
+                ...workflows.map((workflow) => ({
+                    id: `file-${workflow.id}`,
+                    path: `Billing/${workflow.name}`,
+                    type: 'hog_flow',
+                    ref: workflow.id,
+                })),
+            ]
+            await renderFolder('Billing', 'Flow 000')
+            fireEvent.click(document.querySelector('[aria-label="Next page"]')!)
+            await waitFor(() => expect(shownRowNames()).toContain('Flow 119'))
+            expect(await draftInputAfterNewFolder()).not.toBeNull()
         })
     })
 })
