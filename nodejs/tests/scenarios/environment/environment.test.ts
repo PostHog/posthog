@@ -850,7 +850,9 @@ describe('scenario environment', () => {
                 cyclotronUrl
             )
         const eventsGroup = (): { group: string; topic: string } => {
-            const [{ group, topics }] = consumerGroupsOf(roleSpecs(process.env, 'http://edge', secretsOf({}), STATE_DIR))
+            const [{ group, topics }] = consumerGroupsOf(
+                roleSpecs(process.env, 'http://edge', secretsOf({}), STATE_DIR)
+            )
             return { group, topic: topics[0] }
         }
         const offsetsOf = (): Record<string, Record<string, string>> =>
