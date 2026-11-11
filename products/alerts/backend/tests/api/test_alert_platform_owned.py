@@ -944,8 +944,10 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
     def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:
-        if not begun:
-            AlertConfiguration.objects.filter(id=self.alert.id).update(owner="source")
+        team_cutover_at = self.now - timedelta(days=4)
+        AlertConfiguration.objects.filter(id=self.alert.id).update(
+            owner="platform" if begun else "source", owner_changed_at=team_cutover_at
+        )
         insight = create_insight_alert(self.team).insight
 
         response = self.client.post(
@@ -965,6 +967,9 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         created = AlertConfiguration.objects.get(id=response.json()["id"])
         assert created.owner == ("platform" if begun else "source")
+        if begun:
+            # The insight stack shadows the new alert only for what is left of the team's week.
+            assert created.owner_changed_at == team_cutover_at
 
     def _forget_the_insight_row(self) -> None:
         with team_scope(self.team.id):

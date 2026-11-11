@@ -29,6 +29,7 @@ from products.alerts.backend.platform_cutover import (
     hand_over,
     has_begun_cutover,
     in_an_environment,
+    team_cutover_at,
 )
 from products.alerts.backend.platform_insight_alert import (
     alert_from_platform,
@@ -63,7 +64,10 @@ _EDITED_FIELDS = ("name", "source_config", "schedule_restriction")
 def on_created(alert: AlertConfiguration, at: datetime) -> bool:
     """Hands a new alert, locked by the caller, to the platform when its team has begun the cutover,
     so the team never has to be cut over again for it. False when the alert stays with insight."""
-    return platform_takes_new_alert(alert) and delivers_as_it_does_today(alert) and hand_over(alert, at)
+    if not (platform_takes_new_alert(alert) and delivers_as_it_does_today(alert)):
+        return False
+    # A week of its own per alert would keep the insight stack shadowing while the team adds alerts.
+    return hand_over(alert, at, shadow_from=team_cutover_at(alert.team_id, new_alert_id=alert.id))
 
 
 def platform_takes_new_alert(alert: AlertConfiguration) -> bool:
