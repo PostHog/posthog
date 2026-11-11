@@ -116,7 +116,6 @@ export function EventContentConversation({
         traceId,
         input,
         output,
-        tools: loadedTools,
         inputRecognized,
         outputRecognized,
         isLoading,
