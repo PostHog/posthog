@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.user import User
 from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.delivery import (
@@ -18,6 +19,7 @@ from products.alerts_platform.backend.delivery import (
     destinations as destinations_registry,
     legacy_webhook,
     recipients,
+    subscribers,
 )
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import add_late_image, deliver_evaluation
@@ -109,6 +111,13 @@ class EmailingTransport(RecordingTransport):
 
     def channel_target(self, target: AlertDestinationData) -> str:
         return ",".join(target.get("email_addresses", []))
+
+
+class NotifyingTransport(RecordingTransport):
+    provider = "in_app"
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        return ",".join(str(user_id) for user_id in target.get("in_app_user_ids", []))
 
 
 class RefusingTransport(RecordingTransport):
@@ -742,6 +751,51 @@ class TestDeliverEvaluation(APIBaseTest):
                 recipients.register(SourceKind.LOGS, second)
 
             assert recipients._recipients == {SourceKind.LOGS: first}
+
+    @parameterized.expand([("with_the_sources_access_rule", True), ("without_an_access_rule", False)])
+    def test_email_and_in_app_rows_reach_each_user_who_can_still_see_the_alert_at_their_current_address(
+        self, _name: str, source_has_rule: bool
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=SourceKind.LOGS,
+            check_interval_minutes=5,
+        )
+        denied = User.objects.create_and_join(self.organization, "denied@example.com", None)
+        former_member = User.objects.create(email="former-member@example.com")
+        user_ids = [self.user.id, denied.id, former_member.id]
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=configuration.id,
+            destinations=(
+                NewAlertDestination(
+                    data={"type": DestinationType.EMAIL, "email_user_ids": user_ids},
+                    event_kinds=(AlertEventKind.FIRING,),
+                ),
+                NewAlertDestination(
+                    data={"type": DestinationType.IN_APP, "in_app_user_ids": user_ids},
+                    event_kinds=(AlertEventKind.FIRING,),
+                ),
+            ),
+        )
+        self.user.email = "renamed@example.com"
+        self.user.save()
+
+        def source_access(*, team_id: int, configuration_id: UUID, user_ids: list[int]) -> list[int]:
+            return [user_id for user_id in user_ids if user_id != denied.id]
+
+        with patch.dict(subscribers._access, {SourceKind.LOGS: source_access} if source_has_rule else {}, clear=True):
+            self._run(
+                _announcement(_transition(AlertEventKind.FIRING)),
+                {},
+                transports={DestinationType.EMAIL: EmailingTransport, DestinationType.IN_APP: NotifyingTransport},
+            )
+
+        assert sorted(channel for channel, _ in RecordingTransport.sends) == (
+            [str(self.user.id), "renamed@example.com"] if source_has_rule else []
+        )
 
 
 class TestDeliveryPath(APIBaseTest):

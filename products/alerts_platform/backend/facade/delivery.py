@@ -12,6 +12,7 @@ from products.alerts_platform.backend.delivery import (
     legacy_webhook,
     recipients,
     refusal_notices,
+    subscribers,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -28,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     SourceRecipients,
     SourceSlackRenderer,
+    SubscriberAccess,
 )
 
 if TYPE_CHECKING:
@@ -45,6 +47,10 @@ def register_live_hog_function_lookup(lookup: LiveHogFunctionLookup) -> None:
 
 def register_source_recipients(source: SourceKind, lookup: SourceRecipients) -> None:
     recipients.register(source, lookup)
+
+
+def register_subscriber_access(source: SourceKind, access: SubscriberAccess) -> None:
+    subscribers.register(source, access)
 
 
 def register_source_alert_creator(source: SourceKind, lookup: SourceAlertCreator) -> None:

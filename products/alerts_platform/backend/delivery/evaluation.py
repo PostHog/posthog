@@ -24,6 +24,7 @@ from products.alerts_platform.backend.delivery import (
     episode_paths,
     legacy_webhook,
     recipients,
+    subscribers,
 )
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups, live_hog_function_ids
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
@@ -646,7 +647,7 @@ def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinatio
     }
     destinations = enabled_alert_destinations(team_id=request.team_id, configuration_id=UUID(request.configuration_id))
     return _PlatformDestinations(
-        destinations=destinations,
+        destinations=_with_subscribers_resolved(request, destinations),
         owns_destinations=owns_destinations,
         copies=frozenset() if owns_destinations else _copies_of_live_hog_functions(request.team_id, destinations),
         # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
@@ -661,6 +662,33 @@ def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinatio
         },
         incident_event_ids=frozenset(incident_kinds),
     )
+
+
+_SUBSCRIBER_TYPES: Final = frozenset({DestinationType.EMAIL, DestinationType.IN_APP})
+
+
+def _with_subscribers_resolved(
+    request: AlertDeliveryRequest, destinations: tuple[StoredAlertDestination, ...]
+) -> tuple[StoredAlertDestination, ...]:
+    """The rows, with the users an email or in-app row names resolved now, so one who lost access is
+    skipped. A row left with nobody to tell is dropped."""
+    if not any(destination.data["type"] in _SUBSCRIBER_TYPES for destination in destinations):
+        return destinations
+    team = Team.objects.filter(id=request.team_id).first() if request.sends_messages else None
+    resolved: list[StoredAlertDestination] = []
+    for destination in destinations:
+        if destination.data["type"] not in _SUBSCRIBER_TYPES:
+            resolved.append(destination)
+            continue
+        # Email and in-app hear messages only, so a delivery that only moves an incident skips the lookup.
+        if team is None:
+            continue
+        data = subscribers.resolve(
+            request.source, team=team, configuration_id=UUID(request.configuration_id), data=destination.data
+        )
+        if data is not None:
+            resolved.append(replace(destination, data=data))
+    return tuple(resolved)
 
 
 def _copies_of_live_hog_functions(team_id: int, destinations: tuple[StoredAlertDestination, ...]) -> frozenset[str]:
