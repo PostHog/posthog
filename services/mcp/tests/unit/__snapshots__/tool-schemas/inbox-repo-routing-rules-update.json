@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "ID of the routing rule to update, from repo-routing-rules-list.",
+            "description": "ID of the routing rule to update, from inbox-repo-routing-rules-list.",
             "type": "string"
         },
         "repository": {
