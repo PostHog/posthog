@@ -52,7 +52,7 @@ const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_
 
 const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
 
-export type BuildInputsOptions = { recipientIdentifier?: (email: string) => string }
+export type BuildInputsOptions = { recipientIdentifier?: (email: string) => string | Promise<string> }
 
 export class HogInputsService {
     constructor(
@@ -148,7 +148,11 @@ export class HogInputsService {
             // If we have an email value then we template it out to get the email address
             const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {
-                const recipient = { team_id: hogFunction.team_id, identifier: recipientIdentifier(emailValue.to.email) }
+                const identifier = recipientIdentifier(emailValue.to.email)
+                const recipient = {
+                    team_id: hogFunction.team_id,
+                    identifier: typeof identifier === 'string' ? identifier : await identifier,
+                }
                 newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl(
                     recipient,
                     preferencesTokenSource
@@ -194,7 +198,14 @@ export class HogInputsService {
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return {
             ...globals,
-            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource, signal, options),
+            inputs: await this.buildInputs(
+                hogFunction,
+                globals,
+                additionalInputs,
+                preferencesTokenSource,
+                signal,
+                options
+            ),
         }
     }
 

@@ -49,6 +49,7 @@ import { RecipientTokensService } from './services/messaging/recipient-tokens.se
 import { SandboxEmailRuntime } from './services/messaging/sandbox/sandbox-email-runtime'
 import { SandboxEmailSendStep } from './services/messaging/sandbox/sandbox-email-step'
 import { SandboxEmailTester } from './services/messaging/sandbox/sandbox-email-tester'
+import { deliveredAddressReader } from './services/messaging/sandbox/sandbox-render'
 import {
     HogFunctionMonitoringService,
     parseInternalLogsSources,
@@ -601,6 +602,7 @@ export function createCdpCoreServices(
         createUsageIngestionClient(config, 'cdp'),
         usageReportTeamMatcher(config)
     )
+    const sandboxDeliveredAddress = deliveredAddressReader(deps.postgres)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
@@ -619,12 +621,14 @@ export function createCdpCoreServices(
                           service: deps.sandboxEmail.service,
                           events: deps.sandboxEmail.events,
                           hogInputsService,
+                          deliveredAddress: sandboxDeliveredAddress,
                           siteUrl: config.SITE_URL,
                           recipientPreferences: recipientPreferencesService,
                       })
                     : null,
                 testClient: new SandboxEmailTester({
                     hogInputsService,
+                    deliveredAddress: sandboxDeliveredAddress,
                     siteUrl: config.SITE_URL,
                     endpoint: config.WORKFLOWS_SANDBOX_EMAIL_TEST_URL,
                     jwt: new ScopedServiceJwt(

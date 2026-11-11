@@ -34,6 +34,7 @@ import {
     sandboxTestSendBucket,
 } from './sandbox-email-test-route'
 import { SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
+import { deliveredAddressReader } from './sandbox-render'
 
 describe('sandbox email test sends', () => {
     const world = useSandboxWorld()
@@ -132,6 +133,7 @@ describe('sandbox email test sends', () => {
                 new RecipientTokensService('00beef0000beef0000beef0000beef00', 'http://localhost:8000'),
                 {} as any
             ),
+            deliveredAddress: deliveredAddressReader(world.postgres),
             siteUrl: 'http://localhost:8000',
             endpoint: 'http://sandbox-worker.internal',
             jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SANDBOX_EMAIL_TEST, secret),

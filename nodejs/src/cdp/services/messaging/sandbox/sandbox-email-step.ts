@@ -8,7 +8,12 @@ import { SandboxEmailAction, SandboxEmailSendDecision, SandboxEmailStep } from '
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { SandboxEmailEvents, sandboxAppMetric } from './sandbox-email-events'
 import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
-import { logRenderFailure, renderSandboxEmail } from './sandbox-render'
+import {
+    DeliveredAddressReader,
+    SandboxRecipientUnavailableError,
+    logRenderFailure,
+    renderSandboxEmail,
+} from './sandbox-render'
 
 export const MAX_SANDBOX_RETRIES = 8
 const FIRST_RETRY_DELAY_MS = 30_000
@@ -23,6 +28,7 @@ export function sandboxRetryDelayMs(retry: number, random: () => number = Math.r
 export type SandboxEmailSendStepDeps = {
     service: Pick<SandboxEmailService, 'send'>
     hogInputsService: Pick<HogInputsService, 'buildInputsWithGlobals'>
+    deliveredAddress: DeliveredAddressReader
     siteUrl: string
     recipientPreferences: Pick<RecipientPreferencesService, 'checkMarketingFrequencyCap'>
     events: Pick<SandboxEmailEvents, 'capture'>
@@ -56,8 +62,17 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
         const { invocation, action } = options
         let email: unknown
         try {
-            email = await renderSandboxEmail(this.deps.hogInputsService, invocation, action, this.deps.siteUrl)
+            email = await renderSandboxEmail(
+                this.deps.hogInputsService,
+                invocation,
+                action,
+                this.deps.siteUrl,
+                this.deps.deliveredAddress
+            )
         } catch (error) {
+            if (error instanceof SandboxRecipientUnavailableError) {
+                return { status: 'retry', reason: 'authorization_unavailable' }
+            }
             logRenderFailure(options, error)
             return { status: 'failed', reason: 'render_failed' }
         }

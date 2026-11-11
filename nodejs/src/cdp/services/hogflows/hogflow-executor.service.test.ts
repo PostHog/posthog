@@ -3346,6 +3346,7 @@ describe('Hogflow Executor', () => {
                                 new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
                                 hub.encryptedFields
                             ),
+                            deliveredAddress: () => Promise.resolve('member@example.com'),
                             siteUrl: hub.SITE_URL,
                             recipientPreferences: recipientPreferencesService,
                             events: { capture: () => Promise.resolve() },
