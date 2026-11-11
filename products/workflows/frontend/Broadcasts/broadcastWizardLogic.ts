@@ -2783,15 +2783,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         // The link stays in the URL until the draft exists, so a reload before Continue opens the same prefill.
         actions.loadBlastRadius()
         const draftSource = parseEmailDraftSource(draftSourceParam)
-        cache.landingAwaitsAiDraft = !!draftSource && !email
-        actions.landOnPrefilledStep()
         if (draftSource) {
+            cache.landingAwaitsAiDraft = !email
             actions.loadAiEmailDraft(draftSource)
             if (!email) {
                 // The lookup checks each brand against the draft's text, so it waits until the draft exists.
                 cache.brandAwaitsAiDraft = true
             }
         }
+        actions.landOnPrefilledStep()
     }),
 ])
 
