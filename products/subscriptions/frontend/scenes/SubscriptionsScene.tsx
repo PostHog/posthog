@@ -21,6 +21,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
+import { DashboardScoutsTable } from '../components/Subscriptions/dashboardScout/DashboardScoutsTable'
 import { subscriptionsEmptyState } from '../emptyState/subscriptionsEmptyState'
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
 import { SubscriptionsSceneModal } from './components/SubscriptionsSceneModal'
@@ -154,6 +155,9 @@ export function SubscriptionsScene(): JSX.Element {
                 sceneInset
             />
             <div className="py-8 flex-1 min-h-0 flex flex-col gap-4 max-w-full">
+                {currentTab === SubscriptionsTab.All || currentTab === SubscriptionsTab.Dashboard ? (
+                    <DashboardScoutsTable />
+                ) : null}
                 <SubscriptionsFiltersBar />
                 <SubscriptionsTable
                     dataSource={subscriptions}
