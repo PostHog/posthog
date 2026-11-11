@@ -10,13 +10,19 @@ import type { JudgeEvidence } from './invariants'
 
 export type MetricSample = { role: string; at: number; startedAt: number; cpuSeconds: number; rssBytes: number }
 
-export type Measurement = { name: string; key?: string; value: number; unit: string }
+export type MissedScrape = { role: string; at: number }
 
-export type MeasureEvidence = JudgeEvidence & { samples: readonly MetricSample[]; sampledFrom: number }
+export type Sampled = { samples: MetricSample[]; missed: MissedScrape[] }
+
+export type Measurement = { name: string; key?: string; value: number; unit: string; incomplete?: true }
+
+export type MeasureEvidence = JudgeEvidence & Readonly<Sampled> & { sampledFrom: number }
+
+type Measured = { key?: string; value: number; incomplete?: true }
 
 export type MeasurementDefinition = Definition & {
     unit: string
-    measure(evidence: MeasureEvidence): { key?: string; value: number }[]
+    measure(evidence: MeasureEvidence): Measured[]
 }
 
 const SAMPLE_INTERVAL_MS = 5000
@@ -30,17 +36,21 @@ const byRole = (samples: readonly MetricSample[]): Map<string, MetricSample[]> =
         ({ role }) => role
     )
 
+const completeness = (role: string, missed: readonly MissedScrape[]): { incomplete?: true } =>
+    missed.some((miss) => miss.role === role) ? { incomplete: true } : {}
+
 export const roleCpuSeconds: MeasurementDefinition = {
     name: 'role_cpu_seconds',
     params: z.object({}).strict(),
     unit: 's',
-    measure: ({ samples, sampledFrom }) =>
+    measure: ({ samples, missed, sampledFrom }) =>
         [...byRole(samples)].map(([role, ofRole]) => ({
             key: role,
             value: [...Map.groupBy(ofRole, ({ startedAt }) => startedAt)].reduce((sum, [startedAt, lifetime]) => {
                 const startedWhileSampled = startedAt * 1000 >= sampledFrom
                 return sum + lifetime.at(-1)!.cpuSeconds - (startedWhileSampled ? 0 : lifetime[0].cpuSeconds)
             }, 0),
+            ...completeness(role, missed),
         })),
 }
 
@@ -48,10 +58,11 @@ export const roleRssMaxBytes: MeasurementDefinition = {
     name: 'role_rss_max_bytes',
     params: z.object({}).strict(),
     unit: 'bytes',
-    measure: ({ samples }) =>
+    measure: ({ samples, missed }) =>
         [...byRole(samples)].map(([role, ofRole]) => ({
             key: role,
             value: Math.max(...ofRole.map(({ rssBytes }) => rssBytes)),
+            ...completeness(role, missed),
         })),
 }
 
@@ -115,7 +126,7 @@ export function sampleOf(role: string, at: number, text: string): MetricSample |
         : { role, at, startedAt, cpuSeconds, rssBytes }
 }
 
-export type Sampler = { sampledFrom: number; stop(): Promise<MetricSample[]> }
+export type Sampler = { sampledFrom: number; stop(): Promise<Sampled> }
 
 type Target = { role: string; metricsUrl: string }
 
@@ -124,8 +135,10 @@ export async function startSampler(
     { baselineWithinMs = BASELINE_WITHIN_MS } = {}
 ): Promise<Sampler> {
     const samples: MetricSample[] = []
+    const missed: MissedScrape[] = []
     const stopped = new AbortController()
-    const scrape = async (some: Target[], timeoutMs = SCRAPE_TIMEOUT_MS): Promise<void> => {
+    const scrape = async (some: Target[], timeoutMs = SCRAPE_TIMEOUT_MS): Promise<MissedScrape[]> => {
+        const failed: MissedScrape[] = []
         await Promise.all(
             some.map(async ({ role, metricsUrl }) => {
                 const at = Date.now()
@@ -135,9 +148,15 @@ export async function startSampler(
                 const sample = sampleOf(role, at, text)
                 if (sample) {
                     samples.push(sample)
+                } else {
+                    failed.push({ role, at })
                 }
             })
         )
+        return failed
+    }
+    const scrapeAll = async (): Promise<void> => {
+        missed.push(...(await scrape(targets)))
     }
     const sampledFrom = Date.now()
     const deadline = sampledFrom + baselineWithinMs
@@ -159,19 +178,19 @@ export async function startSampler(
         while (!stopped.signal.aborted) {
             await sleep(SAMPLE_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
             if (!stopped.signal.aborted) {
-                await scrape(targets)
+                await scrapeAll()
             }
         }
     })()
-    let stopping: Promise<MetricSample[]> | undefined
+    let stopping: Promise<Sampled> | undefined
     return {
         sampledFrom,
         stop: () =>
             (stopping ??= (async () => {
                 stopped.abort()
                 await sampling
-                await scrape(targets)
-                return samples
+                await scrapeAll()
+                return { samples, missed }
             })()),
     }
 }
