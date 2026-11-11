@@ -3145,6 +3145,10 @@ describe('EmailService', () => {
                 invocation.state.renderedWorkflowVersion = workflowVersion
                 if (transactional) {
                     invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                    invocation.hogFunction.metadata = {
+                        ...invocation.hogFunction.metadata,
+                        message_category_type: 'transactional',
+                    }
                 }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
