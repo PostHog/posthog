@@ -30,8 +30,11 @@ async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promis
         return
     }
     const settled = new AbortController()
-    await Promise.race([work, once(signal, 'abort', { signal: settled.signal })])
-    settled.abort()
+    try {
+        await Promise.race([work, once(signal, 'abort', { signal: settled.signal })])
+    } finally {
+        settled.abort()
+    }
 }
 
 const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
