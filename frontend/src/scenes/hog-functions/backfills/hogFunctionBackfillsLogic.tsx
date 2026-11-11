@@ -117,10 +117,12 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
             }
             actions.setLoading(true)
             try {
-                const enabled = await api.hogFunctions.enableBackfills(props.id).then(
-                    () => true,
-                    () => false
-                )
+                let enabled = true
+                try {
+                    await api.hogFunctions.enableBackfills(props.id)
+                } catch {
+                    enabled = false
+                }
                 const hogFunction = await hogFunctionsRetrieve(String(values.currentTeamIdStrict), props.id).catch(
                     () => null
                 )
