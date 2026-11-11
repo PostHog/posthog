@@ -97,6 +97,10 @@ rules:
       paths:
           include:
               - '**/templates/admin/**/*.html'
+          exclude:
+              # Admin chrome on every page: the favicon, the impersonation banner and the link to PostHog Admin.
+              # It adds no staff page or workflow, so it stays when the other overrides are gone.
+              - posthog/templates/admin/base_site.html
       metadata:
           category: maintainability
           subcategory: audit

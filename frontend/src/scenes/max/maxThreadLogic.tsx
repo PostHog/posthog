@@ -1566,7 +1566,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     //   Safari:      "Load failed"
                     //   handleFetch: ApiError with status === undefined (fetch itself threw)
                     const isNetworkError =
-                        (e instanceof Error && /failed to fetch|network\s*error|load failed/i.test(e.message)) ||
+                        (e instanceof Error &&
+                            /failed to fetch|network\s*error|load failed|error in input stream/i.test(e.message)) ||
                         (e instanceof ApiError && !e.status)
 
                     if (isNetworkError) {

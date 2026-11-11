@@ -1,4 +1,5 @@
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
@@ -10,6 +11,7 @@ from posthog.schema import HogQLPropertyFilter
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
@@ -32,6 +34,10 @@ from products.surveys.backend.facade.api import (
 )
 
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
+from ..logic.evaluations.judge_preview import (
+    MAX_JUDGE_TEST_UNITS as MAX_JUDGE_TEST_UNITS,
+    run_judge_test,
+)
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
 from ..logic.evaluations.overview_queries import load_bucket_counts, load_category_counts
 from ..logic.evaluations.pass_filters import build_evaluation_pass_filters, build_pass_rules
@@ -40,15 +46,23 @@ from ..logic.evaluations.period import (
     PeriodBounds,
     overview_period,
 )
+from ..logic.evaluations.preview_units import (
+    DEFAULT_PREVIEW_UNITS as DEFAULT_PREVIEW_UNITS,
+    MAX_PREVIEW_UNITS as MAX_PREVIEW_UNITS,
+    sample_traffic,
+)
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
+from ..logic.message_normalizer.errors import RecipeCompileError as RecipeCompileError
+from ..logic.message_normalizer.normalizer import check_stored_recipe_source
 from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
 from ..logic.traces.clusters import ClusterMemberships, TraceCluster
+from ..logic.traces.dataset_item import StepDatasetItem
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
 from ..logic.traces.events_fallback import fallback_window
-from ..logic.traces.feedback import FeedbackText, Score, TraceFeedback
+from ..logic.traces.feedback import FeedbackText, Score, StepFeedback, TraceFeedback, roll_up_by_step
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
@@ -158,6 +172,15 @@ def load_trace_node_raw(
     return lambda: _to_node_raw(node_id, event)
 
 
+def load_trace_node_dataset_item(
+    team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime
+) -> Callable[[], contracts.TraceNodeDatasetItem]:
+    event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
+    return lambda: _to_node_dataset_item(
+        StepDatasetItem(trace_id=trace_id, trace_timestamp=timestamp_hint, event=event)
+    )
+
+
 def _load_node_event(
     team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime | None
 ) -> NodeEvent | None:
@@ -188,15 +211,16 @@ def _to_stats(usage: Usage) -> contracts.TraceNodeStats:
     )
 
 
-def _to_node(node: TreeNode) -> contracts.TraceNode:
+def _to_node(node: TreeNode, labels: Mapping[str, str]) -> contracts.TraceNode:
     return contracts.TraceNode(
         id=node.event.id,
         kind=node.event.kind,
         name=node.event.title,
+        label=labels[node.event.id],
         model=node.event.row.model,
         stats=_to_stats(node.display_usage),
         has_error=node.event.has_error,
-        children=[_to_node(child) for child in node.children],
+        children=[_to_node(child, labels) for child in node.children],
     )
 
 
@@ -223,10 +247,11 @@ def _to_trace(trace: Trace) -> contracts.Trace:
         id=trace.id,
         kind="trace",
         name=trace.title,
+        label=trace.node_labels[trace.id],
         model=None,
         stats=totals,
         has_error=trace.has_error,
-        children=[_to_node(node) for node in trace.tree],
+        children=[_to_node(node, trace.node_labels) for node in trace.tree],
     )
     return contracts.Trace(
         id=trace.id,
@@ -270,6 +295,18 @@ def _to_node_raw(node_id: str, event: NodeEvent | None) -> contracts.TraceNodeRa
     if event is None:
         return contracts.TraceNodeRaw(id=node_id, kind="trace", event=None)
     return contracts.TraceNodeRaw(id=node_id, kind=event.kind, event=_to_node_event(event))
+
+
+def _to_node_dataset_item(item: StepDatasetItem) -> contracts.TraceNodeDatasetItem:
+    return contracts.TraceNodeDatasetItem(
+        client_item_id=item.source_event_id,
+        source_trace_id=item.trace_id,
+        source_event_id=item.source_event_id,
+        source_timestamp=item.trace_timestamp,
+        input=item.input,
+        source_output=item.source_output,
+        metadata=item.metadata,
+    )
 
 
 def _to_node_detail(team_id: int, node_id: str, event: NodeEvent | None) -> contracts.TraceNodeDetail:
@@ -398,6 +435,7 @@ def _to_trace_cluster(cluster: TraceCluster) -> contracts.TraceCluster:
         job_name=cluster.job_name,
         cluster_id=cluster.cluster_id,
         title=cluster.title,
+        label=cluster.label,
         description=cluster.description,
         is_outlier=cluster.is_outlier,
     )
@@ -435,6 +473,7 @@ def get_trace_feedback(
         ],
         key=lambda response: response.timestamp,
     )
+    steps = roll_up_by_step(feedback.scores, [response.node_id for response in responses])
     return contracts.TraceFeedback(
         scores=scores,
         responses=responses,
@@ -444,8 +483,9 @@ def get_trace_feedback(
         ],
         survey_responses_status=survey_responses_status,
         summary=contracts.TraceFeedbackSummary(
-            total=len(scores) + len(responses), thumbs_up=thumbs.up, thumbs_down=thumbs.down
+            total=sum(step.total for step in steps), thumbs_up=thumbs.up, thumbs_down=thumbs.down
         ),
+        steps=[_to_step_feedback(step) for step in steps],
     )
 
 
@@ -478,6 +518,15 @@ def _to_review_queue_assignment(queue: QueueAssignment) -> contracts.TraceReview
 def _to_feedback_score(score: Score) -> contracts.TraceFeedbackScore:
     return contracts.TraceFeedbackScore(
         id=score.id, name=score.name, value=score.value, node_id=score.node_id, timestamp=score.timestamp
+    )
+
+
+def _to_step_feedback(step: StepFeedback) -> contracts.TraceStepFeedback:
+    return contracts.TraceStepFeedback(
+        node_id=step.node_id,
+        scores=[_to_feedback_score(score) for score in step.scores],
+        response_count=step.response_count,
+        total=step.total,
     )
 
 
@@ -632,6 +681,33 @@ def get_evaluation_score_distribution(
     if meta.scale is None or buckets is None:
         raise NoScoreScaleError(evaluation_id)
     return load_score_distribution(team, user, evaluation_id, period, meta.scale, buckets)
+
+
+def sample_evaluation_traffic(
+    team: Team, user: User, scope: contracts.EvaluationPreviewScope, count: int | None
+) -> list[contracts.EvaluationTrafficSample]:
+    """The latest units an unsaved evaluation would run on, newest first. `count` defaults to
+    `DEFAULT_PREVIEW_UNITS` and is capped at what one test of the target covers."""
+    try:
+        return sample_traffic(team, user, scope, count)
+    except AIEventsUnavailableError:
+        return []
+
+
+def run_unsaved_judge(
+    team: Team,
+    user: User,
+    judge: contracts.UnsavedJudge,
+    scope: contracts.EvaluationPreviewScope,
+    sample_ids: Sequence[str] | None,
+    *,
+    reading: Callable[[], AbstractContextManager[None]] = nullcontext,
+) -> list[contracts.EvaluationTestResult]:
+    """Judge up to `MAX_JUDGE_TEST_UNITS` units with an unsaved LLM judge, on the team's own provider key.
+    Saves nothing and emits no results. `reading` wraps each ClickHouse read, and no model call.
+
+    Raises `contracts.JudgeModelError` and `contracts.JudgeTestAlreadyRunningError`."""
+    return run_judge_test(team, user, judge, scope, sample_ids, reading=reading)
 
 
 def get_trace_summary(team: Team, user: User, trace_id: str) -> contracts.TraceSummary:
@@ -789,3 +865,8 @@ def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
         expires_after=asset.expires_after,
         exception=state.exception,
     )
+
+
+def validate_parser_recipe_source(source: str) -> None:
+    """Raises `RecipeCompileError` with a message for the author when trace reads would skip this recipe."""
+    check_stored_recipe_source(source)
