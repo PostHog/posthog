@@ -338,7 +338,6 @@ def build_initial_prompt_messages(
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No data"),
             "annotations_section": annotations_section,
-            # Managed prompts can still reference this variable. The instructions go in the system message.
             "formatting_instructions": "",
         },
     )

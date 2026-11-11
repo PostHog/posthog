@@ -38,28 +38,20 @@ _DURATION_UNIT = r"(?:ms|s|m|h|d|w|sec(?:ond)?s?|min(?:ute)?s?|h(?:ou)?rs?|hours
 # Each pattern is tried at every position, in order. Time comes first so a date that contains
 # numbers ("November 10", "2025-11-10", "last 7 days") never becomes a value.
 _TIME_PATTERNS = [
-    # ISO date, optionally with a time and offset.
     r"\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?)?",
-    # Month and day, with an optional day range and year: "Nov 3", "November 3–10, 2025".
     rf"{_MONTH}\.? {_DAY}(?:\s?[-–]\s?{_DAY})?(?:,? \d{{4}})?",
-    # Day and month: "3 November 2025".
     rf"{_DAY} {_MONTH}(?: \d{{4}})?",
     r"(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)days?",
-    # Rolling windows: "last 7 days", "the past week", "previous 24 hours".
     r"(?:the )?(?:last|past|previous|prior) (?:\d+ )?(?:minutes?|hours?|days?|weeks?|months?|quarters?|years?)",
 ]
 _VALUE_PATTERNS = [
-    # Durations: "4d 4h", "2h 30m", "45 seconds", "120ms".
     rf"\d+(?:\.\d+)?\s?{_DURATION_UNIT}(?: \d+(?:\.\d+)?\s?{_DURATION_UNIT})*",
-    # Signed numbers with optional currency, thousands separators, decimals, magnitude, and percent:
-    # "$1,200", "-3.5%", "1.2k", "€40M". A bare year such as "2025" is left as text.
     r"[+\-−]?[$€£¥]?(?!(?:19|20)\d\d(?![\d.%kKMB]|,\d))\d+(?:,\d{3})*(?:\.\d+)?(?:[kKMB]|%| ?pp)?",
 ]
 _STYLED_SPAN = re.compile(
     "|".join(
         [
-            # Spans to keep literal: a leading list marker, inline code, Markdown links, bare URLs, and
-            # markers already present.
+            # Literal spans are matched first so nothing inside code, links, or existing markers is styled.
             r"(?P<literal>^[ \t]*(?:(?:[-+*•]|\d+[.)])[ \t]+)+|`[^`]*`|\[[^\]]*\]\([^)]*\)|https?://\S+|\*\*[^*]+\*\*|(?<!\w)[*_][^*_\n]+[*_](?!\w))",
             rf"(?<![\w$€£¥.])(?P<time>{'|'.join(_TIME_PATTERNS)})(?![\w%])",
             rf"(?<![\w$€£¥.+\-−])(?P<value>{'|'.join(_VALUE_PATTERNS)})(?![\w%])",
