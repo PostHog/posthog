@@ -4,20 +4,19 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-// Mirrors AuthDeclarationSchemaSerializer in products/cdp/backend/validation.py.
 export type CredentialAuthDeclaration = {
     scheme: 'bearer' | 'header' | 'basic' | 'query' | 'body'
     name?: string
     prefix?: string
     path?: string
-    opt_in?: boolean
-    username_input?: string
     username_field?: string
     password_field?: string
     field?: string
-    origins?: string[]
-    origin_input?: string
 }
+
+// A template's `auth` on a connection input only marks the input. Mirrors AuthDeclarationSchemaSerializer in
+// products/cdp/backend/validation.py.
+export type CredentialAuthMarker = Pick<CredentialAuthDeclaration, 'scheme'>
 
 export type ResolvedCredential = {
     inputKey: string
@@ -77,7 +76,6 @@ export function publicIntegrationConfig(
     )
 }
 
-// Must produce the origins that `url_origin` in products/cdp/backend/credential_auth.py stores.
 export function requestOrigin(url: string): string | null {
     let parsed: URL
     try {

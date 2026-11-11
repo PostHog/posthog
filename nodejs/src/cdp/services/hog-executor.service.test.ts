@@ -2451,14 +2451,12 @@ describe('Hog Executor', () => {
         describe('auth_input', () => {
             const received: { url: string; authorization: string | string[] | undefined }[] = []
             let localOrigin: string
-            let foreignOrigin: string
 
             beforeEach(() => {
                 const actualRequest = jest.requireActual('~/common/utils/request') as { fetch: typeof fetch }
                 jest.mocked(fetch).mockImplementation((url, options) => actualRequest.fetch(url, options))
                 received.length = 0
                 localOrigin = baseUrl
-                foreignOrigin = baseUrl.replace('localhost', '127.0.0.1')
                 mockRequest.mockImplementation((req: any, res: any) => {
                     received.push({ url: req.url, authorization: req.headers['authorization'] })
                     res.writeHead(200, { 'Content-Type': 'text/plain' })
@@ -2466,19 +2464,29 @@ describe('Hog Executor', () => {
                 })
             })
 
-            const fetchWithApiKey = async (
+            // The Slack kind binds the token to https://slack.com, so the local test server is a foreign origin.
+            const fetchWithSlack = async (
                 params: Partial<CyclotronInvocationQueueParametersFetchType>
             ): Promise<CyclotronJobInvocationHogFunction> => {
                 const invocation = await createFetchInvocation({
                     url: `${localOrigin}/`,
                     method: 'POST',
                     body: '{}',
-                    auth_input: 'api_key',
+                    auth_input: 'slack',
                     ...params,
                 })
-                invocation.hogFunction.encrypted_inputs = {
-                    api_key: { value: 'sk_victim', auth: { scheme: 'bearer', origins: [localOrigin] } },
-                } as any
+                const team = (await createTestTeamFixture(hub.postgres)).team
+                const slack = await insertIntegration(hub.postgres, team.id, {
+                    kind: 'slack',
+                    config: { team: 'victim-workspace' },
+                    sensitive_config: { access_token: hub.encryptedFields.encrypt('xoxb-victim') },
+                })
+                invocation.teamId = team.id
+                invocation.hogFunction = { ...invocation.hogFunction, team_id: team.id }
+                invocation.hogFunction.inputs = { slack: { value: slack.id } }
+                invocation.hogFunction.inputs_schema = [
+                    { key: 'slack', type: 'integration', integration: 'slack', auth: { scheme: 'bearer' } },
+                ]
                 return invocation
             }
 
@@ -2487,54 +2495,68 @@ describe('Hog Executor', () => {
                     (v) => v.labels.outcome === 'mismatch' && v.labels.mode === mode
                 )?.value ?? 0
 
-            it('overwrites an Authorization header the code set and keeps the credential out of the queue payload', async () => {
+            it('overwrites an Authorization header the code set and keeps the token out of the queue payload', async () => {
                 let callCount = 0
                 mockRequest.mockImplementation((req: any, res: any) => {
                     received.push({ url: req.url, authorization: req.headers['authorization'] })
                     res.writeHead(++callCount === 1 ? 500 : 200, { 'Content-Type': 'text/plain' })
                     res.end('ok')
                 })
-                const invocation = await fetchWithApiKey({ headers: { authorization: 'Bearer sk_attacker' } })
+                const invocation = await fetchWithSlack({ headers: { authorization: 'Bearer xoxb-attacker' } })
 
                 let result = await executor.executeFetch(invocation)
-                expect(JSON.stringify(result.invocation.queueParameters)).not.toContain('sk_victim')
+                expect(JSON.stringify(result.invocation.queueParameters)).not.toContain('xoxb-victim')
                 result = await executor.executeFetch(result.invocation)
 
                 expect(result.error).toBeUndefined()
-                expect(received.map((r) => r.authorization)).toEqual(['Bearer sk_victim', 'Bearer sk_victim'])
+                expect(received.map((r) => r.authorization)).toEqual(['Bearer xoxb-victim', 'Bearer xoxb-victim'])
             })
 
             it.each([
-                ['a host the credential is not bound to', () => ({ url: `${foreignOrigin}/` })],
-                ['a Host header that names another origin', () => ({ headers: { Host: 'attacker.example' } })],
-            ])('refuses to send the credential to %s in enforce mode', async (_name, params) => {
+                ['a host the connection kind does not allow', () => ({})],
+                [
+                    'a Host header that names another origin',
+                    () => ({ url: 'https://slack.com/api/chat.postMessage', headers: { Host: 'attacker.example' } }),
+                ],
+            ])('refuses to send the token to %s in enforce mode', async (_name, params) => {
                 executor = createExecutor(hub.encryptedFields, '*')
-                const result = await executor.executeFetch(await fetchWithApiKey(params()))
+                const result = await executor.executeFetch(await fetchWithSlack(params()))
 
                 expect(result.finished).toBe(true)
-                expect(result.error?.message).toContain('Refused to send the credential in input api_key')
+                expect(result.error?.message).toContain('Refused to send the credential in input slack')
                 expect(received).toEqual([])
             })
 
-            it('sends the credential to a foreign host in observe mode and counts the mismatch', async () => {
+            it('sends the token to a foreign host in observe mode and counts the mismatch', async () => {
                 const before = await mismatches('observe')
-                const result = await executor.executeFetch(await fetchWithApiKey({ url: `${foreignOrigin}/` }))
+                const result = await executor.executeFetch(await fetchWithSlack({}))
 
                 expect(result.error).toBeUndefined()
-                expect(received.map((r) => r.authorization)).toEqual(['Bearer sk_victim'])
+                expect(received.map((r) => r.authorization)).toEqual(['Bearer xoxb-victim'])
                 expect(await mismatches('observe')).toBe(before + 1)
             })
 
-            it('does not follow a redirect, so the credential never reaches its target', async () => {
+            it('does not follow a redirect, so the token never reaches its target', async () => {
                 mockRequest.mockImplementation((req: any, res: any) => {
                     received.push({ url: req.url, authorization: req.headers['authorization'] })
-                    res.writeHead(302, { Location: `${foreignOrigin}/collect` })
+                    res.writeHead(302, { Location: `${localOrigin.replace('localhost', '127.0.0.1')}/collect` })
                     res.end()
                 })
-                const result = await executor.executeFetch(await fetchWithApiKey({}))
+                const result = await executor.executeFetch(await fetchWithSlack({}))
 
-                expect(received).toEqual([{ url: '/', authorization: 'Bearer sk_victim' }])
+                expect(received).toEqual([{ url: '/', authorization: 'Bearer xoxb-victim' }])
                 expect(result.execResult).toMatchObject({ status: 302 })
+            })
+
+            it('refuses a handle on an input that is not a connection', async () => {
+                const invocation = await fetchWithSlack({ auth_input: 'count' })
+                invocation.hogFunction.inputs!.count = { value: invocation.hogFunction.inputs!.slack!.value }
+                invocation.hogFunction.inputs_schema!.push({ key: 'count', type: 'number' })
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error?.message).toContain('Input count is not a connection')
+                expect(received).toEqual([])
             })
 
             it('gives code a Slack handle that holds no token, so the token cannot reach a message body', async () => {

@@ -31,7 +31,7 @@ registerAsyncFunction('fetch', {
         // template's queueParameters snapshot.
         const authInput = fetchOptions?.auth === undefined ? undefined : credentialHandleInputKey(fetchOptions.auth)
         if (authInput === null) {
-            throw new Error("fetch option 'auth' must be an input that holds a credential, such as inputs.api_key.")
+            throw new Error("fetch option 'auth' must be a connection input, such as inputs.slack_workspace.")
         }
 
         const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({

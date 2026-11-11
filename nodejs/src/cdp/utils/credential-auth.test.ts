@@ -1,8 +1,3 @@
-import { readFileSync } from 'fs'
-import path from 'path'
-
-import { parseJSON } from '~/common/utils/json-parse'
-
 import { HOG_FUNCTION_TEMPLATES } from '../templates'
 import {
     CredentialAuthDeclaration,
@@ -13,17 +8,7 @@ import {
     requestOrigin,
     routedOrigins,
 } from './credential-auth'
-
-// Python's tests read the same table, so the origin Django binds is the one the worker compares.
-const ORIGIN_CASES: {
-    url_origins: { url: string; origin: string | null }[]
-    routed_origins: { url: string; headers: Record<string, string>; origins: string[] }[]
-} = parseJSON(
-    readFileSync(
-        path.resolve(__dirname, '../../../../products/cdp/shared/crosslang/credential_origin_cases.json'),
-        'utf8'
-    )
-)
+import ORIGIN_CASES from './credential-origin-cases.json'
 
 describe('credential auth', () => {
     const credential = (declaration: CredentialAuthDeclaration, username?: string): ResolvedCredential => ({
@@ -47,8 +32,8 @@ describe('credential auth', () => {
             { headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'Token sk_secret' } },
         ],
         [
-            'basic auth with the username input',
-            credential({ scheme: 'basic', username_input: 'user' }, 'account'),
+            'basic auth with the username field',
+            credential({ scheme: 'basic', username_field: 'user' }, 'account'),
             {
                 headers: {
                     ...request.headers,
@@ -58,12 +43,12 @@ describe('credential auth', () => {
         ],
         [
             'a query parameter, replacing the one the code set',
-            credential({ scheme: 'query', name: 'key', opt_in: true }),
+            credential({ scheme: 'query', name: 'key' }),
             { url: 'https://api.example.com/send?key=sk_secret&page=1' },
         ],
         [
             'a body path, replacing the value the code set',
-            credential({ scheme: 'body', path: 'auth.token', opt_in: true }),
+            credential({ scheme: 'body', path: 'auth.token' }),
             { body: '{"auth":{"token":"sk_secret"},"text":"hello"}' },
         ],
     ])('applies %s', (_name, resolved, expected) => {
@@ -93,15 +78,12 @@ describe('credential auth', () => {
         expect(publicIntegrationConfig(config, { refresh_token: 'r' })).toEqual({ team: config.team })
     })
 
-    it.each(ORIGIN_CASES.url_origins.filter((c) => c.origin !== null))(
-        'reads $url as the origin Django binds',
-        ({ url, origin }) => {
-            expect(requestOrigin(url)).toBe(origin)
-        }
-    )
+    it.each(ORIGIN_CASES.url_origins)('reads $url as the origin $origin', ({ url, origin }) => {
+        expect(requestOrigin(url)).toBe(origin)
+    })
 
     it.each(ORIGIN_CASES.routed_origins)('routes $url with $headers to $origins', ({ url, headers, origins }) => {
-        expect(routedOrigins({ url, headers, body: undefined })).toEqual(origins)
+        expect(routedOrigins({ url, headers: headers as Record<string, string>, body: undefined })).toEqual(origins)
     })
 
     it('knows the placement of every connection kind a template applies as a credential', () => {

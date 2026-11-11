@@ -13,7 +13,6 @@ import {
     IntegrationType,
 } from '../types'
 import {
-    CredentialAuthDeclaration,
     INTEGRATION_AUTH,
     ResolvedCredential,
     appliesIntegrationCredential,
@@ -178,11 +177,6 @@ export class HogInputsService {
 
         for (const [key, input] of orderedInputs) {
             if (!input) {
-                continue
-            }
-
-            if (boundSecretDeclaration(input)) {
-                newGlobals.inputs[key] = credentialHandle(key)
                 continue
             }
 
@@ -483,39 +477,10 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         inputKey: string
     ): Promise<{ credential: ResolvedCredential } | { error: string }> {
-        const schemas = [
-            ...(hogFunction.inputs_schema ?? []),
-            ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
-        ]
-        const schema = schemas.find((s) => s.key === inputKey)
-        if (schema?.type === 'integration') {
-            return this.resolveIntegrationCredential(hogFunction, inputKey)
+        // Code can build a handle by hand, so a non-connection input that holds an integration's id must not resolve.
+        if (!allInputSchemas(hogFunction).some((schema) => schema.key === inputKey && schema.type === 'integration')) {
+            return { error: `Input ${inputKey} is not a connection, so PostHog can't apply its credential.` }
         }
-
-        const input = ownInput(hogFunction.encrypted_inputs, inputKey) ?? ownInput(hogFunction.inputs, inputKey)
-        const declaration = input ? boundSecretDeclaration(input) : null
-        if (!input || !declaration || typeof input.value !== 'string') {
-            return {
-                error: `Input ${inputKey} holds no credential bound to an address. Enter the secret again and save.`,
-            }
-        }
-        const usernameInput = declaration.username_input
-        const username = usernameInput ? ownInput(hogFunction.inputs, usernameInput)?.value : undefined
-        return {
-            credential: {
-                inputKey,
-                declaration,
-                origins: declaration.origins ?? [],
-                secret: input.value,
-                ...(typeof username === 'string' ? { username } : {}),
-            },
-        }
-    }
-
-    private async resolveIntegrationCredential(
-        hogFunction: HogFunctionType,
-        inputKey: string
-    ): Promise<{ credential: ResolvedCredential } | { error: string }> {
         const mergedInputs: Record<string, CyclotronInputType | null | undefined> = { ...hogFunction.inputs }
         for (const mapping of hogFunction.mappings ?? []) {
             Object.assign(mergedInputs, mapping.inputs)
@@ -530,7 +495,7 @@ export class HogInputsService {
         ) {
             return { error: `The integration for input ${inputKey} can't be used. Select a connected integration.` }
         }
-        const rule = INTEGRATION_AUTH[integration.kind]
+        const rule = appliesIntegrationCredential(integration.kind) ? INTEGRATION_AUTH[integration.kind] : undefined
         if (!rule) {
             return { error: `PostHog can't apply the credentials of a ${integration.kind} connection to a request.` }
         }
@@ -559,16 +524,6 @@ function ownInput(
     key: string
 ): CyclotronInputType | undefined {
     return inputs && Object.hasOwn(inputs, key) ? (inputs[key] ?? undefined) : undefined
-}
-
-// Only Django sets this binding, when a secret is typed, so code can't give itself one.
-function boundSecretDeclaration(input: CyclotronInputType): CredentialAuthDeclaration | null {
-    const auth: unknown = (input as { auth?: unknown }).auth
-    if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) {
-        return null
-    }
-    const declaration = auth as CredentialAuthDeclaration
-    return typeof declaration.scheme === 'string' && Array.isArray(declaration.origins) ? declaration : null
 }
 
 const allInputSchemas = (hogFunction: HogFunctionType): NonNullable<HogFunctionType['inputs_schema']> => [
