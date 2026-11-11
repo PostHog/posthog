@@ -1479,6 +1479,21 @@
         "params": [],
         "scope": "project"
     },
+    "release": {
+        "template": "/releases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "releaseList": {
+        "template": "/releases/list",
+        "params": [],
+        "scope": "project"
+    },
+    "releases": {
+        "template": "/releases",
+        "params": [],
+        "scope": "project"
+    },
     "replay": {
         "template": "/replay/home",
         "params": [],
