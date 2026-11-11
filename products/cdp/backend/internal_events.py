@@ -26,15 +26,10 @@ _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
 WORKFLOW_STEP_RESUME_EVENT = "$workflow_step_resume"
 INBOX_REPORT_READY_EVENT = "$inbox_report_ready"
 
-# Internal events whose properties carry content that a product shows only to members with read
-# access to one of its resources. A destination may subscribe to one, but only a member who can read
-# that resource may create, edit, test, rerun, or read the logs of such a destination, and an API
-# key also needs the resource's read scope. Valued by the API scope object of that resource.
 READ_GATED_INTERNAL_EVENT_SCOPES: dict[str, str] = {INBOX_REPORT_READY_EVENT: "inbox"}
 
 
 def read_gated_internal_events(filters: object) -> set[str]:
-    """The read-gated internal events a destination with these filters subscribes to."""
     events = filters.get("events") if isinstance(filters, dict) else None
     if not isinstance(events, list):
         return set()
@@ -46,7 +41,6 @@ def read_gated_internal_events(filters: object) -> set[str]:
 
 
 def read_gated_internal_event_scopes(filters: object) -> set[str]:
-    """The scope objects a destination with these filters needs read access to, from the events it subscribes to."""
     return {READ_GATED_INTERNAL_EVENT_SCOPES[event] for event in read_gated_internal_events(filters)}
 
 

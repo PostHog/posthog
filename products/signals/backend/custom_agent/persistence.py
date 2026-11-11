@@ -138,7 +138,6 @@ def create_custom_agent_ready_report(
             source="custom_agent",
         )
 
-    # After the commit, so the event never names a report a rollback removed.
     emit_inbox_report_ready_event(team_id=team_id, report_id=str(report.id), source_products=[agent_identifier[0]])
 
     return PersistedCustomAgentReport(report_id=str(report.id), task_id=task_id)

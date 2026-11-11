@@ -280,7 +280,6 @@ class TestScoutReportAPI(APIBaseTest):
             patch(AUTOSTART_PATH, new=AsyncMock()) as autostart,
             recorded_internal_events() as (sent, _),
         ):
-            # A first call that committed the report and then died before its event.
             with patch(EMIT_READY_EVENT_PATH) if first_event_lost else nullcontext():
                 first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
             if close_gate:

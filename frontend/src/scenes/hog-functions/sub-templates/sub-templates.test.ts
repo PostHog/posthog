@@ -74,7 +74,6 @@ describe('sub-templates', () => {
         }
     )
 
-    // A destination's filters skip a sample of any other event, so its test sends nothing.
     it('gives the inbox report sample the event its templates trigger on', async () => {
         const sample = await SAMPLE_GLOBALS_CONTEXTS['inbox-reports']!({
             event: { event: '$pageview', properties: {} },

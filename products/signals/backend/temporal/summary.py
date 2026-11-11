@@ -877,8 +877,6 @@ class SignalReportSummaryWorkflow:
                         workflow.logger.exception(
                             f"Implementation buffer/auto-start failed for {inputs.report_id}",
                         )
-                # After the buffer, so a destination receives the settled summary rather than one a
-                # re-research is about to replace. patched(): in-flight histories predate the event.
                 if workflow.patched("signals-inbox-report-ready-event"):
                     try:
                         await workflow.execute_activity(
@@ -1862,10 +1860,6 @@ class EmitInboxReportReadyInput:
 @scoped_temporal()
 @close_db_connections
 async def emit_inbox_report_ready_activity(input: EmitInboxReportReadyInput) -> None:
-    """Send a report that just settled to the project's real-time destinations.
-
-    Raises when the report could not be claimed, so the activity's retries can still send it.
-    """
     await database_sync_to_async(send_inbox_report_ready_events, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, source_products=input.source_products
     )

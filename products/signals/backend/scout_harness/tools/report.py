@@ -1357,10 +1357,6 @@ def _replay_result(existing: ExistingScoutReport) -> EmitReportResult:
 
 
 def _replay_existing_report(*, team: Team, author: ReportAuthor, existing: ExistingScoutReport) -> EmitReportResult:
-    """`_replay_result`, after sending the event that a first call which failed after its commit never sent.
-
-    The report's claim keeps the event from going out twice when the first call did send it.
-    """
     _emit_report_ready_event(team_id=team.id, report_id=existing.report_id, created_by_id=author.user_id)
     return _replay_result(existing)
 
@@ -1785,7 +1781,6 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
 
 
 def _emit_report_ready_event(*, team_id: int, report_id: str, created_by_id: int | None) -> None:
-    # The source product the report's backing signals carry, as `scout_report/persistence.py` picks it.
     source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
     emit_inbox_report_ready_event(team_id=team_id, report_id=report_id, source_products=[source_product])
 

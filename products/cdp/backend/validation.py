@@ -1323,24 +1323,16 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
 
 
 def read_gated_access_denial(request: Any, user_access_control: Any, filters: Any) -> str | None:
-    """Why the caller may not run a destination on these filters, or None when it may.
-
-    The events such a destination subscribes to carry content their product shows only to members
-    who can read one of its resources, so forwarding them is a read of that resource.
-    """
     scopes = sorted(read_gated_internal_event_scopes(filters))
     if not scopes or request is None:
         return None
     held_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    # Session auth and `*` keys carry the user's full authority. A legacy scope counts, as it does
-    # for the product's own API, so a key with `task:read` still reads the inbox.
     lacking_scopes = (
         []
         if held_scopes is None or "*" in held_scopes
         else scopes_missing_after_legacy_fallback(request, None, held_scopes, [f"{scope}:read" for scope in scopes])
     )
     user = getattr(request, "user", None)
-    # Synthetic principals (project secret API keys) bypass access control, so only their scopes count.
     denied_resources = (
         [
             scope
@@ -1359,16 +1351,10 @@ def read_gated_access_denial(request: Any, user_access_control: Any, filters: An
     )
 
 
-# Access control governs the inbox through the Tasks rules.
 READ_GATED_RESOURCE_NAMES = {"inbox": "Tasks"}
 
 
 def dropped_read_gated_trigger(current_filters: Any, proposed_filters: Any) -> str | None:
-    """Why the proposed filters may not drop a read-gated event the stored ones subscribe to, or None.
-
-    The destination's logs and past runs keep what that event delivered, and the stored trigger is
-    what gates reading and replaying them, so the trigger has to keep the event.
-    """
     dropped = sorted(read_gated_internal_events(current_filters) - read_gated_internal_events(proposed_filters))
     if not dropped:
         return None

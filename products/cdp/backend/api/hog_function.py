@@ -1239,11 +1239,6 @@ class HogFunctionViewSet(
             raise PermissionDenied(read_gated_denial)
 
     def _stored_read_gated_denial(self, request: Request) -> Optional[str]:
-        """Why the caller may not act on this destination's stored or staged trigger, or None when it may.
-
-        Covers every write action, which changes, tests, or replays what the destination delivers, and the
-        logs, where a destination can print what it delivered. A new trigger is checked by the serializer.
-        """
         hog_function_id = self.kwargs.get("pk")
         if not hog_function_id or self.action not in [*self.scope_object_write_actions, "logs"]:
             return None
@@ -1788,8 +1783,6 @@ class HogFunctionViewSet(
                 guard_timestamp = locked.draft_updated_at
             if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
                 raise StaleHogFunctionUpdateError()
-            # Access and trigger retention were checked against the row this request loaded. A
-            # read-gated trigger another request added since then would be saved away unchecked.
             if locked is not None and _read_gated_triggers(locked) != _read_gated_triggers(serializer.instance):
                 raise StaleHogFunctionUpdateError(READ_GATED_TRIGGER_CHANGED_MESSAGE)
             if route_to_draft:

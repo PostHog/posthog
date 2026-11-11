@@ -172,8 +172,6 @@ const PA_ALERT_MASKING_TTL_SECONDS = 30 * 60
 // triggered it, and the replay list has the rest.
 const PA_RAGECLICK_MASKING_HASH = 'rageclick'
 
-// Delivery is at least once, so the same report can arrive twice. Masking on the report id drops
-// a repeat within the longest TTL masking allows.
 const INBOX_REPORT_MASKING_TTL_SECONDS = 24 * 60 * 60
 
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
@@ -1945,7 +1943,6 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'section',
                             text: {
                                 type: 'mrkdwn',
-                                // verbatim stops Slack turning an `@channel` in a generated title into a ping.
                                 verbatim: true,
                                 text: `New Inbox report: *{${slackEscapeExpr('event.properties.title')}}*`,
                             },

@@ -161,8 +161,6 @@ class TestInboxReportReadyEvent(BaseTest):
             return 0
 
         with (
-            # The test-mode producer reports every send delivered without its callback, so take the
-            # production path for the broker's answer to reach the delivery callback.
             patch.object(get_producer(topic=KAFKA_CDP_INTERNAL_EVENTS), "_test", False),
             patch.object(KafkaProducerForTests, "produce", faulty_produce),
             patch.object(KafkaProducerForTests, "flush", faulty_flush),

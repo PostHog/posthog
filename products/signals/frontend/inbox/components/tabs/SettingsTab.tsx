@@ -2,12 +2,12 @@ import { useMountedLogic, useValues } from 'kea'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { urls } from 'scenes/urls'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { AgentSteeringSection } from '../config/AgentSteeringSection'
+import { DestinationsSection } from '../config/DestinationsSection'
 import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -17,7 +17,6 @@ import { SettingsSection } from './SettingsSection'
 
 export function SettingsTab(): JSX.Element {
     const usageEnabled = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
-    const destinationsEnabled = useFeatureFlag('INBOX_REPORT_DESTINATIONS')
     useMountedLogic(integrationsLogic)
     const { product: inboxUsageProduct, spendProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
     const showBillingUsage = inboxUsageProduct != null || spendProduct != null || inboxUsageLoading
@@ -45,19 +44,7 @@ export function SettingsTab(): JSX.Element {
             >
                 <SlackNotificationsSection />
             </SettingsSection>
-            {destinationsEnabled && (
-                <SettingsSection
-                    title="Destinations"
-                    description="Send each new report to a webhook or another destination when it reaches your Inbox. A report can arrive more than once, so deduplicate on its report_id."
-                >
-                    <LinkedHogFunctions
-                        type="internal_destination"
-                        subTemplateIds={['inbox-report-ready']}
-                        emptyText="No destinations yet"
-                        queryParams={{ returnTo: urls.inbox('settings') }}
-                    />
-                </SettingsSection>
-            )}
+            <DestinationsSection />
             {(showBillingUsage || usageEnabled) && (
                 <SettingsSection
                     title="Usage"

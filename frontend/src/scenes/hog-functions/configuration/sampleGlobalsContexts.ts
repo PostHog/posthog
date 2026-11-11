@@ -101,7 +101,6 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             },
         },
     }),
-    // Inbox report events never reach the events table, so there is no last event to load.
     'inbox-reports': async (exampleGlobals) => ({
         ...exampleGlobals,
         event: {
