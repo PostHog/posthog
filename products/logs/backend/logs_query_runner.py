@@ -13,6 +13,7 @@ from posthog.schema import (
     LogPropertyFilterType,
     LogsQuery,
     LogsQueryResponse,
+    PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyGroupsMode,
     PropertyOperator,
@@ -255,8 +256,19 @@ def _validated_attribute_group(group: PropertyGroupFilterValue) -> PropertyGroup
         raise QueryError("Nested filter groups in logs queries must contain at least one filter")
     for leaf in group.values:
         if not isinstance(leaf, LogPropertyFilter) or leaf.type != LogPropertyFilterType.LOG_ATTRIBUTE:
-            raise QueryError("Nested filter groups in logs queries support only log_attribute filters")
+            leaf_type = "nested group" if isinstance(leaf, PropertyGroupFilterValue) else f"{leaf.type} filter"
+            raise QueryError(
+                f"Nested filter groups in logs queries support only log_attribute filters, not a {leaf_type}. "
+                "Move that filter out of the nested group."
+            )
     return group
+
+
+def validate_nested_filter_groups(filter_group: PropertyGroupFilter) -> None:
+    for property_group in filter_group.values:
+        for nested_group in property_group.values:
+            if isinstance(nested_group, PropertyGroupFilterValue):
+                _validated_attribute_group(nested_group)
 
 
 class LogsFilterBuilder:

@@ -972,7 +972,8 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
             error=str(e),
             classification=classified.code,
         )
-        capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size, "alert_ids": alert_ids})
+        if classified.code != "invalid_query":
+            capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size, "alert_ids": alert_ids})
         _safe_record("cohort_query_fallback counter", increment_cohort_query_fallback, "batched_failure")
         return _run_per_alert_queries(cohort)
 
@@ -1508,7 +1509,9 @@ def _evaluate_single_alert(
     except Exception as e:
         classified = classify_check_error(e)
         error_category = classified.code
-        capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
+        # An invalid query comes from the alert's own filters and is shown to the user, so it is not a PostHog error.
+        if classified.code != "invalid_query":
+            capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
         logger.warning(
             "Alert check query failed",
             alert_id=str(alert.id),
