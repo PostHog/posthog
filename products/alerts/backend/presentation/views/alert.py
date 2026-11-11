@@ -1742,6 +1742,18 @@ class AlertListFiltersSerializer(serializers.Serializer):
     has_detector = OptionalBooleanField(required=False)
 
 
+def _subscriber_emails(alert: AlertConfiguration) -> list[str]:
+    """`get_subscribed_users_emails`, read from the subscriber destinations of an alert with no insight row."""
+    if not alert.has_no_insight_row:
+        return alert.get_subscribed_users_emails()
+    user_ids = platform_subscriber_ids(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id, ())
+    return list(
+        User.objects.filter(
+            id__in=user_ids, organization_membership__organization_id=alert.team.organization_id
+        ).values_list("email", flat=True)
+    )
+
+
 def _show_platform_subscribers(alerts: list[AlertConfiguration]) -> None:
     """Shows each alert's subscribers as its platform copy names them, in place. An alert whose copy
     names none keeps its subscriptions."""
@@ -2347,7 +2359,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert_id=str(alert.id),
             allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
         )
-        email_targets = alert.get_subscribed_users_emails()
+        email_targets = _subscriber_emails(alert)
         if destination_count == 0 and not email_targets:
             return Response(
                 {"detail": "Add an email recipient or active destination before sending a test."},

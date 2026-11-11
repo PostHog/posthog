@@ -786,6 +786,12 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             ([self.user.id], "signups")
         ]
         assert insight_short_ids_watched_by(team_id=self.team.id, user_id=self.user.id, limit=10) == ["signups"]
+        with patch(
+            "products.alerts.backend.presentation.views.alert.send_test_alert_email", return_value=True
+        ) as mock_send:
+            tested = self.client.post(f"{self.url}/{self.copy_id}/test-delivery/")
+        assert (tested.status_code, tested.json()["email_recipient_count"]) == (status.HTTP_202_ACCEPTED, 1)
+        assert mock_send.call_args.kwargs["recipients"] == [self.user.email]
 
     def test_enabling_an_alert_insight_keeps_no_row_for_keeps_its_requested_start_time(self) -> None:
         self._forget_the_insight_row()
