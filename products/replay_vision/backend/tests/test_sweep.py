@@ -539,11 +539,7 @@ class TestFindScannerCandidatesActivity:
         )
         _settle_edit_clock(scanner)
 
-        with (
-            _patched_queries() as (MockQuery, MockDeep),
-            # The frequent sweep's own throttle would otherwise skip the tick before the deep pass runs.
-            patch(f"{_ACTIVITY}._throttled", return_value=False),
-        ):
+        with _patched_queries() as (MockQuery, MockDeep):
             find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
@@ -570,10 +566,7 @@ class TestFindScannerCandidatesActivity:
         _settle_edit_clock(scanner)
 
         def run_tick() -> bool:
-            with (
-                _patched_queries() as (MockQuery, MockDeep),
-                patch(f"{_ACTIVITY}._throttled", return_value=False),
-            ):
+            with _patched_queries() as (MockQuery, MockDeep):
                 if mode == "raise":
                     MockDeep.return_value.run.side_effect = Exception("clickhouse timeout")
                 else:
@@ -628,25 +621,6 @@ class TestFindScannerCandidatesActivity:
         assert kwargs["window_end"] < scanner.last_swept_at
         # Advanced by one cap, so the backlog drains over successive passes rather than in one query.
         assert result.deep_swept_through == kwargs["window_end"]
-
-    def test_throttle_falls_back_to_the_total_bucket_before_the_meter_splits_it(self) -> None:
-        # Every existing scanner has no fast bucket until the meter first runs. Reading only the new
-        # field would show zero spend on deploy and un-throttle every throttled scanner for an hour.
-        hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0)
-        scanner = _make_scanner(
-            sweep_read_bytes_by_hour={hour.isoformat(): 100 * SWEEP_READ_BUDGET_BYTES_24H},
-            fast_read_bytes_by_hour=None,
-        )
-
-        with patch(
-            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-        ) as MockQuery:
-            _wire_batch(MockQuery)
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
-
-        MockQuery.return_value.run.assert_not_called()
 
     def test_editing_the_scanner_drops_the_deep_cursor(self) -> None:
         # A cursor points partway into a window walked under the old filters. Reusing it after an edit
