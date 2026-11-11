@@ -140,20 +140,39 @@ export function alertConfigurationActivityDescriber(
 
     if (logItem.activity == 'took_ownership') {
         const contextDesc = getContextDescription(logItem?.detail?.context)
+        const owner = logItem.detail.changes?.find((change) => change.field === 'created_by')?.after
+        const ownerEmail =
+            owner && typeof owner === 'object' && !Array.isArray(owner) && typeof owner.email === 'string'
+                ? owner.email
+                : null
+        const transferredTo = ownerEmail && ownerEmail !== logItem.user?.email ? ownerEmail : null
         return {
             summary: activityLogSummary(
                 logItem,
-                'Took ownership of the alert',
+                transferredTo ? 'Transferred ownership of the alert' : 'Took ownership of the alert',
                 <>
                     {formattedName(logItem.detail.name)}
                     {contextDesc}
+                    {transferredTo && (
+                        <>
+                            {' '}
+                            to <strong>{transferredTo}</strong>
+                        </>
+                    )}
                 </>
             ),
             description: (
                 <>
-                    <ActivityLogUserName logItem={logItem} /> took ownership of the alert{' '}
+                    <ActivityLogUserName logItem={logItem} />{' '}
+                    {transferredTo ? 'transferred ownership of the alert' : 'took ownership of the alert'}{' '}
                     {formattedName(logItem?.detail.name)}
                     {contextDesc}
+                    {transferredTo && (
+                        <>
+                            {' '}
+                            to <strong>{transferredTo}</strong>
+                        </>
+                    )}
                 </>
             ),
         }
