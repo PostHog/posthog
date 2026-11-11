@@ -23,8 +23,11 @@ import { STACK, eventsConsumerGroup, membersOf, pingRedis, withPostgres } from '
 const SELF = 100
 const REPO = '/work/posthog'
 const NODEJS = `${REPO}/nodejs`
-const MARKED_ENV = ['PATH=/usr/bin', 'SCENARIO_RUNNER=1']
+const STATE_DIR = '/home/dev/.cache/posthog-scenarios'
+const MARKED_ENV = ['PATH=/usr/bin', `SCENARIO_RUNNER=${STATE_DIR}`]
 const PLAIN_ENV = ['PATH=/usr/bin']
+const OTHER_CHECKOUT = '/work/posthog-other/nodejs'
+const OTHER_MARKED_ENV = ['PATH=/usr/bin', 'SCENARIO_RUNNER=/home/other/.cache/posthog-scenarios']
 const modeEnv = (mode: string): string[] => [...PLAIN_ENV, `PLUGIN_SERVER_MODE=${mode}`]
 const NODEJS_DIR = path.resolve(__dirname, '..', '..', '..')
 
@@ -61,6 +64,14 @@ describe('scenario environment', () => {
                     proc(201, 200, 'node src/index.ts', MARKED_ENV),
                 ],
                 { groups: [200], pids: [], strangers: [] },
+            ],
+            [
+                'a role group another runner marked for its own state dir, from another checkout, is a stranger and survives',
+                [
+                    proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
+                    proc(211, 210, 'node src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
+                ],
+                { groups: [], pids: [], strangers: [210, 211] },
             ],
             [
                 'an unmarked combined posthog-node started by path from anywhere is a stranger',
@@ -148,13 +159,18 @@ describe('scenario environment', () => {
                 { groups: [], pids: [500], strangers: [] },
             ],
         ])('%s', (_name, entries, expected) => {
-            const plan = planCleanup([runner, ...entries], SELF, NODEJS)
+            const plan = planCleanup([runner, ...entries], SELF, NODEJS, STATE_DIR)
 
             expect({ ...plan, strangers: plan.strangers.map((entry) => entry.pid) }).toEqual(expected)
         })
 
         it('never targets the runner itself, even when it carries the marker', () => {
-            const plan = planCleanup([proc(SELF, SELF, 'node scenarios run smoke', MARKED_ENV)], SELF, NODEJS)
+            const plan = planCleanup(
+                [proc(SELF, SELF, 'node scenarios run smoke', MARKED_ENV)],
+                SELF,
+                NODEJS,
+                STATE_DIR
+            )
 
             expect(plan).toEqual({ groups: [], pids: [], strangers: [] })
         })
@@ -172,7 +188,7 @@ describe('scenario environment', () => {
 
     describe('roleSpecs', () => {
         const base = { PATH: '/usr/bin', AWS_PROFILE: 'prod-admin', HTTP_SERVER_PORT: '6738' }
-        const specs = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}))
+        const specs = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
 
         it('gives every role its own port, cdp-api the one Django calls', () => {
             const ports = Object.fromEntries(specs.map((spec) => [spec.role, spec.env.HTTP_SERVER_PORT]))
@@ -191,7 +207,7 @@ describe('scenario environment', () => {
                 NODE_ENV: 'dev',
                 PLUGIN_SERVER_MODE: role,
                 SES_ENDPOINT: 'http://127.0.0.1:4566',
-                SCENARIO_RUNNER: '1',
+                SCENARIO_RUNNER: STATE_DIR,
             })
         })
 
@@ -199,7 +215,8 @@ describe('scenario environment', () => {
             const [spec] = roleSpecs(
                 {},
                 'http://edge',
-                secretsOf({ ENCRYPTION_SALT_KEYS: 'run-key', WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt' })
+                secretsOf({ ENCRYPTION_SALT_KEYS: 'run-key', WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt' }),
+                STATE_DIR
             )
 
             expect(spec.env).toMatchObject({
@@ -234,7 +251,7 @@ describe('scenario environment', () => {
         ['the default group', {}, 'cdp-processed-events-consumer'],
         ['a group the runner env overrides', { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events' }, 'scenario-events'],
     ])('checks the events role for %s', (_name, env, group) => {
-        expect(eventsConsumerGroup(roleSpecs(env, 'http://edge', secretsOf({})))).toBe(group)
+        expect(eventsConsumerGroup(roleSpecs(env, 'http://edge', secretsOf({}), STATE_DIR))).toBe(group)
     })
 
     it('reports a Redis that accepts but never answers as down instead of hanging', async () => {
@@ -365,12 +382,13 @@ describe('scenario environment', () => {
         })
 
         it('kills the whole group of a marked role and leaves an unmarked sibling running', async () => {
-            const [roleEnv] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}))
+            const stateDir = path.join(os.tmpdir(), `scenario-leftovers-${process.pid}`)
+            const [roleEnv] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), stateDir)
             const { SCENARIO_RUNNER: _marker, ...plainEnv } = process.env
             const marked = await launch(roleEnv.env)
             const unmarked = await launch(plainEnv)
 
-            const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
+            const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
             expect(plan.groups).toContain(marked.pid)
             expect([...plan.groups, ...plan.pids]).not.toContain(unmarked.pid)
 

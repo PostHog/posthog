@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { CdpRole } from '../cards'
-import { MARKER } from './processes'
+import { MARKER_KEY } from './processes'
 
 export type Role = z.infer<typeof CdpRole>
 
@@ -27,9 +27,8 @@ export function secretsOf(env: NodeJS.ProcessEnv): Secrets {
     }
 }
 
-export function roleSpecs(base: NodeJS.ProcessEnv, edgeUrl: string, secrets: Secrets): RoleSpec[] {
+export function roleSpecs(base: NodeJS.ProcessEnv, edgeUrl: string, secrets: Secrets, stateDir: string): RoleSpec[] {
     const { AWS_PROFILE: _profile, ...inherited } = base
-    const [markerKey, markerValue] = MARKER.split('=')
     return CdpRole.options.map((role) => ({
         role,
         env: {
@@ -46,7 +45,7 @@ export function roleSpecs(base: NodeJS.ProcessEnv, edgeUrl: string, secrets: Sec
             PERSONHOG_ADDR,
             ENCRYPTION_SALT_KEYS: secrets.encryptionSaltKeys,
             WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: secrets.transactionalEmailJwtSecret,
-            [markerKey]: markerValue,
+            [MARKER_KEY]: stateDir,
         },
     }))
 }

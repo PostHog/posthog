@@ -7,7 +7,9 @@ import { setTimeout as sleep } from 'timers/promises'
 import { getPluginServerCapabilities } from '~/capabilities'
 import { stringToPluginServerMode } from '~/common/config'
 
-export const MARKER = 'SCENARIO_RUNNER=1'
+export const MARKER_KEY = 'SCENARIO_RUNNER'
+
+const markerOf = (stateDir: string): string => `${MARKER_KEY}=${stateDir}`
 
 const PROC_ROOT = '/proc'
 const HOLDER_READ_TIMEOUT_MS = 2000
@@ -29,7 +31,11 @@ export class StackConflictError extends Error {
     }
 }
 
-const isMarked = (entry: ProcEntry): boolean => entry.environ?.includes(MARKER) ?? false
+const isMarkedFor = (entry: ProcEntry, stateDir: string): boolean =>
+    entry.environ?.includes(markerOf(stateDir)) ?? false
+
+const isMarked = (entry: ProcEntry): boolean =>
+    entry.environ?.some((variable) => variable.startsWith(`${MARKER_KEY}=`)) ?? false
 
 const ENTRY_POINTS = ['bin/posthog-node', 'src/index.ts', 'dist/index.js']
 
@@ -64,16 +70,17 @@ function runsCdp(entry: ProcEntry, nodejsDir: string): boolean {
     return launchesNode(entry, nodejsDir) && (entry.environ === null || servesCdp(entry.environ))
 }
 
-export function planCleanup(entries: ProcEntry[], selfPid: number, nodejsDir: string): CleanupPlan {
+export function planCleanup(entries: ProcEntry[], selfPid: number, nodejsDir: string, stateDir: string): CleanupPlan {
     const selfPgid = entries.find((entry) => entry.pid === selfPid)?.pgid
     const others = entries.filter((entry) => entry.pid !== selfPid)
-    const leftovers = others.filter(isMarked)
-    const sharedWithUnmarked = (pgid: number): boolean =>
-        pgid === selfPgid || others.some((entry) => entry.pgid === pgid && !isMarked(entry))
+    const ours = (entry: ProcEntry): boolean => isMarkedFor(entry, stateDir)
+    const leftovers = others.filter(ours)
+    const sharedWithOthers = (pgid: number): boolean =>
+        pgid === selfPgid || others.some((entry) => entry.pgid === pgid && !ours(entry))
     return {
-        groups: [...new Set(leftovers.map((entry) => entry.pgid).filter((pgid) => !sharedWithUnmarked(pgid)))],
-        pids: leftovers.filter((entry) => sharedWithUnmarked(entry.pgid)).map((entry) => entry.pid),
-        strangers: others.filter((entry) => !isMarked(entry) && runsCdp(entry, nodejsDir)),
+        groups: [...new Set(leftovers.map((entry) => entry.pgid).filter((pgid) => !sharedWithOthers(pgid)))],
+        pids: leftovers.filter((entry) => sharedWithOthers(entry.pgid)).map((entry) => entry.pid),
+        strangers: others.filter((entry) => !ours(entry) && (isMarked(entry) || runsCdp(entry, nodejsDir))),
     }
 }
 
