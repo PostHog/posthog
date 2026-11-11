@@ -941,6 +941,31 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("ema_names_its_organization", True, "own", status.HTTP_200_OK),
+            ("ema_names_another_organization", True, "other", status.HTTP_400_BAD_REQUEST),
+            ("ema_without_claim", True, None, status.HTTP_200_OK),
+            ("manual_config_ignores_claim", False, "other", status.HTTP_200_OK),
+        ]
+    )
+    def test_aud_tenant_must_name_the_organization_of_an_ema_registered_issuer(
+        self, _name: str, registered_through_ema: bool, aud_tenant: str | None, expected_status: int
+    ) -> None:
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        config = domain.identity_provider_configs_for_scope(ConfigScope.ID_JAG).first()
+        if registered_through_ema:
+            config.id_jag_registered_by_application = OAuthApplication.objects.get(client_id=_RESOURCE_CLIENT_ID)
+            config.save()
+
+        claims: dict[str, Any] = {}
+        if aud_tenant is not None:
+            claims["aud_tenant"] = str(self.organization.id) if aud_tenant == "own" else str(uuid.uuid4())
+        assertion = _make_id_jag(extra_claims=claims)
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+
+    @parameterized.expand(
+        [
             ("parameter_only", None, "https://mcp.posthog.com/mcp", "https://mcp.posthog.com/mcp", None),
             ("neither", None, None, _SITE_URL, None),
             ("claim_and_parameter_differ", _SITE_URL, "https://mcp.posthog.com/mcp", None, "invalid_target"),

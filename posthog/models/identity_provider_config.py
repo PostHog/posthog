@@ -246,6 +246,18 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
         null=True,
         help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
     )
+    # Set when an OAuth client registered the issuer through `ema_issuer:manage`, so a repeat
+    # registration from that client replaces its own configuration instead of adding another.
+    id_jag_registered_by_application = models.ForeignKey(
+        "posthog.OAuthApplication",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+        help_text="OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup.",
+    )
 
     class Meta:
         verbose_name = "identity provider config"

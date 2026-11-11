@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -88,6 +88,11 @@ export function IdentityProviderFeatureSection({ configScope }: { configScope: C
                                                     {' - '}
                                                     {config.name}
                                                 </span>
+                                            )}
+                                            {config?.id_jag_registered_by_application_name && (
+                                                <LemonTag type="warning" className="ml-2">
+                                                    Set up from {config.id_jag_registered_by_application_name}
+                                                </LemonTag>
                                             )}
                                         </div>
                                         <p className="mb-0 text-sm text-tertiary">

@@ -114,6 +114,7 @@ class IdJagClaims(TypedDict, total=False):
     resource: str
     jti: str
     tenant: str
+    aud_tenant: str
     iat: int
     nbf: int
     exp: int
@@ -387,6 +388,23 @@ def _verify_and_extract_id_jag_token(
             claim_issuer=claim_issuer,
             expected_issuer=expected_issuer,
             stage="post_signature_iss_check",
+        )
+        raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
+
+    # For an issuer registered through EMA setup, `aud_tenant` is the organization ID the setup
+    # endpoint returned, so an assertion that names one must name the organization trusting it.
+    # Manually configured IdPs may fill the claim with their own value, so it isn't checked there.
+    aud_tenant = claims.get("aud_tenant")
+    if (
+        idp_config.id_jag_registered_by_application_id is not None
+        and aud_tenant is not None
+        and str(aud_tenant) != str(idp_config.organization_id)
+    ):
+        logger.info(
+            "id_jag_token_rejected",
+            reason="ID-JAG aud_tenant does not name the organization that trusts this issuer",
+            issuer=expected_issuer,
+            stage="post_signature_aud_tenant_check",
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 

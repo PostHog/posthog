@@ -168,7 +168,12 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                                     }}
                                 />
                             ) : (
-                                <XAAConfigFields isReady={Boolean(identityProviderConfigForm.id_jag_issuer_url)} />
+                                <XAAConfigFields
+                                    isReady={Boolean(identityProviderConfigForm.id_jag_issuer_url)}
+                                    registeredByApplicationName={
+                                        identityProviderConfig?.id_jag_registered_by_application_name ?? null
+                                    }
+                                />
                             )}
 
                             <LemonDivider />

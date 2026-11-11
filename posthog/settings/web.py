@@ -1356,6 +1356,10 @@ ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDI
 # Extra accepted ID-JAG `resource` values (the advertised resource-server identifier) beyond SITE_URL —
 # e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
 ID_JAG_ALLOWED_RESOURCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_RESOURCES", ""))
+# OAuth client IDs that may request `ema_issuer:manage`. An admin who grants it makes PostHog trust
+# the client's issuer to sign in any member of their organization, so only clients PostHog has
+# agreed this with belong here. Empty turns the flow off.
+EMA_ISSUER_MANAGE_CLIENT_IDS: list[str] = get_list(get_from_env("EMA_ISSUER_MANAGE_CLIENT_IDS", ""))
 
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10

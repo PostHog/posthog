@@ -1,3 +1,4 @@
+import html
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -96,6 +97,9 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
     has_id_jag = serializers.BooleanField(
         read_only=True, help_text="Whether ID-JAG (XAA) is configured on this config."
     )
+    id_jag_registered_by_application_name = serializers.SerializerMethodField(
+        help_text="Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand."
+    )
     organization_domain_ids = _OrgScopedOrganizationDomainField(
         source="organization_domains",
         many=True,
@@ -132,6 +136,7 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             "id_jag_issuer_url",
             "id_jag_jwks_url",
             "id_jag_allowed_clients",
+            "id_jag_registered_by_application_name",
         )
         extra_kwargs = {
             "oidc_issuer_url": {
@@ -386,6 +391,12 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
     def get_scim_bearer_token(self, obj: IdentityProviderConfig) -> str | None:
         return self._scim_plain_token
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_id_jag_registered_by_application_name(self, obj: IdentityProviderConfig) -> str | None:
+        application = obj.id_jag_registered_by_application
+        # Application names are HTML-escaped at ingestion.
+        return html.unescape(application.name) if application is not None else None
+
 
 class SCIMTokenResponseSerializer(serializers.Serializer):
     scim_enabled = serializers.BooleanField(help_text="Whether SCIM is enabled for this config.")
@@ -399,7 +410,7 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = IdentityProviderConfigSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
-    queryset = IdentityProviderConfig.objects.order_by("created_at")
+    queryset = IdentityProviderConfig.objects.select_related("id_jag_registered_by_application").order_by("created_at")
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         serializer = self.get_serializer(data=request.data)

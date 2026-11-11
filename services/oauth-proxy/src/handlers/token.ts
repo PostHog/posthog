@@ -1,3 +1,4 @@
+import { rewriteEmaSetupEndpointInResponse } from '@/handlers/ema'
 import { type Region, proxyOrigin } from '@/lib/constants'
 import { type SigningKeyEnv } from '@/lib/idtoken'
 import {
@@ -69,12 +70,13 @@ export async function handleToken(request: Request, kv: KVNamespace, env: Signin
         return response
     }
 
-    return reissueIdTokenInResponse(response, {
+    const reissued = await reissueIdTokenInResponse(response, {
         issuer: proxyOrigin(request),
         audience: clientId,
         permittedUpstreamAudiences: response.ok && clientId ? await permittedUpstreamAudiences(kv, clientId) : [],
         env,
     })
+    return rewriteEmaSetupEndpointInResponse(reissued, request)
 }
 
 /** A client registered through the proxy is known to each region under its own id. */

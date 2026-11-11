@@ -218,6 +218,30 @@ export const EveryScopeRequested: Story = {
     parameters: authorizeParameters(everyScopeRequest),
 }
 
+const withEmaIssuerConsent: Decorator = function EmaIssuerConsentDecorator(Story): JSX.Element {
+    useAppContextOverride(['oauth_ema_issuer_consent'], (appContext) => {
+        appContext.oauth_ema_issuer_consent = {
+            scope: 'ema_issuer:manage',
+            organizations: [
+                { id: '1', name: 'Hedgebox', verified_domains: ['hedgebox.net'], disabled_reason: null },
+                {
+                    id: '2',
+                    name: 'Hedgebox staging',
+                    verified_domains: [],
+                    disabled_reason: 'Only admins of this organization can set up enterprise-managed auth.',
+                },
+            ],
+        }
+    })
+    return <Story />
+}
+
+export const EnterpriseManagedAuthSetup: Story = {
+    decorators: [withContentSceneHeight, withEmaIssuerConsent, withOAuthApplication({ name: 'Claude' })],
+    render: () => <App />,
+    parameters: authorizeParameters('ema_issuer:manage', ['ema_issuer:manage']),
+}
+
 export const NoOrganization: Story = {
     decorators: [
         withOAuthApplication({ required_scopes: [] }),
