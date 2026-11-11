@@ -187,10 +187,22 @@ _ALIAS_TO_STATS_FIELD: dict[str, str] = {
     "quantile_grid": "quantile_grid",
 }
 
+_OVERALL_QUANTILE_ALIAS_TO_STATS_FIELD: dict[str, str] = {
+    "variant": "key",
+    "num_users": "number_of_samples",
+    "overall_total_sum": "sum",
+    "overall_total_sum_of_squares": "sum_squares",
+    "denominator_sum": "denominator_sum",
+    "denominator_sum_squares": "denominator_sum_squares",
+    "overall_numerator_denominator_sum_product": "numerator_denominator_sum_product",
+    "overall_quantile_grid": "quantile_grid",
+}
+
 
 def get_variant_result(
     row: tuple,
     columns: list[str],
+    alias_to_field: dict[str, str] = _ALIAS_TO_STATS_FIELD,
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
     """
     Parse one result row into (breakdown_tuple, stats).
@@ -208,7 +220,7 @@ def get_variant_result(
     breakdown_tuple = tuple(str(row_dict[k]) for k in breakdown_keys) or None
 
     base_stats: dict[str, Any] = {
-        field: row_dict[alias] for alias, field in _ALIAS_TO_STATS_FIELD.items() if alias in row_dict
+        field: row_dict[alias] for alias, field in alias_to_field.items() if alias in row_dict
     }
 
     return breakdown_tuple, ExperimentStatsBase(**base_stats)
@@ -221,11 +233,29 @@ def get_variant_results(
     return [get_variant_result(row, columns) for row in rows]
 
 
+def get_overall_variant_results(
+    rows: list[tuple],
+    columns: list[str],
+) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
+    """
+    Parse the rows of a query with breakdowns into stats that add up to the overall stats of each variant.
+
+    The quantiles of the breakdowns do not give the quantile of the whole variant, so a quantile query returns
+    separate overall columns for this. The stats of other metrics add up as they are.
+    """
+    alias_to_field = (
+        _OVERALL_QUANTILE_ALIAS_TO_STATS_FIELD if "overall_quantile_grid" in columns else _ALIAS_TO_STATS_FIELD
+    )
+    return [get_variant_result(row, columns, alias_to_field) for row in rows]
+
+
 def aggregate_variants_across_breakdowns(
     variants: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]],
 ) -> list[ExperimentStatsBase]:
     """
     Sum each variant's stats over all breakdown combinations to get the overall stats per variant.
+
+    The stats must come from get_overall_variant_results, because quantiles do not add up.
     """
     from collections import defaultdict
 
@@ -275,6 +305,11 @@ def aggregate_variants_across_breakdowns(
                     ),
                 }
             )
+
+        if any(v.quantile_grid is not None for v in variant_list):
+            # Each row of a variant holds the same grid of the whole variant, but a breakdown without events
+            # holds an empty grid.
+            aggregated_stats["quantile_grid"] = next((v.quantile_grid for v in variant_list if v.quantile_grid), [])
 
         aggregated_variants.append(ExperimentStatsBase(**aggregated_stats))
 
