@@ -19,8 +19,8 @@ const integrationDecryptFailures = new Counter({
 
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationSourceRecord>
-    private preloaded = new AsyncLocalStorage<PreloadedRecords>()
-    private openScopes = new Set<PreloadedRecords>()
+    private preloaded = new AsyncLocalStorage<PreloadScope>()
+    private openScopes = new Set<PreloadScope>()
 
     constructor(
         private pubSub: PubSub,
@@ -63,9 +63,8 @@ export class IntegrationManagerService {
     }
 
     public async withPreloaded<T>(ids: IntegrationIdInput[], run: () => Promise<T>): Promise<T> {
-        const scope: PreloadedRecords = new Map(
-            Object.entries(await this.lazyLoader.getMany(toReferences(ids), { flush: true }))
-        )
+        const records = await this.lazyLoader.getMany(toReferences(ids), { flush: true })
+        const scope: PreloadScope = { records: new Map(Object.entries(records)), reloaded: new Set() }
         this.openScopes.add(scope)
         try {
             return await this.preloaded.run(scope, run)
@@ -78,20 +77,46 @@ export class IntegrationManagerService {
         references: IntegrationReference[]
     ): Promise<Record<IntegrationReference, IntegrationSourceRecord | null>> {
         const records: Record<IntegrationReference, IntegrationSourceRecord | null> = Object.create(null)
-        const preloaded = this.preloaded.getStore()
+        const scope = this.preloaded.getStore()
         const toLoad: IntegrationReference[] = []
+        const toReload: IntegrationReference[] = []
         for (const reference of references) {
-            const record = preloaded?.get(reference)
-            if (record !== undefined && !isExpired(record)) {
-                records[reference] = record
-            } else {
+            const record = scope?.records.get(reference)
+            if (record === undefined || isExpired(record)) {
                 toLoad.push(reference)
+            } else if (scope?.reloaded.has(reference)) {
+                toReload.push(reference)
+            } else {
+                records[reference] = record
             }
         }
         if (toLoad.length > 0) {
             Object.assign(records, await this.lazyLoader.getMany(toLoad))
         }
+        if (scope && toReload.length > 0) {
+            Object.assign(records, await this.reloadInScope(scope, toReload))
+        }
         return records
+    }
+
+    private async reloadInScope(
+        scope: PreloadScope,
+        references: IntegrationReference[]
+    ): Promise<Record<IntegrationReference, IntegrationSourceRecord | null>> {
+        try {
+            const records = await this.lazyLoader.getMany(references)
+            for (const reference of references) {
+                scope.records.set(reference, records[reference] ?? null)
+                scope.reloaded.delete(reference)
+            }
+            return records
+        } catch (error) {
+            logger.warn('[IntegrationManager]', 'Serving preloaded integrations after a failed reload', {
+                references,
+                error: String(error),
+            })
+            return Object.fromEntries(references.map((reference) => [reference, scope.records.get(reference) ?? null]))
+        }
     }
 
     private onIntegrationsReloaded(integrationIds: IntegrationIdInput[]): void {
@@ -99,7 +124,9 @@ export class IntegrationManagerService {
         this.lazyLoader.markForRefresh(references)
         for (const scope of this.openScopes) {
             for (const reference of references) {
-                scope.delete(reference)
+                if (scope.records.has(reference)) {
+                    scope.reloaded.add(reference)
+                }
             }
         }
     }
@@ -135,7 +162,10 @@ export class IntegrationManagerService {
     }
 }
 
-type PreloadedRecords = Map<IntegrationReference, IntegrationSourceRecord | null>
+type PreloadScope = {
+    records: Map<IntegrationReference, IntegrationSourceRecord | null>
+    reloaded: Set<IntegrationReference>
+}
 
 function isExpired(record: IntegrationSourceRecord | null): boolean {
     return record?.expiresAt !== undefined && record.expiresAt <= Date.now()

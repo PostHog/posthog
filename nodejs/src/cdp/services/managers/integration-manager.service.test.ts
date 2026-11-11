@@ -37,6 +37,7 @@ describe('IntegrationManagerService', () => {
     describe('with a fake source', () => {
         let source: FakeIntegrationSource
         let manager: IntegrationManagerService
+        let publish: (channel: string, message: unknown) => void
         let now: number
 
         const advanceTo = (ms: number): void => {
@@ -52,7 +53,16 @@ describe('IntegrationManagerService', () => {
                 integration: createIntegration({ id: 6, team_id: 1 }),
                 decryptFailures: [],
             }
-            manager = new IntegrationManagerService({ on: jest.fn() } as unknown as PubSub, source)
+            const handlers: Record<string, (message: unknown) => void> = {}
+            publish = (channel, message) => handlers[channel]?.(message)
+            manager = new IntegrationManagerService(
+                {
+                    on: (channel: string, handler: (message: unknown) => void) => {
+                        handlers[channel] = handler
+                    },
+                } as unknown as PubSub,
+                source
+            )
         })
 
         afterEach(() => {
@@ -144,16 +154,23 @@ describe('IntegrationManagerService', () => {
             await expect(served).rejects.toThrow('connection refused')
         })
 
-        it('serves the reloaded integration inside a preload scope after a reload message', async () => {
+        it.each([
+            ['the reloaded integration while the source is up', true],
+            ['the preloaded integration while the source is down', false],
+        ])('serves %s after a reload message inside a preload scope', async (_, sourceUp) => {
+            const preloaded = source.records['5'].integration
             const rotated = createIntegration({ id: 5, team_id: 1, config: { rotated: true } })
 
             const served = await manager.withPreloaded([5], async () => {
                 source.records['5'] = { integration: rotated, decryptFailures: [] }
-                manager['onIntegrationsReloaded']([5])
+                if (!sourceUp) {
+                    source.load.mockRejectedValue(new Error('connection refused'))
+                }
+                publish('reload-integrations', { integrationIds: [5] })
                 return await manager.get(5)
             })
 
-            expect(served).toBe(rotated)
+            expect(served).toBe(sourceUp ? rotated : preloaded)
         })
 
         it('reloads an id from a reload message, given as a number', async () => {
