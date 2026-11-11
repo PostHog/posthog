@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
     DestinationSend,
     DestinationType,
+    EnabledNativeConfiguration,
     HandbackRefusal,
     HeldDeliveryAddress,
     NativeConfigurationMatch,
@@ -238,6 +239,34 @@ def native_configuration_matches(
     return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
 
 
+def enabled_native_configurations(
+    *,
+    team_ids: Collection[int],
+    source_kind: SourceKind,
+    created_by_id: int | None = None,
+    source_config_key: str | None = None,
+    values: Collection[Any] = (),
+    limit: int | None = None,
+) -> tuple[EnabledNativeConfiguration, ...]:
+    """The enabled alerts of a kind with no source row in these teams, newest first. With
+    `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
+    `source_config[key]` is one of `values`. With `limit`, at most that many."""
+    return platform_reads.enabled_native_configurations(
+        team_ids=team_ids,
+        source_kind=source_kind.value,
+        created_by_id=created_by_id,
+        source_config_key=source_config_key,
+        values=values,
+        limit=limit,
+    )
+
+
+def native_configuration_team_id(*, configuration_id: UUID, source_kind: SourceKind) -> int | None:
+    """The team of an alert of a kind with no source row, or None when there is none. The caller
+    authorizes against the team before it acts on the alert."""
+    return platform_reads.native_configuration_team_id(configuration_id=configuration_id, source_kind=source_kind.value)
+
+
 def owned_configuration_ids_without_source_rows(
     *,
     team_id: int,
@@ -265,8 +294,11 @@ def count_configurations(
     native_only: bool = False,
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
+    exclude_id: UUID | None = None,
+    source_config_contains: Mapping[str, Any] | None = None,
 ) -> int:
-    """How many alerts of a kind a team has on the platform. For a source's admission.
+    """How many alerts of a kind a team has on the platform. For a source's admission. With
+    `exclude_id`, the alert an edit is checked for is left out.
 
     A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
     already counts, and a copy left by a delete from before copies went with their row counts nothing.
@@ -277,6 +309,8 @@ def count_configurations(
         native_only=native_only,
         enabled_only=enabled_only,
         check_interval_minutes=check_interval_minutes,
+        exclude_id=exclude_id,
+        source_config_contains=source_config_contains,
     )
 
 
@@ -401,9 +435,16 @@ def update_configuration(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None = None,
     snooze_changed: bool = False,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
+    source_checked: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
     With `snooze_changed`, `snooze_until` becomes the whole alert's mute, and None clears it.
+
+    For an alert with no source row, `cadence` and `rescheduled` write its schedule as
+    `update_owned_copy` writes a copy's. Its kind's `native_edit_guard` refuses what only the
+    source's API may change, unless `source_checked` says the source's API made the edit.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, and
     `InvalidPlatformAlertEdit` for an edit its source kind rejects.
@@ -415,6 +456,9 @@ def update_configuration(
         change=change,
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
+        cadence=cadence,
+        rescheduled=rescheduled,
+        source_checked=source_checked,
     )
 
 
@@ -488,6 +532,16 @@ def update_owned_copy(
         cadence=cadence,
         rescheduled=rescheduled,
         at=at,
+    )
+
+
+def assign_native_creator(
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, created_by_id: int
+) -> bool:
+    """Makes `created_by_id` the creator of a configuration whose source keeps no row, which its checks
+    run as. False when there is no such configuration."""
+    return platform_writes.assign_native_creator(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, created_by_id=created_by_id
     )
 
 

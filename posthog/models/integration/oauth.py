@@ -5,6 +5,7 @@ import time
 import base64
 import hashlib
 import secrets
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any, NoReturn
@@ -25,6 +26,7 @@ from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
 from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
+from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
@@ -123,6 +125,39 @@ def _is_stripe_mode_mismatch(kind: str, res: requests.Response) -> bool:
         return False
     description = _oauth_error_field(res, "error_description") or ""
     return "authorization code only supports returning" in description
+
+
+# `config` key: how many times Stripe answered a refresh of the stored refresh token with a
+# rejection. Stripe saves the answer to an idempotent request for 24 hours and replays it for the
+# same key, so a key that stays the same also repeats a rejection that has stopped being true.
+STRIPE_REFRESH_KEY_ROUND_CONFIG_KEY = "stripe_refresh_key_round"
+
+
+def _stripe_refresh_key_round(config: Mapping[str, Any] | None) -> int:
+    value = (config or {}).get(STRIPE_REFRESH_KEY_ROUND_CONFIG_KEY)
+    return value if isinstance(value, int) and value > 0 else 0
+
+
+def stripe_refresh_idempotency_key(refresh_token: str, config: Mapping[str, Any] | None) -> str:
+    """The `Idempotency-Key` of a Stripe refresh. It changes only after Stripe rejects the refresh token.
+
+    A retry after a lost response keeps the key, so Stripe replays the response that holds the
+    rolled tokens. Round 0 hashes only the token, which is the key of every earlier refresh.
+    """
+    key_round = _stripe_refresh_key_round(config)
+    seed = refresh_token if key_round == 0 else f"{refresh_token}:{key_round}"
+    return hashlib.sha256(seed.encode()).hexdigest()
+
+
+# Stripe saves the answer under the key only when the request started to run. A 400-class refusal of
+# the refresh itself (for example `invalid_grant`) is such an answer. A 401 or 403 comes before the
+# request runs, so nothing is saved, and a saved success can still replay under the old key. A 5xx
+# can come after the roll, and 409 and 429 are answers that Stripe does not save.
+_STRIPE_SAVED_REJECTION_STATUS_CODES = frozenset({400, 402, 404, 422})
+
+
+def _stripe_rejected_the_refresh(res: requests.Response) -> bool:
+    return res.status_code in _STRIPE_SAVED_REJECTION_STATUS_CODES
 
 
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
@@ -1104,7 +1139,7 @@ class OauthIntegration:
     @classmethod
     def integration_from_oauth_response(
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         region: str | None = None
         if kind == "posthog":
             # The target region was stashed in state at authorize time; the token exchange must hit
@@ -1510,16 +1545,12 @@ class OauthIntegration:
             # when the workspace last authorized the app. See `LinearIntegration.authorized_before_webhooks`.
             config["authorized_at"] = config["refreshed_at"]
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=kind,
-            integration_id=integration_id,
-            defaults={
-                "config": config,
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-                "errors": "",
-            },
+        integration, _ = row_writes.creator_accessor(kind).upsert(
+            team_id,
+            integration_id,
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
 
         if kind == "slack":
@@ -1690,7 +1721,7 @@ class OauthIntegration:
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(client.client_secret, ""),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
-                headers={"Idempotency-Key": hashlib.sha256(refresh_token.encode()).hexdigest()},
+                headers={"Idempotency-Key": stripe_refresh_idempotency_key(refresh_token, self.integration.config)},
                 timeout=10,
             )
         elif kind == "apple-ads":
@@ -1799,7 +1830,7 @@ class OauthIntegration:
         try:
             res = self._post_token_refresh(oauth_config, client)
             config = self._parse_token_refresh_response(res)
-        except model.UndecryptedIntegrationSecretError:
+        except UndecryptedIntegrationSecretError:
             # The stored refresh token can't be read, so there is nothing to refresh with and no
             # later attempt can change that. Go terminal immediately: the sweep stops retrying,
             # and the UI shows the reconnect prompt.
@@ -1841,6 +1872,8 @@ class OauthIntegration:
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
             ).inc()
+            if self.integration.kind == "stripe" and res is not None and _stripe_rejected_the_refresh(res):
+                failure = row_writes.merged_patch(failure, self._next_stripe_refresh_key_round_patch())
             # A failed refresh leaves `sensitive_config` untouched, so writing it back only risks
             # harm: `ignore_decrypt_errors` hands back raw ciphertext for a secret that couldn't be
             # decrypted, and saving re-encrypts it, permanently adding a layer to the stored value.
@@ -1874,10 +1907,15 @@ class OauthIntegration:
             refresh_tracking.oauth_client_patch(used_fallback=used_fallback),
             IntegrationPatch(
                 config_patch={"expires_in": expires_in, "refreshed_at": int(time.time())},
+                config_remove=(STRIPE_REFRESH_KEY_ROUND_CONFIG_KEY,),
                 sensitive_config_patch=tokens,
                 errors="",
             ),
         )
+
+    def _next_stripe_refresh_key_round_patch(self) -> IntegrationPatch:
+        current = _stripe_refresh_key_round(self.integration.config)
+        return IntegrationPatch(config_patch={STRIPE_REFRESH_KEY_ROUND_CONFIG_KEY: current + 1})
 
 
 def _held_access_token(record: IntegrationRecord) -> str:
@@ -1887,7 +1925,7 @@ def _held_access_token(record: IntegrationRecord) -> str:
     """
     try:
         token = record.access_token
-    except model.UndecryptedIntegrationSecretError:
+    except UndecryptedIntegrationSecretError:
         # The stored value compares as it is, so a refresh can still replace an unreadable token.
         token = record.sensitive_config.get("access_token")
     return token or ""
