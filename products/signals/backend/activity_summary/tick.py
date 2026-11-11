@@ -139,6 +139,8 @@ class ActivitySummaryTickPlan:
     mcp_buffer_days: int | None = None
     emit_profile_embeddings: bool = False
     mcp_feed: McpFeed = dataclasses.field(default_factory=McpFeed)
+    outdated_pairs: int = 0
+    current_version_share: float | None = None
 
 
 @frozen
@@ -188,6 +190,8 @@ class ActivitySummaryTickResult:
     # Due pairs at the start of the tick, per trigger.
     due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
     mcp_feed: McpFeed = dataclasses.field(default_factory=McpFeed)
+    outdated_pairs: int = 0
+    current_version_share: float | None = None
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickPlan:
@@ -250,6 +254,8 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         max_skip_backoff_hours=config.max_skip_backoff_hours,
         tiers=selection.tiers if selection else [],
         due_by_trigger=selection.due_by_trigger if selection else {},
+        outdated_pairs=selection.outdated_pairs if selection else 0,
+        current_version_share=selection.current_version_share if selection else None,
         enrollment=counts,
         stop_reason=stop_reason,
         rebuild_before=config.rebuild_before,
@@ -351,6 +357,7 @@ def capture_generated(
             "mcp_lines": inputs_used.get("mcp_lines"),
             "mcp_read_error": inputs_used.get("mcp_read_error"),
             "rebuilt": update.rebuilt,
+            "outdated": update.outdated,
             "trigger": trigger,
             "source": source,
         },
@@ -428,6 +435,8 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
         new_builds=result.new_builds,
         refresh_builds=result.refresh_builds,
         due_by_trigger=result.due_by_trigger,
+        outdated_pairs=result.outdated_pairs,
+        current_version_share=result.current_version_share,
         **{f"mcp_feed_{name}": value for name, value in dataclasses.asdict(result.mcp_feed).items()},
         **dataclasses.asdict(result.enrollment),
     )
@@ -445,6 +454,8 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
             "new_builds": result.new_builds,
             "refresh_builds": result.refresh_builds,
             **{f"due_{trigger}": result.due_by_trigger.get(trigger, 0) for trigger in TRIGGERS},
+            "outdated_pairs": result.outdated_pairs,
+            "current_version_share": result.current_version_share,
             **{f"mcp_feed_{name}": value for name, value in dataclasses.asdict(result.mcp_feed).items()},
             **dataclasses.asdict(result.enrollment),
             **{
@@ -579,6 +590,8 @@ class ActivitySummaryTickWorkflow:
             refresh_builds=builds[False],
             due_by_trigger=plan.due_by_trigger,
             mcp_feed=plan.mcp_feed,
+            outdated_pairs=plan.outdated_pairs,
+            current_version_share=plan.current_version_share,
         )
         await workflow.execute_activity(
             capture_activity_summary_tick_activity,

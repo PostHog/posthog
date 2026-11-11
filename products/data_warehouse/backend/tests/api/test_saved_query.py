@@ -205,7 +205,10 @@ class TestSavedQuery(APIBaseTest):
             )
         self.assertEqual(response.status_code, 201, response.content)
         # The sidebar adds the created view from this response, before any list reload.
-        self.assertTrue(response.json()["is_raw_managed_trino"])
+        self.assertEqual(
+            {key: response.json()["engine"][key] for key in ("target", "dialect")},
+            {"target": "managed_trino", "dialect": "raw"},
+        )
         view = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
         assert view.query is not None and view.columns is not None
         self.assertEqual(view.query["query"], trino_sql)
@@ -218,9 +221,11 @@ class TestSavedQuery(APIBaseTest):
             with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
                 listed = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/").json()
             rows = {row["name"]: row for row in listed["results"]}
-            self.assertEqual(rows["hub_occupancy"]["is_raw_managed_trino"], flag_enabled)
             self.assertEqual(
-                rows["hub_occupancy"]["engine"]["target"], "managed_trino" if flag_enabled else "clickhouse"
+                {key: rows["hub_occupancy"]["engine"][key] for key in ("target", "dialect")},
+                {"target": "managed_trino", "dialect": "raw"}
+                if flag_enabled
+                else {"target": "clickhouse", "dialect": "hogql"},
             )
 
         # HogQL on ClickHouse cannot expand Trino SQL, so the view stays out of the HogQL database.
