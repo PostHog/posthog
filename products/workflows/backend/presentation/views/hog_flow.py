@@ -657,10 +657,10 @@ VALUELESS_OPERATORS = ("is_set", "is_not_set")
 
 def _is_finished_condition(condition: Any) -> bool:
     try:
-        built = Property(**condition)
+        Property(**condition)
     except (PropertyValidationError, exceptions.ValidationError, TypeError):
         return False
-    return built.value != [] or built.operator in VALUELESS_OPERATORS
+    return condition.get("value") != [] or condition.get("operator") in VALUELESS_OPERATORS
 
 
 def _has_unfinished_condition(conditions: Any) -> bool:
