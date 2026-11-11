@@ -337,7 +337,6 @@ def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any, *
 
 
 def _validate_ownership_query_access(alert: AlertConfiguration, owner: User, actor: User) -> None:
-    alert.insight.refresh_from_db()
     if not alert.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
         return
     with upgrade_insight(alert.insight):
@@ -2521,6 +2520,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Same lock order as update(): insight, then alert row. The owner write below locks the row.
             if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
                 raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+            alert.insight.refresh_from_db()
             _validate_ownership_query_access(alert, owner, request.user)
             assign_alert_owner(
                 team_id=alert.team_id,
@@ -2558,6 +2558,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if reloaded is None:
                 raise Http404
             alert = reloaded
+            alert.insight.refresh_from_db()
             _validate_ownership_query_access(alert, owner, requester)
             assign_alert_owner(
                 team_id=alert.team_id,
