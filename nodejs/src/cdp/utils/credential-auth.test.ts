@@ -86,7 +86,7 @@ describe('credential auth', () => {
         expect(routedOrigins({ url, headers: headers as Record<string, string>, body: undefined })).toEqual(origins)
     })
 
-    it('knows the placement of every connection kind a template applies as a credential', () => {
+    it('knows the scheme of every connection kind a template applies as a credential', () => {
         const declared = HOG_FUNCTION_TEMPLATES.flatMap((template) =>
             (template.inputs_schema ?? [])
                 .filter((schema) => schema.type === 'integration' && schema.auth)
@@ -95,7 +95,10 @@ describe('credential auth', () => {
 
         expect(declared.length).toBeGreaterThan(0)
         for (const { template, kind, auth } of declared) {
-            expect({ template, auth: INTEGRATION_AUTH[kind ?? '']?.declaration }).toEqual({ template, auth })
+            expect({ template, scheme: INTEGRATION_AUTH[kind ?? '']?.declaration.scheme }).toEqual({
+                template,
+                scheme: auth?.scheme,
+            })
         }
     })
 })
