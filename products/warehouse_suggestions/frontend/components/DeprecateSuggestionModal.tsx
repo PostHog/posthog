@@ -7,10 +7,10 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { deleteDisabledReason, isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestionCopy'
 import { catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
-type RefreshChoice = 'stop' | 'keep'
-type ActionChoice = 'deprecate' | 'delete'
+export type RefreshChoice = 'stop' | 'keep'
+export type ActionChoice = 'deprecate' | 'delete'
 
-const ACTION_CHOICES: LemonRadioOption<ActionChoice>[] = [
+export const ACTION_CHOICES: LemonRadioOption<ActionChoice>[] = [
     {
         value: 'deprecate',
         label: 'Mark it deprecated',
@@ -25,7 +25,7 @@ const ACTION_CHOICES: LemonRadioOption<ActionChoice>[] = [
     },
 ]
 
-const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
+export const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
     {
         value: 'stop',
         label: 'Stop refreshing it',

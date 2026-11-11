@@ -163,7 +163,10 @@ Django must be up at that moment.
 > once. It needs the Temporal worker running. The thread checks each step again before it shows it,
 > so a person who already linked their account or chose a model sees that step as already set.
 > To see the thread again in a dev workspace, clear the `onboarding` field of your row in
-> `slack_app_slacksettings`. That also lets the work focus DM run again the next time you link your account. The
+> `slack_app_slacksettings`. That also lets the work focus DM run again the next time you link your account. With
+> the `slack-app-daily-work-focus` flag on, that first work focus DM also turns on a daily one. To run it without
+> waiting for the next workday, set `next_run_at` on your row in `slack_app_slackdailyfocus` to a past time. The
+> `slack-app-daily-focus-sweep` schedule picks it up within 15 minutes. The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). With the `slack-app-link-search-scopes` flag on, the
 > link asks for the `search:read.*` and `users:read*` user scopes at `oauth.v2.authorize` instead, so the
@@ -185,6 +188,10 @@ The Home tab also keeps the Talk to the team invitation and the task list with i
 Use sample tasks and an interview invitation when you preview the full Home tab. Admin previews must also include workspace activity.
 Task statuses use small image icons and text labels. Images are served from PostHog's versioned
 `slack_app/home/v1/` static assets. Their source licenses are included with the assets.
+The frontend build copies these assets from `products/slack_app/backend/static/` into `frontend/dist/`
+for release to the public static host. Django's `collectstatic` alone does not publish them to that host.
+These release assets are shared UI images. Generated charts and interactive pages use task artifacts
+or chart exports, with their own access checks.
 The public `SITE_URL` must serve these files so Slack can load them. A local preview must use a public tunnel
 or serve the same files to its browser.
 Admin settings and workspace activity appear above Tasks. Activity uses native Slack tables for status,

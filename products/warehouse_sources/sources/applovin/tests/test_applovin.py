@@ -105,6 +105,17 @@ class TestRequestShape:
         assert result.raised is None
         assert result.session_options[0]["redact_values"] == ("secret-key",)
 
+    def test_advertiser_report_requests_only_columns_the_api_accepts(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if "application" in (request.param("columns") or "").split(","):
+                return ScriptedResponse(status=400, body=b"Invalid Column: application")
+            return _page([])
+
+        result = _driver().run("advertiser_report", respond)
+
+        assert result.raised is None
+        assert {request.param("report_type") for request in result.requests} == {"advertiser"}
+
 
 class TestWindowWalking:
     def test_checkpoint_survives_a_failed_walk(self) -> None:

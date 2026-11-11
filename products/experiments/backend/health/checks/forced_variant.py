@@ -18,6 +18,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
 from products.experiments.backend.health.condition_changes import conditions_net_effect
 from products.experiments.backend.health.context import (
@@ -122,7 +123,13 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
             pinned_keys=pinned_keys,
             diagnostic_ref="A7b",
             grade_evidence=set_after_launch.evidence,
+            actions=(
+                ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+                *(() if is_draft else (ExperimentHealthFindingActionKind.END_EXPERIMENT,)),
+            ),
         )
+    # With one variant for everyone, the detail of a launched experiment says to end it if the rollout was meant.
+    ends_first = not is_draft and len(pinned_keys) == 1
     return _finding(
         subcode=ALL_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING,
@@ -132,6 +139,10 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
         pinned_keys=pinned_keys,
         diagnostic_ref="A7b",
         grade_evidence=set_after_launch.evidence,
+        actions=(
+            *((ExperimentHealthFindingActionKind.END_EXPERIMENT,) if ends_first else ()),
+            ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+        ),
     )
 
 
@@ -190,7 +201,7 @@ class _SetAfterLaunch:
     def remedy_after_removal(self) -> str:
         if self.covers_all:
             return "Then move the experiment's start date to after the removal."
-        return "Then reset the experiment, or move its start date to after the removal."
+        return f"Then reset the experiment, or move its start date to after the removal. {RESET_EFFECT}"
 
 
 def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLaunch:
@@ -390,6 +401,9 @@ def _finding(
     diagnostic_ref: str,
     grade_evidence: Mapping[str, str | int | float | None] | None = None,
     reason: str | None = None,
+    actions: tuple[ExperimentHealthFindingActionKind, ...] = (
+        ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+    ),
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.FORCED_VARIANT_RELEASE_CONDITION,
@@ -403,6 +417,6 @@ def _finding(
             "pinned_variant_keys": ", ".join(pinned_keys),
             **(grade_evidence or {}),
         },
-        actions=(ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,),
+        actions=actions,
         diagnostic_ref=diagnostic_ref,
     )
