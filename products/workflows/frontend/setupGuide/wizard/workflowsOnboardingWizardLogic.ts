@@ -279,7 +279,11 @@ export interface workflowsOnboardingWizardLogicMeta {
             canEditSendingRules: boolean
         ) => boolean
         canEditSendingRules: (currentTeam: TeamPublicType | TeamType | null) => boolean
-        sendingRulesDisabledReason: (canEditSendingRules: boolean, currentTeamLoading: boolean) => string | null
+        sendingRulesDisabledReason: (
+            canEditSendingRules: boolean,
+            currentTeamLoading: boolean,
+            journeyFirst: boolean
+        ) => string | null
         reachChannels: (
             chosenReachChannels: ('email' | 'push')[] | null,
             integrations: IntegrationType[] | null
@@ -558,12 +562,12 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 (currentTeam?.effective_membership_level ?? -1) >= TeamMembershipLevel.Admin,
         ],
         sendingRulesDisabledReason: [
-            (s) => [s.canEditSendingRules, s.currentTeamLoading],
-            (canEditSendingRules: boolean, currentTeamLoading: boolean): string | null => {
+            (s) => [s.canEditSendingRules, s.currentTeamLoading, s.journeyFirst],
+            (canEditSendingRules: boolean, currentTeamLoading: boolean, journeyFirst: boolean): string | null => {
                 if (!canEditSendingRules) {
                     return 'Only project admins can change sending rules'
                 }
-                return currentTeamLoading ? 'Saving your sending rules' : null
+                return journeyFirst && currentTeamLoading ? 'Saving your sending rules' : null
             },
         ],
         reachChannels: [
@@ -832,7 +836,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 if (rulesToSave) {
                     actions.updateCurrentTeam({ workflows_config: rulesToSave })
                 }
-                if (values.isLastStep && rulesToSave) {
+                if (values.isLastStep && rulesToSave && values.journeyFirst) {
                     cache.finishAfterSave = true
                 } else if (values.isLastStep) {
                     actions.finish()

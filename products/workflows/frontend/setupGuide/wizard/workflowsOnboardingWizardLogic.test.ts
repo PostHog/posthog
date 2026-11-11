@@ -246,8 +246,8 @@ describe('workflowsOnboardingWizardLogic', () => {
         return { mocks, releaseSave }
     }
 
-    async function reachSendingRules(): Promise<void> {
-        setJourneyFirstVariant('test')
+    async function reachSendingRules(variant: string = 'test'): Promise<void> {
+        setJourneyFirstVariant(variant)
         logic = workflowsOnboardingWizardLogic()
         logic.mount()
         await enterWizard('messaging')
@@ -257,19 +257,38 @@ describe('workflowsOnboardingWizardLogic', () => {
         }
     }
 
-    it('locks the sending rules while they save at the end of the test arm', async () => {
+    it.each<[string, string, string | null, string, string, string]>([
+        [
+            'the test arm locks the sending rules while they save, then opens the pick',
+            'test',
+            'Saving your sending rules',
+            'sending-rules',
+            'sending-rules',
+            urls.workflowNew(),
+        ],
+        [
+            'the control arm keeps the sending rules open and moves on while they save',
+            'control',
+            null,
+            'journey',
+            'journey',
+            urls.workflows('onboarding'),
+        ],
+    ])('%s', async (_, variant, lockedReason, stepWhileSaving, stepAfterSave, pathnameAfterSave) => {
         const { mocks, releaseSave } = heldTeamSave()
         useMocks(mocks)
-        await reachSendingRules()
+        await reachSendingRules(variant)
 
         logic.actions.next()
-        expect(logic.values.sendingRulesDisabledReason).toBe('Saving your sending rules')
+        expect(logic.values.sendingRulesDisabledReason).toBe(lockedReason)
+        expect(logic.values.currentStep).toBe(stepWhileSaving)
         releaseSave()
         await expectLogic(teamLogic).toFinishAllListeners()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.sendingRulesDisabledReason).toBeNull()
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.workflowNew())
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathnameAfterSave)
+        expect(logic.values.currentStep).toBe(stepAfterSave)
     })
 
     it('stays on the step a person goes back to while the sending rules save', async () => {
@@ -298,22 +317,29 @@ describe('workflowsOnboardingWizardLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.broadcastNew())
     })
 
-    it.each<[WorkflowsOnboardingPath, boolean]>([
-        ['messaging', true],
-        ['broadcast', true],
-        ['automation', false],
-    ])('records exposure when a person enters the %s wizard: %s', async (path, exposed) => {
-        setJourneyFirstVariant('test')
-        const recordExposure = jest.mocked(posthog.getFeatureFlag)
-        const journeyFirstExposures = (): number =>
-            recordExposure.mock.calls.filter(([flag]) => flag === FEATURE_FLAGS.WORKFLOWS_WIZARD_JOURNEY_FIRST).length
-        logic = workflowsOnboardingWizardLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(journeyFirstExposures()).toBe(0)
+    it.each<[WorkflowsOnboardingPath, string, boolean, boolean]>([
+        ['messaging', 'test', true, true],
+        ['messaging', 'control', true, false],
+        ['broadcast', 'test', true, true],
+        ['broadcast', 'control', true, false],
+        ['automation', 'test', false, false],
+    ])(
+        'records exposure when a person enters the %s wizard in the %s arm: %s',
+        async (path, variant, exposed, journeyFirst) => {
+            setJourneyFirstVariant(variant)
+            const recordExposure = jest.mocked(posthog.getFeatureFlag)
+            const journeyFirstExposures = (): number =>
+                recordExposure.mock.calls.filter(([flag]) => flag === FEATURE_FLAGS.WORKFLOWS_WIZARD_JOURNEY_FIRST)
+                    .length
+            logic = workflowsOnboardingWizardLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(journeyFirstExposures()).toBe(0)
 
-        await enterWizard(path)
+            await enterWizard(path)
 
-        expect(journeyFirstExposures() > 0).toBe(exposed)
-    })
+            expect(journeyFirstExposures() > 0).toBe(exposed)
+            expect(logic.values.journeyFirst).toBe(journeyFirst)
+        }
+    )
 })
