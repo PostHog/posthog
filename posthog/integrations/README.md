@@ -3,7 +3,7 @@
 The integrations SDK is the only way to read and write `Integration` rows (`posthog/models/integration/model.py`).
 The rows move to a separate credentials service soon.
 The SDK is a small, closed set of operations, so only its transport changes after the move.
-No operation returns a queryset, and no operation runs caller code inside its transaction.
+No operation returns a queryset, and no operation runs caller code inside the transaction of the backend.
 
 ```python
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
@@ -23,6 +23,7 @@ The rules for callers are in `AGENTS.md`.
 | `contracts.py`       | `IntegrationRecord`, `IntegrationPatch`, `IntegrationUsage` and the errors |
 | `source_kinds.py`    | The registry of warehouse source kinds                                     |
 | `usages.py`          | The registry of usage providers                                            |
+| `lifecycle.py`       | The registry of the delete and saved hooks                                 |
 | `fields.py`          | `IntegrationReferenceField` for DRF serializers                            |
 | `references.py`      | `IntegrationReference`, the stored string form of a row reference          |
 
@@ -131,7 +132,8 @@ Only an accessor with one auth type can write, because a new row has exactly one
 - `change_external_id(team_id, id, external_id)` gives the row another external id. It raises `IntegrationConflict` when the team already has a row of the kind with that id.
 
 Delete rows with `delete(team_id, id)`. It raises `IntegrationInUse` with the usages when other objects use the row. Pass `ignore_usages=True` to delete it anyway.
-`delete_by_external_id(external_id)` deletes the rows of every team in one transaction. It deletes each row on its own, so the delete signals fire. Like `list_by_external_id`, it needs an accessor with a kind.
+`delete_by_external_id(external_id)` deletes the rows of every team in one transaction. Like `list_by_external_id`, it needs an accessor with a kind.
+Both deletes run the delete hooks first. `create`, `upsert` and `update` run the saved hooks after the write. See "Run work on delete and write".
 
 An OAuth accessor (`IntegrationManager.<kind>.oauth`) also refreshes access tokens:
 
@@ -263,6 +265,25 @@ def integration_usages(team_id: int, integration_id: int) -> list[IntegrationUsa
 
 The SDK finds the module on the first call to `usages` or `delete`. Code outside a product calls `register_usage_provider` instead.
 The product sets `IntegrationUsage.type` (for example `warehouse_source`, `workflow`, `hog_function`, `batch_export`). The integrations API names these types in its error when a delete finds usages.
+
+## Run work on delete and write
+
+Do not add a foreign key to `Integration` or a model signal receiver on it. They stop working when the rows leave the Django database.
+Put the work in a hook. A product defines its hooks in `products/<product>/backend/integration_hooks.py`:
+
+```python
+def before_integration_delete(row: IntegrationRecord) -> None: ...
+def after_integration_saved(row: IntegrationRecord, *, created: bool, config_changed: bool) -> None: ...
+```
+
+The SDK finds the module on the first delete or write. Code outside a product calls `register_delete_hook` or `register_saved_hook` from `lifecycle.py` when its module loads.
+
+- `delete` and `delete_by_external_id` run the delete hooks before the backend deletes the rows, in one transaction of the Django database. A hook that raises rolls back the delete and the work of the other hooks.
+- A delete hook does the work of a foreign key: a CASCADE deletes the rows that point at the row, and a SET_NULL clears the column. The foreign keys still exist and do the same work after the hooks, so a delete hook must be idempotent.
+- Put work outside the database, such as a Celery task or an API call, in `transaction.on_commit`.
+- `create`, `upsert` and `update` run the saved hooks after the write. `config_changed` is True when the write can change the config. An `update` runs the hooks also when the patch changes nothing. A saved hook that raises is logged, and the write stays.
+- `update_by_external_id`, `change_external_id` and `refresh_access_token` do not run the saved hooks.
+- The model signal receivers on `Integration` stay for the writers and deletes that do not use the SDK, such as a team delete. A receiver with a hook returns early when `sdk_runs_hooks()` is True, so its work happens once.
 
 ## Reference a row from a serializer
 

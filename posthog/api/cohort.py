@@ -43,6 +43,7 @@ from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
+from posthog.api.fields import LengthFirstListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.flags_service import (
@@ -676,15 +677,6 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 )
 
 logger = structlog.get_logger(__name__)
-
-
-class LengthFirstListField(serializers.ListField):
-    # DRF checks max_length only after it validates every item, so an oversized list of bad items
-    # builds one error per item before it fails. Check the length first to reject it in constant time.
-    def to_internal_value(self, data: Any) -> list[Any]:
-        if self.max_length is not None and isinstance(data, list) and len(data) > self.max_length:
-            self.fail("max_length", max_length=self.max_length)
-        return super().to_internal_value(data)
 
 
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
