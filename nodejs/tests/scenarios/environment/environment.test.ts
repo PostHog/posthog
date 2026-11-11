@@ -126,6 +126,19 @@ describe('scenario environment', () => {
                 { groups: [], pids: [], strangers: [319] },
             ],
             [
+                'an unmarked tsx watcher launched through its pnpm shim is a stranger',
+                [proc(322, 322, `node ${NODEJS}/node_modules/.bin/../tsx/dist/cli.mjs watch src/index.ts`, PLAIN_ENV)],
+                { groups: [], pids: [], strangers: [322] },
+            ],
+            [
+                'an unmarked node whose options take separate values before the entry point is a stranger',
+                [
+                    proc(323, 323, 'node --title cdp dist/index.js', PLAIN_ENV),
+                    proc(324, 324, 'node --env-file .env dist/index.js', PLAIN_ENV),
+                ],
+                { groups: [], pids: [], strangers: [323, 324] },
+            ],
+            [
                 'an editor open on the entry point in the nodejs dir is not a stranger',
                 [proc(350, 350, 'vim src/index.ts', PLAIN_ENV), proc(351, 351, 'less ../bin/posthog-node', PLAIN_ENV)],
                 { groups: [], pids: [], strangers: [] },
@@ -373,7 +386,7 @@ describe('scenario environment', () => {
 
                 expect(refusal).toMatchObject({ exitCode: 2 })
                 expect((refusal as Error).message).toBe(
-                    `Scenario runner ${process.pid} holds ${stateDir} but does not answer; it may be suspended (resume it with fg). Run \`kill -CONT ${process.pid}; kill ${process.pid}\`, then run the scenario again.`
+                    `Process ${process.pid} holds ${stateDir} but does not answer with a pid; it may be a suspended scenario runner (resume it with fg). Run \`kill -CONT ${process.pid}; kill ${process.pid}\`, then run the scenario again.`
                 )
             } finally {
                 impostor.close()
@@ -388,7 +401,7 @@ describe('scenario environment', () => {
             await expect(holdRunLock(stateDir)).rejects.toMatchObject({
                 exitCode: 2,
                 message: expect.stringContaining(
-                    `Scenario runner ${other.child.pid} holds ${stateDir} but does not answer; it may be suspended (resume it with fg). Run \`kill -CONT ${other.child.pid}; kill ${other.child.pid}\`, then run the scenario again.`
+                    `Process ${other.child.pid} holds ${stateDir} but does not answer with a pid; it may be a suspended scenario runner (resume it with fg). Run \`kill -CONT ${other.child.pid}; kill ${other.child.pid}\`, then run the scenario again.`
                 ),
             })
         }, 20_000)
@@ -431,7 +444,7 @@ describe('scenario environment', () => {
                 const error = await strangerConflict(rolesOf(stateDir))
 
                 expect(error.message).toBe(
-                    `Roles of scenario runner ${other.child.pid}, which uses ${stateDir} but does not answer and may be suspended, are running: ${listedRoles}. That runner restarts roles that are killed, so run \`kill -CONT ${other.child.pid}; kill ${other.child.pid} 210 211\`, then run the scenario again.`
+                    `Roles of scenario runner ${other.child.pid}, which uses ${stateDir} but does not answer with a pid and may be suspended, are running: ${listedRoles}. That runner restarts roles that are killed, so run \`kill -CONT ${other.child.pid}; kill ${other.child.pid} 210 211\`, then run the scenario again.`
                 )
             }, 20_000)
 
