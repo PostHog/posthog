@@ -18,12 +18,13 @@ import { TodayChange } from './TodayChange'
 import { pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
-import { EXPERIMENT_PIN_REASON, experimentTone } from './todayPulseExperiment'
+import { experimentTone } from './todayPulseExperiment'
 import { TodayPulseExperimentValue } from './TodayPulseExperimentValue'
 import { pulseChange } from './todayPulseFacts'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import { pulsePlaceholderLabel, TodayPulsePlaceholder } from './TodayPulsePlaceholder'
+import { productNumberPinReason } from './todayPulseProductNumbers'
 import type { TodayTone } from './todayTone'
 
 // The charts are most of the code the home page adds, so the numbers render first and the sparklines follow.
@@ -65,16 +66,17 @@ function pulseCardPinReason(
     pinnedCount: number,
     pinned: boolean
 ): string | undefined {
-    if (metric.experiment) {
-        return EXPERIMENT_PIN_REASON
-    }
-    return unavailableReason ?? pulsePinLimitReason(pinnedCount, pinned)
+    return productNumberPinReason(metric.key) ?? unavailableReason ?? pulsePinLimitReason(pinnedCount, pinned)
 }
 
 const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
     day: 'ddd, D MMM',
     week: '[Week of] D MMM',
     month: 'MMM YYYY',
+}
+
+function emphasizedPoints(metric: HighlightMetricApi): number {
+    return metric.interval === 'day' && metric.reason !== 'evaluation' ? 7 : 1
 }
 
 function seriesLabels(metric: HighlightMetricApi): string[] {
@@ -189,7 +191,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                                         <TodaySparkline
                                             values={metric.series}
                                             labels={seriesLabels(metric)}
-                                            emphasizeLast={metric.interval === 'day' ? 7 : 1}
+                                            emphasizeLast={emphasizedPoints(metric)}
                                             tone={tone}
                                         />
                                     </Suspense>

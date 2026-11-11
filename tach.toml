@@ -632,6 +632,7 @@ depends_on = [
     "products.engineering_analytics",
     # Trace feedback reads trace-linked survey responses through the surveys facade.
     "products.surveys",
+    "products.today",
 ]
 layer = "modules"
 
