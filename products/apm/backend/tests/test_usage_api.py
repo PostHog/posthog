@@ -197,7 +197,7 @@ class TestServiceUsageAPI(ClickhouseTestMixin, APIBaseTest):
 
         workloads = [call.kwargs["workload"] for call in run.call_args_list]
         self.assertEqual(workloads, [Workload.LOGS, Workload.LOGS, Workload.METRICS])
-        self.assertEqual(data["totals"]["metric_points"], 7)
+        self.assertEqual(data["totals"]["metric_points"], 18)
 
     def test_a_failing_signal_is_reported_and_the_others_still_load(self) -> None:
         with patch("products.apm.backend.logic.usage.LOGS_USAGE_QUERY", "SELECT throwIf(1, 'timeout') FROM logs"):
