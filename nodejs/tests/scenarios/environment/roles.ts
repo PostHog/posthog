@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { getDefaultCdpConfig } from '~/cdp/config'
 
 import { CdpRole, Profile } from '../cards'
-import { MARKER } from './processes'
+import { MARKER_KEY } from './processes'
 
 export type Role = z.infer<typeof CdpRole>
 
@@ -37,6 +37,7 @@ export function roleSpecs(
     base: NodeJS.ProcessEnv,
     edgeUrl: string,
     secrets: Secrets,
+    stateDir: string,
     settings: Profile['settings'] = {},
     sesValkey: { host: string; port: number } = SES_RATE_LIMITER_VALKEY
 ): RoleSpec[] {
@@ -50,7 +51,6 @@ export function roleSpecs(
         PERSONHOG_ENABLED: 'true',
         ...settings,
     }
-    const [markerKey, markerValue] = MARKER.split('=')
     return CdpRole.options.map((role) => ({
         role,
         env: {
@@ -64,7 +64,7 @@ export function roleSpecs(
             PLUGIN_SERVER_MODE: role,
             HTTP_SERVER_PORT: String(ROLE_PORTS[role]),
             PGAPPNAME: `scenario-${role}`,
-            [markerKey]: markerValue,
+            [MARKER_KEY]: stateDir,
         },
     }))
 }
