@@ -30,6 +30,7 @@ from posthog.hogql.utils import is_json_verbatim
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
+from posthog.errors import CHQueryErrorNoCommonType
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -164,6 +165,64 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         expected = [None] * len(values) if restricted else [True, True, False, False, *([None] * (len(values) - 4))]
         assert [row[0] for row in rows] == [
             (value, int(value is True), int(value is False), int(value is None)) for value in [*expected, None]
+        ]
+
+    @parameterized.expand(
+        [
+            ("custom", "properties", "value", "properties.value", True),
+            ("ai", "properties", "$ai_value", "properties.$ai_value", True),
+            ("person", "person_properties", "value", "poe.properties.value", True),
+            ("flag", "properties", "$feature/value", "properties.`$feature/value`", True),
+            ("outside_the_legacy_maps", "properties", "$value", "properties.$value", False),
+        ]
+    )
+    def test_boolean_constants_compare_text_properties_as_the_legacy_maps_do(
+        self, _name: str, column: str, key: str, property_expr: str, in_legacy_map: bool
+    ) -> None:
+        context = HogQLContext(
+            use_new_events_schema=True,
+            property_metadata=PropertyMetadata(),
+            database=Database(),
+            apply_events_retention_floor=False,
+        )
+        context.property_swapper = PropertySwapper("UTC", {}, {}, {}, context, False)
+        prepared = prepare_ast_for_printing(
+            parse_select(
+                f"SELECT tuple({property_expr} = true, true = {property_expr}, {property_expr} = false) FROM events"
+            ),
+            context,
+            "clickhouse",
+        )
+        assert isinstance(prepared, ast.SelectQuery)
+        printed = print_prepared_ast(prepared.select[0], context, "clickhouse")
+
+        def document(value: object) -> dict[str, object]:
+            if value is None:
+                return {}
+            if not key.startswith("$feature/"):
+                return {key: value}
+            # The cleaner stores a boolean flag as its text, and a variant named "true" or "false" under a sentinel.
+            stored = str(value).lower() if isinstance(value, bool) else f"${value}" if value != "other" else value
+            return {"$feature_flags": {key.removeprefix("$feature/"): stored}}
+
+        values: list[object] = [True, "true", False, "false", "other", None]
+        query = f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events"
+        params = {
+            **context.values,
+            "documents": [json.dumps(document(value)) for value in values],
+            "json_type": EVENTS_PROPERTIES_JSON_TYPE() if column == "properties" else PERSON_PROPERTIES_JSON_TYPE(),
+        }
+        if not in_legacy_map:
+            with pytest.raises(CHQueryErrorNoCommonType):
+                sync_execute(query, params)
+            return
+        assert [row[0] for row in sync_execute(query, params)] == [
+            (1, 1, 0),
+            (1, 1, 0),
+            (0, 0, 1),
+            (0, 0, 1),
+            (0, 0, 0),
+            (0, 0, 0),
         ]
 
     @parameterized.expand(

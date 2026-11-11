@@ -272,6 +272,18 @@ def resolve_property_group_source(
     return None
 
 
+def _legacy_property_group_holds(field_type: ast.FieldType, property_name: str, context: HogQLContext) -> bool:
+    """Whether the legacy events table keeps `<events>.<field>.<property_name>` in a property-group map."""
+    table_type = _unwrap_to_table_type(field_type)
+    field = field_type.resolve_database_field(context)
+    return (
+        table_type is not None
+        and table_type.table.to_printed_clickhouse(context) in ("events", DISTRIBUTED_EVENTS_JSON_TABLE)
+        and isinstance(field, DatabaseField)
+        and any(property_groups.get_property_group_columns("events", field.name, property_name))
+    )
+
+
 # --- helpers to read a PropertyAccess's source column + key path -----------------------------------------------------
 #
 # A `PropertyAccess`'s own type is just its value type (a nullable String), so everything this pass needs comes from the
@@ -1034,6 +1046,13 @@ def _coalesce_empty(expr: ast.Expr) -> ast.Call:
 
 def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
     return expr if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
+
+
+def _boolean_constant_text(expr: ast.Expr) -> ast.Constant | None:
+    """The text a property-group map stores for a boolean constant, or None for any other expression."""
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, bool):
+        return _const("true" if expr.value else "false")
+    return None
 
 
 def _column_constant_type(source: MaterializedPropertySource) -> ast.ConstantType:
@@ -1989,6 +2008,7 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         optimized = (
             self._optimize_logs_body_compare(node)
             or self._optimize_property_group_compare(node)
+            or self._compare_boolean_as_legacy_group_text(node)
             or self._optimize_materialized_array_compare(node)
             or self._optimize_materialized_array_ilike(node)
             or self._optimize_materialized_array_multisearch(node)
@@ -2361,6 +2381,33 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             # `!= NULL` means the key is present: has(map, key). Uses the keys index, skips the values subcolumn.
             return prop.group_has()
         return None
+
+    def _compare_boolean_as_legacy_group_text(self, node: ast.CompareOperation) -> ast.Expr | None:
+        """`<property> = true` on the JSON events table, compared the way the legacy table compares it.
+
+        The legacy table keeps flags and custom properties in property-group maps that store a boolean as 'true' or
+        'false', and `_optimize_property_group_eq` compares a boolean constant with that text. The JSON table has no
+        such maps, and ClickHouse cannot compare a property read as text with a boolean, so the constant becomes the
+        same text here. The rule covers what the legacy rule covers: equality on a key the legacy table keeps in a map.
+        """
+        if node.op != ast.CompareOperationOp.Eq or not self.context.uses_new_events_schema():
+            return None
+        text = _boolean_constant_text(node.right)
+        if text is not None and self._reads_as_legacy_group_text(node.left):
+            return self.visit_compare_operation(replace(node, right=text))
+        text = _boolean_constant_text(node.left)
+        if text is not None and self._reads_as_legacy_group_text(node.right):
+            return self.visit_compare_operation(replace(node, left=text))
+        return None
+
+    def _reads_as_legacy_group_text(self, expr: ast.Expr) -> bool:
+        single = self._property_operand(expr)
+        if single is None or not _legacy_property_group_holds(*single, self.context):
+            return False
+        field_type, property_name = single
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        # A Boolean or Numeric property definition converts the read, and ClickHouse compares that with a boolean.
+        return isinstance(property_type.resolve_constant_type(self.context), ast.StringType)
 
     def _optimize_property_group_in(self, node: ast.CompareOperation) -> ast.Expr | None:
         # IN is not commutative; only the left operand can be the property.
