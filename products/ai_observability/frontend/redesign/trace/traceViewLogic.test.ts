@@ -175,19 +175,19 @@ describe('traceViewLogic', () => {
         const logic = await mountedLogic()
 
         expect(nodeRequests).toEqual(['gen-2'])
-        expect(logic.values.nodes['gen-2']).toMatchObject({ status: 'ready' })
+        expect(logic.values.nodes.get('gen-2')).toMatchObject({ status: 'ready' })
     })
 
-    it('reads each node once, however many times it is asked for', async () => {
+    it.each(['span-1', 'constructor'])('reads node %s once, however many times it is asked for', async (nodeId) => {
         const logic = await mountedLogic()
 
-        logic.actions.loadNode('span-1', 'prefetch')
-        logic.actions.loadNode('span-1', 'selection')
+        logic.actions.loadNode(nodeId, 'prefetch')
+        logic.actions.loadNode(nodeId, 'selection')
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadNode('span-1', 'selection')
+        logic.actions.loadNode(nodeId, 'selection')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(nodeRequests.filter((id) => id === 'span-1')).toHaveLength(1)
+        expect(nodeRequests.filter((id) => id === nodeId)).toHaveLength(1)
     })
 
     it.each([
@@ -205,7 +205,7 @@ describe('traceViewLogic', () => {
 
             logic.actions.loadNode('span-1', 'prefetch')
             logic.actions.loadNode('gen-1', 'prefetch')
-            expect(logic.values.nodes['gen-1']).toBeUndefined()
+            expect(logic.values.nodes.get('gen-1')).toBeUndefined()
 
             if (trigger === 'prefetch') {
                 firstPrefetch.resolve()
@@ -233,7 +233,7 @@ describe('traceViewLogic', () => {
             logic.actions.loadNode('span-1', 'selection')
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.nodes['span-1']).toEqual({ status: 'error', failure })
+            expect(logic.values.nodes.get('span-1')).toEqual({ status: 'error', failure })
             expect(report).toHaveBeenCalledTimes(reported ? 1 : 0)
         }
     )
@@ -249,11 +249,11 @@ describe('traceViewLogic', () => {
 
             logic.actions.loadNode('span-1', 'prefetch')
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.nodes['span-1']).toMatchObject({ status: 'error' })
+            expect(logic.values.nodes.get('span-1')).toMatchObject({ status: 'error' })
 
             logic.actions.loadNode('span-1', trigger)
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.nodes['span-1']).toMatchObject({ status: 'ready' })
+            expect(logic.values.nodes.get('span-1')).toMatchObject({ status: 'ready' })
         }
     )
 
@@ -328,7 +328,7 @@ describe('traceViewLogic', () => {
         await expectLogic(reopened).toFinishAllListeners()
 
         expect(nodeRequests.filter((id) => id === nodeId)).toHaveLength(1)
-        expect(reopened.values.nodes[nodeId]).toBeUndefined()
+        expect(reopened.values.nodes.get(nodeId)).toBeUndefined()
     })
 
     describe('nodes of a trace past the ai_events retention', () => {
@@ -364,7 +364,7 @@ describe('traceViewLogic', () => {
 
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(logic.values.nodes[nodeId]).toMatchObject({ status: expectedStatus })
+                expect(logic.values.nodes.get(nodeId)).toMatchObject({ status: expectedStatus })
                 expect(nodeHints.filter((_, index) => nodeRequests[index] === nodeId)).toEqual(expectedHints)
             }
         )
@@ -423,7 +423,7 @@ describe('traceViewLogic', () => {
             logic.actions.loadRawNode('span-1')
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.rawNodes['span-1']).toMatchObject({
+            expect(logic.values.rawNodes.get('span-1')).toMatchObject({
                 status: 'ready',
                 raw: { id: 'span-1', event: { properties: { $ai_model: 'gpt-4o' } } },
             })
@@ -436,12 +436,12 @@ describe('traceViewLogic', () => {
 
             logic.actions.loadRawNode('span-1')
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.rawNodes['span-1']).toEqual({ status: 'error', failure: 'not_found' })
+            expect(logic.values.rawNodes.get('span-1')).toEqual({ status: 'error', failure: 'not_found' })
 
             rawStatus = 200
             logic.actions.loadRawNode('span-1')
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.rawNodes['span-1']).toMatchObject({ status: 'ready' })
+            expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'ready' })
         })
     })
 })

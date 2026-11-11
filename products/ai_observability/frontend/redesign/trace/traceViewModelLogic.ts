@@ -81,9 +81,9 @@ export interface traceViewModelLogicValues {
     evaluationResults: TraceEvaluationResultsApi | null // traceViewLogic
     evaluationResultsFailed: boolean // traceViewLogic
     loadFailure: LoadFailure | null // traceViewLogic
-    nodeIdsByAlias: Record<string, string> // traceViewLogic
-    nodes: Record<string, NodeLoad> // traceViewLogic
-    rawNodes: Record<string, RawLoad> // traceViewLogic
+    nodeIdsByAlias: ReadonlyMap<string, string> // traceViewLogic
+    nodes: ReadonlyMap<string, NodeLoad> // traceViewLogic
+    rawNodes: ReadonlyMap<string, RawLoad> // traceViewLogic
     sessionId: string | null // traceViewLogic
     status: TraceViewStatus // traceViewLogic
     threadNodeIds: string[] // traceViewLogic
@@ -396,7 +396,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 tree: TraceNodeApi[],
                 status: TraceViewStatus,
                 defaultNodeId: string,
-                nodeIdsByAlias: Record<string, string>,
+                nodeIdsByAlias: ReadonlyMap<string, string>,
                 traceId: string
             ): string => {
                 if (status !== 'ready') {
@@ -409,7 +409,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 if (findTreeNode(tree, requestedStepId)) {
                     return requestedStepId
                 }
-                return nodeIdsByAlias[requestedStepId] ?? traceId
+                return nodeIdsByAlias.get(requestedStepId) ?? traceId
             },
         ],
         // Until the trace names its default step, only a step the URL asks for is worth reading.
@@ -425,12 +425,13 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         // Each consumer reads its own node load, so a prefetch of another node does not rebuild its heavy messages.
         selectedNodeLoad: [
             (s) => [s.selectedNodeId, s.nodes],
-            (selectedNodeId: string, nodes: Record<string, NodeLoad>): NodeLoad => nodes[selectedNodeId] ?? LOADING,
+            (selectedNodeId: string, nodes: ReadonlyMap<string, NodeLoad>): NodeLoad =>
+                nodes.get(selectedNodeId) ?? LOADING,
         ],
         selectedRaw: [
             (s) => [s.selectedNodeId, s.rawNodes],
-            (selectedNodeId: string, rawNodes: Record<string, RawLoad>): RawLoad | undefined =>
-                rawNodes[selectedNodeId],
+            (selectedNodeId: string, rawNodes: ReadonlyMap<string, RawLoad>): RawLoad | undefined =>
+                rawNodes.get(selectedNodeId),
         ],
         // The raw read waits for the trace's timestamp, which it sends as a hint to find steps past the ai_events retention.
         rawNodeIdToRead: [
@@ -440,8 +441,8 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         ],
         threadNodeLoad: [
             (s) => [s.threadNodeIds, s.nodes],
-            (threadNodeIds: string[], nodes: Record<string, NodeLoad>): NodeLoad | null =>
-                threadNodeIds[0] ? (nodes[threadNodeIds[0]] ?? LOADING) : null,
+            (threadNodeIds: string[], nodes: ReadonlyMap<string, NodeLoad>): NodeLoad | null =>
+                threadNodeIds[0] ? (nodes.get(threadNodeIds[0]) ?? LOADING) : null,
         ],
         datasetsEnabled: [
             (s) => [s.featureFlags],
@@ -534,7 +535,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         // selected changes no value and the subscription does not fire, so this read also retries a failed node.
         const select = ({ id }: { id: string }): void => {
             actions.loadNode(id, 'selection')
-            if (values.detailTab === 'raw' || values.rawNodes[id]?.status === 'error') {
+            if (values.detailTab === 'raw' || values.rawNodes.get(id)?.status === 'error') {
                 actions.loadRawNode(id)
             }
             actions.requestStep(id, props.traceId)
