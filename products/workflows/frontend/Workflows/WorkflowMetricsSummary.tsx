@@ -131,9 +131,6 @@ export function WorkflowMetricsSummary({
                 key: 'issues',
                 tooltip: ISSUE_RATES_TOOLTIP,
                 render: (_, row) => {
-                    // A prevented bounce, a missing recipient, a frequency-capped send, or a sandbox block
-                    // is skipped before the provider sees it, so none is part of `sent` and their rates
-                    // read against everything the step attempted to send.
                     const attempted =
                         row.sent + row.bouncePrevented + row.missingRecipient + row.frequencyCapped + row.sandboxBlocked
                     const classifiedBounces = row.bouncedHard + row.bouncedSoft + row.bouncedUnknown

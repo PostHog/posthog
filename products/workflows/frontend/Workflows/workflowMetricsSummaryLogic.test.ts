@@ -478,7 +478,7 @@ describe('workflowMetricsSummaryLogic', () => {
         expect(logic.values.emailMetricsRows).toEqual([expect.objectContaining({ id, sent: 12, delivered: 12 })])
     })
 
-    it.each([
+    const SANDBOX_EMAIL_CASES = [
         {
             name: 'only sandbox steps',
             steps: [step('sandbox-1', 'email_sandbox')],
@@ -530,26 +530,38 @@ describe('workflowMetricsSummaryLogic', () => {
             stepTotals: [{ id: 'sandbox-1', sent: 6, delivered: 6, bounced: 0, markedAsSpam: 0, sandboxBlocked: 3 }],
             health: { bounce: SANDBOX_ONLY_RATE, complaint: SANDBOX_ONLY_RATE },
         },
-    ])('counts sandbox sender email for $name', async ({ steps, rows, emailsSent, stepTotals, health }) => {
-        serveAppMetrics(rows)
-        const logic = await mountMetrics(makeWorkflow(steps))
-        const overview = workflowOverviewLogic({ id: WORKFLOW_ID, logicKey: LOGIC_KEY })
-        overview.mount()
-        await expectLogic(overview).toFinishAllListeners()
+    ]
 
-        const sentTile = logic.values.getSentSummarySeries()
-        expect({
-            tile: sentTile?.series.map(({ name, values }) => [name, values]),
-            chart: logic.values.workflowSummaryTrends?.series.find((s) => s.name === 'Emails sent')?.values,
-            steps: logic.values.emailMetricsRows,
-            overviewHealth: overview.values.emailHealth,
-        }).toEqual({
-            tile: [['Emails sent', [emailsSent, 0]]],
-            chart: [emailsSent, 0],
-            steps: stepTotals.map((totals) => expect.objectContaining(totals)),
-            overviewHealth: health,
-        })
-    })
+    it.each(SANDBOX_EMAIL_CASES)(
+        'counts sandbox sender email on the Metrics tab for $name',
+        async ({ steps, rows, emailsSent, stepTotals }) => {
+            serveAppMetrics(rows)
+            const logic = await mountMetrics(makeWorkflow(steps))
+
+            expect({
+                tile: logic.values.getSentSummarySeries()?.series.map(({ name, values }) => [name, values]),
+                chart: logic.values.workflowSummaryTrends?.series.find((s) => s.name === 'Emails sent')?.values,
+                steps: logic.values.emailMetricsRows,
+            }).toEqual({
+                tile: [['Emails sent', [emailsSent, 0]]],
+                chart: [emailsSent, 0],
+                steps: stepTotals.map((totals) => expect.objectContaining(totals)),
+            })
+        }
+    )
+
+    it.each(SANDBOX_EMAIL_CASES)(
+        'rates overview Health on own-sender email for $name',
+        async ({ steps, rows, health }) => {
+            serveAppMetrics(rows)
+            await mountMetrics(makeWorkflow(steps))
+            const overview = workflowOverviewLogic({ id: WORKFLOW_ID, logicKey: LOGIC_KEY })
+            overview.mount()
+            await expectLogic(overview).toFinishAllListeners()
+
+            expect(overview.values.emailHealth).toEqual(health)
+        }
+    )
 
     it.each([
         { name: 'divides conversions by runs started', conversions: 3, triggered: 12, rate: 0.25 },
