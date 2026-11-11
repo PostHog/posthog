@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { register } from 'prom-client'
 
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -7,7 +8,12 @@ import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { Hub } from '../../types'
-import { createCohortMembershipEvent, createCohortMembershipEvents, createKafkaMessage } from '../_tests/fixtures'
+import {
+    createCohortMembershipEvent,
+    createCohortMembershipEvents,
+    createKafkaMessage,
+    createSweepFloorRecord,
+} from '../_tests/fixtures'
 import { CdpCohortMembershipConsumer } from './cdp-cohort-membership.consumer'
 
 describe('CdpCohortMembershipConsumer', () => {
@@ -536,6 +542,34 @@ describe('CdpCohortMembershipConsumer', () => {
             ])
         })
 
+        it('should skip a control record, apply the changes around it, and record progress past it', async () => {
+            const change = (personId: string, partition: number, offset: number) =>
+                createKafkaMessage(
+                    createCohortMembershipEvent({ person_id: personId, cohort_id: 456, team_id: teamId }),
+                    { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, partition, offset }
+                )
+            // Last on its partition, so only its own offset can move that partition's progress to 12.
+            const floor = createKafkaMessage(createSweepFloorRecord({ team_id: teamId, cohort_id: 456 }), {
+                topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                partition: 3,
+                offset: 11,
+            })
+
+            await sweepConsumer['handleBatch']([change(personId1, 3, 10), floor, change(personId2, 7, 5)])
+
+            const members = await hub.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                'SELECT person_id FROM cohort_membership WHERE team_id = $1 AND cohort_id = 456 AND in_cohort',
+                [teamId],
+                'testQuery'
+            )
+            expect(members.rows.map((row) => row.person_id).sort()).toEqual([personId1, personId2].sort())
+            expect(await readProgress()).toEqual([
+                { partition: 3, next_offset: '12' },
+                { partition: 7, next_offset: '6' },
+            ])
+        })
+
         it('should keep the pre-sweep write shape while version writes are off', async () => {
             // The migrations are a prerequisite of the version-writes flip, not of the deploy, so
             // a flag-off batch must not touch the version column or the sweep tables.
@@ -573,20 +607,22 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(await readProgress()).toHaveLength(0)
         })
 
-        it('should sanitize a version the producer contract does not allow instead of failing the batch', () => {
+        it.each([
+            ['a version the producer contract does not allow', { last_updated: '2026-05-26T12:34:56Z' }],
+            ['no version', {}],
+        ])('should accept a change with %s as versionless, and count it', async (_label, version) => {
+            const versionlessChanges = async (): Promise<number> =>
+                (await register.getSingleMetric('cdp_cohort_membership_off_format_versions')!.get()).values[0].value
+            const before = await versionlessChanges()
             const message = createKafkaMessage(
-                createCohortMembershipEvent({
-                    person_id: personId1,
-                    cohort_id: 456,
-                    team_id: teamId,
-                    last_updated: '2026-05-26T12:34:56Z',
-                }),
+                createCohortMembershipEvent({ person_id: personId1, cohort_id: 456, team_id: teamId, ...version }),
                 { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
             )
 
             const [change] = sweepConsumer['_parseAndValidateBatch']([message])
 
             expect(change.last_updated).toBeUndefined()
+            expect(await versionlessChanges()).toBe(before + 1)
         })
 
         it('should contain a marker batch failure instead of taking the consumer down', async () => {

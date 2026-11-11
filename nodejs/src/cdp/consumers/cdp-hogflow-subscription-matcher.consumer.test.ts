@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import * as posthogUtils from '~/common/utils/posthog'
 
+import { createSweepFloorRecord } from '../_tests/fixtures'
 import { HogFunctionInvocationGlobals } from '../types'
 import * as hogExec from '../utils/hog-exec'
 import {
@@ -1249,12 +1250,18 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
 
-        it('maps a join to a $cohort_membership_changed event keyed on person_id, and skips backfills', async () => {
+        it('maps a join to a $cohort_membership_changed event keyed on person_id, and skips backfills and control records', async () => {
+            const parseErrors = async (): Promise<number> =>
+                (await counterParseError.get()).values.reduce((sum, v) => sum + v.value, 0)
+            const parseErrorsBefore = await parseErrors()
+
             const result = await (matcher as any)._parseCohortMembershipBatch([
                 rawCohortMembershipChange({ origin: 'seed' }),
+                { value: Buffer.from(JSON.stringify(createSweepFloorRecord({ cohort_id: 42 }))) },
                 rawCohortMembershipChange(),
             ])
 
+            expect(await parseErrors()).toBe(parseErrorsBefore)
             expect(result).toHaveLength(1)
             const globals = result[0] as HogFunctionInvocationGlobals
             expect(globals.event).toMatchObject({
