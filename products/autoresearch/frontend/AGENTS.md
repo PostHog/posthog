@@ -6,30 +6,30 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 
 ## What lives here
 
-| File                            | Scene / role                                                                                                                                 |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AutoresearchScene.tsx`         | `/autoresearch` — the model list: search and sort, a container-query grid of model cards, and the "New model" entry point.                   |
+| File                            | Scene / role                                                                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AutoresearchScene.tsx`         | `/autoresearch` — the model list: search and sort, a container-query grid of model cards, and the "New model" entry point.                  |
 | `modelList.ts`                  | The model list's search (name, target event and its display name) and sort (recently created, needs attention, name).                       |
-| `AutoresearchModelCard.tsx`     | One model card: the question, a headline metric per state (draft, training, awaiting check, confirmed). `ModelCardMenu.tsx` holds actions.   |
-| `pipelineQuestion.ts`           | The card and header title (a name written as a question, else "Who will do “X” in the next N days?"), `eventName()` and the subtitle.        |
-| `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form. Its parts live in `newModel/`.                                                                        |
-| `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — the detail shell: the question header, the lifecycle strip, and four tabs. Each tab lives in `pipeline/`.              |
-| `autoresearchLogic.ts`          | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                                        |
-| `autoresearchNewLogic.ts`       | Create form: a `kea-forms` form that validates the definition, then creates the model and optionally starts training.                        |
-| `newModel/`                     | Create-form parts: template chips, definition sentence, Advanced section, readiness checklist, "What happens next".                          |
-| `autoresearchPipelineLogic.ts`  | Detail logic. Also maps the old `?tab=` keys to the four tabs, so saved links still open.                                                    |
-| `pipelineLifecycle.ts`          | The five lifecycle steps (question set to checked against reality) and which one is current.                                                 |
-| `trainingScheduleLogic.ts`      | Setup tab training settings and their save, the project's limits and usage, the status line, and why the limits disable Train now.           |
-| `agentSearch.ts`                | The agent's search across training runs: chart points, best score so far, change per experiment within a run, log groups and status brief.   |
-| `onlinePerformance.ts`          | Accuracy tab helpers over the `online_performance` endpoint: the stat tiles, the per-metric accuracy trend, predicted against actual.        |
-| `predictionCoverage.ts`         | Predictions tab coverage from the runs list: the measured summary and the coverage and score age per day.                                    |
-| `predictionSegments.ts`         | The likelihood segments from the cut points the `online_performance` endpoint returns: lift over the base rate, or a fixed pair until then.  |
-| `PipelineStatusTag.tsx`         | Status tag + tooltip shared by the list and detail scenes.                                                                                   |
-| `ProbabilityHistogram.tsx`      | Decile histogram of the latest scoring run's probabilities.                                                                                  |
-| `DailyVolumeChart.tsx`          | Bar-per-day chart of scoring volume.                                                                                                         |
-| `pipeline/`                     | The detail-scene tabs and their components. Agent research stacks a status brief, a steer bar, the search chart and the run log.             |
-| `emptyState/`                   | `ProductEmptyState` config + example-data preview for the first-run gate.                                                                    |
-| `generated/`                    | **Generated. Never hand-edit.** Change the serializer in `../backend/presentation/views/serializers.py` and run `hogli build:openapi`.       |
+| `AutoresearchModelCard.tsx`     | One model card: the question, a headline metric per state (draft, training, awaiting check, confirmed). `ModelCardMenu.tsx` holds actions.  |
+| `pipelineQuestion.ts`           | The card and header title (a name written as a question, else "Who will do “X” in the next N days?"), `eventName()` and the subtitle.       |
+| `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form. Its parts live in `newModel/`.                                                                       |
+| `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — the detail shell: the question header, the lifecycle strip, and four tabs. Each tab lives in `pipeline/`.             |
+| `autoresearchLogic.ts`          | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                                       |
+| `autoresearchNewLogic.ts`       | Create form: a `kea-forms` form that validates the definition, then creates the model and optionally starts training.                       |
+| `newModel/`                     | Create-form parts: template chips, definition sentence, Advanced section, readiness checklist, "What happens next".                         |
+| `autoresearchPipelineLogic.ts`  | Detail logic. Also maps the old `?tab=` keys to the four tabs, so saved links still open.                                                   |
+| `pipelineLifecycle.ts`          | The five lifecycle steps (question set to checked against reality) and which one is current.                                                |
+| `trainingScheduleLogic.ts`      | Setup tab training settings and their save, the project's limits and usage, the status line, and why the limits disable Train now.          |
+| `agentSearch.ts`                | The agent's search across training runs: chart points, best score so far, change per experiment within a run, log groups and status brief.  |
+| `onlinePerformance.ts`          | Accuracy tab helpers over the `online_performance` endpoint: the stat tiles, the per-metric accuracy trend, predicted against actual.       |
+| `predictionCoverage.ts`         | Predictions tab coverage from the runs list: the measured summary and the coverage and score age per day.                                   |
+| `predictionSegments.ts`         | The likelihood segments from the cut points the `online_performance` endpoint returns: lift over the base rate, or a fixed pair until then. |
+| `PipelineStatusTag.tsx`         | Status tag + tooltip shared by the list and detail scenes.                                                                                  |
+| `ProbabilityHistogram.tsx`      | Decile histogram of the latest scoring run's probabilities.                                                                                 |
+| `DailyVolumeChart.tsx`          | Bar-per-day chart of scoring volume.                                                                                                        |
+| `pipeline/`                     | The detail-scene tabs and their components. Agent research stacks a status brief, a steer bar, the search chart and the run log.            |
+| `emptyState/`                   | `ProductEmptyState` config + example-data preview for the first-run gate.                                                                   |
+| `generated/`                    | **Generated. Never hand-edit.** Change the serializer in `../backend/presentation/views/serializers.py` and run `hogli build:openapi`.      |
 
 Scene registration, routes, and urls live in `../manifest.tsx`.
 `frontend/src/products.tsx` is generated from the manifests — hand-editing it there gets wiped by `pnpm build:products`. Only the `Scene` enum entries belong in `sceneTypes.ts`.
