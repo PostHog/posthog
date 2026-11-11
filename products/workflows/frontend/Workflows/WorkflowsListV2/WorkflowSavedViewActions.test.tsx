@@ -83,7 +83,7 @@ describe('saved workflow view actions', () => {
     it.each([
         [
             'a teammate changed, so a failed rename or delete can be retried',
-            () => logic.actions.setConflictedViewId(VIEW_ID),
+            () => logic.actions.setConflictedViewIds([VIEW_ID]),
             'Load the latest version of Active flows',
         ],
         [
