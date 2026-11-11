@@ -103,18 +103,6 @@ function writeEvidence(result: RunResult, judge: Judge): void {
 
 export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
     const stateDir = defaultStateDir(env)
-    let kafka: { config: string; producer: KafkaProducerWrapper } | undefined
-
-    const producerFor = async (config: ProducerGlobalConfig): Promise<KafkaProducerWrapper> => {
-        const wanted = JSON.stringify(config)
-        if (kafka?.config !== wanted) {
-            const previous = kafka
-            kafka = undefined
-            await previous?.producer.disconnect()
-            kafka = { config: wanted, producer: await KafkaProducerWrapper.createWithConfig(undefined, config) }
-        }
-        return kafka.producer
-    }
 
     return {
         async up() {
@@ -143,8 +131,9 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             )
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
+            let producer: KafkaProducerWrapper | undefined
             try {
-                const producer = await producerFor(producerConfigOf(specs[0].env))
+                producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
                 await environment.reset(profile.settings)
                 const seeded = await seed(loaded, postgres)
                 await judge.open(seeded)
@@ -166,7 +155,11 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 }
             } finally {
                 await stopHealth?.()
-                await postgres.end()
+                try {
+                    await producer?.disconnect()
+                } finally {
+                    await postgres.end()
+                }
             }
             const result: RunResult = {
                 runId,
@@ -196,12 +189,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
         },
 
         async down() {
-            try {
-                await kafka?.producer.disconnect()
-            } finally {
-                kafka = undefined
-                await environment.down()
-            }
+            await environment.down()
         },
     }
 }
