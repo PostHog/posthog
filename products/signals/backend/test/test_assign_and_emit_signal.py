@@ -1065,22 +1065,32 @@ async def test_source_sync_matches_without_semantic_rejudgment(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "status,attaches",
+    "status,other_team,attaches",
     [
-        (SignalReport.Status.READY, True),
-        (SignalReport.Status.PENDING_INPUT, True),
-        (SignalReport.Status.RESOLVED, False),
-        (SignalReport.Status.SUPPRESSED, False),
-        (SignalReport.Status.FAILED, False),
+        (SignalReport.Status.READY, False, True),
+        (SignalReport.Status.PENDING_INPUT, False, True),
+        (SignalReport.Status.RESOLVED, False, False),
+        (SignalReport.Status.SUPPRESSED, False, False),
+        (SignalReport.Status.FAILED, False, False),
+        (SignalReport.Status.CLOSED, False, False),
+        (SignalReport.Status.DELETED, False, False),
+        (SignalReport.Status.READY, True, False),
     ],
 )
-async def test_github_issue_signal_attaches_to_the_open_report_naming_it_as_source_issue(ateam, status, attaches):
+async def test_github_issue_signal_attaches_to_the_open_report_naming_it_as_source_issue(
+    ateam, status, other_team, attaches
+):
+    owner = (
+        await database_sync_to_async(Team.objects.create)(organization=ateam.organization, name="Other project")
+        if other_team
+        else ateam
+    )
     triggering_signal_id = uuid.uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam, status=status, title="Scout report", triggering_signal_id=triggering_signal_id
+        team=owner, status=status, title="Scout report", triggering_signal_id=triggering_signal_id
     )
     await database_sync_to_async(SignalReportArtefact.add_log)(
-        team_id=ateam.id,
+        team_id=owner.id,
         report_id=str(report.id),
         content=SourceIssue.github("acme/widgets", 42),
         attribution=ArtefactAttribution.system(),

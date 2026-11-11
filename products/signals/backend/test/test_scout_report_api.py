@@ -715,6 +715,59 @@ class TestScoutReportAPI(APIBaseTest):
             "https://github.com/acme/widgets/issues/43",
         ]
 
+    def test_source_issue_authors_who_are_organization_members_become_reviewers(self) -> None:
+        run = _make_run(self.team)
+        for login in ("filer", "second-filer"):
+            member = User.objects.create(email=f"{login}@example.com")
+            OrganizationMembership.objects.create(user=member, organization=self.organization)
+            UserSocialAuth.objects.create(
+                user=member, provider="github", uid=f"gh-{login}", extra_data={"login": login}
+            )
+        authors = {
+            42: {"login": "Filer", "type": "User"},
+            43: {"login": "outside-reporter", "type": "User"},
+            44: {"login": "dependabot[bot]", "type": "Bot"},
+            45: {"login": "second-filer", "type": "User"},
+        }
+
+        def read_issue(_method: str, path: str, **_kwargs) -> MagicMock:
+            number = int(path.rsplit("/", 1)[1])
+            response = MagicMock()
+            response.json.return_value = {"number": number, "state": "open", "user": authors[number]}
+            return response
+
+        github = MagicMock()
+        github.api_request.side_effect = read_issue
+        issue = "https://github.com/acme/widgets/issues/{}".format
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()),
+            patch("products.signals.backend.github_writeback_tasks.post_source_issue_links"),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(source_issues=[{"url": issue(42)}, {"url": issue(43)}, {"url": issue(44)}]),
+                format="json",
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+            assert self._reviewer_logins(report_id) == ["filer"]
+
+            # An edit that sets no reviewers adds the new issue's author to the list the report holds.
+            for _ in range(2):
+                edited = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "source_issues": [{"url": issue(42)}, {"url": issue(45)}]},
+                    format="json",
+                )
+                assert edited.status_code == status.HTTP_200_OK, edited.json()
+
+        assert self._reviewer_logins(report_id) == ["filer", "second-filer"]
+        # The retried edit names only issues the report holds, so it reads nothing from GitHub.
+        assert github.api_request.call_count == 4
+
     @parameterized.expand(
         [
             ("merged", [_MERGED_PR], "resolved"),
