@@ -1119,7 +1119,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
             actions.setFolderActionPending(true)
             try {
-                await fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
+                const teamId = String(values.currentTeamId)
+                await folderRequest(
+                    (signal) => fileSystemDestroy(teamId, entry.id, { recursive: false }, { signal }),
+                    'deleting a folder'
+                )
                 projectTreeDataLogic.actions.deleteSavedItem(entry)
             } catch (error) {
                 const reason =
@@ -1306,13 +1310,17 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
             actions.setCreatingFolder(true)
             try {
+                const teamId = String(values.currentTeamId)
                 const path = joinPath([...splitPath(parent ?? values.currentFolder ?? ''), name])
-                if (await isPathTaken(String(values.currentTeamId), path)) {
+                if (await isPathTaken(teamId, path)) {
                     lemonToast.error(`Couldn't create the folder. ${NAME_TAKEN}`)
                     actions.setFolderCreationError(NAME_TAKEN)
                     return
                 }
-                const entry = await fileSystemCreate(String(values.currentTeamId), { path, type: 'folder' })
+                const entry = await folderRequest(
+                    (signal) => fileSystemCreate(teamId, { path, type: 'folder' }, { signal }),
+                    'creating a folder'
+                )
                 cache.changes = changeCount(cache) + 1
                 projectTreeDataLogic.actions.addLoadedResults({
                     searchTerm: '',

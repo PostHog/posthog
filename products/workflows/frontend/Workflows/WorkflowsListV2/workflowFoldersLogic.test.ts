@@ -1162,6 +1162,39 @@ describe('workflowFoldersLogic', () => {
         }
     })
 
+    it.each([
+        {
+            change: 'creating',
+            start: () => logic.actions.createFolder('Invoices', 'Billing'),
+            pending: () => logic.values.creatingFolder,
+            toast: "Couldn't create the folder. Try again.",
+        },
+        {
+            change: 'deleting',
+            start: () => logic.actions.deleteFolder('Empty'),
+            pending: () => logic.values.folderActionPending,
+            toast: "Couldn't delete the folder. Try again.",
+        },
+    ])('allows another folder change after $change a folder stalls', async ({ start, pending, toast }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        showToasts()
+        useMocks({
+            post: { '/api/projects/:team_id/file_system/': () => new Promise(() => {}) },
+            delete: { '/api/projects/:team_id/file_system/empty/': () => new Promise(() => {}) },
+        })
+        jest.useFakeTimers()
+        try {
+            start()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(pending()).toBe(true)
+            await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
+            expect(pending()).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
+        expect(await screen.findByText(toast)).toBeInTheDocument()
+    })
+
     it('closes the folders the person leaves, so only the open path shows as open', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.selectTreeFolder('Billing/Cards', false)
