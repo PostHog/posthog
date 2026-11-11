@@ -199,7 +199,7 @@ class DiscoveredTrace:
 
 
 def _discover(
-    team: Team, start: datetime, end: datetime, expected_traces: int, limit: int, read: tuple[datetime, datetime]
+    team: Team, start: datetime, end: datetime, expected_traces: int, limit: int, read: ProfileWindow
 ) -> list[DiscoveredTrace]:
     """Traces with a generation between `start` and `end`, counting their events over the whole span hydration reads."""
     per_mille = (
@@ -213,8 +213,8 @@ def _discover(
         {
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
-            "read_start": ast.Constant(value=read[0]),
-            "read_end": ast.Constant(value=read[1]),
+            "read_start": ast.Constant(value=read.start),
+            "read_end": ast.Constant(value=read.end),
             "per_mille": ast.Constant(value=per_mille),
             "max_events": ast.Constant(value=EVENTS_PER_TRACE),
             "limit": ast.Constant(value=limit),
@@ -410,9 +410,18 @@ def _sampled_trace(
     )
 
 
-def fetch_sample(team: Team, window: ProfileWindow, profile: TeamProfile) -> TraceSample:
-    # Hydration reads a day before the window too, for traces that started before it.
-    read = (window.start - timedelta(days=1), window.end)
+@frozen
+class SampleRef:
+    """A sampled trace by id, which later stages hydrate again so trace content never leaves the process."""
+
+    trace_id: str
+    # Distinct days the trace has generations on.
+    days: int
+    held_out: bool
+
+
+def discover_sample(team: Team, window: ProfileWindow, profile: TeamProfile) -> list[SampleRef]:
+    read = _read_span(window)
     bucket = held_out_bucket(profile)
     if bucket is None:
         main = _discover(team, window.start, window.end, profile.traces, MAIN_SAMPLE_TRACES, read)
@@ -429,13 +438,32 @@ def fetch_sample(team: Team, window: ProfileWindow, profile: TeamProfile) -> Tra
             for trace in _discover(team, held_start, held_end, held_traces, HELD_OUT_SAMPLE_TRACES, read)
             if trace.trace_id not in main_ids
         ]
+    return [SampleRef(trace_id=t.trace_id, days=t.days, held_out=False) for t in main] + [
+        SampleRef(trace_id=t.trace_id, days=t.days, held_out=True) for t in held
+    ]
 
-    segment_keys = sorted(profile.segments)
+
+def hydrate_sample(
+    team: Team, window: ProfileWindow, segment_keys: Sequence[str], refs: Sequence[SampleRef]
+) -> TraceSample:
+    read = _read_span(window)
     held_share = HELD_OUT_SAMPLE_TRACES / (MAIN_SAMPLE_TRACES + HELD_OUT_SAMPLE_TRACES)
+    keys = sorted(segment_keys)
     return TraceSample(
-        main=_hydrated(team, main, read, segment_keys, held_out=False, budget=MAX_SAMPLE_BYTES * (1 - held_share)),
-        held_out=_hydrated(team, held, read, segment_keys, held_out=True, budget=MAX_SAMPLE_BYTES * held_share),
+        main=_hydrated(
+            team, [r for r in refs if not r.held_out], read, keys, budget=MAX_SAMPLE_BYTES * (1 - held_share)
+        ),
+        held_out=_hydrated(team, [r for r in refs if r.held_out], read, keys, budget=MAX_SAMPLE_BYTES * held_share),
     )
+
+
+def fetch_sample(team: Team, window: ProfileWindow, profile: TeamProfile) -> TraceSample:
+    return hydrate_sample(team, window, list(profile.segments), discover_sample(team, window, profile))
+
+
+def _read_span(window: ProfileWindow) -> ProfileWindow:
+    # Hydration reads a day before the window too, for traces that started before it.
+    return ProfileWindow(start=window.start - timedelta(days=1), end=window.end)
 
 
 def _row_bytes(row: tuple[Any, ...]) -> int:
@@ -444,21 +472,20 @@ def _row_bytes(row: tuple[Any, ...]) -> int:
 
 def _hydrated(
     team: Team,
-    discovered: Sequence[DiscoveredTrace],
-    read: tuple[datetime, datetime],
+    refs: Sequence[SampleRef],
+    read: ProfileWindow,
     segment_keys: Sequence[str],
     *,
-    held_out: bool,
     budget: float,
 ) -> list[SampledTrace]:
-    """Hydrate traces batch by batch in discovery order, stopping at the first batch that takes the sample past `budget`."""
+    """Hydrate traces batch by batch in discovery order, and stop once the rows read pass `budget` bytes."""
     sampled_traces: list[SampledTrace] = []
     used = 0
-    for start in range(0, len(discovered), HYDRATE_BATCH_TRACES):
+    for start in range(0, len(refs), HYDRATE_BATCH_TRACES):
         if used >= budget:
             break
-        batch = discovered[start : start + HYDRATE_BATCH_TRACES]
-        rows = _hydrate(team, [trace.trace_id for trace in batch], *read)
+        batch = refs[start : start + HYDRATE_BATCH_TRACES]
+        rows = _hydrate(team, [trace.trace_id for trace in batch], read.start, read.end)
         used += sum(_row_bytes(row) for trace_rows in rows.values() for row in trace_rows)
         for trace in batch:
             if trace.trace_id not in rows:
@@ -466,7 +493,7 @@ def _hydrated(
             sampled = _sampled_trace(
                 trace.trace_id,
                 rows[trace.trace_id],
-                held_out=held_out,
+                held_out=trace.held_out,
                 spans_days=trace.days > 1,
                 segment_keys=segment_keys,
             )
