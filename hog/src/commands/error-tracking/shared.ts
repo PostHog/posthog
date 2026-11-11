@@ -197,9 +197,10 @@ function uploadResult(report: UploadReport): Pick<Report, 'status' | 'result'> {
     const uploaded = report.symbolSets.filter((set) => set.status === 'uploaded').length
     const present = report.symbolSets.filter((set) => set.status === 'already_present').length
     const tooLarge = report.symbolSets.filter((set) => set.status === 'too_large').length
+    const unusable = report.skipped.filter((skip) => !skip.intended).length
     return {
-        status: tooLarge > 0 ? 'partial' : uploaded === 0 ? 'unchanged' : 'done',
-        result: `Uploaded ${plural(uploaded, 'symbol set')}, ${present} already present${tooLarge ? `, ${tooLarge} too large` : ''}`,
+        status: tooLarge > 0 || unusable > 0 ? 'partial' : uploaded === 0 ? 'unchanged' : 'done',
+        result: `Uploaded ${plural(uploaded, 'symbol set')}, ${present} already present${tooLarge ? `, ${tooLarge} too large` : ''}${unusable ? `, ${unusable} skipped` : ''}`,
     }
 }
 
