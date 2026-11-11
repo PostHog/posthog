@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import {
     Button,
@@ -30,6 +31,8 @@ export function TodayNavSwitchDialog(): JSX.Element {
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 60, power: 6, duration: 2500 })
 
     const tryItOut = (): void => {
+        // pinned: analytics event name.
+        posthog.capture('today nav dialog try it out')
         setNewNavDialogOpen(false)
         if (!reducedMotion) {
             // Three bursts in quick succession, each from its own random spot.

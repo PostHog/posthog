@@ -200,6 +200,10 @@ export const navSwitchLogic = kea<navSwitchLogicType>([
                 lemonToast.success('You are back on the old navigation. Switch to the new navigation any time.')
             }
         },
+        dismissNewNavDialog: () => {
+            // pinned: analytics event name.
+            posthog.capture('today nav dialog dismissed')
+        },
         newNavDialogClosed: () => {
             if (values.switchHintPending) {
                 actions.showSwitchHint()
@@ -210,6 +214,13 @@ export const navSwitchLogic = kea<navSwitchLogicType>([
         },
     })),
     subscriptions(({ actions }) => ({
+        // Also fires when the dialog reopens after the tour ends.
+        newNavDialogOpen: (open: boolean, wasOpen: boolean | undefined) => {
+            if (open && !wasOpen) {
+                // pinned: analytics event name.
+                posthog.capture('today nav dialog shown')
+            }
+        },
         needsEarlyAccessFeatures: (needsEarlyAccessFeatures: boolean) => {
             if (needsEarlyAccessFeatures) {
                 actions.loadEarlyAccessFeatures()
