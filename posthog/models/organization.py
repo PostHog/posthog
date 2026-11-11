@@ -815,7 +815,14 @@ class OrganizationAITerms(Organization):
         verbose_name_plural = "AI terms and conditions"
 
 
+class OrganizationMembershipQuerySet(models.QuerySet["OrganizationMembership"]):
+    def with_effective_level(self) -> "QuerySet[Any]":
+        return self.annotate(resolved_level=models.F("level"))
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
+    objects = OrganizationMembershipQuerySet.as_manager()
+
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
 
@@ -867,6 +874,10 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
 
     def __str__(self):
         return str(self.Level(self.level))
+
+    @property
+    def effective_level(self) -> Level:
+        return self.Level(self.level)
 
     def validate_update(
         self,

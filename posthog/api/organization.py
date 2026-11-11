@@ -429,7 +429,7 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.membership_level")
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
-        return OrganizationMembership.Level(membership.level) if membership is not None else None
+        return OrganizationMembership.Level(membership.effective_level) if membership is not None else None
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_membership_joined_at(self, organization: Organization) -> str | None:
@@ -903,7 +903,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         organization = self.get_object()
         user = cast(User, request.user)
-        user_role = user.organization_memberships.get(organization=organization).level
+        user_role = user.organization_memberships.get(organization=organization).effective_level
 
         for field, event_name in setting_events:
             if field in request.data:

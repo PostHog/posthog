@@ -65,7 +65,7 @@ def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[s
 @api_view(["GET"])
 def saml_metadata_view(request, *args, **kwargs):
     if (
-        not request.user.organization_memberships.get(organization=request.user.organization).level
+        not request.user.organization_memberships.get(organization=request.user.organization).effective_level
         >= OrganizationMembership.Level.ADMIN
     ):
         raise PermissionDenied("You need to be an administrator or owner to access this resource.")
