@@ -575,7 +575,6 @@ describe('scenario environment', () => {
         let unspawnable: Role | undefined
         let losesItsPort: Role | undefined
         let exitsAfterHealth: Role | undefined
-        let teardownFails = false
         let reachedKafka: Error | undefined
 
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
@@ -650,13 +649,9 @@ describe('scenario environment', () => {
             const realTerminate = processes.terminate
             jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) => {
                 const foreign = [...plan.groups, ...plan.pids].filter((pid) => !stubRolePids.has(pid))
-                if (foreign.length > 0) {
-                    return Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
-                }
-                const terminated = realTerminate(plan, graceMs)
-                return teardownFails && graceMs > 0 && plan.groups.length > 0
-                    ? terminated.then(() => Promise.reject(new Error('The teardown failed.')))
-                    : terminated
+                return foreign.length > 0
+                    ? Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
+                    : realTerminate(plan, graceMs)
             })
             jest.spyOn(childProcess, 'spawn').mockImplementation(((
                 command: string,
@@ -722,7 +717,6 @@ describe('scenario environment', () => {
             unspawnable = undefined
             losesItsPort = undefined
             exitsAfterHealth = undefined
-            teardownFails = false
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             leftover?.kill('SIGKILL')
@@ -838,14 +832,6 @@ describe('scenario environment', () => {
                 'cdp-cyclotron-worker-email',
                 () => {
                     unspawnable = 'cdp-cyclotron-worker-email'
-                },
-            ],
-            [
-                'answers /_health once, then exits, and whose teardown then fails,',
-                'cdp-api',
-                () => {
-                    exitsAfterHealth = 'cdp-api'
-                    teardownFails = true
                 },
             ],
         ])(

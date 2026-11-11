@@ -124,7 +124,7 @@ export function createEnvironment({
             try {
                 await bringUp()
             } catch (error) {
-                await stop().catch(() => undefined)
+                await stop()
                 throw error
             }
         },
