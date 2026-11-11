@@ -16,6 +16,7 @@ from posthog.utils import absolute_uri
 from products.alerts_platform.backend.delivery import (
     delivery_paths,
     describers,
+    destinations as destinations_registry,
     legacy_webhook,
     recipients,
     subscribers,
@@ -887,10 +888,12 @@ class TestDeliveryPath(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_row_beside_a_customized_hog_function", (), DeliveryPath.HOG_FUNCTION, 1, ["C-native"]),
+            ("a_row_beside_a_customized_hog_function", (), True, True, DeliveryPath.HOG_FUNCTION, 1, ["C-native"]),
             (
                 "a_row_copying_a_live_hog_function",
                 HOG_FUNCTION_SLACK.hog_function_ids,
+                True,
+                True,
                 DeliveryPath.HOG_FUNCTION,
                 1,
                 [],
@@ -898,9 +901,29 @@ class TestDeliveryPath(APIBaseTest):
             (
                 "a_row_copying_a_stock_hog_function",
                 HOG_FUNCTION_SLACK.hog_function_ids,
+                True,
+                True,
                 DeliveryPath.NATIVE,
                 0,
                 ["C-1"],
+            ),
+            (
+                "a_row_copying_one_without_its_alert_filter",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                False,
+                True,
+                DeliveryPath.HOG_FUNCTION,
+                1,
+                ["C-2"],
+            ),
+            (
+                "a_row_copying_a_deleted_hog_function",
+                HOG_FUNCTION_SLACK.hog_function_ids,
+                False,
+                False,
+                DeliveryPath.HOG_FUNCTION,
+                1,
+                ["C-2", "C-native"],
             ),
         ]
     )
@@ -908,6 +931,8 @@ class TestDeliveryPath(APIBaseTest):
         self,
         _name: str,
         legacy_hog_function_ids: tuple[UUID, ...],
+        listed: bool,
+        live: bool,
         path: DeliveryPath,
         emitted: int,
         native_channels: list[str],
@@ -924,7 +949,15 @@ class TestDeliveryPath(APIBaseTest):
             ),
         )
 
-        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._chooses(path))
+        def live_ids(*, team_id: int, hog_function_ids: Any) -> frozenset[UUID]:
+            return frozenset(hog_function_ids) if live else frozenset()
+
+        with patch.object(destinations_registry, "_live_lookup", live_ids):
+            self._run(
+                _announcement(_transition(AlertEventKind.FIRING)),
+                self._chooses(path),
+                groups=None if listed else [SUBSCRIBER],
+            )
 
         assert len(self.emitted) == emitted
         assert [channel for channel, _ in RecordingTransport.sends] == native_channels
