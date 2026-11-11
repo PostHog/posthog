@@ -144,8 +144,7 @@ class CodeEmailSourceSearchUnavailableError(exceptions.APIException):
 class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve"]
-    # Searching the team's private repos only serves to set the link, so it needs the same access as setting it.
-    scope_object_write_actions = ["partial_update", "source_candidates"]
+    scope_object_write_actions = ["partial_update"]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
@@ -229,7 +228,9 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         description="Search the project's connected GitHub repositories for files that use this email's key, so you "
         "can pick one to link as its source file.",
     )
-    @action(methods=["GET"], detail=True)
+    # Searching only serves to set the link, so it needs the access that sets it, and it reads the
+    # team's GitHub integrations, so a token also needs the scope that reads them.
+    @action(methods=["GET"], detail=True, required_scopes=["hog_flow:write", "integration:read"])
     def source_candidates(self, request: Request, *args: Any, pk: str | None = None, **kwargs: Any) -> Response:
         if not source_detection_enabled(self.team.id):
             raise exceptions.NotFound()

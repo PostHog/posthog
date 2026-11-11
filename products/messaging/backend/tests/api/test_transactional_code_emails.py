@@ -274,6 +274,27 @@ class TestTransactionalCodeEmails(APIBaseTest):
             "complete": False,
         }
 
+    @parameterized.expand(
+        [
+            ("without_integration_read", ["hog_flow:write"], status.HTTP_403_FORBIDDEN),
+            ("with_integration_read", ["hog_flow:write", "integration:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_an_api_key_needs_integration_read_to_search(self, _post, _flag, _name, scopes, expected_status):
+        email = self._code_email("welcome")
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        with patch(
+            "products.messaging.backend.services.code_email_source.GitHubExactCodeSearch.find",
+            return_value=ExactCodeSearchResult(matches=[], complete=True),
+        ):
+            response = self.client.get(
+                self._url(f"{email.id}/source_candidates/"), headers={"authorization": f"Bearer {key}"}
+            )
+
+        assert response.status_code == expected_status, response.json()
+
     def test_searches_only_the_github_installations_the_member_may_view(self, _post, _flag):
         email = self._code_email("welcome")
         self._limit_to_members_with_access()
