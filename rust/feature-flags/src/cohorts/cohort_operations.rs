@@ -5,16 +5,15 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{Mutex, RwLock};
 
-use super::cohort_models::CohortPropertyType;
-use super::cohort_models::CohortValues;
 use crate::cohorts::cohort_cache_manager::CohortFetchError;
 use crate::cohorts::cohort_models::{
-    Cohort, CohortId, CohortProperty, CohortValuesItem, InnerCohortProperty, MembershipStampPolicy,
+    Cohort, CohortId, CohortProperty, CohortPropertyType, CohortValues, CohortValuesItem,
+    MembershipStampPolicy,
 };
 use crate::database::get_connection_with_metrics;
 use crate::metrics::consts::{
-    COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNSUPPORTED_FILTER_COUNTER,
-    FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
+    COHORT_MALFORMED_FILTER_COUNTER, COHORT_UNKNOWN_MEMBERSHIP_COUNTER,
+    COHORT_UNSUPPORTED_FILTER_COUNTER, FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER,
 };
 use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::OperatorType;
@@ -28,34 +27,51 @@ use common_types::TeamId;
 /// `/flags` path against stack overflow from an adversarially deep filter tree.
 const MAX_COHORT_FILTER_DEPTH: usize = 64;
 
-/// Cohorts already warned about by `record_malformed_cohort_filter`, so a persistently
-/// malformed cohort on the hot `/flags` path logs its identifying context once per
-/// process lifetime instead of flooding logs on every request.
-static WARNED_MALFORMED_COHORTS: Lazy<Mutex<HashSet<(TeamId, CohortId)>>> =
+/// Cohorts already warned about by `warn_once`, keyed by the failure, so a persistently
+/// failing cohort on the hot `/flags` path logs each kind of failure once per process
+/// lifetime instead of flooding logs on every request.
+static WARNED_FAILING_COHORTS: Lazy<Mutex<HashSet<CohortFailureKey>>> =
     Lazy::new(|| Mutex::new(HashSet::new()));
 
-/// Logs and counts a cohort whose filters failed dependency extraction or evaluation
-/// with `CohortFiltersParsingError` (malformed leaf, excessive nesting, or other
-/// structural error surfaced by `traverse_filters`/`InnerCohortProperty::evaluate`).
-///
-/// The counter is unlabeled (cardinality), so this log is the only place the cohort
-/// and team ids are recorded; it's deduped per cohort so it stays visible at `warn`
-/// without flooding logs when the same cohort keeps failing.
-fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &str) {
-    common_metrics::inc(COHORT_MALFORMED_FILTER_COUNTER, &[], 1);
+type CohortFailureKey = (TeamId, CohortId, &'static str);
 
-    let mut warned = WARNED_MALFORMED_COHORTS.lock().unwrap();
-    if warned.insert((team_id, cohort_id)) {
-        tracing::warn!(
-            cohort_id,
-            team_id,
-            "Cohort filters contain a malformed or unparsable leaf; failing {phase}"
-        );
+/// Logs `message` at `warn` the first time `failure` happens for a cohort. The failure
+/// counters are unlabeled (cardinality), so this log is the only place the cohort and
+/// team ids are recorded.
+fn warn_once(cohort_id: CohortId, team_id: TeamId, failure: &'static str, message: &str) {
+    let mut warned = WARNED_FAILING_COHORTS.lock().unwrap();
+    if warned.insert((team_id, cohort_id, failure)) {
+        tracing::warn!(cohort_id, team_id, "{message}");
     }
 }
 
+/// Logs and counts a cohort whose filters failed dependency extraction or evaluation
+/// with `CohortFiltersParsingError` (malformed leaf, excessive nesting, or other
+/// structural error surfaced by `traverse_group`/`evaluate_group`).
+fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &'static str) {
+    common_metrics::inc(COHORT_MALFORMED_FILTER_COUNTER, &[], 1);
+    warn_once(
+        cohort_id,
+        team_id,
+        phase,
+        &format!("Cohort filters contain a malformed or unparsable leaf; failing {phase}"),
+    );
+}
+
+/// Logs and counts a requested cohort whose membership stayed unknown because an
+/// unsupported group, possibly inside a referenced cohort, was not decided by a sibling.
+fn record_unknown_cohort_membership(cohort_id: CohortId, team_id: TeamId) {
+    common_metrics::inc(COHORT_UNKNOWN_MEMBERSHIP_COUNTER, &[], 1);
+    warn_once(
+        cohort_id,
+        team_id,
+        "unknown membership",
+        "Cohort membership is unknown because of an unsupported group, possibly in a referenced cohort; failing evaluation",
+    );
+}
+
 /// Cohorts already warned about by `record_stamp_policy_divergence`, deduped as
-/// `WARNED_MALFORMED_COHORTS` above is. An `RwLock` because divergence is common rather
+/// `WARNED_FAILING_COHORTS` above is. An `RwLock` because divergence is common rather
 /// than exceptional, so past the first warn every request takes only the read side.
 static WARNED_DIVERGENT_COHORTS: Lazy<RwLock<HashSet<(TeamId, CohortId)>>> =
     Lazy::new(|| RwLock::new(HashSet::new()));
@@ -224,7 +240,7 @@ impl Cohort {
             })?;
 
         let mut dependencies = HashSet::new();
-        Self::traverse_filters(&cohort_property.properties, &mut dependencies).inspect_err(
+        Self::traverse_group(&cohort_property.properties, &mut dependencies, 0).inspect_err(
             |_| record_malformed_cohort_filter(self.id, self.team_id, "dependency extraction"),
         )?;
         Ok(dependencies)
@@ -259,12 +275,20 @@ impl Cohort {
     ///   }
     /// }
     /// ```
-    fn traverse_filters(
-        inner: &InnerCohortProperty,
+    fn traverse_group(
+        group: &CohortValues,
         dependencies: &mut HashSet<CohortId>,
+        depth: usize,
     ) -> Result<(), FlagError> {
-        for item in &inner.values {
-            Self::traverse_item(item, dependencies, 0)?;
+        // Evaluation never reads inside an unsupported group, so a cohort reference or a
+        // malformed leaf inside one must not fail the cohort before a sibling of the group
+        // can decide it.
+        if group.prop_type == CohortPropertyType::Unsupported {
+            common_metrics::inc(COHORT_UNSUPPORTED_FILTER_COUNTER, &[], 1);
+            return Ok(());
+        }
+        for item in &group.values {
+            Self::traverse_item(item, dependencies, depth)?;
         }
         Ok(())
     }
@@ -280,9 +304,7 @@ impl Cohort {
         }
         match item {
             CohortValuesItem::Group(group) => {
-                for nested in &group.values {
-                    Self::traverse_item(nested, dependencies, depth + 1)?;
-                }
+                Self::traverse_group(group, dependencies, depth + 1)?;
             }
             CohortValuesItem::Filter(filter) => {
                 if filter.is_cohort() {
@@ -308,67 +330,58 @@ impl Cohort {
     }
 }
 
-impl InnerCohortProperty {
-    /// Evaluates a cohort property based on its type (AND/OR) and values.
-    ///
-    /// This function recursively evaluates the cohort property tree structure, handling both
-    /// property matches and nested cohort membership checks.
-    pub fn evaluate(
-        &self,
-        target_properties: &HashMap<String, Value>,
-        cohort_matches: &HashMap<CohortId, bool>,
-        matching_context: PropertyMatchingContext,
-    ) -> Result<bool, FlagError> {
-        match self.prop_type {
-            CohortPropertyType::OR => {
-                for item in &self.values {
-                    if evaluate_cohort_item(
-                        item,
-                        target_properties,
-                        cohort_matches,
-                        0,
-                        matching_context,
-                    )? {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
-            }
-            CohortPropertyType::AND => {
-                for item in &self.values {
-                    if !evaluate_cohort_item(
-                        item,
-                        target_properties,
-                        cohort_matches,
-                        0,
-                        matching_context,
-                    )? {
-                        return Ok(false);
-                    }
-                }
-                Ok(true)
-            }
+/// Returns `None` when membership is unknown. An OR group is true when any child is true,
+/// and an AND group is false when any child is false, whatever the other children are.
+/// Otherwise an unknown child makes the group unknown, so the result does not depend on
+/// the order of the children.
+fn evaluate_group(
+    group: &CohortValues,
+    target_properties: &HashMap<String, Value>,
+    cohort_matches: &HashMap<CohortId, Option<bool>>,
+    depth: usize,
+    matching_context: PropertyMatchingContext,
+) -> Result<Option<bool>, FlagError> {
+    let deciding_value = match group.prop_type {
+        CohortPropertyType::OR => true,
+        CohortPropertyType::AND => false,
+        CohortPropertyType::Unsupported => return Ok(None),
+    };
+
+    let mut has_unknown_child = false;
+    for item in &group.values {
+        match evaluate_cohort_item(
+            item,
+            target_properties,
+            cohort_matches,
+            depth,
+            matching_context,
+        )? {
+            Some(matched) if matched == deciding_value => return Ok(Some(deciding_value)),
+            Some(_) => {}
+            None => has_unknown_child = true,
         }
     }
+
+    Ok((!has_unknown_child).then_some(!deciding_value))
 }
 
 /// Evaluates a group-or-filter entry, recursing into nested groups.
 fn evaluate_cohort_item(
     item: &CohortValuesItem,
     target_properties: &HashMap<String, Value>,
-    cohort_matches: &HashMap<CohortId, bool>,
+    cohort_matches: &HashMap<CohortId, Option<bool>>,
     depth: usize,
     matching_context: PropertyMatchingContext,
-) -> Result<bool, FlagError> {
+) -> Result<Option<bool>, FlagError> {
     if depth > MAX_COHORT_FILTER_DEPTH {
         return Err(FlagError::CohortFiltersParsingError);
     }
     match item {
-        CohortValuesItem::Group(group) => evaluate_cohort_values(
+        CohortValuesItem::Group(group) => evaluate_group(
             group,
             target_properties,
             cohort_matches,
-            depth,
+            depth + 1,
             matching_context,
         ),
         CohortValuesItem::Filter(filter) => {
@@ -377,76 +390,39 @@ fn evaluate_cohort_item(
         // A known filter type that's otherwise malformed; fail loud rather than
         // silently resolving to non-match (see `traverse_item`).
         CohortValuesItem::MalformedKnownType(_) => Err(FlagError::CohortFiltersParsingError),
-        // Non-match, so sibling leaves decide membership via their AND/OR combination.
-        CohortValuesItem::Unsupported(_) => Ok(false),
+        // A deliberate non-match.
+        CohortValuesItem::Unsupported(_) => Ok(Some(false)),
     }
 }
 
 /// Evaluates a leaf property filter, applying `negation` for both filter kinds.
+///
+/// A reference to a cohort with unknown membership stays unknown through `not_in` and
+/// `negation`, so neither can turn it into a match. It also stays unknown under an
+/// unsupported operator, although that operator alone never matches.
 fn evaluate_cohort_filter(
     filter: &PropertyFilter,
     target_properties: &HashMap<String, Value>,
-    cohort_matches: &HashMap<CohortId, bool>,
+    cohort_matches: &HashMap<CohortId, Option<bool>>,
     matching_context: PropertyMatchingContext,
-) -> Result<bool, FlagError> {
+) -> Result<Option<bool>, FlagError> {
     if filter.is_cohort() {
-        // Handle cohort membership check with negation
-        let cohort_result =
-            apply_cohort_membership_logic(std::slice::from_ref(filter), cohort_matches)?;
-        Ok(cohort_result != filter.negation.unwrap_or(false))
+        let cohort_id = filter
+            .get_cohort_id()
+            .ok_or(FlagError::CohortFiltersParsingError)?;
+        let in_cohort = cohort_matches
+            .get(&cohort_id)
+            .copied()
+            .unwrap_or(Some(false));
+        Ok(in_cohort.map(|in_cohort| {
+            cohort_filter_matches(filter, in_cohort) != filter.negation.unwrap_or(false)
+        }))
     } else {
-        // Handle regular property check with negation
-        Ok(evaluate_property_with_negation(
+        Ok(Some(evaluate_property_with_negation(
             filter,
             target_properties,
             matching_context,
-        ))
-    }
-}
-
-/// Evaluates a set of cohort values against target properties.
-///
-/// Entries may be property filters or nested groups, combined with the group's
-/// logical type (OR/AND/property, where "property" is a legacy alias for AND).
-/// `depth` is the caller's depth; the recursion guard lives in `evaluate_cohort_item`,
-/// which every nested entry routes back through.
-fn evaluate_cohort_values(
-    values: &CohortValues,
-    target_properties: &HashMap<String, Value>,
-    cohort_matches: &HashMap<CohortId, bool>,
-    depth: usize,
-    matching_context: PropertyMatchingContext,
-) -> Result<bool, FlagError> {
-    match values.prop_type.as_str() {
-        "OR" => {
-            for item in &values.values {
-                if evaluate_cohort_item(
-                    item,
-                    target_properties,
-                    cohort_matches,
-                    depth + 1,
-                    matching_context,
-                )? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        }
-        "AND" | "property" => {
-            for item in &values.values {
-                if !evaluate_cohort_item(
-                    item,
-                    target_properties,
-                    cohort_matches,
-                    depth + 1,
-                    matching_context,
-                )? {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        }
-        _ => Err(FlagError::CohortFiltersParsingError),
+        )))
     }
 }
 
@@ -471,32 +447,38 @@ fn evaluate_property_with_negation(
 }
 
 /// Evaluates a single cohort against target properties and existing evaluation results.
-/// Returns true if the cohort matches, false otherwise.
+/// Returns whether the cohort matches, or `None` when its membership is unknown.
 fn evaluate_single_cohort(
     cohort: &Cohort,
     target_properties: &HashMap<String, Value>,
-    evaluation_results: &HashMap<CohortId, bool>,
+    evaluation_results: &HashMap<CohortId, Option<bool>>,
     matching_context: PropertyMatchingContext,
-) -> Result<bool, FlagError> {
+) -> Result<Option<bool>, FlagError> {
     // Get the filters for this cohort
     let filters = match &cohort.filters {
         Some(filters) => filters,
-        None => return Ok(false),
+        None => return Ok(Some(false)),
     };
 
     // Parse and evaluate using the hierarchical structure
     let cohort_property: CohortProperty = match serde_json::from_value(filters.clone()) {
         Ok(prop) => prop,
-        Err(_) => return Ok(false),
+        Err(_) => return Ok(Some(false)),
     };
 
-    // Use our evaluation method that respects OR/AND structure
-    cohort_property
-        .properties
-        .evaluate(target_properties, evaluation_results, matching_context)
-        .inspect_err(|_| record_malformed_cohort_filter(cohort.id, cohort.team_id, "evaluation"))
+    evaluate_group(
+        &cohort_property.properties,
+        target_properties,
+        evaluation_results,
+        0,
+        matching_context,
+    )
+    .inspect_err(|_| record_malformed_cohort_filter(cohort.id, cohort.team_id, "evaluation"))
 }
 
+/// Fails with `CohortFiltersParsingError` when the membership of the requested cohort is
+/// unknown. A dependency with unknown membership does not fail the evaluation when the
+/// rest of the requested cohort decides the result.
 pub fn evaluate_dynamic_cohorts(
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
@@ -512,6 +494,7 @@ pub fn evaluate_dynamic_cohorts(
             FlagError::DependencyNotFound(DependencyType::Cohort, initial_cohort_id.into())
         })?
         .clone();
+    let team_id = initial_cohort.team_id;
 
     // If it's static, we don't need to evaluate dependencies
     if initial_cohort.is_static {
@@ -529,7 +512,7 @@ pub fn evaluate_dynamic_cohorts(
                 .get(&cohort.id)
                 .copied()
                 .unwrap_or(false);
-            *result = cached_result;
+            *result = Some(cached_result);
             return Ok(());
         }
 
@@ -537,10 +520,22 @@ pub fn evaluate_dynamic_cohorts(
         Ok(())
     })?;
 
-    // Return the evaluation result for the initial cohort
-    results.get(&initial_cohort_id).copied().ok_or_else(|| {
+    let membership = results.get(&initial_cohort_id).copied().ok_or_else(|| {
         FlagError::DependencyNotFound(DependencyType::Cohort, initial_cohort_id.into())
+    })?;
+    membership.ok_or_else(|| {
+        record_unknown_cohort_membership(initial_cohort_id, team_id);
+        FlagError::CohortFiltersParsingError
     })
+}
+
+/// An absent operator reads as `in`.
+fn cohort_filter_matches(filter: &PropertyFilter, in_cohort: bool) -> bool {
+    filter.cohort_operator_is_supported()
+        && match filter.operator {
+            Some(OperatorType::NotIn) => !in_cohort,
+            _ => in_cohort,
+        }
 }
 
 /// Applies cohort membership logic for a set of cohort filters.
@@ -560,16 +555,8 @@ pub fn apply_cohort_membership_logic<F: Borrow<PropertyFilter>>(
             .ok_or(FlagError::CohortFiltersParsingError)?;
         let matches = cohort_matches.get(&cohort_id).copied().unwrap_or(false);
 
-        // `cohort_operator_is_supported` holds the supported set, so an explanation built from
-        // that helper cannot disagree with the verdict here. An absent operator reads as `in`.
-        let membership_match = filter.cohort_operator_is_supported()
-            && match filter.operator {
-                Some(OperatorType::NotIn) => !matches,
-                _ => matches,
-            };
-
         // If any filter does not match, return false early
-        if !membership_match {
+        if !cohort_filter_matches(filter, matches) {
             return Ok(false);
         }
     }
@@ -601,6 +588,7 @@ mod tests {
     use crate::cohorts::cohort_models::CohortType;
     use crate::utils::test_utils::TestContext;
     use chrono_tz::Tz;
+    use rstest::rstest;
     use serde_json::json;
 
     fn evaluate_dynamic_cohorts(
@@ -1459,7 +1447,7 @@ mod tests {
     fn test_cohort_filters_at_max_depth_still_evaluate() {
         // The deepest tree the guard allows must still evaluate, not error — pins the
         // off-by-one so a future tweak to MAX_COHORT_FILTER_DEPTH can't silently start
-        // rejecting legitimate cohorts. InnerCohortProperty::evaluate consumes the
+        // rejecting legitimate cohorts. evaluate_group consumes the
         // outermost group at depth 0, so the leaf sits at depth N-1; N = MAX + 1 is the
         // largest tree whose leaf lands exactly on the depth limit.
         let leaf = json!({"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"});
@@ -1478,25 +1466,25 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_evaluate_dynamic_cohorts_with_legacy_property_group_type() {
+    #[rstest]
+    #[case::nested(false)]
+    #[case::root(true)]
+    fn test_evaluate_dynamic_cohorts_with_legacy_property_group_type(#[case] at_root: bool) {
         // The cohort UI emits "property" as the inner group type — a legacy alias that
         // must behave like "AND".
-        let cohort = create_dynamic_cohort_with_filters(
-            1,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
-                        "type": "property",
-                        "values": [
-                            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"},
-                            {"key": "plan", "type": "person", "value": "pro", "operator": "exact"}
-                        ]
-                    }]
-                }
-            }),
-        );
+        let property_group = json!({
+            "type": "property",
+            "values": [
+                {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"},
+                {"key": "plan", "type": "person", "value": "pro", "operator": "exact"}
+            ]
+        });
+        let properties = if at_root {
+            property_group
+        } else {
+            json!({"type": "OR", "values": [property_group]})
+        };
+        let cohort = create_dynamic_cohort_with_filters(1, json!({ "properties": properties }));
 
         let cohorts = vec![cohort];
         let static_cohort_matches = HashMap::new();
@@ -1527,31 +1515,140 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_evaluate_dynamic_cohorts_with_unknown_group_type_errors() {
-        // An unrecognized group type must fail loudly rather than silently matching or
-        // not matching.
-        let cohort = create_dynamic_cohort_with_filters(
-            1,
-            json!({
-                "properties": {
-                    "type": "OR",
-                    "values": [{
-                        "type": "XOR",
-                        "values": [
-                            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
-                        ]
-                    }]
-                }
-            }),
+    fn email_leaf(value: &str) -> serde_json::Value {
+        json!({"key": "email", "type": "person", "value": value, "operator": "exact"})
+    }
+
+    /// Resolves the child names used by the unsupported-group cases, for a person whose
+    /// email is `user@example.com`: `X` is an unsupported group, `X_EMPTY` is an
+    /// unsupported group with no values, `T` matches, and `F` does not match.
+    /// `T_EMPTY` and `F_EMPTY` are an empty AND group and an empty OR group. The
+    /// `*_1` names reference cohort 1 with the `in` operator, the `not_in` operator, or
+    /// `negation`.
+    fn unsupported_group_case_child(name: &str) -> serde_json::Value {
+        match name {
+            "X" => json!({"type": "XOR", "values": [email_leaf("user@example.com")]}),
+            "X_EMPTY" => json!({"type": "XOR", "values": []}),
+            "T" => json!({"type": "AND", "values": [email_leaf("user@example.com")]}),
+            "F" => json!({"type": "AND", "values": [email_leaf("other@example.com")]}),
+            "T_EMPTY" => json!({"type": "AND", "values": []}),
+            "F_EMPTY" => json!({"type": "OR", "values": []}),
+            "IN_1" => json!({"key": "id", "type": "cohort", "value": 1}),
+            "NOT_IN_1" => json!({"key": "id", "type": "cohort", "value": 1, "operator": "not_in"}),
+            "NEGATED_1" => json!({"key": "id", "type": "cohort", "value": 1, "negation": true}),
+            "EXACT_1" => json!({"key": "id", "type": "cohort", "value": 1, "operator": "exact"}),
+            other => panic!("unknown child {other}"),
+        }
+    }
+
+    fn case_group(parent_type: &str, children: &[&str]) -> serde_json::Value {
+        let children: Vec<_> = children
+            .iter()
+            .copied()
+            .map(unsupported_group_case_child)
+            .collect();
+        json!({"type": parent_type, "values": children})
+    }
+
+    fn evaluate_for_user(cohort_id: CohortId, cohorts: &[Cohort]) -> Option<bool> {
+        let target_properties = HashMap::from([("email".to_string(), json!("user@example.com"))]);
+        match evaluate_dynamic_cohorts(
+            cohort_id,
+            &target_properties,
+            cohorts,
+            &HashMap::new(),
+            Tz::UTC,
+        ) {
+            Ok(matched) => Some(matched),
+            Err(FlagError::CohortFiltersParsingError) => None,
+            Err(other) => panic!("unexpected error {other:?}"),
+        }
+    }
+
+    #[rstest]
+    #[case::or_unsupported_then_match("OR", &["X", "T"], Some(true))]
+    #[case::or_match_then_unsupported("OR", &["T", "X"], Some(true))]
+    #[case::and_unsupported_then_miss("AND", &["X", "F"], Some(false))]
+    #[case::and_miss_then_unsupported("AND", &["F", "X"], Some(false))]
+    #[case::or_unsupported_then_miss("OR", &["X", "F"], None)]
+    #[case::or_miss_then_unsupported("OR", &["F", "X"], None)]
+    #[case::and_unsupported_then_match("AND", &["X", "T"], None)]
+    #[case::and_match_then_unsupported("AND", &["T", "X"], None)]
+    #[case::or_lone_unsupported("OR", &["X"], None)]
+    #[case::or_empty_unsupported_then_match("OR", &["X_EMPTY", "T"], Some(true))]
+    #[case::or_empty_unsupported_is_not_a_miss("OR", &["X_EMPTY", "F"], None)]
+    #[case::and_empty_unsupported_is_not_a_match("AND", &["X_EMPTY", "T"], None)]
+    #[case::or_empty_unsupported_then_empty_and("OR", &["X_EMPTY", "T_EMPTY"], Some(true))]
+    #[case::or_empty_and_then_empty_unsupported("OR", &["T_EMPTY", "X_EMPTY"], Some(true))]
+    #[case::and_empty_unsupported_then_empty_or("AND", &["X_EMPTY", "F_EMPTY"], Some(false))]
+    #[case::and_empty_or_then_empty_unsupported("AND", &["F_EMPTY", "X_EMPTY"], Some(false))]
+    fn test_unsupported_group_is_decided_by_its_siblings_in_either_order(
+        #[case] parent_type: &str,
+        #[case] children: &[&str],
+        #[case] expected: Option<bool>,
+    ) {
+        let parent = case_group(parent_type, children);
+
+        let at_root = create_dynamic_cohort_with_filters(1, json!({"properties": parent}));
+        assert_eq!(
+            evaluate_for_user(1, &[at_root]),
+            expected,
+            "parent at the root"
         );
 
-        let cohorts = vec![cohort];
-        let target_properties = HashMap::from([("email".to_string(), json!("a@posthog.com"))]);
-        assert!(matches!(
-            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new(), Tz::UTC),
-            Err(FlagError::CohortFiltersParsingError)
-        ));
+        let nested = create_dynamic_cohort_with_filters(
+            1,
+            json!({"properties": {"type": "AND", "values": [parent]}}),
+        );
+        assert_eq!(evaluate_for_user(1, &[nested]), expected, "parent nested");
+    }
+
+    #[rstest]
+    #[case::or_reference_then_match("OR", &["IN_1", "T"], Some(true))]
+    #[case::or_match_then_reference("OR", &["T", "IN_1"], Some(true))]
+    #[case::and_reference_then_miss("AND", &["IN_1", "F"], Some(false))]
+    #[case::and_miss_then_reference("AND", &["F", "IN_1"], Some(false))]
+    #[case::or_lone_reference("OR", &["IN_1"], None)]
+    #[case::not_in_does_not_turn_unknown_into_a_match("OR", &["NOT_IN_1"], None)]
+    #[case::negation_does_not_turn_unknown_into_a_match("OR", &["NEGATED_1"], None)]
+    #[case::and_negation_then_miss("AND", &["NEGATED_1", "F"], Some(false))]
+    #[case::unsupported_operator_keeps_unknown("OR", &["EXACT_1"], None)]
+    fn test_reference_to_cohort_with_unsupported_root_is_decided_by_its_siblings(
+        #[case] parent_type: &str,
+        #[case] children: &[&str],
+        #[case] expected: Option<bool>,
+    ) {
+        let unsupported_root = create_dynamic_cohort_with_filters(
+            1,
+            json!({"properties": unsupported_group_case_child("X")}),
+        );
+        let referencing = create_dynamic_cohort_with_filters(
+            2,
+            json!({"properties": case_group(parent_type, children)}),
+        );
+
+        assert_eq!(
+            evaluate_for_user(2, &[unsupported_root, referencing]),
+            expected
+        );
+    }
+
+    #[rstest]
+    #[case::cohort_reference(json!({"key": "id", "type": "cohort", "value": 99}))]
+    #[case::malformed_known_leaf(json!({"type": "cohort", "value": 99}))]
+    fn test_leaf_inside_unsupported_group_does_not_fail_the_cohort(
+        #[case] leaf: serde_json::Value,
+    ) {
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({"properties": {"type": "OR", "values": [
+                {"type": "XOR", "values": [leaf]},
+                unsupported_group_case_child("T"),
+            ]}}),
+        );
+
+        assert!(cohort.extract_dependencies().unwrap().is_empty());
+        assert_eq!(evaluate_for_user(1, &[cohort]), Some(true));
     }
 
     /// A `behavioral` filter leaf — unresolvable from person/group properties, so it

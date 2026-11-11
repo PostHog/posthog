@@ -36,6 +36,8 @@ logger = structlog.get_logger(__name__)
 # A type absent here has no handler, so the run dies on reaching it with "Action type 'x' not
 # supported" - and unless that step sets on_error: continue, everything downstream never happens.
 # Ordered longest-lived first so the generated API/MCP enum reads in a sensible order.
+SANDBOX_EMAIL_ACTION_TYPE: Final = "email_sandbox"
+
 SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "trigger",
     "function",
@@ -48,6 +50,7 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "conditional_branch",
     "random_cohort_branch",
     "exit",
+    SANDBOX_EMAIL_ACTION_TYPE,
 ]
 
 # The trigger's own kinds, which live in the workflow's `trigger` field rather than on an action.
@@ -106,6 +109,7 @@ MESSAGING_ACTION_TYPES: Final[list[str]] = [
     "function_email",
     "function_sms",
     "function_push",
+    SANDBOX_EMAIL_ACTION_TYPE,
 ]
 
 # Action types that read person data and therefore cannot be used in person-less ("row-scoped")

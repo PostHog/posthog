@@ -4,6 +4,7 @@ import { ApiClient } from '@/api/client'
 import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
+    formatSafeRequestTarget,
     handleToolError,
     PostHogApiError,
     PostHogPermissionError,
@@ -31,6 +32,15 @@ const permissionDeniedBody = JSON.stringify({
 })
 
 describe('PostHogPermissionError', () => {
+    it.each([
+        ['https://fake-user:fake-password@example.com/api/persons/?email=private#fragment', '/api/persons/'],
+        ['/api/persons/?search=private#fragment', '/api/persons/'],
+        ['https://[invalid/?private', '[invalid request target]'],
+        ['data:private', '[invalid request target]'],
+    ])('formats a safe diagnostic target for %s', (url, expected) => {
+        expect(formatSafeRequestTarget(url)).toBe(expected)
+    })
+
     it('builds message with missing scope', () => {
         const error = new PostHogPermissionError({
             detail: "API key missing required scope 'user:read'",
@@ -69,7 +79,7 @@ describe('formatPermissionErrorMessage', () => {
 
         expect(text).toContain("'user:read'")
         expect(text).toContain('MCP Server')
-        expect(text).toContain('GET https://us.posthog.com/api/users/@me/')
+        expect(text).toContain('GET /api/users/@me/')
     })
 
     it('falls back to generic remediation when no scope is parsed', () => {
@@ -440,8 +450,13 @@ describe('handleToolError with API errors', () => {
         expect(captureException).not.toHaveBeenCalled()
         expect(result.isError).toBe(true)
         const [content] = result.content as Array<{ type: string; text: string }>
-        expect(content?.text).toContain('Validation error')
-        expect(content?.text).toContain('field: id')
+        expect(content?.text).toContain('validation error')
+        const fence = content?.text.match(
+            /<posthog-error-detail informational="true" instructional="false">\n([\s\S]*?)\n<\/posthog-error-detail>/
+        )
+        expect(JSON.parse(fence?.[1] ?? '')).toEqual({ detail: 'invalid uuid (field: id)' })
+        expect(content?.text.replace(fence?.[0] ?? '', '')).not.toContain('invalid uuid')
+        expect(error).toMatchObject({ detail: 'invalid uuid', attr: 'id', code: 'invalid' })
     })
 
     it('unwraps a 4xx PostHogApiError hidden behind Error.cause', () => {

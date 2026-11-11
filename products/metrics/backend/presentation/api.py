@@ -77,6 +77,7 @@ from products.metrics.backend.facade.enums import (
     AttributeScope,
     FilterOp,
     MetricAggregation,
+    MetricNameMatchMode,
     MetricRangeFunction,
     MetricType,
 )
@@ -617,6 +618,47 @@ class _MetricValuesParamsSerializer(serializers.Serializer):
         return [service.strip() for service in value.split(",")]
 
 
+class _MetricCatalogListParamsSerializer(_MetricValuesParamsSerializer):
+    value = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text=(
+            "Filter applied to metric names; `match` decides how. Empty lists every name, "
+            "ordered by how many services report it."
+        ),
+    )
+    match = serializers.ChoiceField(
+        choices=MetricNameMatchMode.choices,
+        required=False,
+        default="substring",
+        help_text=(
+            "How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. "
+            "`regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, "
+            "so use `^` and `$` to anchor and `(?i)` to ignore case."
+        ),
+    )
+    sparklines = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Attach a 24-point sparkline of the last 6 hours to each name. Turn off for a smaller, faster response.",
+    )
+    first_seen = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Add `first_seen`: the earliest hour each name arrived in, within retention.",
+    )
+    fold_histograms = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Fold a Prometheus classic histogram's `<name>_bucket`, `<name>_sum` and `<name>_count` into "
+            "one `<name>_bucket` entry with `classic_histogram` set. Only folds when all three are in the page."
+        ),
+    )
+
+
 class _MetricCatalogValuesParamsSerializer(_MetricValuesParamsSerializer):
     names = serializers.ListField(
         child=serializers.CharField(max_length=255, trim_whitespace=False),
@@ -625,6 +667,13 @@ class _MetricCatalogValuesParamsSerializer(_MetricValuesParamsSerializer):
         max_length=MAX_SPARKLINE_BATCH_SIZE,
         help_text="Exact metric names to load as a batch. Overrides value and limit.",
     )
+
+
+class _MetricClassicHistogramSerializer(serializers.Serializer):
+    base_name = serializers.CharField(help_text="The histogram's name without a suffix.")
+    bucket = serializers.CharField(help_text="The `_bucket` name, with the `le` label. PromQL reads this one.")
+    sum = serializers.CharField(help_text="The `_sum` name: the total of the observed values.")
+    count = serializers.CharField(help_text="The `_count` name: the number of observations.")
 
 
 class _MetricNameSerializer(serializers.Serializer):
@@ -642,6 +691,18 @@ class _MetricNameSerializer(serializers.Serializer):
         child=serializers.FloatField(),
         required=False,
         help_text="A small downsampled series of the metric's recent shape, for a sparkline.",
+    )
+    first_seen = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Start of the earliest hour this metric arrived in, within retention, ISO 8601. "
+            "Only present when `first_seen` was requested."
+        ),
+    )
+    classic_histogram = _MetricClassicHistogramSerializer(
+        required=False,
+        help_text="Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise.",
     )
 
 
@@ -1093,7 +1154,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         methods=["GET"],
-        parameters=[_MetricValuesParamsSerializer],
+        parameters=[_MetricCatalogListParamsSerializer],
         responses={200: _MetricNamesResponseSerializer},
     )
     @extend_schema(
@@ -1114,7 +1175,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         params = (
             _MetricCatalogValuesParamsSerializer(data=request.data)
             if request.method == "POST"
-            else _MetricValuesParamsSerializer(data=request.query_params)
+            else _MetricCatalogListParamsSerializer(data=request.query_params)
         )
         params.is_valid(raise_exception=True)
 
@@ -1125,6 +1186,10 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 limit=params.validated_data["limit"],
                 services=params.validated_data["service"],
                 names=params.validated_data.get("names", []),
+                match=params.validated_data.get("match", "substring"),
+                include_sparklines=params.validated_data.get("sparklines", True),
+                include_first_seen=params.validated_data.get("first_seen", False),
+                fold_histograms=params.validated_data.get("fold_histograms", False),
             )
         except ValueError as exc:
             raise ParseError(str(exc))
