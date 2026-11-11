@@ -510,7 +510,6 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         except InvalidTarget as exc:
             raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
-            # A 409, not a 400: the request is valid, and a stale page can send it while a run is live.
             raise Conflict(str(exc)) from exc
         except TrainingRunCapReached as exc:
             body = {"detail": str(exc), "used": exc.used, "limit": exc.limit, "next_slot_at": exc.next_slot_at}
