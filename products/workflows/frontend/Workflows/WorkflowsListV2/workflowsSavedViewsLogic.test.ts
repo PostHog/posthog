@@ -998,13 +998,17 @@ describe('workflowsSavedViewsLogic', () => {
     })
 
     it.each([
-        ['an empty search', ''],
-        ['its own search', 'billing'],
-    ])("keeps %s from a view link without filters over the view's saved search", async (_, text) => {
+        ['an empty search over the saved one', [{ text: '' }], ''],
+        ['its own search over the saved one', [{ text: 'billing' }], 'billing'],
+        ['the saved search when a link without one follows a link with one', [{ text: 'billing' }, {}], 'renewal'],
+    ])('keeps %s from view links without filters', async (_, links, text) => {
         storedViews = [{ ...savedView, state: { ...savedView.state, text: 'renewal' } }]
-        router.actions.push(urls.workflows(), { view: VIEW_ID, text })
+        router.actions.push(urls.workflows(), { view: VIEW_ID, ...links[0] })
         logic = workflowsSavedViewsLogic()
         logic.mount()
+        for (const link of links.slice(1)) {
+            router.actions.push(urls.workflows(), { view: VIEW_ID, ...link })
+        }
         await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
 
         expect(logic.values.activeViewId).toEqual(VIEW_ID)
