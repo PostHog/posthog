@@ -623,9 +623,13 @@ class TestCohortUtils(BaseTest):
         ):
             insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1, written_since="2026-06-01 00:00:00")
 
+        # A retry queued before written_since existed counts every row.
+        insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 1)
+
         sync_execute(
             INSERT_PERSON_STATIC_COHORT,
-            [(uuid.uuid4(), added.uuid, cohort.pk, self.team.id, datetime(2026, 7, 1))],
+            [(uuid.uuid4(), added.uuid, cohort.pk, self.team.id, datetime(2026, 6, 1))],
         )
         insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1, written_since="2026-06-01 00:00:00")
 

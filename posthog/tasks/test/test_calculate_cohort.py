@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from contextlib import nullcontext
+from datetime import datetime, timedelta
 from typing import Optional
 
 import time_machine
@@ -1684,12 +1685,18 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)
         task.push_request(retries=0, called_directly=False, is_eager=True)
         try:
-            with (
-                patch(ch_insert_path, return_value=7),
-                patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
-                self.assertRaises(Retry) as scheduled,
-            ):
-                task.run(cohort.id, self.team.pk)
+            with time_machine.travel(datetime(2026, 3, 1, 12, 0, 0), tick=False) as traveller:
+
+                def slow_insert(*_args: object, **_kwargs: object) -> int:
+                    traveller.shift(timedelta(hours=1))
+                    return 7
+
+                with (
+                    patch(ch_insert_path, side_effect=slow_insert),
+                    patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
+                    self.assertRaises(Retry) as scheduled,
+                ):
+                    task.run(cohort.id, self.team.pk)
 
             with patch(ch_insert_path) as mock_insert_ch, patch(PG_SYNC_PATH) as mock_sync:
                 task.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
@@ -1699,8 +1706,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_insert_ch.assert_not_called()
         # The retry still has to wait for the rows the first attempt wrote, or a lagging replica reads as empty.
         self.assertEqual(mock_sync.call_args.kwargs["min_rows"], 7)
-        self.assertEqual(mock_sync.call_args.kwargs["written_since"], scheduled.exception.sig.kwargs["written_since"])
-        self.assertIsNotNone(mock_sync.call_args.kwargs["written_since"])
+        self.assertEqual(scheduled.exception.sig.kwargs["written_since"], "2026-03-01 12:00:00")
+        self.assertEqual(mock_sync.call_args.kwargs["written_since"], "2026-03-01 12:00:00")
 
     @parameterized.expand(
         [

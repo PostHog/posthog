@@ -1431,12 +1431,12 @@ def insert_cohort_people_into_pg(
     """
     try:
         for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
-            rows_read = _copy_static_cohort_rows_to_pg(cohort, team_id=team_id, written_since=written_since)
-            if rows_read >= min_rows:
+            new_rows_read = _copy_static_cohort_rows_to_pg(cohort, team_id=team_id, written_since=written_since)
+            if new_rows_read >= min_rows:
                 return
             if wait_seconds is None:
                 raise StaticCohortReadBackIncomplete(
-                    f"Read {rows_read} of {min_rows} rows written to static cohort {cohort.pk}"
+                    f"Read {new_rows_read} of {min_rows} rows written to static cohort {cohort.pk}"
                 )
             time.sleep(wait_seconds)
     finally:
@@ -1450,13 +1450,13 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
 
     CH_PAGE_SIZE = 10_000
-    rows_read = 0
+    new_rows_read = 0
 
     # Use cursor-based pagination to stream from ClickHouse in pages instead of
     # loading all rows into memory at once. Cursor-based avoids the O(n²) cost
     # of LIMIT/OFFSET where later pages must scan and discard all preceding rows.
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
-        nonlocal rows_read
+        nonlocal new_rows_read
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
             f"SELECT person_id, max(_timestamp) >= %(written_since)s FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
@@ -1467,7 +1467,8 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
                 "limit": batch_size,
                 "written_since": written_since or "1970-01-01 00:00:00",
             },
-            # The table is sorted by person_id within a cohort, so this streams the GROUP BY instead of holding the rest of the cohort.
+            # The table is sorted by person_id within a cohort, so this streams the GROUP BY instead of
+            # holding every remaining person_id in a hash table.
             settings={"optimize_aggregation_in_order": 1},
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
@@ -1475,7 +1476,7 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
         )
         if not rows:
             return [], cursor
-        rows_read += sum(1 for _, is_written_since in rows if is_written_since)
+        new_rows_read += sum(1 for _, is_written_since in rows if is_written_since)
         items = [str(r[0]) for r in rows]
         return items, items[-1]
 
@@ -1488,7 +1489,7 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
     cohort._insert_users_list_with_batching(
         batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True, save_state=False
     )
-    return rows_read
+    return new_rows_read
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────
