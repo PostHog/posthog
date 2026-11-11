@@ -11,7 +11,7 @@ from django.utils.safestring import mark_safe
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.console.moved import MovedToConsole
-from posthog.admin.console.organization_deletion import data_tool_url
+from posthog.admin.console.organization_deletion_panels import data_tool_url
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline

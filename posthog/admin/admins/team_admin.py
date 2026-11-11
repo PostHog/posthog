@@ -11,7 +11,7 @@ from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from posthog.admin.console.moved import MovedToConsole
-from posthog.admin.console.recording_deletions import recording_deletions_url
+from posthog.admin.console.recording_deletion_tools import recording_deletions_url
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import TeamEventsRetentionConfigInline
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline

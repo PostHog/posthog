@@ -3,12 +3,12 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from pathlib import Path
-from typing import Any
-from urllib.parse import parse_qsl, urlencode
+from types import FunctionType
+from urllib.parse import urlencode
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django import forms
 from django.conf import settings
@@ -16,16 +16,18 @@ from django.contrib import admin
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
-from django.contrib.messages import get_messages
-from django.core.cache import cache
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.management.base import CommandError
+from django.contrib.messages.storage.cookie import CookieStorage
+from django.core.cache import caches
+from django.core.exceptions import PermissionDenied
 from django.db.models import PROTECT, Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
+from django.urls import URLResolver, resolve
+from django.urls.exceptions import Resolver404
+from django.urls.resolvers import RegexPattern
 from django.utils import timezone
-from django.utils.html import format_html
+from django.utils.html import escape, format_html
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from loginas import settings as la_settings
@@ -34,15 +36,37 @@ from structlog.testing import capture_logs
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.admin import register_all_admin
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
+from posthog.admin.console.moved import MovedAction, MovedPage
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
+from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.admin.console.tools import Cell, ConsoleTool, Download, Live, Notice, Page, Paging, Row, Table
+from posthog.admin.console.results import (
+    CACHE_ALIAS as RESULTS_CACHE_ALIAS,
+    KEY_COOKIE,
+    KEY_PREFIX as RESULTS_KEY_PREFIX,
+    ResultCodec,
+)
+from posthog.admin.console.tools import (
+    Cell,
+    ConsoleTool,
+    Download,
+    Live,
+    Notice,
+    Page,
+    Paging,
+    Row,
+    Secret,
+    Table,
+    ToolOperation,
+)
+from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
+from posthog.admin.console.views import _offered_operations
 from posthog.csp_middleware import CSPMiddleware
-from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_visibility_manager
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
@@ -57,27 +81,39 @@ from posthog.models.team.team import Team
 from posthog.models.tophog.queries import TopHogFilterOptions
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
-from posthog.personhog_client.fake_client import get_active_fake
 from posthog.session.models import Session
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.temporal.session_replay.delete_recordings.staff import DeletionRun, RecordingDeletions
 from posthog.test.api_keys import create_project_secret_api_key
-from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
-from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.billing.quota_limiting import QuotaResource
 from ee.hogai.django_checkpoint.compaction import CompactionResult
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
-PROJECT_PANEL_TITLES = ("Overview", "Deletion")
-USER_PANEL_TITLES = ("Overview", "Organizations", "Sign-in", "Personal API keys", "Deletion")
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
 REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
 
 _CLASS_ATTRIBUTE = re.compile(r'class="([^"]*)"')
 _TEMPLATE_TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}")
+_PATH_PARAMETER = re.compile(r"<(?:(\w+):)?(\w+)>")
+_SAMPLE_VALUES = {"int": "7", "uuid": "0d7b8a52-4f0e-4b8e-9a43-6f1c2e5d9b10", "str": "example", "path": "example"}
+CONSOLE_HOME = "/admin/console/"
+TOOLS_PREFIX = "/admin/console/tools/"
+# Old URLs that take over a Django admin view on purpose, because the console adds a reason and cleanup the raw
+# view skips. Each ModelAdmin also refuses its raw view by permission, so the view stays closed when the moved
+# routes are missing.
+INTENTIONAL_ADMIN_OVERRIDES = frozenset(
+    {
+        "admin/posthog/user/<int:pk>/delete/",
+        "admin/legal_documents/legaldocument/<path:object_id>/delete/",
+        "admin/posthog/datadeletionrequest/add/",
+        "admin/account_audits/accountauditcredential/add/",
+        "admin/managed_warehouse/managedwarehouseviewtranslationjob/add/",
+    }
+)
+# Django's set-password form. UserAdmin sets change_password_form to None, so the raw view never shows a form.
+DISABLED_ADMIN_FORMS = frozenset({"admin/posthog/user/<int:pk>/password/"})
 
 
 def _selector_present(css: str, class_name: str) -> bool:
@@ -87,11 +123,29 @@ def _selector_present(css: str, class_name: str) -> bool:
     return re.search(re.escape("." + escaped) + r"(?![a-zA-Z0-9_\\-])", css) is not None
 
 
+def _sample_path(old_path: str) -> tuple[str, dict[str, str]]:
+    # Fills each path parameter of an old URL pattern with a value its converter accepts.
+    values: dict[str, str] = {}
+
+    def fill(match: re.Match[str]) -> str:
+        values[match.group(2)] = _SAMPLE_VALUES[match.group(1) or "str"]
+        return values[match.group(2)]
+
+    return "/" + _PATH_PARAMETER.sub(fill, old_path), values
+
+
 class _DuplicatePanel(Panel):
     record = "team"
     key = "overview"
     title = "Duplicate"
     owner = Owner(name="Dev experience", crest="dev-experience")
+
+
+class _UndeclaredOperationPanel(_DuplicatePanel):
+    operation_keys = frozenset({"rebuild"})
+
+    def operations(self, obj: Model) -> list[Operation]:
+        return [Operation(key="rebuild-all", label="Rebuild all", handler=lambda request, obj, form: None)]
 
 
 class _Tool(ConsoleTool):
@@ -101,10 +155,63 @@ class _Tool(ConsoleTool):
     group = "Data"
 
 
+class _SecretTool(_Tool):
+    key = "issue-password"
+    runs = 0
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(blocks=())
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        return [
+            ToolOperation(
+                key="issue",
+                label="Issue a password",
+                handler=self.issue,
+                danger=True,
+                form_class=ReasonForm,
+                undo_hint="Rotate the password.",
+            )
+        ]
+
+    @classmethod
+    def issue(cls, request: HttpRequest, form: object) -> Page:
+        cls.runs += 1
+        return Page(blocks=(Secret(label="Root password", value="example-secret-value"),))
+
+
 def _register_twice() -> None:
     registry = ConsoleRegistry()
     registry.register_panel(type("FirstPanel", (_DuplicatePanel,), {}))
     registry.register_panel(type("SecondPanel", (_DuplicatePanel,), {}))
+
+
+def _fresh_resolver() -> Callable[..., None]:
+    # A new function object each call, as when a module that failed to import runs again.
+    def find_team(key_id: str) -> None:
+        return None
+
+    return find_team
+
+
+def _assert_target_is_registered(moved: MovedAction) -> None:
+    # A target is a panel anchor such as "#panel-remote-config", or an operation form such as "api-token/set/".
+    page, _, anchor = moved.target.partition("#")
+    panel_key, _, operation_path = (anchor.removeprefix("panel-") if anchor else page).partition("/")
+    panel = console.get_panel(moved.record, panel_key)
+    assert panel is not None, f"{moved.old_path} leads to {moved.record} panel {panel_key!r}, which is not registered"
+    operation_key = operation_path.strip("/")
+    if operation_key:
+        assert panel.operation_keys is not None and operation_key in panel.operation_keys, (
+            f"{moved.old_path} leads to operation {operation_key!r}, which {type(panel).__name__}.operation_keys "
+            "does not declare"
+        )
+
+
+def _move_twice() -> None:
+    registry = ConsoleRegistry()
+    registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")
+    registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/other-report/")
 
 
 class TestAdminConsoleAssets(SimpleTestCase):
@@ -174,6 +281,26 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "not one of",
             ),
             (
+                "moved_url_outside_the_admin_step_up",
+                lambda: ConsoleRegistry().register_moved_page(
+                    old_path="resave-cohorts/", title="Re-save cohorts", url="/admin/console/tools/resave-cohorts/"
+                ),
+                "under admin/",
+            ),
+            (
+                "moved_action_without_a_way_to_find_its_record",
+                lambda: ConsoleRegistry().register_moved_action(
+                    old_path="admin/posthog/team/<int:team_id>/rebuild-cache/", record="team", target="#panel-x"
+                ),
+                "needs a <pk>",
+            ),
+            ("moved_url_registered_by_two_contributions", _move_twice, "already registered"),
+            (
+                "operation_missing_from_operation_keys",
+                lambda: _offered_operations(_UndeclaredOperationPanel(), Team()),
+                "missing from operation_keys",
+            ),
+            (
                 "danger_operation_without_reason",
                 lambda: Operation(key="wipe", label="Wipe", handler=lambda request, obj, form: None, danger=True),
                 "reason",
@@ -226,6 +353,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "not a table, notice or output",
             ),
             (
+                "secret_on_a_page_that_renders_again",
+                lambda: Page(blocks=(Secret(label="Password", value="x"),)).refuse_secrets("tool page"),
+                "only from an operation's result page",
+            ),
+            (
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
@@ -242,6 +374,21 @@ class TestAdminConsoleAssets(SimpleTestCase):
     ) -> None:
         with self.assertRaisesRegex(ValueError, message):
             contribute()
+
+    def test_a_contribution_module_that_runs_again_registers_the_same_declarations_again(self) -> None:
+        registry = ConsoleRegistry()
+
+        for _ in range(2):
+            registry.register_panel(type("RetriedPanel", (_DuplicatePanel,), {}))
+            registry.register_moved_action(
+                old_path="admin/posthog/apikey/<str:key_id>/roll/",
+                record="team",
+                target="#panel-overview",
+                resolver=_fresh_resolver(),
+            )
+
+        assert type(registry.get_panel("team", "overview")).__name__ == "RetriedPanel"
+        assert [moved.old_path for moved in registry.moved()] == ["admin/posthog/apikey/<str:key_id>/roll/"]
 
     @parameterized.expand(
         [
@@ -297,6 +444,152 @@ class TestAdminConsoleTheme(SimpleTestCase):
         assert all(f'nonce="{allowed.group(1)}"' in tag for tag in inline_scripts), inline_scripts
 
 
+def _shared_console() -> None:
+    registry.register_moved_page(old_path="admin/shared/", title="Shared", url="/admin/console/tools/shared/")  # type: ignore[name-defined]  # noqa: F821
+
+
+def _broken_console() -> None:
+    # Imports a healthy module before it raises, so the test checks that the rollback keeps what that one declared.
+    import_module("products.shared.backend.console")
+    registry.register_moved_page(old_path="admin/broken/", title="Broken", url="/admin/console/tools/broken/")  # type: ignore[name-defined]  # noqa: F821
+    raise RuntimeError("a console.py raised")
+
+
+def _working_console() -> None:
+    registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")  # type: ignore[name-defined]  # noqa: F821
+
+
+FAKE_CONSOLE_MODULES = {
+    "products.shared.backend.console": _shared_console,
+    "products.broken.backend.console": _broken_console,
+    "products.working.backend.console": _working_console,
+}
+
+
+class TestAdminConsoleMovedUrls(SimpleTestCase):
+    def _get(self, url: str) -> HttpResponse:
+        request = RequestFactory().get(url)
+        request.user = User(email="staff@posthog.com", is_staff=True, is_active=True)
+        request._messages = CookieStorage(request)  # type: ignore[attr-defined]
+        match = resolve(request.path)
+        return match.func(request, *match.args, **match.kwargs)
+
+    def test_a_contribution_that_raises_drops_only_its_own_moved_urls(self) -> None:
+        registry = ConsoleRegistry()
+        imported: set[str] = set()
+
+        def import_contribution(module_name: str) -> None:
+            if module_name in imported:
+                return
+            imported.add(module_name)
+            # The function runs with the fake module's __name__, as a real console.py would, so the registry sees
+            # which module declared each moved URL.
+            module_globals = {"__name__": module_name, "registry": registry, "import_module": import_contribution}
+            FunctionType(FAKE_CONSOLE_MODULES[module_name].__code__, module_globals)()
+
+        with (
+            patch.object(
+                registry,
+                "contribution_modules",
+                return_value=[
+                    "products.broken.backend.console",
+                    "products.shared.backend.console",
+                    "products.working.backend.console",
+                ],
+            ),
+            patch("posthog.admin.console.registry.importlib.import_module", side_effect=import_contribution),
+            capture_logs() as logs,
+        ):
+            urlconf = URLResolver(RegexPattern(r"^/"), moved_url_patterns(registry))
+
+        assert urlconf.resolve("/admin/report/").route == "admin/report/"
+        # The broken module imported the shared one before raising: the shared declaration stays, the broken one goes.
+        assert sorted(moved.old_path for moved in registry.moved()) == ["admin/report/", "admin/shared/"]
+        assert [(log["event"], log["module"]) for log in logs] == [
+            ("admin_console_contribution_failed", "products.broken.backend.console")
+        ]
+
+    @parameterized.expand(
+        [
+            (moved.old_path, moved)
+            for moved in console.moved()
+            if isinstance(moved, MovedAction) and moved.resolver is None
+        ]
+    )
+    def test_an_old_action_url_lands_on_its_registered_panel(self, _name: str, moved: MovedAction) -> None:
+        old_path, values = _sample_path(moved.old_path)
+
+        response = self._get(f"{old_path}?from=ticket")
+
+        page, _, anchor = moved.target.partition("#")
+        record_page = f"/admin/console/{RECORD_TYPES[moved.record].plural}/{values['pk']}/"
+        assert response.status_code == 302
+        assert response["Location"] == f"{record_page}{page}?from=ticket" + (f"#{anchor}" if anchor else "")
+        _assert_target_is_registered(moved)
+
+    @parameterized.expand(
+        [
+            (moved.old_path, moved)
+            for moved in console.moved()
+            if isinstance(moved, MovedAction) and moved.resolver is not None
+        ]
+    )
+    def test_an_old_action_url_with_a_resolver_routes_to_its_registered_panel(
+        self, _name: str, moved: MovedAction
+    ) -> None:
+        old_path, _ = _sample_path(moved.old_path)
+
+        # A resolver looks its record up in the database, so its product tests cover where the redirect lands.
+        assert resolve(old_path).route == moved.old_path
+        _assert_target_is_registered(moved)
+
+    @parameterized.expand([(moved.old_path, moved) for moved in console.moved()])
+    def test_an_old_url_replaces_no_live_django_admin_view(self, _name: str, moved: MovedAction | MovedPage) -> None:
+        register_all_admin()
+        django_admin = URLResolver(RegexPattern(r"^/admin/"), admin.site.get_urls())
+        old_path, _ = _sample_path(moved.old_path)
+
+        try:
+            route = django_admin.resolve(old_path).route
+        except Resolver404:
+            return
+        # Django admin answers every unknown path with a redirect to the change page or the catch-all 404 view.
+        catch_all = route.endswith("<path:object_id>/") or route == "(?P<url>.*)$"
+        assert catch_all or moved.old_path in INTENTIONAL_ADMIN_OVERRIDES | DISABLED_ADMIN_FORMS, (
+            f"{moved.old_path} hides the live Django admin route {route!r}. Remove that view first, or add the "
+            "path to INTENTIONAL_ADMIN_OVERRIDES when the console replaces it on purpose."
+        )
+
+    @parameterized.expand([(moved.old_path, moved) for moved in console.moved() if isinstance(moved, MovedPage)])
+    def test_an_old_page_url_lands_on_its_registered_tool(self, _name: str, moved: MovedPage) -> None:
+        old_path, values = _sample_path(moved.old_path)
+
+        response = self._get(f"{old_path}?from=ticket")
+
+        target = moved.url.format(**values)
+        assert response.status_code == 302
+        assert response["Location"] == target + ("&" if "?" in target else "?") + "from=ticket"
+        if target == CONSOLE_HOME:
+            return
+        tool_key = target.removeprefix(TOOLS_PREFIX).split("/")[0]
+        assert target.startswith(TOOLS_PREFIX) and console.get_tool(tool_key) is not None, f"No tool for {target}"
+
+
+class TestAdminConsoleOverriddenAdminViews(BaseTest):
+    @parameterized.expand([(old_path,) for old_path in sorted(INTENTIONAL_ADMIN_OVERRIDES)])
+    def test_django_admin_refuses_the_raw_view_an_old_url_overrides(self, old_path: str) -> None:
+        register_all_admin()
+        django_admin = URLResolver(RegexPattern(r"^/admin/"), admin.site.get_urls())
+        sample_path, _ = _sample_path(old_path)
+        match = django_admin.resolve(sample_path)
+        request = RequestFactory().get(sample_path)
+        self.user.is_staff = True
+        request.user = self.user
+
+        with self.assertRaises(PermissionDenied):
+            match.func(request, *match.args, **match.kwargs)
+
+
 class TestAdminConsoleFormField(SimpleTestCase):
     @parameterized.expand(
         [
@@ -346,55 +639,91 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 403
 
-    def test_team_page_shows_core_and_product_panels(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.OWNER
-        self.organization_membership.save()
+    @override_settings(SESSION_COOKIE_SECURE=True)
+    def test_a_secret_result_shows_once_and_a_reload_does_not_run_the_operation_again(self) -> None:
+        _SecretTool.runs = 0
+        with patch.object(console, "get_tool", return_value=_SecretTool()), capture_logs() as audit_log:
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+            result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+            cached = repr(caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}"))
+            key_cookie = response.cookies[KEY_COOKIE]
+            first = self.client.get(response["Location"])
+            reload = self.client.get(response["Location"])
 
-        response = self.client.get(f"/admin/console/teams/{self.team.pk}/")
+        assert response.status_code == 302
+        assert response["Location"].startswith("/admin/console/results/")
+        assert "example-secret-value" not in response["Location"]
+        assert "example-secret-value" not in cached and key_cookie.value not in cached
+        assert key_cookie["path"] == response["Location"] and key_cookie["httponly"] and key_cookie["secure"]
+        assert key_cookie["samesite"] == "Strict"
+        assert first.cookies[KEY_COOKIE]["max-age"] == 0
+        assert first.status_code == 200
+        assert "example-secret-value" in first.content.decode()
+        assert reload.status_code == 410
+        assert "example-secret-value" not in reload.content.decode()
+        assert _SecretTool.runs == 1
+        for page in (response, first, reload):
+            assert "no-store" in page["Cache-Control"]
+        assert any(entry.get("reason") == "Customer onboarding" for entry in audit_log)
+        assert "example-secret-value" not in repr(audit_log)
+
+    @parameterized.expand(
+        [
+            ("without_its_key", None, 410, "The key for this result is missing", True),
+            ("stored_by_another_version", KeyError("RenamedBlock"), 410, "PostHog was updated", False),
+        ]
+    )
+    def test_a_result_that_cannot_be_opened_explains_why(
+        self, _name: str, decode_error: Exception | None, status: int, explanation: str, kept: bool
+    ) -> None:
+        with patch.object(console, "get_tool", return_value=_SecretTool()):
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+        result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+        if decode_error is None:
+            self.client.cookies.pop(KEY_COOKIE)
+        with patch.object(ResultCodec, "loads", side_effect=decode_error):
+            page = self.client.get(response["Location"])
+
+        assert page.status_code == status
+        assert explanation in page.content.decode()
+        assert "example-secret-value" not in page.content.decode()
+        assert (caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}") is not None) == kept
+
+    def _record(self, record: str) -> Model:
+        if record == "deletion-request":
+            return DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
+        return {"team": self.team, "organization": self.organization, "project": self.project, "user": self.user}[
+            record
+        ]
+
+    @parameterized.expand([(record,) for record in RECORD_TYPES])
+    def test_every_registered_panel_renders_on_its_record_page(self, record: str) -> None:
+        obj = self._record(record)
+
+        response = self.client.get(RECORD_TYPES[record].url(obj))
 
         assert response.status_code == 200
         content = response.content.decode()
-        for title in (
-            "Overview",
-            "Remote config cache",
-            "Group types",
-            "Email sending",
-            "AI gateway",
-            "Experiments",
-            "Project API token",
-            "Session recordings",
-            "Project secret API keys",
-        ):
-            assert title in content
-        assert "Needs attention" in content and "Ingested events:" in content
-        for panel in console.panels_for("team"):
-            assert len(panel.facts(self.team)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
+        for panel in console.panels_for(record):
+            assert escape(panel.title) in content, f"{panel.key} is missing from the {record} page"
+            assert len(panel.facts(obj)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
 
+    def test_record_pages_link_their_related_records(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        content = self.client.get(f"/admin/console/teams/{self.team.pk}/").content.decode()
+
+        assert "Needs attention" in content and "Ingested events:" in content
         assert f"/admin/console/organizations/{self.organization.pk}/" in content
         assert f"/admin/console/projects/{self.project.pk}/" in content
         assert f"/admin/console/users/{self.user.pk}/" in content
-        assert f"/admin/console/tools/ai-gateway-wallet/?team={self.team.pk}" in content
-
-        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
-        assert organization_page.status_code == 200
-        organization_content = organization_page.content.decode()
-        for title in ("Overview", "Teams", "Billing", "Deletion", "Managed warehouse", "Legal documents"):
-            assert title in organization_content
-        assert f"/admin/console/teams/{self.team.pk}/" in organization_content
-
-        for record, path, titles in (
-            ("project", f"/admin/console/projects/{self.project.pk}/", PROJECT_PANEL_TITLES),
-            ("user", f"/admin/console/users/{self.user.pk}/", USER_PANEL_TITLES),
-        ):
-            record_page = self.client.get(path)
-            assert record_page.status_code == 200
-            record_content = record_page.content.decode()
-            for title in titles:
-                assert title in record_content, f"{title} is missing from the {record} page"
-            assert f"/admin/console/organizations/{self.organization.pk}/" in record_content
-            obj = self.project if record == "project" else self.user
-            for panel in console.panels_for(record):
-                assert len(panel.facts(obj)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
+        organization_content = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content
+        assert f"/admin/console/teams/{self.team.pk}/" in organization_content.decode()
+        for record_page in (f"/admin/console/projects/{self.project.pk}/", f"/admin/console/users/{self.user.pk}/"):
+            assert (
+                f"/admin/console/organizations/{self.organization.pk}/" in self.client.get(record_page).content.decode()
+            )
         assert (
             f"/admin/console/teams/{self.team.pk}/"
             in self.client.get(f"/admin/console/projects/{self.project.pk}/").content.decode()
@@ -403,6 +732,20 @@ class TestAdminConsoleViews(BaseTest):
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
         assert f"/admin/console/teams/{self.team.pk}/" in home
+
+    @parameterized.expand([("team",), ("project",), ("user",)])
+    def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
+        obj = self._record(record)
+
+        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/change/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "This is the Django admin" in content
+        panel_keys = re.findall(rf"/admin/console/{record}s/{obj.pk}/#panel-([a-z0-9-]+)", content)
+        assert panel_keys, f"The Django admin {record} page points nowhere in the console"
+        unknown = sorted(key for key in set(panel_keys) if console.get_panel(record, key) is None)
+        assert not unknown, f"The Django admin {record} page points to panels the console does not have: {unknown}"
 
     @parameterized.expand(
         [
@@ -442,113 +785,6 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("form_page_keeps_its_parameters", "team", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
-            ("button_action_lands_on_its_panel", "team", "rebuild-cache/", "#panel-remote-config"),
-            (
-                "suspend_form_keeps_its_parameters",
-                "team",
-                "suspend-email-sending/?from=ticket",
-                "email-sending/suspend/?from=ticket",
-            ),
-            (
-                "group_type_edit_keeps_its_index_and_parameters",
-                "team",
-                "group-type-mapping/3/edit/?from=ticket",
-                "group-types/edit-3/?from=ticket",
-            ),
-            (
-                "whole_page_lands_on_its_panel",
-                "team",
-                "delete-recordings/?from=ticket",
-                "?from=ticket#panel-recordings",
-            ),
-            ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
-            ("organization_deletion", "organization", "trigger-deletion/?from=ticket", "?from=ticket#panel-deletion"),
-            (
-                "deletion_request_form_page",
-                "datadeletionrequest",
-                "approve/?from=ticket",
-                "workflow/approve/?from=ticket",
-            ),
-            ("project_deletion", "project", "trigger-deletion/?from=ticket", "?from=ticket#panel-deletion"),
-            ("project_delete_now", "project", "delete-now/", "#panel-deletion"),
-            ("user_deletion", "user", "delete/?from=ticket", "deletion/delete/?from=ticket"),
-            ("user_password_lands_on_sign_in", "user", "password/", "#panel-sign-in"),
-        ]
-    )
-    def test_an_old_django_admin_action_url_lands_on_the_console(
-        self, _name: str, record: str, old: str, new: str
-    ) -> None:
-        obj: Model
-        if record == "team":
-            obj, plural = self.team, "teams"
-        elif record == "organization":
-            obj, plural = self.organization, "organizations"
-        elif record == "project":
-            obj, plural = self.project, "projects"
-        elif record == "user":
-            obj, plural = self.user, "users"
-        else:
-            obj = DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
-            plural = "deletion-requests"
-        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/{old}")
-
-        assert response.status_code == 302
-        assert response["Location"] == f"/admin/console/{plural}/{obj.pk}/{new}"
-
-    @parameterized.expand(
-        [
-            ("team", ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token", "recordings")),
-            ("project", ("deletion",)),
-            ("user", ("sign-in", "deletion")),
-        ]
-    )
-    def test_django_admin_page_points_moved_actions_to_the_console(
-        self, record: str, panel_keys: tuple[str, ...]
-    ) -> None:
-        obj: Model = {"team": self.team, "project": self.project, "user": self.user}[record]
-        plural = f"{record}s"
-
-        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/change/")
-
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "This is the Django admin" in content
-        for panel_key in panel_keys:
-            assert f"/admin/console/{plural}/{obj.pk}/#panel-{panel_key}" in content
-
-    @parameterized.expand(
-        [
-            ("team_change_form", "team", "teams", []),
-            (
-                "organization_change_form_suggests_deactivation_reasons",
-                "organization",
-                "organizations",
-                [
-                    'list="id_is_not_active_reason_suggestions"',
-                    f'<option value="{Organization.DeactivationReason.DESKTOP_ABUSE}">',
-                ],
-            ),
-            ("changelist", None, None, []),
-        ]
-    )
-    def test_the_django_admin_banner_opens_the_console_page_of_the_record(
-        self, _name: str, record: str | None, plural: str | None, expected: list[str]
-    ) -> None:
-        obj = {"team": self.team, "organization": self.organization}.get(record or "")
-        url = f"/admin/posthog/{record}/{obj.pk}/change/" if obj is not None else "/admin/posthog/team/"
-
-        response = self.client.get(url)
-
-        assert response.status_code == 200
-        console_url = f"/admin/console/{plural}/{obj.pk}/" if obj is not None else "/admin/console/"
-        content = response.content.decode()
-        assert f'<a href="{console_url}">Open PostHog Admin</a>' in content
-        for text in expected:
-            assert text in content
-
-    @parameterized.expand(
-        [
             ("new_token", "phc_console_new", 302, "phc_console_new"),
             ("blank_token", "   ", 400, "phc_console_old"),
             ("identical_token", "phc_console_old", 400, "phc_console_old"),
@@ -571,77 +807,6 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == expected_status
         self.team.refresh_from_db()
         assert self.team.api_token == expected_token
-
-    @patch("products.ai_gateway.backend.facade.api.add_team_credit")
-    def test_a_double_submitted_credit_form_reuses_its_idempotency_key(self, add_credit: MagicMock) -> None:
-        add_credit.return_value = TeamCreditAdded(
-            entry_id="entry-1", amount_usd="25", balance_usd="25", duplicate=False
-        )
-        form = self.client.get(f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/").content.decode()
-        nonce = re.search(r'name="form_nonce" value="([^"]+)"', form)
-        assert nonce is not None
-
-        for _ in range(2):
-            self.client.post(
-                f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/",
-                {"amount_usd": "25", "reason": "Outage goodwill", "form_nonce": nonce.group(1)},
-            )
-
-        nonces = {call.kwargs["form_nonce"] for call in add_credit.call_args_list}
-        assert add_credit.call_count == 2
-        assert nonces == {nonce.group(1)}
-
-    @parameterized.expand(
-        [
-            (
-                "balance_and_ledger",
-                Wallet(
-                    team_id=0,
-                    known=True,
-                    has_ledger=True,
-                    balance="9.500000",
-                    recent=[LedgerEntry("2026-06-01", "topup", "funding", "prepaid", "10.000000", "ref-1")],
-                ),
-                ["Balance: $9.500000", "ref-1"],
-            ),
-            (
-                "no_gateway_account",
-                Wallet(team_id=0, known=False, has_ledger=True, balance=None, recent=[]),
-                ["no gateway account yet", "No ledger entries yet."],
-            ),
-            ("not_configured", AIGatewayNotConfigured(), ["not configured in this region"]),
-            ("gateway_fails", AIGatewayInternalError("boom"), ["The wallet is unavailable: boom"]),
-        ]
-    )
-    def test_the_old_wallet_page_opens_the_wallet_tool(
-        self, _name: str, wallet: Wallet | Exception, expected: list[str]
-    ) -> None:
-        with patch(
-            "posthog.llm.gateway_internal_client.get_wallet",
-            **({"side_effect": wallet} if isinstance(wallet, Exception) else {"return_value": wallet}),
-        ) as get_wallet:
-            response = self.client.get(f"/admin/posthog/team/{self.team.pk}/ai-gateway-wallet/", follow=True)
-
-        assert response.redirect_chain == [(f"/admin/console/tools/ai-gateway-wallet/?team={self.team.pk}", 302)]
-        get_wallet.assert_called_once_with(self.team.pk)
-        content = response.content.decode()
-        for text in expected:
-            assert text in content
-
-    @patch(
-        "products.ai_gateway.backend.facade.api.add_team_credit",
-        side_effect=TeamCreditRefused("Failed to add credit: gateway down"),
-    )
-    def test_a_failed_operation_shows_the_form_again_with_what_staff_typed(self, _add_credit: MagicMock) -> None:
-        response = self.client.post(
-            f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/",
-            {"amount_usd": "25", "reason": "Outage goodwill"},
-        )
-
-        assert response.status_code == 400
-        content = response.content.decode()
-        assert "gateway down" in content
-        assert "Outage goodwill" in content
 
     @parameterized.expand(
         [
@@ -694,8 +859,8 @@ class TestAdminConsoleViews(BaseTest):
             ("already_pending_when_confirmed", True, False, None, None, True, 404, True),
         ]
     )
-    @patch("posthog.admin.console.organization_deletion.report_organization_deleted")
-    @patch("posthog.admin.console.organization_deletion.start_delete_organization_workflow")
+    @patch("posthog.admin.console.organization_deletion_panels.report_organization_deleted")
+    @patch("posthog.admin.console.organization_deletion_panels.start_delete_organization_workflow")
     def test_deleting_an_organization_needs_the_deletion_group_and_a_confirmed_preview(
         self,
         _name: str,
@@ -824,45 +989,6 @@ class TestAdminConsoleViews(BaseTest):
         assert form.status_code == (200 if in_group else 403)
         assert response.status_code == expected_status
         assert call_command.called == in_group
-
-    @parameterized.expand(
-        [
-            ("queued", "2026-07-15", None, 302, True),
-            (
-                "refused_by_the_command",
-                "2026-07-15",
-                CommandError("A run for 2026-07-15 was already dispatched."),
-                400,
-                True,
-            ),
-            ("date_too_far_ahead", "2026-07-30", None, 400, False),
-        ]
-    )
-    @patch("products.ai_observability.backend.admin.call_command")
-    @time_machine.travel("2026-07-22T12:00:00Z", tick=False)
-    def test_sending_the_ai_observability_usage_report_queues_it_or_shows_why_not(
-        self,
-        _name: str,
-        report_date: str,
-        command_error: Exception | None,
-        expected_status: int,
-        expect_called: bool,
-        call_command: MagicMock,
-    ) -> None:
-        call_command.side_effect = command_error
-
-        response = self.client.post(
-            "/admin/console/tools/ai-observability/send-usage-report/", {"report_date": report_date}
-        )
-
-        assert response.status_code == expected_status
-        assert call_command.called == expect_called
-        if expect_called:
-            call_command.assert_called_once_with(
-                "send_ai_observability_usage_report", f"--date={report_date}", "--async"
-            )
-        if command_error is not None:
-            assert "already dispatched" in response.content.decode()
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_events_retention_tool_lists_the_teams_of_an_organization_with_a_default(self) -> None:
@@ -1085,6 +1211,36 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
+            ("team_change_form", "team", "teams", []),
+            (
+                "organization_change_form_suggests_deactivation_reasons",
+                "organization",
+                "organizations",
+                [
+                    'list="id_is_not_active_reason_suggestions"',
+                    f'<option value="{Organization.DeactivationReason.DESKTOP_ABUSE}">',
+                ],
+            ),
+            ("changelist", None, None, []),
+        ]
+    )
+    def test_the_django_admin_banner_opens_the_console_page_of_the_record(
+        self, _name: str, record: str | None, plural: str | None, expected: list[str]
+    ) -> None:
+        obj = {"team": self.team, "organization": self.organization}.get(record or "")
+        url = f"/admin/posthog/{record}/{obj.pk}/change/" if obj is not None else "/admin/posthog/team/"
+
+        response = self.client.get(url)
+
+        assert response.status_code == 200
+        console_url = f"/admin/console/{plural}/{obj.pk}/" if obj is not None else "/admin/console/"
+        content = response.content.decode()
+        assert f'<a href="{console_url}">Open PostHog Admin</a>' in content
+        for text in expected:
+            assert text in content
+
+    @parameterized.expand(
+        [
             (
                 "values_list_the_matching_keys",
                 "/admin/redisvalues?q=cache:*",
@@ -1178,455 +1334,6 @@ class TestAdminConsoleViews(BaseTest):
         assert log.detail["type"] == f"previous_ttl:{current_ttl}"
         assert log.detail["context"] == {"reason": "Stuck"}
         assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
-
-    @parameterized.expand(
-        [
-            (
-                "rename_keeps_the_created_time",
-                {"name_singular": "Company"},
-                ["name_singular"],
-                None,
-                "Singular name: Not set to Company",
-            ),
-            (
-                "created_time_to_the_millisecond",
-                {"created_at": "2026-02-20 08:15:00.456"},
-                ["created_at"],
-                int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000) + 456,
-                "Created (UTC): 2026-01-15 10:30:00.123 to 2026-02-20 08:15:00.456",
-            ),
-            (
-                "cleared_created_time",
-                {"created_at": ""},
-                ["created_at"],
-                None,
-                "Created (UTC): 2026-01-15 10:30:00.123 to Not set",
-            ),
-            (
-                "cleared_default_columns",
-                {"default_columns": ""},
-                ["default_columns"],
-                None,
-                'Default columns: ["name"] to Not set',
-            ),
-            ("unchanged_form", {}, None, None, ""),
-            ("invalid_created_time", {"created_at": "not-a-datetime"}, None, None, ""),
-            ("impossible_created_time", {"created_at": "2026-02-30 10:30:00"}, None, None, ""),
-        ]
-    )
-    def test_editing_a_group_type_previews_then_writes_only_the_changed_fields(
-        self,
-        _name: str,
-        changes: dict[str, str],
-        expected_mask: list[str] | None,
-        expected_created_at: int | None,
-        expected_message: str,
-    ) -> None:
-        create_group_type_mapping(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-            default_columns=["name"],
-            created_at=datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=UTC),
-        )
-        url = f"/admin/console/teams/{self.team.pk}/group-types/edit-0/"
-        prefilled = self.client.get(url).context["form"].initial
-
-        preview = self.client.post(url, {**prefilled, **changes, "reason": "Customer asked"})
-        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
-        assert updates == []
-        if expected_mask is None:
-            assert preview.status_code == 400
-            return
-        assert preview.status_code == 200
-        assert "After saving" in preview.content.decode()
-
-        saved = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
-
-        assert saved.status_code == 302
-        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
-        assert len(updates) == 1
-        assert list(updates[0].update_mask) == expected_mask
-        if "created_at" in expected_mask:
-            assert (updates[0].created_at if updates[0].HasField("created_at") else None) == expected_created_at
-        assert expected_message in " ".join(str(message) for message in get_messages(saved.wsgi_request))
-
-    @parameterized.expand([("before_the_preview", True), ("before_the_confirm", False)])
-    def test_editing_a_group_type_refuses_when_the_group_type_changed_since_the_form_opened(
-        self, _name: str, change_before_preview: bool
-    ) -> None:
-        mapping = create_group_type_mapping(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-            default_columns=["name"],
-        )
-        url = f"/admin/console/teams/{self.team.pk}/group-types/edit-0/"
-        prefilled = self.client.get(url).context["form"].initial
-        mapping.default_columns = ["name", "email"]
-
-        if change_before_preview:
-            update_group_type_mapping(mapping)
-        preview = self.client.post(url, {**prefilled, "name_singular": "Company", "reason": "Customer asked"})
-        if change_before_preview:
-            assert preview.status_code == 400
-            assert "changed since you opened this form" in preview.content.decode()
-            return
-        update_group_type_mapping(mapping)
-        saved = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
-
-        assert saved.status_code == 409
-        assert "changed since you opened this form" in saved.content.decode()
-        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
-        assert updates == []
-
-    @parameterized.expand(
-        [
-            (
-                "person_dry_run",
-                "delete-by-person",
-                {"distinct_ids": "user-1\n\nuser-2\n", "dry_run": "on"},
-                None,
-                "delete-recordings-with-person",
-                {"distinct_ids": ["user-1", "user-2"]},
-            ),
-            (
-                "filters_with_a_relative_date",
-                "delete-by-filters",
-                {"date_from": "-30d", "duration_max": "5", "platform": "web", "confirm_team_id": "{team_id}"},
-                None,
-                "delete-recordings-with-query",
-                {
-                    "query": {
-                        "date_from": "-30d",
-                        "having_predicates": '[{"type": "recording", "key": "duration", "operator": "lt", "value": 5}, '
-                        '{"type": "recording", "key": "snapshot_source", "operator": "exact", "value": ["web"]}]',
-                    }
-                },
-            ),
-            (
-                "filters_with_a_datetime_and_its_offset",
-                "delete-by-filters",
-                {"date_from": "2024-01-01T00:00:00+00:00", "date_to": "-7d", "dry_run": "on"},
-                None,
-                "delete-recordings-with-query",
-                {"query": {"date_from": "2024-01-01T00:00:00+00:00", "date_to": "-7d"}},
-            ),
-            (
-                "filters_without_a_date_from_name_the_query_default",
-                "delete-by-filters",
-                {"duration_max": "5", "dry_run": "on"},
-                None,
-                "delete-recordings-with-query",
-                {
-                    "query": {
-                        "date_from": "-3d",
-                        "having_predicates": '[{"type": "recording", "key": "duration", "operator": "lt", "value": 5}]',
-                    }
-                },
-            ),
-            (
-                "filters_with_null_as_the_date",
-                "delete-by-filters",
-                {"date_from": "null", "dry_run": "on"},
-                None,
-                None,
-                None,
-            ),
-            (
-                "filters_with_a_bare_number_of_days",
-                "delete-by-filters",
-                {"date_from": "-30", "dry_run": "on"},
-                None,
-                None,
-                None,
-            ),
-            ("filters_with_a_bare_year", "delete-by-filters", {"date_from": "2024", "dry_run": "on"}, None, None, None),
-            (
-                "filters_with_a_bare_year_and_month",
-                "delete-by-filters",
-                {"date_from": "202401", "dry_run": "on"},
-                None,
-                None,
-                None,
-            ),
-            (
-                "filters_with_non_ascii_digits_in_a_date",
-                "delete-by-filters",
-                {"date_to": "-\uff13\uff10d", "dry_run": "on"},
-                None,
-                None,
-                None,
-            ),
-            (
-                "filters_with_an_unsupported_date_unit",
-                "delete-by-filters",
-                {"date_to": "-30D", "dry_run": "on"},
-                None,
-                None,
-                None,
-            ),
-            (
-                "filters_with_a_date_unit_without_a_number",
-                "delete-by-filters",
-                {"date_to": "w", "dry_run": "on"},
-                None,
-                None,
-                None,
-            ),
-            (
-                "filters_with_a_date_that_is_not_one",
-                "delete-by-filters",
-                {"date_to": "yesterday", "dry_run": "on"},
-                None,
-                None,
-                None,
-            ),
-            ("filters_without_a_filter", "delete-by-filters", {"dry_run": "on"}, None, None, None),
-            (
-                "filters_with_a_person_uuid",
-                "delete-by-filters",
-                {"person_uuid": " 6B1E2C3D-4F5A-4B6C-8D7E-9F0A1B2C3D4E ", "dry_run": "on"},
-                None,
-                "delete-recordings-with-query",
-                {"query": {"date_from": "-3d", "person_uuid": "6b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e"}},
-            ),
-            ("filters_with_null_as_the_person", "delete-by-filters", {"person_uuid": "null"}, None, None, None),
-            ("filters_with_quotes_as_the_person", "delete-by-filters", {"person_uuid": '""'}, None, None, None),
-            ("all_without_the_typed_team_id", "delete-all", {"confirm_team_id": "0"}, None, None, None),
-            (
-                "all_with_the_typed_team_id",
-                "delete-all",
-                {"confirm_team_id": "{team_id}"},
-                None,
-                "delete-recordings-with-team",
-                {},
-            ),
-            (
-                "session_ids_from_a_csv",
-                "delete-by-session-ids",
-                {"dry_run": "on"},
-                ("sessions.csv", b"session_id\nsession-a\nsession-b\nsession-a\n"),
-                "delete-recordings-with-session-ids",
-                {"total_session_ids": 2, "source_filename": "sessions.csv"},
-            ),
-            (
-                "session_ids_from_an_excel_csv_with_a_byte_order_mark",
-                "delete-by-session-ids",
-                {"dry_run": "on"},
-                ("sessions.csv", b"\xef\xbb\xbfsession_id\r\nsession-a\r\nsession-b\r\n"),
-                "delete-recordings-with-session-ids",
-                {"total_session_ids": 2},
-            ),
-            (
-                "session_ids_from_a_csv_with_a_value_too_long_for_a_session_id",
-                "delete-by-session-ids",
-                {"dry_run": "on"},
-                ("sessions.csv", b"a" * 140_000 + b"\n"),
-                None,
-                None,
-            ),
-            (
-                "session_ids_from_a_file_that_is_not_csv",
-                "delete-by-session-ids",
-                {"dry_run": "on"},
-                ("ids.txt", b"session-a"),
-                None,
-                None,
-            ),
-        ]
-    )
-    @patch("posthog.temporal.session_replay.delete_recordings.staff.store_session_id_chunks")
-    @patch("posthog.temporal.session_replay.delete_recordings.staff.sync_connect")
-    def test_recording_deletions_preview_then_start_the_workflow(
-        self,
-        _name: str,
-        operation_key: str,
-        data: dict[str, str],
-        upload: tuple[str, bytes] | None,
-        expected_workflow: str | None,
-        expected_input: dict[str, object] | None,
-        sync_connect: MagicMock,
-        store_chunks: MagicMock,
-    ) -> None:
-        sync_connect.return_value.start_workflow = AsyncMock()
-        store_chunks.return_value = ("deletion-inputs/run/", 1)
-        url = f"/admin/console/teams/{self.team.pk}/recordings/{operation_key}/"
-        form: dict[str, object] = {
-            key: value.format(team_id=self.team.pk) for key, value in {**data, "reason": "GDPR request"}.items()
-        }
-        if upload is not None:
-            form["csv_file"] = SimpleUploadedFile(upload[0], upload[1], "text/csv")
-
-        preview = self.client.post(url, form)
-        if expected_workflow is None:
-            assert preview.status_code == 400
-            assert not sync_connect.return_value.start_workflow.called
-            return
-        assert preview.status_code == 200
-        assert not sync_connect.return_value.start_workflow.called
-
-        started = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
-
-        assert started.status_code == 302
-        assert started["Location"].startswith(f"/admin/console/tools/recording-deletions/?team={self.team.pk}&started=")
-        workflow, workflow_input = sync_connect.return_value.start_workflow.call_args.args
-        assert workflow == expected_workflow
-        assert workflow_input.team_id == self.team.pk
-        assert workflow_input.config.reason == "GDPR request"
-        assert workflow_input.config.deleted_by == self.user.email
-        assert workflow_input.config.dry_run == ("dry_run" in data)
-        for field, value in (expected_input or {}).items():
-            actual = getattr(workflow_input, field)
-            assert (dict(parse_qsl(actual)) if field == "query" else actual) == value
-        if upload is not None:
-            assert store_chunks.call_args.args[1] == ["session-a", "session-b"]
-
-    @patch("posthog.temporal.session_replay.delete_recordings.staff.sync_connect")
-    def test_a_real_run_after_a_dry_run_from_the_same_form_is_its_own_workflow(self, sync_connect: MagicMock) -> None:
-        start_workflow = sync_connect.return_value.start_workflow = AsyncMock()
-        url = f"/admin/console/teams/{self.team.pk}/recordings/delete-by-person/"
-        nonce = "0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10"
-
-        def run(data: dict[str, str]) -> Any:
-            form = {"distinct_ids": "user-1", "reason": "GDPR request", "form_nonce": nonce, **data}
-            preview = self.client.post(url, form)
-            return self.client.post(url, {"confirm_token": preview.context["confirm_token"], "form_nonce": nonce})
-
-        run({"dry_run": "on"})
-        run({})
-        start_workflow.side_effect = WorkflowAlreadyStartedError("delete-recordings", "delete-recordings-with-person")
-        repeated = run({})
-
-        dry_run_id, real_id = (call.kwargs["id"] for call in start_workflow.call_args_list[:2])
-        assert dry_run_id != real_id
-        assert [call.args[1].config.dry_run for call in start_workflow.call_args_list[:2]] == [True, False]
-        assert repeated.status_code == 302
-        assert "started=" not in repeated["Location"]
-        assert "No new deletion started" in " ".join(str(m) for m in get_messages(repeated.wsgi_request))
-
-    @patch("posthog.temporal.session_replay.delete_recordings.staff.discard_session_id_chunks")
-    @patch("posthog.temporal.session_replay.delete_recordings.staff.store_session_id_chunks")
-    @patch("posthog.temporal.session_replay.delete_recordings.staff.sync_connect")
-    def test_a_session_ids_start_that_temporal_refuses_discards_its_chunks(
-        self, sync_connect: MagicMock, store_chunks: MagicMock, discard_chunks: MagicMock
-    ) -> None:
-        sync_connect.return_value.start_workflow = AsyncMock(
-            side_effect=WorkflowAlreadyStartedError("delete-recordings", "delete-recordings-with-session-ids")
-        )
-        store_chunks.return_value = ("deletion-inputs/attempt/", 1)
-        url = f"/admin/console/teams/{self.team.pk}/recordings/delete-by-session-ids/"
-        form = {
-            "dry_run": "on",
-            "reason": "GDPR request",
-            "csv_file": SimpleUploadedFile("sessions.csv", b"session-a\n", "text/csv"),
-        }
-        preview = self.client.post(url, form)
-
-        repeated = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
-
-        assert repeated.status_code == 302
-        discard_chunks.assert_called_once_with("deletion-inputs/attempt/", 1)
-
-    @patch("posthog.temporal.session_replay.delete_recordings.staff.sync_connect")
-    def test_a_confirm_whose_cached_upload_expired_starts_nothing(self, sync_connect: MagicMock) -> None:
-        sync_connect.return_value.start_workflow = AsyncMock()
-        url = f"/admin/console/teams/{self.team.pk}/recordings/delete-by-session-ids/"
-        preview = self.client.post(
-            url,
-            {
-                "dry_run": "on",
-                "reason": "GDPR request",
-                "csv_file": SimpleUploadedFile("sessions.csv", b"session-a\n", "text/csv"),
-            },
-        )
-        cache.clear()
-
-        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
-
-        assert confirmed.status_code == 302
-        assert "expired" in " ".join(str(m) for m in get_messages(confirmed.wsgi_request))
-        assert not sync_connect.return_value.start_workflow.called
-
-    @parameterized.expand(
-        [
-            ("just_started", 10, True, "Starting"),
-            ("pushed_off_the_recent_list", 600, False, "Not in the 20 most recent runs"),
-        ]
-    )
-    @patch.object(RecordingDeletions, "recent", return_value=[])
-    def test_the_runs_list_waits_for_a_started_run_only_for_a_while(
-        self, _name: str, seconds_ago: int, refreshes: bool, expected_status: str, _recent: MagicMock
-    ) -> None:
-        workflow_id = f"delete-recordings-{self.team.pk}-0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10"
-        now = datetime(2026, 11, 1, 10, 0, tzinfo=UTC)
-
-        with time_machine.travel(now, tick=False):
-            live = self.client.get(
-                "/admin/console/tools/recording-deletions/live/runs/",
-                {
-                    "team": str(self.team.pk),
-                    "started": workflow_id,
-                    "started_at": str(int(now.timestamp()) - seconds_ago),
-                },
-            ).content.decode()
-
-        assert ("data-refresh-seconds" in live) == refreshes
-        assert expected_status in live
-        assert f"/workflows/{workflow_id}" in live
-
-    @patch.object(RecordingDeletions, "recent")
-    @patch.object(RecordingDeletions, "certificate")
-    def test_a_completed_recording_deletion_links_to_its_printable_certificate_and_json(
-        self, certificate: MagicMock, recent: MagicMock
-    ) -> None:
-        workflow_id = f"delete-recordings-{self.team.pk}-0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10"
-        recent.return_value = [
-            DeletionRun(
-                workflow_id=workflow_id,
-                run_id="run-1",
-                workflow_type="delete-recordings-with-query",
-                status="COMPLETED",
-                started=datetime(2026, 11, 1, 10, 0, tzinfo=UTC),
-                closed=datetime(2026, 11, 1, 10, 5, tzinfo=UTC),
-            )
-        ]
-        certificate.return_value = (
-            {
-                "workflow_type": "query",
-                "workflow_id": workflow_id,
-                "team_id": self.team.pk,
-                "dry_run": True,
-                "reason": "GDPR request",
-                "query": 'date_from=-30d&having_predicates=[{"key": "duration", "operator": "lt", "value": 5}]',
-                "started_at": "2026-11-01T10:00:00+00:00",
-                "completed_at": "2026-11-01T10:05:00+00:00",
-                "total_recordings_found": 3,
-                "total_deleted": 0,
-                "total_failed": 0,
-            },
-            None,
-        )
-        certificate_url = f"/admin/posthog/team/{self.team.pk}/delete-recordings/certificate/{workflow_id}/"
-        download_url = f"/admin/console/tools/recording-deletions/download/certificate/?team={self.team.pk}&certificate={workflow_id}"
-
-        runs = self.client.get("/admin/console/tools/recording-deletions/", {"team": self.team.pk}).content.decode()
-        printable = self.client.get(certificate_url)
-        download = self.client.get(download_url)
-
-        assert certificate_url in runs
-        assert download_url.replace("&", "&amp;") in runs
-        assert printable.status_code == 200
-        content = printable.content.decode()
-        assert "Certificate of Data Deletion" in content
-        assert "Reference: 0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10" in content
-        assert "date from: -30d, duration &lt; 5s" in content
-        assert f"/admin/console/tools/recording-deletions/?team={self.team.pk}" in content
-        assert download.status_code == 200
-        assert download["Content-Disposition"] == f'attachment; filename="deletion-certificate-{workflow_id}.json"'
-        assert download.json()["total_recordings_found"] == 3
 
 
 @time_machine.travel("2026-10-20T12:00:00Z", tick=False)

@@ -105,9 +105,6 @@ export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsCreateBodyAiModelMax = 128
 
-export const dataCatalogMetricsCreateBodyConfidenceMin = 0
-export const dataCatalogMetricsCreateBodyConfidenceMax = 1
-
 export const dataCatalogMetricsCreateBodyOverwriteDefault = false
 
 export const DataCatalogMetricsCreateBody = () => zod
@@ -157,12 +154,6 @@ export const DataCatalogMetricsCreateBody = () => zod
             .max(dataCatalogMetricsCreateBodyAiModelMax)
             .optional()
             .describe('Model that generated the metric, if AI-authored.'),
-        confidence: zod
-            .number()
-            .min(dataCatalogMetricsCreateBodyConfidenceMin)
-            .max(dataCatalogMetricsCreateBodyConfidenceMax)
-            .nullish()
-            .describe("AI author's confidence in the proposal, 0-1."),
         reasoning: zod
             .string()
             .optional()
@@ -217,9 +208,6 @@ export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
 
-export const dataCatalogMetricsPartialUpdateBodyConfidenceMin = 0
-export const dataCatalogMetricsPartialUpdateBodyConfidenceMax = 1
-
 export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
@@ -268,12 +256,6 @@ export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod
-        .number()
-        .min(dataCatalogMetricsPartialUpdateBodyConfidenceMin)
-        .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
-        .nullish()
-        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod
         .string()
         .optional()
