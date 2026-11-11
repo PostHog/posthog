@@ -206,9 +206,11 @@ def list_configurations(
     offset: int,
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
+    created_by_uuid: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
-    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those."""
+    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
+    With `created_by_uuid`, only the ones that user created."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
@@ -216,6 +218,7 @@ def list_configurations(
         offset=offset,
         legacy_configuration_id=legacy_configuration_id,
         configuration_ids=configuration_ids,
+        created_by_uuid=created_by_uuid,
     )
 
 
@@ -643,6 +646,14 @@ def subscriber_user_ids_by_public_id(*, team_id: int, public_ids: Collection[UUI
 
 def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
     return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def destination_types_by_configuration(
+    *, team_id: int, configuration_ids: Collection[UUID]
+) -> dict[UUID, tuple[str, ...]]:
+    """The types of each named configuration's enabled destinations, for an alert list. A configuration
+    with none is left out."""
+    return alert_destinations.destination_types_by_configuration(team_id=team_id, configuration_ids=configuration_ids)
 
 
 def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:

@@ -102,6 +102,23 @@ def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[St
     )
 
 
+def destination_types_by_configuration(
+    *, team_id: int, configuration_ids: Collection[UUID]
+) -> dict[UUID, tuple[str, ...]]:
+    """The types of each named configuration's enabled destinations, in one query. A configuration with
+    none is left out."""
+    types: dict[UUID, list[str]] = {}
+    for configuration_id, destination_type in (
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id__in=configuration_ids, enabled=True)
+        .order_by("created_at", "id")
+        .values_list("configuration_id", "type")
+    ):
+        if destination_type not in types.setdefault(configuration_id, []):
+            types[configuration_id].append(destination_type)
+    return {configuration_id: tuple(found) for configuration_id, found in types.items()}
+
+
 def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
     """Deletes the named destinations of one configuration, and returns how many it deleted.
 

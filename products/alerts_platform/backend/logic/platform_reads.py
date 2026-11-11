@@ -120,9 +120,11 @@ def list_configurations(
     offset: int,
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
+    created_by_uuid: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations, newest first, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
+    With `created_by_uuid`, only the ones that user created.
 
     The page is taken in the database rather than in the caller, so a team with many alerts
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
@@ -133,6 +135,8 @@ def list_configurations(
         readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
     if configuration_ids is not None:
         readable = readable.filter(id__in=list(configuration_ids))
+    if created_by_uuid is not None:
+        readable = readable.filter(created_by__uuid=created_by_uuid)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
