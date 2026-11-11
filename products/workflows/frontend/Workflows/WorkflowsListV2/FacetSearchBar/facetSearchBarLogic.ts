@@ -117,7 +117,9 @@ function extractCompleteFilters(
             return lead
         }
     )
-    return { filters, remaining: remaining.replace(/\s{2,}/g, ' ').replace(/^\s+/, '') }
+    const isInsideQuote = createQuoteTracker(remaining)
+    const collapsed = remaining.replace(/\s{2,}/g, (run: string, offset: number) => (isInsideQuote(offset) ? run : ' '))
+    return { filters, remaining: collapsed.replace(/^\s+/, '') }
 }
 
 function parseFacetDraft(input: string, facets: FacetDefinition<unknown>[]): FacetDraft | null {
@@ -184,7 +186,11 @@ function noValuesLabel(draft: FacetDraft, value: FacetSearchValue, freeTextValue
 
 /** Such a space mostly follows a value that committed on its last letter, and separates nothing. */
 function isRedundantSpace(previous: string, next: string): boolean {
-    return next === `${previous} ` && (previous === '' || /\s$/.test(previous))
+    return (
+        next === `${previous} ` &&
+        (previous === '' || /\s$/.test(previous)) &&
+        !createQuoteTracker(previous)(previous.length)
+    )
 }
 
 type FilterChangeSource = 'suggestion' | 'typed' | 'remove button' | 'backspace'

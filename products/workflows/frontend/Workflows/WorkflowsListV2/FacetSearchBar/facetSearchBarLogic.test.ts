@@ -264,6 +264,24 @@ describe('facetSearchBarLogic', () => {
         expect(logic.values.input).toEqual(input)
     })
 
+    it.each([
+        ['pasted', (text: string) => logic.actions.setInput(text)],
+        [
+            'typed one character at a time',
+            (text: string) => [...text].forEach((character) => logic.actions.setInput(logic.values.input + character)),
+        ],
+    ])('keeps every space of an open quoted value when %s', (_, enter) => {
+        mountWith({ filters: [], text: '' })
+        enter('status:active sends:"hello  world')
+        expect(logic.values.input).toEqual('sends:"hello  world')
+
+        logic.actions.setInput(`${logic.values.input}"`)
+        expect(onChange).toHaveBeenLastCalledWith({
+            filters: [{ facet: 'sends', value: 'hello  world', negated: false }],
+            text: '',
+        })
+    })
+
     it('drops a typed token that a pill already resolves to', () => {
         mountWith({ filters: [{ facet: 'stageName', value: 'first', negated: false }], text: '' })
         logic.actions.setInput('stageName:one ')
