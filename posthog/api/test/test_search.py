@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
@@ -319,13 +321,14 @@ class TestSearch(APIBaseTest):
         own_private_id = canvas_testing.create_canvas(
             team_id=self.team.id, channel_id=mine.id, name="Revenue scratchpad", created_by_id=self.user.id
         )
-        for name, kwargs in [
+        excluded: list[tuple[str, dict[str, Any]]] = [
             ("Revenue component", {"channel_id": shared.id, "kind": CanvasKind.COMPONENT}),
             ("Revenue grid", {"channel_id": shared.id, "kind": CanvasKind.GRID}),
             ("Revenue widget", {"channel_id": shared.id, "source_policy": "notebook_widget"}),
             ("Revenue deleted", {"channel_id": shared.id, "deleted": True}),
             ("Revenue secret", {"channel_id": theirs.id}),
-        ]:
+        ]
+        for name, kwargs in excluded:
             canvas_testing.create_canvas(team_id=self.team.id, name=name, created_by_id=other_user.id, **kwargs)
 
         response = self.client.get("/api/projects/@current/search?q=revenue&entities=canvas")
