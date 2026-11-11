@@ -140,6 +140,8 @@ describe('scorecard', () => {
             from: '2026-01-04T10:02:30.500Z',
             to: '2026-01-06T10:02:30.500Z',
         })
+        expect(api.lastQuery?.query).toContain("timestamp >= toDateTime({from}, 'UTC')")
+        expect(api.lastQuery?.query).toContain("timestamp <= toDateTime({to}, 'UTC')")
     })
 
     it('reports a run that stopped before the drive with empty verdict fields', () => {
@@ -182,6 +184,12 @@ describe('scorecard', () => {
                 api.onCapture = () => interrupt.abort()
             },
         ],
+        [
+            'while it waits to read the event back again',
+            (interrupt) => {
+                api.onQuery = () => setTimeout(() => interrupt.abort(), 50)
+            },
+        ],
     ])(
         'captures the event and stops reading it back when the run is interrupted %s',
         async (_story, arrange) => {
@@ -194,15 +202,29 @@ describe('scorecard', () => {
                 deadlineMs: 120_000,
             })
 
-            expect(outcome).toEqual({
-                recorded: false,
-                problem: 'the run was interrupted before the scorecard was read back',
-            })
+            expect(outcome).toEqual({ recorded: false })
             expect(api.captured).toHaveLength(1)
             expect(api.queries).toBe(1)
         },
         10_000
     )
+
+    it('reports a run interrupted before the capture was accepted as a scorecard that was not written', async () => {
+        api.throttleCaptures = Infinity
+        const interrupt = new AbortController()
+        interrupt.abort()
+
+        const outcome = await publish(scorecardOf(RESULT, SMOKE, PROVENANCE), env, interrupt.signal, {
+            pollMs: 60_000,
+            deadlineMs: 120_000,
+        })
+
+        expect(outcome).toEqual({
+            recorded: false,
+            problem: 'the run was interrupted before the scorecard was captured: capture answered 429',
+        })
+        expect({ captured: api.captured, queries: api.queries }).toEqual({ captured: [], queries: 0 })
+    }, 10_000)
 
     it.each([
         ['capture refuses the project token', 'SCENARIO_RUNS_PROJECT_TOKEN', 'capture answered 401'],

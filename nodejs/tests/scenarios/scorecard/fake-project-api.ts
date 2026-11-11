@@ -31,7 +31,18 @@ export type FakeProjectApi = {
     hideForQueries: number
     throttleCaptures: number
     onCapture: (event: Captured) => void
+    onQuery: () => void
     close(): Promise<void>
+}
+
+const WINDOW_CLAUSE = /timestamp\s*(>=|<=)\s*toDateTime\(\{(\w+)\}, 'UTC'\)/g
+
+function withinWindow(event: Captured, query: string, values: Record<string, unknown> = {}): boolean {
+    const at = Date.parse(String(event.timestamp))
+    return [...query.matchAll(WINDOW_CLAUSE)].every(([, operator, name]) => {
+        const bound = Date.parse(String(values[name]))
+        return operator === '>=' ? at >= bound : at <= bound
+    })
 }
 
 function answer(response: ServerResponse, status: number, body: unknown): void {
@@ -58,6 +69,7 @@ export async function startFakeProjectApi(): Promise<FakeProjectApi> {
         hideForQueries: 0,
         throttleCaptures: 0,
         onCapture: (_event: Captured): void => undefined,
+        onQuery: (): void => undefined,
     }
     const cached = new Map<string, unknown>()
     const server: Server = createServer((request, response) => {
@@ -103,15 +115,20 @@ export async function startFakeProjectApi(): Promise<FakeProjectApi> {
                 fake.queries += 1
                 fake.lastQuery = query
                 const key = JSON.stringify(query)
-                if (body.refresh !== 'force_blocking' && cached.has(key)) {
-                    return answer(response, 200, cached.get(key))
+                if (body.refresh === 'force_blocking' || !cached.has(key)) {
+                    const visible = fake.queries > fake.hideForQueries
+                    const rows = fake.captured
+                        .filter(
+                            (event) =>
+                                visible &&
+                                event.properties.run_id === query.values?.run_id &&
+                                withinWindow(event, query.query, query.values)
+                        )
+                        .map(({ uuid }) => [uuid])
+                    cached.set(key, { columns: ['uuid'], results: rows })
                 }
-                const visible = fake.queries > fake.hideForQueries
-                const rows = fake.captured
-                    .filter((event) => visible && event.properties.run_id === query.values?.run_id)
-                    .map(({ uuid }) => [uuid])
-                cached.set(key, { columns: ['uuid'], results: rows })
-                return answer(response, 200, cached.get(key))
+                answer(response, 200, cached.get(key))
+                return fake.onQuery()
             }
             return answer(response, 404, { type: 'invalid_request' })
         })()

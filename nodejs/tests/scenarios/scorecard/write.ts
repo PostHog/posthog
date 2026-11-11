@@ -97,6 +97,15 @@ async function readBack(
     return undefined
 }
 
+function interrupted(captured: boolean, error: unknown): WriteOutcome {
+    return captured
+        ? { recorded: false }
+        : {
+              recorded: false,
+              problem: `the run was interrupted before the scorecard was captured: ${(error as Error).message}`,
+          }
+}
+
 async function write(
     properties: ScorecardProperties,
     credentials: Credentials,
@@ -119,7 +128,7 @@ async function write(
             return refused === undefined ? { recorded: true } : { recorded: false, problem: refused }
         } catch (error) {
             if (signal.aborted) {
-                return { recorded: false, problem: 'the run was interrupted before the scorecard was read back' }
+                return interrupted(captured, error)
             }
             if (Date.now() - start > deadlineMs) {
                 return {
@@ -127,7 +136,11 @@ async function write(
                     problem: `the scorecard was not read back within ${deadlineMs / 1000}s: ${(error as Error).message}`,
                 }
             }
-            await sleep(pollMs, undefined, { signal }).catch(() => undefined)
+            try {
+                await sleep(pollMs, undefined, { signal })
+            } catch {
+                return interrupted(captured, error)
+            }
         }
     }
 }
