@@ -281,6 +281,8 @@
     // Holds. A person checked each of these packages and found that a later minor or patch release breaks the build
     // or changes behavior that no test covers. The comment above each name gives the reason.
     // A held package gets no minor or patch update, and its major updates still wait for approval on the dashboard.
+    // A hold also stops a security fix that ships as a minor or patch release, because `vulnerabilityAlerts` is off
+    // and no other rule opens a PR for it. A person takes that fix by hand or lifts the hold.
     // To lift a hold, delete the name. The package then joins the PR of its area in the next window
     {
       matchManagers: ['npm'],
