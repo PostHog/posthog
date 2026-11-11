@@ -2407,6 +2407,10 @@ describe('CDP API', () => {
             const changedContent = { ...codeSend, content: { ...codeSend.content, subject: 'Your new code' } }
             const otherSenderId = codeSend.from.integrationId + 3
             const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
+            const queuedJobIds = (): string[] =>
+                mockQueueInvocations.mock.calls.flatMap(([invocations]) =>
+                    invocations.map((invocation: { id: string }) => invocation.id)
+                )
 
             beforeEach(() => {
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
@@ -2441,7 +2445,7 @@ describe('CDP API', () => {
                         invocation_id: sent.body.invocation_id,
                         replayed: true,
                     })
-                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                    expect(queuedJobIds()).toEqual([sent.body.invocation_id])
                     expect(emailStatusRows()).toEqual([
                         expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
                     ])

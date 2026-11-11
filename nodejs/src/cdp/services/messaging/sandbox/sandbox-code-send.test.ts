@@ -230,20 +230,58 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         }
     )
 
-    it('rechecks membership at delivery and sends nothing to a member who left after the send was queued', async () => {
+    const runLogs = (results: CyclotronJobInvocationResult[]): string[] =>
+        results.flatMap((result) => result.logs).map((log) => log.message)
+
+    it.each<[string, string, () => Promise<unknown>]>([
+        [
+            'the member left',
+            'not sent (skipped)',
+            () =>
+                world.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_user SET is_active = false WHERE email = $1`,
+                    [member],
+                    'test:member-left'
+                ),
+        ],
+        [
+            'staff suspended the project',
+            'not sent (skipped): sending_suspended',
+            () =>
+                world.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspended_at, email_sending_suspension_reason)
+                     VALUES ($1, false, 'off', now(), 'testing suspension')
+                     ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = now()`,
+                    [world.team.id],
+                    'test:suspend-email-sending'
+                ),
+        ],
+        [
+            "the workflow's email was paused",
+            'not sent (skipped): sending_paused',
+            () =>
+                world.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET email_sending_paused_at = now() WHERE id = $1`,
+                    [hogFlow.id],
+                    'test:pause-workflow-email'
+                ),
+        ],
+    ])('rechecks at delivery and sends nothing when %s after the send was queued', async (_desc, log, arrange) => {
         const res = await sendFromCode(request(sandboxSend()))
         expect(res.status).toEqual(202)
-        await world.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_user SET is_active = false WHERE email = $1`,
-            [member],
-            'test:member-left'
-        )
+        await arrange()
 
         const results = await deliver(queued[0])
 
         expect(world.ses.delivered).toEqual([])
+        expect(results.at(-1)).toMatchObject({ finished: true })
         expect(metricNames(results)).toContain('email_sandbox_blocked')
+        expect(runLogs(results)).toContainEqual(expect.stringContaining(log))
     })
 
     it.each([

@@ -117,6 +117,7 @@ describe('SandboxEmailSendStep', () => {
                     return Promise.resolve()
                 },
             },
+            teamWorkflowsConfig: new TeamWorkflowsConfigService(world.postgres, pubSub),
         })
         return new HogFlowExecutorService(
             {} as any,

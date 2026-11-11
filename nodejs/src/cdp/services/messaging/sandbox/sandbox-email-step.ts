@@ -5,6 +5,7 @@ import { buildWorkflowStepDispatchKey } from '../../../utils/workflow-step-dispa
 import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailSendDecision, SandboxEmailStep, SandboxSenderAction } from '../../hogflows/actions/email_sandbox'
+import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { SandboxEmailEvents, sandboxAppMetric } from './sandbox-email-events'
 import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
@@ -26,6 +27,7 @@ export type SandboxEmailSendStepDeps = {
     siteUrl: string
     recipientPreferences: Pick<RecipientPreferencesService, 'checkMarketingFrequencyCap'>
     events: Pick<SandboxEmailEvents, 'capture'>
+    teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'getEmailSendingSuspension'>
 }
 
 export class SandboxEmailSendStep implements SandboxEmailStep {
@@ -54,6 +56,12 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
 
     private async attempt(options: ActionHandlerOptions<SandboxSenderAction>): Promise<SandboxSendOutcome> {
         const { invocation, action } = options
+        if (action.type === 'function_email') {
+            const stopped = await this.codeSendStopped(invocation)
+            if (stopped) {
+                return { status: 'skipped', reason: stopped }
+            }
+        }
         let email: unknown
         try {
             email =
@@ -84,6 +92,15 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
                     dispatchKey: stepVisitKey(invocation, action),
                 }),
         })
+    }
+
+    private async codeSendStopped(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<'sending_suspended' | 'sending_paused' | null> {
+        if (await this.deps.teamWorkflowsConfig.getEmailSendingSuspension(invocation.teamId)) {
+            return 'sending_suspended'
+        }
+        return invocation.hogFlow.email_sending_paused_at ? 'sending_paused' : null
     }
 
     private record(

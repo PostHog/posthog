@@ -3171,6 +3171,7 @@ describe('Hogflow Executor', () => {
                             siteUrl: hub.SITE_URL,
                             recipientPreferences: recipientPreferencesService,
                             events: { capture: () => Promise.resolve() },
+                            teamWorkflowsConfig: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                         }),
                     },
                 }

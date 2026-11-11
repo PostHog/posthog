@@ -602,6 +602,7 @@ export function createCdpCoreServices(
                           hogInputsService,
                           siteUrl: config.SITE_URL,
                           recipientPreferences: recipientPreferencesService,
+                          teamWorkflowsConfig: teamWorkflowsConfigService,
                       })
                     : null,
                 testClient: new SandboxEmailTester({
