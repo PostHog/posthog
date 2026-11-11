@@ -35,6 +35,11 @@ export interface TaskCreationInput {
   reuseExistingWorktree?: boolean;
   githubIntegrationId?: number;
   githubUserIntegrationId?: string;
+  /**
+   * GitLab integration for a cloud task in a GitLab project. `repository` is
+   * then the full project path, and the GitHub integration ids stay unset.
+   */
+  repositoryIntegrationId?: number;
   executionMode?: ExecutionMode;
   adapter?: Adapter;
   codexModelAccess?: ModelAccess;
