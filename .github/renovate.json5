@@ -233,5 +233,12 @@
       matchUpdateTypes: ['minor', 'patch'],
       dependencyDashboardApproval: false,
     },
+    // When `[tool.uv.sources]` routes a package to a PyTorch wheel index, Renovate looks it up there.
+    // That index lists local versions like `+cpu`, and Renovate cannot write those into a `~=` specifier.
+    // It also has no release dates, which `minimumReleaseAge` needs. PyPI has the same releases with dates
+    {
+      matchRegistryUrls: ['https://download.pytorch.org/whl/**'],
+      registryUrls: ['https://pypi.org/pypi/'],
+    },
   ],
 }
