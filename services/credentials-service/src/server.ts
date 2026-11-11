@@ -13,8 +13,9 @@ import type { Pool } from 'pg'
 import { JwtVerifier } from './auth/jwt'
 import { SigningKeyLoader } from './auth/registry'
 import { createPool, pingDatabase } from './db/pool'
+import { isProductionEnv, runtimeRoleRefusal } from './db/role-guard'
 import { createApp } from './http/app'
-import type { Config } from './lib/config'
+import type { Config, DatabaseConfig } from './lib/config'
 import { logger } from './lib/logging'
 import { register, shuttingDown } from './metrics'
 import { SecretMount } from './mount'
@@ -68,6 +69,7 @@ export class CredentialsServer {
     private pool: Pool | undefined
     private secretsReady = false
     private databaseReady = false
+    private databaseRefused = false
     private cancelTimers: (() => void)[] = []
     private processListeners = new Map<string, (...args: unknown[]) => void>()
     private stopping = false
@@ -126,24 +128,54 @@ export class CredentialsServer {
     // The database gates readiness only until it first answers. After that, an outage must not
     // take the platform secrets down with it: those do not need the database.
     private updateReadiness(): void {
-        this.lifecycle.ready = this.secretsReady && (!this.config.database || this.databaseReady)
+        this.lifecycle.ready =
+            this.secretsReady && (!this.config.database || this.databaseReady || this.databaseRefused)
     }
 
-    private async connectDatabase(pool: Pool): Promise<void> {
-        const connected = (): void => {
-            this.databaseReady = true
-            logger.info('db:connected', {})
-            this.updateReadiness()
+    /** The pool, once the database answered and the runtime role passed the production check. */
+    integrationsPool(): Pool | undefined {
+        return this.databaseReady ? this.pool : undefined
+    }
+
+    // True when the database answered. A refused role counts as settled: the integration
+    // features stay off, and the platform secrets keep serving.
+    private async admitDatabase(pool: Pool, config: DatabaseConfig): Promise<boolean> {
+        if (!(await pingDatabase(pool))) {
+            return false
         }
-        if (await pingDatabase(pool)) {
-            connected()
+        if (isProductionEnv(this.config.env)) {
+            let refusal: string | null
+            try {
+                refusal = await runtimeRoleRefusal(pool, config)
+            } catch (err) {
+                logger.error('startup:database_role_check_failed', {
+                    error: err instanceof Error ? err.message : String(err),
+                })
+                return false
+            }
+            if (refusal) {
+                logger.error('startup:database_role_refused', { reason: refusal, env: this.config.env })
+                this.databaseRefused = true
+                this.pool = undefined
+                await pool.end().catch(() => undefined)
+                this.updateReadiness()
+                return true
+            }
+        }
+        this.databaseReady = true
+        logger.info('db:connected', {})
+        this.updateReadiness()
+        return true
+    }
+
+    private async connectDatabase(pool: Pool, config: DatabaseConfig): Promise<void> {
+        if (await this.admitDatabase(pool, config)) {
             return
         }
         logger.error('startup:database_unreachable', {})
         const cancel = every(DATABASE_RETRY_MS, async () => {
-            if (!this.databaseReady && (await pingDatabase(pool))) {
+            if (!this.databaseReady && !this.databaseRefused && (await this.admitDatabase(pool, config))) {
                 cancel()
-                connected()
             }
         })
         this.cancelTimers.push(cancel)
@@ -170,7 +202,7 @@ export class CredentialsServer {
 
         if (config.database) {
             this.pool = createPool(config.database)
-            await this.connectDatabase(this.pool)
+            await this.connectDatabase(this.pool, config.database)
         }
 
         const app = createApp({
