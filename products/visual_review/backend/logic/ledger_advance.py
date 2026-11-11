@@ -347,7 +347,7 @@ class _LedgerAdvancer:
         a transaction takes the whole buffer, so the later callbacks of that transaction do nothing.
         """
         landed, self._landed_identifiers = self._landed_identifiers, {}
-        if not landed or not commit_status.publishes_by_commit(self.repo):
+        if not landed or not commit_status.guards_stale_approvals(self.repo):
             return
         open_approvals = self._open_approvals if self._open_approvals is not None else self._read_open_approvals()
         holders = {

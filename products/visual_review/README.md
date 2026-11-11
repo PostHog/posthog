@@ -348,7 +348,7 @@ A partial run posts to the gating context too, with "(partial run)" in the text.
 An open approval is stale when the ledger's hash for its story is none of these: the hash it was approved over, the baseline the reviewer saw, the approved hash.
 That happens when another pull request merged a different picture of the same story first, and this approval would be `conflicted` if it landed now.
 The approvals a run rests on are the ones finalized on it and the ones its baseline record applied, such as an earlier approval of the same pull request; a quarantined story does not count.
-The rule applies to `commit_status` pull request runs only, and the run page shows how many approvals are stale.
+The rule applies to pull request runs in `ledger` mode only, and the run page shows how many approvals are stale.
 A re-run on the same commit stays red. Update the branch from the default branch, and review the new run.
 Staleness is not stored: when the ledger learns of a merge, the other pull requests with an open approval of the same story publish their status again, so a revert turns them green again.
 In `shadow` mode the verdict is the baseline file's, so the status matches the CI job. `ledger` mode needs the gate on.
@@ -411,6 +411,7 @@ To move a repo to the ledger:
 Do not skip a step or change the order. A required status that is not posted everywhere blocks every pull request without a visual run. `ledger` mode without the required status leaves a pull request with unreviewed changes blocked only by the merge queue.
 
 A run created in `shadow` mode keeps `gate = ci_job`. When it is finalized after step 7, nothing is committed, so finalize re-runs its CI job once and the job reads the new verdict.
+From step 7 on, the stale-approval rule covers such a run too.
 A run created in `yaml` mode has no ledger record, and `ledger` mode refuses to finalize it. Re-run CI on the commit and approve the new run.
 
 To go back from `ledger` to `shadow`, commit the output of `export` to the default branch first, then `mode --set shadow`. Leave the ruleset as it is. An approval made in `ledger` mode left no commit on its branch, so the next run of that pull request shows the change again.

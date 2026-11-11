@@ -29,7 +29,13 @@ from products.visual_review.backend.models import (
 )
 from products.visual_review.backend.tasks import tasks
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
-from products.visual_review.backend.tests.logic.ledger_fakes import SEED, approve, make_record, seeded_repo
+from products.visual_review.backend.tests.logic.ledger_fakes import (
+    SEED,
+    approve,
+    make_record,
+    seeded_repo,
+    set_baseline_mode,
+)
 
 EVIDENCE_SHA = "queue-run"
 APPROVED_AT = datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
@@ -109,7 +115,7 @@ def _pull_request_run(repo: Repo, pr_number: int, commit_sha: str, *, minute: in
         pr_number=pr_number,
         commit_sha=commit_sha,
         status=RunStatus.COMPLETED,
-        gate=RunGate.COMMIT_STATUS,
+        gate=fields.pop("gate", RunGate.COMMIT_STATUS),
         **fields,
     )
     # Two runs created in a row can share a timestamp, and the newest run of a pull request is the one published.
@@ -658,12 +664,19 @@ class TestAdvance:
         assert query_counts[0] == query_counts[1]
         assert _ledger(repo)["Story-0"] == "h8"
 
-    @pytest.mark.parametrize(("status_gate", "published_commits"), [(True, ["p2b"]), (False, [])])
+    @pytest.mark.parametrize(
+        ("mode", "status_gate", "gate", "published_commits"),
+        [
+            pytest.param(BaselineMode.LEDGER, True, RunGate.COMMIT_STATUS, ["p2b"], id="ledger_mode"),
+            pytest.param(BaselineMode.LEDGER, True, RunGate.CI_JOB, ["p2b"], id="runs_made_in_shadow_mode"),
+            pytest.param(BaselineMode.SHADOW, True, RunGate.CI_JOB, [], id="shadow_mode"),
+            pytest.param(BaselineMode.SHADOW, False, RunGate.CI_JOB, [], id="status_gate_off"),
+        ],
+    )
     def test_a_landing_publishes_again_for_other_pull_requests_that_approved_the_same_story(
-        self, repo, github, mocker, django_capture_on_commit_callbacks, status_gate, published_commits
+        self, repo, github, mocker, django_capture_on_commit_callbacks, mode, status_gate, gate, published_commits
     ) -> None:
-        repo.commit_status_gate_enabled = status_gate
-        repo.save()
+        set_baseline_mode(repo, mode, status_gate=status_gate)
         approve(repo, 1, "Button", "b1")
         # A stack child that lands in the same transaction, so the holder below is found twice.
         approve(repo, 6, "Button", "b6", ledger_base_hash="b0", effective_base_hash="b1")
@@ -672,9 +685,9 @@ class TestAdvance:
         for minute, (pr_number, commit_sha) in enumerate(
             ((1, "head-1"), (2, "p2a"), (2, "p2b"), (3, "p3a"), (6, "head-6"))
         ):
-            _pull_request_run(repo, pr_number, commit_sha, minute=minute)
+            _pull_request_run(repo, pr_number, commit_sha, minute=minute, gate=gate)
         # A merge-queue run carries the pull request's number, but its commit is not the one the guard decides.
-        _pull_request_run(repo, 2, "queue-2", purpose=RunPurpose.OBSERVE, branch="trunk-merge/pr-2/q")
+        _pull_request_run(repo, 2, "queue-2", minute=5, purpose=RunPurpose.OBSERVE, branch="trunk-merge/pr-2/q")
         publish = mocker.patch.object(tasks.publish_visual_review_commit_status, "delay")
         github.merge(1, "s1")
         github.merge(6, "s2")
@@ -690,8 +703,7 @@ class TestAdvance:
     # Only real transactions commit the two landings apart. Inside a test transaction both callbacks run at its end.
     @pytest.mark.django_db(transaction=True, databases=PRODUCT_DATABASES)
     def test_each_landing_transaction_of_one_advance_publishes_again(self, repo, github, mocker) -> None:
-        repo.commit_status_gate_enabled = True
-        repo.save()
+        set_baseline_mode(repo, BaselineMode.LEDGER)
         approve(repo, 7, "Button", "b7")
         approve(repo, 1, "Card", "c1", ledger_base_hash="c0")
         approve(repo, 2, "Button", "b2")
