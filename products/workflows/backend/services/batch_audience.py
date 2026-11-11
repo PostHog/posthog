@@ -275,7 +275,11 @@ def _build_snapshot_chunk_query(
         return ast.SelectQuery(
             select=[
                 ast.Alias(alias="person_id", expr=ast.Call(name="min", args=[ast.Field(chain=["persons", "id"])])),
-                ast.Alias(alias="dedupe_group", expr=email_dedupe_group_expr()),
+                # A digest, because the raw email has no size limit and every group stays in worker memory.
+                ast.Alias(
+                    alias="dedupe_group",
+                    expr=ast.Call(name="hex", args=[ast.Call(name="MD5", args=[email_dedupe_group_expr()])]),
+                ),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
             where=ast.And(exprs=where_exprs),
