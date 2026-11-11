@@ -603,6 +603,7 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.location.pathname).toContain('/broadcasts/new')
 
         logic.actions.editEmailContent()
+        logic.actions.editEmailContent()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt })])

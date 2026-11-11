@@ -427,6 +427,7 @@ export interface broadcastWizardLogicValues {
     missingRecipientEmail: MissingRecipientEmailBannerProps | null
     movingToDraft: boolean
     name: string
+    opensEmailEditorOnDraftUrl: boolean
     push: BroadcastPushValue
     pushUnavailableReason: "Couldn't check your push setup" | "Your project doesn't have push set up yet" | null
     rateLimitedSendDuration: string
@@ -715,6 +716,9 @@ export interface broadcastWizardLogicActions {
     setName: (name: string) => {
         name: string
     }
+    setOpensEmailEditorOnDraftUrl: (opens: boolean) => {
+        opens: boolean
+    }
     setPush: (push: BroadcastPushValue) => {
         push: BroadcastPushValue
     }
@@ -912,6 +916,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         setChannel: (channel: BroadcastChannel) => ({ channel }),
         requestChannel: (channel: BroadcastChannel) => ({ channel }),
+        setOpensEmailEditorOnDraftUrl: (opens: boolean) => ({ opens }),
         setPush: (push: BroadcastPushValue) => ({ push }),
         brandApplied: (content: Pick<BroadcastEmailValue, 'html' | 'design'>) => ({ content }),
         applyAiEmailDraft: (draft: MessageDraft) => ({ draft }),
@@ -1361,6 +1366,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             {
                 launchBroadcast: () => true,
                 launchBroadcastFinished: () => false,
+            },
+        ],
+        opensEmailEditorOnDraftUrl: [
+            false,
+            {
+                setOpensEmailEditorOnDraftUrl: (_, { opens }) => opens,
+                saveBroadcastFinished: (state, { broadcast }) => (broadcast ? state : false),
+                setStep: () => false,
+                nextStep: () => false,
+                prevStep: () => false,
             },
         ],
         hasLoadedBatchJobs: [
@@ -1887,28 +1902,26 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.setStep('content')
                 return
             }
-            if (values.launching || !values.currentProjectId) {
+            if (values.launching || values.opensEmailEditorOnDraftUrl || !values.currentProjectId) {
                 return
             }
-            cache.openEmailEditorOnDraftUrl = true
+            actions.setOpensEmailEditorOnDraftUrl(true)
             if (!values.broadcastId || !values.broadcast) {
                 actions.ensureDraft()
                 return
             }
             const projectId = String(values.currentProjectId)
-            const draft = values.broadcast
             try {
                 actions.draftAutosaved(
-                    await getSaveQueue(cache, values).run(() => saveDraftSchedule(projectId, draft, values))
+                    await getSaveQueue(cache, values).run(() => saveDraftSchedule(projectId, values.broadcast!, values))
                 )
                 actions.showSavedDraftUrl()
             } catch (error: any) {
-                cache.openEmailEditorOnDraftUrl = false
+                actions.setOpensEmailEditorOnDraftUrl(false)
                 lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
             }
         },
         setStep: ({ step }) => {
-            cache.openEmailEditorOnDraftUrl = false
             if (step === 'review') {
                 // A fresh preview mints the confirm token launch needs and shows an up-to-date count.
                 actions.loadBlastRadius()
@@ -1919,7 +1932,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.reportReviewVisit()
         },
         nextStep: () => {
-            cache.openEmailEditorOnDraftUrl = false
             // Listeners run after reducers, so this sees the step just navigated to.
             if (values.currentStep === 'review') {
                 actions.loadBlastRadius()
@@ -1930,7 +1942,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.reportReviewVisit()
         },
         prevStep: () => {
-            cache.openEmailEditorOnDraftUrl = false
             actions.reportReviewVisit()
         },
         reportReviewVisit: async (_, breakpoint) => {
@@ -1997,7 +2008,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 })
                 actions.showSavedDraftUrl()
             } catch (error: any) {
-                cache.openEmailEditorOnDraftUrl = false
+                actions.setOpensEmailEditorOnDraftUrl(false)
                 lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
             }
         },
@@ -2016,10 +2027,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (values.entrySource) {
                     saveEntrySource(values.broadcastId, values.entrySource)
                 }
-                const openEditor = cache.openEmailEditorOnDraftUrl
-                cache.openEmailEditorOnDraftUrl = false
                 const draftUrl = urls.broadcast(values.broadcastId)
-                if (openEditor) {
+                if (values.opensEmailEditorOnDraftUrl) {
+                    actions.setOpensEmailEditorOnDraftUrl(false)
                     router.actions.replace(draftUrl, { step: 'content' })
                     router.actions.push(draftUrl, withEmailEditorOpen({ step: 'content' }))
                 } else {
