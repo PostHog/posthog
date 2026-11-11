@@ -64,7 +64,6 @@ from products.metrics.backend.facade.contracts import (
     MAX_SPARKLINE_BATCH_SIZE,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
-    NAME_MATCH_MODES,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -76,6 +75,7 @@ from products.metrics.backend.facade.enums import (
     AttributeScope,
     FilterOp,
     MetricAggregation,
+    MetricNameMatchMode,
     MetricRangeFunction,
     MetricType,
 )
@@ -622,7 +622,7 @@ class _MetricCatalogListParamsSerializer(_MetricValuesParamsSerializer):
         ),
     )
     match = serializers.ChoiceField(
-        choices=list(NAME_MATCH_MODES),
+        choices=MetricNameMatchMode.choices,
         required=False,
         default="substring",
         help_text=(

@@ -22,7 +22,8 @@ from posthog.hogql.visitor import clone_expr
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE, NAME_MATCH_MODES
+from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
+from products.metrics.backend.facade.enums import MetricNameMatchMode
 from products.metrics.backend.metric_query_runner import points_query
 from products.metrics.backend.metrics4_samples import reads_metrics4_only
 from products.metrics.backend.search import ilike_pattern, ilike_prefix_pattern
@@ -68,8 +69,8 @@ class MetricNamesQueryRunner:
         match: str = "substring",
         include_first_seen: bool = False,
     ) -> None:
-        if match not in NAME_MATCH_MODES:
-            raise ValueError(f"match must be one of {', '.join(NAME_MATCH_MODES)}")
+        if match not in MetricNameMatchMode.values:
+            raise ValueError(f"match must be one of {', '.join(MetricNameMatchMode.values)}")
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be in [1, 1000]")
         if lookback <= dt.timedelta(0):

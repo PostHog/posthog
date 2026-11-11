@@ -47,9 +47,6 @@ MAX_QUERY_COUNT_DAYS = 90
 MAX_PROMQL_LENGTH = 8192
 MAX_SPARKLINE_BATCH_SIZE = 20
 
-# How a metric-names search matches a name: case-insensitive substring or prefix, or an RE2 regex.
-NAME_MATCH_MODES: tuple[str, ...] = ("substring", "prefix", "regex")
-
 
 class MetricQueryTooManyRowsError(ValueError):
     """The query has more (time bucket, series) rows than the row budget allows.
