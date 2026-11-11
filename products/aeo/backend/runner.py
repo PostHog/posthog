@@ -33,6 +33,7 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
+from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.engines import (
     CitationEngine,
     available_engines,
@@ -72,6 +73,14 @@ def run_citation_checks(
         logger.warning("aeo_citation_run_no_engines", team_id=team.id)
         return _empty_summary(team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY)"), []
 
+    # Without an own brand no answer can cite or mention the team, so the paid engine calls would record nothing useful.
+    target_domains = own_domains(team.id)
+    if not target_domains:
+        logger.warning("aeo_citation_run_no_own_brand", team_id=team.id)
+        return _empty_summary(
+            team, "no own brand: add the project's domain as a brand with kind 'own' (POST aeo_brands) first"
+        ), []
+
     checked_before = run_day_start(timezone.now())
     prompts = select_prompts(
         team, settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit, checked_before=checked_before
@@ -88,7 +97,6 @@ def run_citation_checks(
     run_id = str(uuid.uuid4())
     # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
     canonical_team_id = team.parent_team_id or team.id
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
     no_search_due = _no_search_due(team, prompts, checked_before) if no_search_engines else set()
     engines_per_prompt = {
         prompt.id: [*engines, *no_search_engines] if prompt.id in no_search_due else engines for prompt in prompts

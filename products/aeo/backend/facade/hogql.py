@@ -30,7 +30,7 @@ aeo_citation_checks: PostgresTable = PostgresTable(
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Check id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the check ran."),
         "run_id": UUIDDatabaseField(name="run_id", description="Groups every check from one runner pass."),
         "prompt_id": UUIDDatabaseField(name="prompt_id", description="Prompt that ran; joins to the prompt set."),

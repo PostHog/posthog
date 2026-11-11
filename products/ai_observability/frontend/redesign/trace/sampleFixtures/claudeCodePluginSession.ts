@@ -1,6 +1,7 @@
 import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { MessagePart, NodeProperties, ThreadMessage } from '../types'
-import { SampleNodeDetail, SampleTraceFixture, sampleStats } from './sampleTraceFixture'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
+import { SampleNodeDetail, SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '88cfdcc8-1757-7012-663c-599c6649c0e6'
 const SESSION_ID = 'd716a155-3363-7994-8a77-47313258e4d4'
@@ -161,7 +162,7 @@ function stepOutput(step: AgentStep): ThreadMessage[] {
         parts.push({ kind: 'text', text: step.text })
     }
     if (step.bash) {
-        parts.push({ kind: 'toolCall', name: 'Bash', args: step.bash.input })
+        parts.push({ kind: 'toolCall', name: 'Bash', args: step.bash.input, result: null })
     }
     return [
         {
@@ -224,14 +225,13 @@ function stepDetails(step: AgentStep): [string, SampleNodeDetail][] {
     const generation: [string, SampleNodeDetail] = [
         step.generationId,
         {
-            content: { kind: 'messages', input: stepInput(step), output: stepOutput(step) },
+            content: messagesContent(stepInput(step), stepOutput(step)),
             error: null,
             properties: { ...baseProperties, timestamp, provider: 'anthropic' },
             evals: { status: 'ready', results: [] },
-            raw: {
-                event: '$ai_generation',
-                id: step.generationId,
-                createdAt: timestamp,
+            raw: sampleRaw('generation', step.generationId, {
+                name: '$ai_generation',
+                timestamp: timestamp,
                 properties: {
                     ...sharedRawProperties(),
                     $ai_span_id: step.generationId,
@@ -244,7 +244,7 @@ function stepDetails(step: AgentStep): [string, SampleNodeDetail][] {
                     $ai_stop_reason: step.bash ? 'tool_calls' : 'stop',
                     $ai_user_prompt: 'seo fixes',
                 },
-            },
+            }),
         },
     ]
     if (!step.bash) {
@@ -257,14 +257,13 @@ function stepDetails(step: AgentStep): [string, SampleNodeDetail][] {
         [
             spanId,
             {
-                content: { kind: 'io', input: inputState, output },
+                content: jsonContent(inputState, output),
                 error: null,
                 properties: { ...baseProperties, timestamp },
                 evals: { status: 'ready', results: [] },
-                raw: {
-                    event: '$ai_span',
-                    id: spanId,
-                    createdAt: timestamp,
+                raw: sampleRaw('span', spanId, {
+                    name: '$ai_span',
+                    timestamp: timestamp,
                     properties: {
                         ...sharedRawProperties(),
                         $ai_span_id: spanId,
@@ -273,7 +272,7 @@ function stepDetails(step: AgentStep): [string, SampleNodeDetail][] {
                         $ai_input_state: inputState,
                         $ai_output_state: output,
                     },
-                },
+                }),
             },
         ],
     ]
@@ -336,19 +335,11 @@ export const claudeCodePluginSession: SampleTraceFixture = {
         [
             TRACE_ID,
             {
-                content: { kind: 'io', input: null, output: null },
+                content: jsonContent(null, null),
                 error: null,
                 properties: baseProperties,
                 evals: { status: 'ready', results: [] },
-                raw: {
-                    id: TRACE_ID,
-                    createdAt: TRACE_TIMESTAMP,
-                    traceName: 'seo fixes',
-                    aiSessionId: SESSION_ID,
-                    totalLatency: 223.935,
-                    inputTokens: 12,
-                    outputTokens: 2700,
-                },
+                raw: sampleRaw('trace', TRACE_ID, null),
             },
         ],
         ...STEPS.flatMap(stepDetails),
@@ -359,7 +350,7 @@ export const claudeCodePluginSession: SampleTraceFixture = {
             {
                 id: TRACE_ID,
                 timestamp: TRACE_TIMESTAMP,
-                messages: [...stepInput(lastStep), ...stepOutput(lastStep)],
+                ...messagesSides(stepInput(lastStep), stepOutput(lastStep)),
                 error: null,
             },
         ],

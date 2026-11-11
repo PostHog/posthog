@@ -9,6 +9,7 @@ from django.core.management import call_command
 from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
+from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import NodeType
@@ -25,13 +26,14 @@ class TestReenableMaterialization(BaseTest):
         *,
         node_type: NodeType | None = NodeType.VIEW,
         deleted: bool = False,
+        interval: timedelta | None = timedelta(hours=12),
     ) -> DataWarehouseSavedQuery:
         saved_query = DataWarehouseSavedQuery.objects.create(
             name=name,
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
             is_materialized=False,
-            sync_frequency_interval=timedelta(hours=12),
+            sync_frequency_interval=interval,
             deleted=deleted,
         )
         if node_type is not None:
@@ -92,11 +94,28 @@ class TestReenableMaterialization(BaseTest):
         assert create.call_args.kwargs["schedule"].action.args[0]["node_ids"] == [str(node.id)]
         assert switched_off.is_materialized is expected_materialized
         assert node.type == expected_node_type
+        assert get_declared_target(node) == timedelta(hours=12)
         assert deleted.is_materialized is False
         assert nodeless.is_materialized is False
         assert already_materialized.is_materialized is False
         assert "2 of 4 saved query id(s)" in out.getvalue()
         assert expected_summary in out.getvalue()
+
+    def test_a_query_with_no_cadence_anywhere_is_reported_and_stays_off(self):
+        no_cadence = self._saved_query("no_cadence", interval=None)
+        out = StringIO()
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=no_existing_schedules())),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            call_command("reenable_materialization", saved_query_ids=str(no_cadence.id), apply=True, stdout=out)
+
+        no_cadence.refresh_from_db()
+        assert no_cadence.is_materialized is False
+        assert "Re-enabled 0, failed 1." in out.getvalue()
+        create.assert_not_called()
 
     @parameterized.expand([("ctrl_c", KeyboardInterrupt), ("exit", SystemExit)])
     def test_interrupted_apply_leaves_the_query_off_for_the_next_run(

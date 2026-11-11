@@ -1505,11 +1505,11 @@ MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DE
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
 AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
-AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
 # Scores brand sentiment on the evals Temporal queue after each run. Off until that worker carries the model.
 AEO_BRAND_SENTIMENT_ENABLED = get_from_env("AEO_BRAND_SENTIMENT_ENABLED", False, type_cast=str_to_bool)
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
+AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
 # Adds a weekly no-search check per prompt on the Claude and OpenAI engines, a baseline of what the
 # models answer from training data alone. Each one is an extra paid gateway call.
 AEO_NO_SEARCH_ENABLED = get_from_env("AEO_NO_SEARCH_ENABLED", False, type_cast=str_to_bool)
@@ -1521,6 +1521,9 @@ AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)
 # killed run only pick up the prompts it missed, however late the previous day's run finished.
 AEO_RUN_DAY_START_UTC_HOUR = get_from_env("AEO_RUN_DAY_START_UTC_HOUR", 7, type_cast=int)
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
+# The Perplexity engine also needs the AI gateway. It stays off until legal confirms which
+# Perplexity terms cover the stored web_search output.
+AEO_PERPLEXITY_ENABLED = get_from_env("AEO_PERPLEXITY_ENABLED", False, type_cast=str_to_bool)
 CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")
 

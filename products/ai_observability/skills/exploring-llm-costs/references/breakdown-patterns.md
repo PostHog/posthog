@@ -94,8 +94,48 @@ ORDER BY cost_usd DESC
 LIMIT 25
 ```
 
-Then drill into the top traces with `posthog:query-llm-trace` to see which spans
-and generations are driving cost.
+To see which spans and generations drive a trace's cost, break that one trace down in SQL.
+`posthog:query-llm-trace` caps its response by size, so it returns only the earliest events of a trace with more than a few dozen, and it can time out on a very large trace.
+Open a trace with it to read specific calls, not to add up cost.
+Both queries below must use the same time filter as the query that found the trace, or they miss its older events:
+
+```sql
+posthog:execute-sql
+SELECT
+    properties.$ai_model AS model,
+    properties.$ai_span_name AS span_name,
+    count() AS llm_calls,
+    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd
+FROM events
+WHERE event IN ('$ai_generation', '$ai_embedding')
+    AND timestamp >= now() - INTERVAL 7 DAY
+    AND properties.$ai_trace_id = '<trace_id>'
+GROUP BY model, span_name
+ORDER BY cost_usd DESC
+LIMIT 25
+```
+
+The summary keeps the 25 most expensive groups, so its rows can add up to less than the trace's total.
+
+Then sample the most expensive calls in the same trace:
+
+```sql
+posthog:execute-sql
+SELECT
+    uuid,
+    timestamp,
+    properties.$ai_model AS model,
+    properties.$ai_span_name AS span_name,
+    round(toFloat(properties.$ai_total_cost_usd), 6) AS cost_usd,
+    toInt(properties.$ai_input_tokens) AS input_tokens,
+    toInt(properties.$ai_output_tokens) AS output_tokens
+FROM events
+WHERE event IN ('$ai_generation', '$ai_embedding')
+    AND timestamp >= now() - INTERVAL 7 DAY
+    AND properties.$ai_trace_id = '<trace_id>'
+ORDER BY cost_usd DESC
+LIMIT 10
+```
 
 ## Cost by custom dimension
 
