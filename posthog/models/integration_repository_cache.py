@@ -92,7 +92,6 @@ ACTIVITY_REFRESH_INTERVAL = timedelta(days=1)
 ACTIVITY_WINDOW = timedelta(days=30)
 # GitHub times out one query that counts commit history for about 100 repositories, so batches stay well below that.
 ACTIVITY_BATCH_SIZE = 25
-# Distinct authors are counted in this many recent commits on the default branch.
 ACTIVITY_AUTHOR_SAMPLE = 100
 ACTIVITY_QUERY_TIMEOUT_SECONDS = 30
 TOP_EXTENSION_COUNT = 3
@@ -206,13 +205,12 @@ class IntegrationRepositoryCacheEntry(UUIDModel):
     # TODO: when `tree_truncated=True` the path set is incomplete (~50k+ entry repos).
     # Affects <2% of repos, skews to monorepos. Future fix: paginated recursive subtree fetch.
     tree_truncated = models.BooleanField(default=False)
-    # Figures derived from `tree_paths` when it is written. A truncated tree makes `file_count` a floor.
+    # A truncated tree makes `file_count` a floor.
     file_count = models.IntegerField(null=True, blank=True)
     top_extensions = models.JSONField(null=True, blank=True)
     # Equal hashes mean equal file trees, which is how a mirror or export of a repository shows.
     tree_hash = models.CharField(max_length=64, null=True, blank=True)
-    # Activity figures from GitHub, refreshed in the background by `refresh_activity`. Approximate and
-    # possibly days old. They stay null until the first refresh, and readers must treat null as unknown.
+    # Refreshed by `refresh_activity`, so they can be days old. Null means unknown.
     commits_last_30_days = models.IntegerField(null=True, blank=True)
     recent_author_count = models.IntegerField(null=True, blank=True)
     merged_pull_request_count = models.IntegerField(null=True, blank=True)

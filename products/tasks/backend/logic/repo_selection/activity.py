@@ -162,8 +162,7 @@ def _has_activity(figures: RepositoryFigures | None) -> bool:
 
 @frozen(order=True)
 class _ActivityRank:
-    # Field order is the sort order: candidates with activity first, then more recent authors,
-    # then more merged pull requests, then name.
+    # Dataclass ordering compares fields in declaration order, so this order is the sort order.
     no_activity: bool
     fewer_recent_authors: int
     fewer_merged_pull_requests: int

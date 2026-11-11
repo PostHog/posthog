@@ -47,8 +47,6 @@ class FixtureRepository:
     private: bool
     readme: str
     tree_paths: tuple[str, ...]
-    # The activity figures the selector prompt renders: commits on the default branch in the last
-    # 30 days, distinct authors of the recent commits, and merged pull requests of all time.
     commits_last_30_days: int
     recent_author_count: int
     merged_pull_request_count: int
