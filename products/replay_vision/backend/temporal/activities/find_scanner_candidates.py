@@ -367,7 +367,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
 
     if deep_candidates:
         record_deep_candidates(len(deep_candidates))
-    found = bool(candidates or deep_candidates or priming_candidates)
+    # A full page counts even when every row was filtered out, because more matching recordings are waiting.
+    found = bool(candidates or deep_candidates or priming_candidates or batch.saturated)
     if found:
         ReplayScanner.objects.filter(pk=scanner.pk).update(last_found_candidates_at=timezone.now())
     record_sweep_outcome(

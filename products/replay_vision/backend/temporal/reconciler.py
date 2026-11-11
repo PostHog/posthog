@@ -58,6 +58,10 @@ with workflow.unsafe.imports_passed_through():
     )
 
 
+# Caps and reorders the schedule operations, which changes the activities a tick schedules.
+RECONCILE_CAPPED_OPS_PATCH = "replay-vision-reconcile-capped-ops-2026-11"
+
+
 @workflow.defn(name=RECONCILER_WORKFLOW_NAME)
 class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
     inputs_cls = ReconcileScannerSchedulesInputs
@@ -138,9 +142,15 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         # Legacy untagged schedules surface as None and naturally drift on first tick.
         existing = {entry.scanner_id: entry.fingerprint for entry in existing_entries}
         drifted = {sid for sid in enabled.keys() & existing.keys() if existing[sid] != enabled[sid].fingerprint}
-        # Missing schedules first, because a scanner without one does not sweep at all.
-        to_upsert = [*sorted(enabled.keys() - existing.keys()), *sorted(drifted)][:RECONCILE_MAX_SCHEDULE_OPS_PER_TICK]
-        to_delete = sorted(existing.keys() - enabled.keys())[:RECONCILE_MAX_SCHEDULE_OPS_PER_TICK]
+        if workflow.patched(RECONCILE_CAPPED_OPS_PATCH):
+            # Missing schedules first, because a scanner without one does not sweep at all.
+            to_upsert = [*sorted(enabled.keys() - existing.keys()), *sorted(drifted)][
+                :RECONCILE_MAX_SCHEDULE_OPS_PER_TICK
+            ]
+            to_delete = sorted(existing.keys() - enabled.keys())[:RECONCILE_MAX_SCHEDULE_OPS_PER_TICK]
+        else:
+            to_upsert = sorted((enabled.keys() - existing.keys()) | drifted)
+            to_delete = sorted(existing.keys() - enabled.keys())
 
         upsert_results, delete_results = await asyncio.gather(
             self._fan_out(

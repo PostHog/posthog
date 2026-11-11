@@ -136,9 +136,7 @@ def _build_schedule(scanner_id: UUID, team_id: int, interval: dt.timedelta) -> S
 def _schedule_states(scanners: "QuerySet[ReplayScanner]") -> dict[UUID, ScannerScheduleState]:
     """`{scanner_id: state}` for the given enabled scanners that should have a schedule right now."""
     # Unscoped because the reconciler lists every team's scanners at once; the subquery stays pinned to each row.
-    has_enabled_alert = Exists(
-        VisionAlertConfiguration.objects.unscoped().filter(scanner_id=OuterRef("pk"), enabled=True)
-    )
+    has_enabled_alert = Exists(VisionAlertConfiguration.all_teams.filter(scanner_id=OuterRef("pk"), enabled=True))
     rows = scanners.annotate(has_enabled_alert=has_enabled_alert).values(
         "id", "team_id", "has_enabled_alert", *_FINGERPRINT_FIELDS, *_CADENCE_FIELDS
     )

@@ -893,6 +893,11 @@ class TestFindScannerCandidatesActivity:
         # The filtered rows still count as covered ground, so the walk moves past them.
         assert result.deep_swept_through is not None
 
+    _NEGATIVE_QUERY = {
+        "kind": "RecordingsQuery",
+        "properties": [{"key": "$host", "value": ["internal.example.com"], "operator": "is_not", "type": "event"}],
+    }
+
     def test_fully_excluded_batch_still_advances_the_keyset(self) -> None:
         # Falling back to the last surviving candidate would leave the keyset where it was and refetch
         # the same excluded rows forever.
@@ -1618,7 +1623,7 @@ def test_raising_the_limit_rearms_the_notification_for_the_same_period() -> None
     "reason, pause_over, expect_skipped_window",
     [
         (SweepPauseReason.CREDIT_LIMIT, True, True),
-        (SweepPauseReason.EXPERIMENT_NOT_RUNNING, True, True),
+        (SweepPauseReason.EXPERIMENT_NOT_RUNNING, True, False),
         (SweepPauseReason.FILTER_ERROR, True, False),
         (SweepPauseReason.NO_PRINCIPAL, True, False),
         (SweepPauseReason.CREDIT_LIMIT, False, False),

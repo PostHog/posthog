@@ -179,7 +179,9 @@ async def test_upsert_deletes_when_scanner_missing() -> None:
 @pytest.mark.asyncio
 async def test_upsert_deletes_when_scanner_should_not_sweep(org_team, overrides: dict[str, Any]) -> None:
     _, team = org_team
-    scanner = await sync_to_async(_make_scanner)(team, **overrides)
+    scanner = await sync_to_async(_make_scanner)(team)
+    # `.update()`, because any `save()` clears a pause.
+    await ReplayScanner.objects.filter(pk=scanner.pk).aupdate(**overrides)
     with _patched_temporal(exists=True) as (_exists, create, _update, delete):
         await a_upsert_scanner_schedule(scanner.id, scanner.team_id)
     create.assert_not_awaited()

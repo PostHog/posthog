@@ -7,10 +7,10 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 
-# Reasons whose sweeps used to move the watermark to now on every blocked tick, so that nothing the scanner
-# could not scan is billed later. A paused scanner has no ticks, so the first sweep after the pause makes the
-# same move once.
-_SKIPS_PAUSED_WINDOW = frozenset({SweepPauseReason.CREDIT_LIMIT, SweepPauseReason.EXPERIMENT_NOT_RUNNING})
+# A credit-limit pause must not bill what was recorded while the scanner could not pay, so the first sweep after
+# it starts from now. An experiment pause moved the watermark when it paused, so its resume sweeps the time since,
+# which includes any time after a relaunch.
+_SKIPS_PAUSED_WINDOW = frozenset({SweepPauseReason.CREDIT_LIMIT})
 
 
 def pause_sweep(scanner: ReplayScanner, reason: SweepPauseReason, until: dt.datetime) -> None:

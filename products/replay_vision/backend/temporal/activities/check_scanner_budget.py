@@ -20,6 +20,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     ReplayScannerBackfill,
 )
 from products.replay_vision.backend.quota import (
+    BillingPeriod,
     OrgCreditCap,
     compute_scanner_budget,
     org_credit_cap_for,
@@ -120,7 +121,7 @@ def _notify_limit_reached(scanner: ReplayScanner) -> bool:
     return _notify_scanner_viewers(scanner, f'"{scanner.name}" reached its credit limit', body)
 
 
-def _turn_off_free_only_scanner(scanner: ReplayScanner) -> CheckScannerBudgetOutput:
+def _turn_off_free_only_scanner(scanner: ReplayScanner) -> None:
     """Turn a free-only scanner off once the free credits run out, so it doesn't start again when they reset.
 
     Its backfills are cancelled with it: one paused on the same free credits would otherwise resume
@@ -131,10 +132,10 @@ def _turn_off_free_only_scanner(scanner: ReplayScanner) -> CheckScannerBudgetOut
         # One racing tick wins the lock, and a concurrent switch off "Free credits only" wins over the turn-off.
         locked = ReplayScanner.objects.select_for_update().filter(pk=scanner.pk, enabled=True, free_only=True).first()
         if locked is None:
-            return CheckScannerBudgetOutput(capped=True)
+            return
         if locked.scanner_type == ScannerType.EXPERIMENT and not stop_variant_analysis(locked):
             record_sweep_outcome(f"{ScannerDisabledReason.FREE_CREDITS_USED}_pause_failed")
-            return CheckScannerBudgetOutput(capped=True)
+            return
         locked.turn_off(ScannerDisabledReason.FREE_CREDITS_USED)
         cancelled_backfills = (
             ReplayScannerBackfill.objects.for_team(scanner.team_id)
@@ -152,7 +153,6 @@ def _turn_off_free_only_scanner(scanner: ReplayScanner) -> CheckScannerBudgetOut
         body += " Its backfill was canceled."
     # Best effort: a turned-off scanner has no next tick to retry a failed send.
     _notify_scanner_viewers(scanner, f'"{scanner.name}" stopped: free credits used', body)
-    return CheckScannerBudgetOutput(capped=True)
 
 
 @activity.defn
@@ -177,33 +177,37 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
         return CheckScannerBudgetOutput(capped=False)
     # Resolve the period once so the cap decisions and the notification stamp cannot straddle a rollover.
     cap = org_credit_cap_for(scanner.team.organization, scanner.team.organization_id)
-    if _org_capped(scanner, cap):
-        return CheckScannerBudgetOutput(capped=True)
-    if not scanner.has_spend_ceiling:
-        return CheckScannerBudgetOutput(capped=False)
-    # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
-    if unrunnable_reason(scanner):
-        return CheckScannerBudgetOutput(capped=False)
-    period = cap.period
+    # The scanner's own limit goes first, so its limit notification still goes out when the org is capped too.
+    if scanner.has_spend_ceiling:
+        # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
+        if unrunnable_reason(scanner):
+            return CheckScannerBudgetOutput(capped=False)
+        if _scanner_capped(scanner, cap.period):
+            return CheckScannerBudgetOutput(capped=True)
+    return CheckScannerBudgetOutput(capped=_org_capped(scanner, cap))
+
+
+def _scanner_capped(scanner: ReplayScanner, period: BillingPeriod) -> bool:
     with bounded_queries(CHECK_SCANNER_BUDGET_TIMEOUT):
         budget = compute_scanner_budget(scanner, period)
     if not budget.blocked:
-        return CheckScannerBudgetOutput(capped=False)
+        return False
     if not budget.blocked_by_settled_spend:
         # In-flight-only overage: capped for now, but those reservations may release without settling.
         record_sweep_outcome("scanner_capped_in_flight")
         activity.logger.info(
             "Sweep skipped: scanner credit limit reached by in-flight reservations only",
             extra={
-                "scanner_id": str(inputs.scanner_id),
-                "team_id": inputs.team_id,
+                "scanner_id": str(scanner.id),
+                "team_id": scanner.team_id,
                 "credit_limit": budget.credit_limit,
                 "credits_used": budget.credits_used,
             },
         )
-        return CheckScannerBudgetOutput(capped=True)
+        return True
     if scanner.free_only and budget.free_credits_filled_by_settled_spend:
-        return _turn_off_free_only_scanner(scanner)
+        _turn_off_free_only_scanner(scanner)
+        return True
     record_sweep_outcome("scanner_capped_settled")
     # The WHERE claims the notification stamp: of two racing ticks exactly one wins the send, and a
     # crash before the send below can only skip a notification, never send an unrecorded one.
@@ -219,8 +223,8 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     activity.logger.info(
         "Sweep skipped: scanner credit limit reached",
         extra={
-            "scanner_id": str(inputs.scanner_id),
-            "team_id": inputs.team_id,
+            "scanner_id": str(scanner.id),
+            "team_id": scanner.team_id,
             "credit_limit": budget.credit_limit,
             "credits_used": budget.credits_used,
         },
@@ -234,7 +238,7 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
         ReplayScanner.objects.filter(pk=scanner.pk, limit_notified_period_start=period.start).update(
             limit_notified_period_start=None
         )
-    return CheckScannerBudgetOutput(capped=True)
+    return True
 
 
 def _org_capped(scanner: ReplayScanner, cap: OrgCreditCap) -> bool:
