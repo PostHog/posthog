@@ -7,7 +7,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 
 import pytest
-from posthog.test.base import reset_clickhouse_database, reset_clickhouse_database_if_dirty
+from posthog.test.base import reset_clickhouse_database_if_dirty, truncate_or_reset_clickhouse_database
 from unittest.mock import patch
 
 from django.conf import settings
@@ -106,7 +106,7 @@ def isolated_clickhouse_cluster(client_settings: Mapping[str, str] | None = None
     # dirty counter, so a late row would leak into the next test. There is no
     # teardown reset: the next test that uses this fixture resets on setup, and
     # reset_clickhouse_after_module covers the tests that run after the module.
-    reset_clickhouse_database()
+    truncate_or_reset_clickhouse_database()
     with patch.object(
         ClickhouseCluster,
         "_ClickhouseCluster__get_cluster_hosts",

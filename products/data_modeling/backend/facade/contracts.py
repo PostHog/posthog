@@ -103,6 +103,16 @@ class SavedQueryNodeState:
     suspended: dict[str, SuspensionMarker]
 
 
+@dataclass(frozen=True)
+class SavedQuerySchedule:
+    """When a materialized saved query is next due, as far as the scheduler's cadence says."""
+
+    interval: timedelta
+    # Last successful materialization + interval. Approximate: it is None until the first run has
+    # completed, and it drifts if the tier's schedule was paused.
+    next_run_at: datetime | None
+
+
 class MaterializationRefusedError(Exception):
     pass
 
