@@ -122,16 +122,21 @@ class DashboardQuerySharingStream:
         self._admitted = self._slots.acquire(blocking=False)
         if not self._admitted:
             return False
-        self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_STREAM, thread_name_prefix="dashboard-sharing")
-        for index, job in enumerate(self._jobs):
-            future = self._pool.submit(
-                self._context.copy().run,
-                self._run,
-                job,
-                f"{self._query_id}-tile-{index}-",
-                self._debug_tile_ids[index] if self._debug_tile_ids else None,
-            )
-            self._futures.append(future)
+        try:
+            self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_STREAM, thread_name_prefix="dashboard-sharing")
+            for index, job in enumerate(self._jobs):
+                future = self._pool.submit(
+                    self._context.copy().run,
+                    self._run,
+                    job,
+                    f"{self._query_id}-tile-{index}-",
+                    self._debug_tile_ids[index] if self._debug_tile_ids else None,
+                )
+                self._futures.append(future)
+        except Exception:
+            logger.exception("Failed to start dashboard query sharing workers")
+            self._close(complete=False)
+            return False
         return True
 
     def _worker_finished(self, _future: Future[None]) -> None:

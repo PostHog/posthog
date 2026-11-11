@@ -1,6 +1,7 @@
 import json
 import asyncio
 from concurrent.futures import CancelledError, ThreadPoolExecutor
+from contextlib import nullcontext
 from threading import Barrier, BoundedSemaphore, Event
 
 from unittest.mock import Mock, patch
@@ -140,19 +141,37 @@ class TestDashboardQuerySharing(SimpleTestCase):
         with self.assertRaises(StopIteration):
             next(iterator)
 
-    @parameterized.expand([("sync", False), ("async", True)])
-    def test_stream_over_capacity_reports_error_without_running_tiles(self, _name: str, asynchronous: bool) -> None:
+    @parameterized.expand(
+        [
+            ("over_capacity_sync", False, False),
+            ("over_capacity_async", True, False),
+            ("startup_failure_sync", False, True),
+            ("startup_failure_async", True, True),
+        ]
+    )
+    def test_stream_that_cannot_start_reports_error_without_running_tiles(
+        self, _name: str, asynchronous: bool, startup_fails: bool
+    ) -> None:
         job = Mock(return_value={"type": "tile", "tile": {"id": 1}})
         stream = DashboardQuerySharingStream(jobs=[job], team_id=1, query_id="test")
 
         async def collect() -> list[bytes]:
             return [chunk async for chunk in stream.astream()]
 
-        with patch("products.dashboards.backend.query_sharing_stream._stream_slots", BoundedSemaphore(1)) as slots:
-            slots.acquire()
+        slots = BoundedSemaphore(1)
+        failing_submit = (
+            patch.object(ThreadPoolExecutor, "submit", side_effect=RuntimeError("can't start new thread"))
+            if startup_fails
+            else nullcontext()
+        )
+        with patch("products.dashboards.backend.query_sharing_stream._stream_slots", slots), failing_submit:
+            if not startup_fails:
+                slots.acquire()
             chunks = asyncio.run(collect()) if asynchronous else list(stream.stream())
         self.assertEqual([json.loads(chunk.removeprefix(b"data: ")) for chunk in chunks], [{"type": "error"}])
         job.assert_not_called()
+        if startup_fails:
+            self.assertTrue(slots.acquire(blocking=False))
 
     @parameterized.expand([("sync", False), ("async", True)])
     def test_disconnect_cancels_queries_and_prevents_late_execution(self, _name: str, asynchronous: bool) -> None:
