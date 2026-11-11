@@ -717,30 +717,24 @@ export function appendResultsToFolders(
     const newState: Record<string, FileSystemEntry[]> = { ...folders }
     const newResults = 'lastCount' in results ? results.results.slice(-1 * results.lastCount) : results.results
 
-    // Track IDs we've already processed to avoid duplicates within the incoming results
+    // Merges each folder once, so a scan of thousands of files into one folder stays linear.
+    const incomingByFolder = new Map<string, Map<string, FileSystemEntry>>()
     const processedIds = new Set<string>()
-
     for (const result of newResults) {
-        // Skip items without IDs or that we've already processed in this batch
-        if (!result.id) {
-            continue
-        }
-        if (processedIds.has(result.id)) {
+        if (!result.id || processedIds.has(result.id)) {
             continue
         }
         processedIds.add(result.id)
-
         const folder = parentPath(result.path)
-        if (newState[folder]) {
-            const existingItem = newState[folder].find((item) => item.id === result.id)
-            if (existingItem) {
-                newState[folder] = newState[folder].map((file) => (file.id === result.id ? result : file))
-            } else {
-                newState[folder] = [...newState[folder], result]
-            }
-        } else {
-            newState[folder] = [result]
-        }
+        incomingByFolder.set(folder, (incomingByFolder.get(folder) ?? new Map()).set(result.id, result))
+    }
+    for (const [folder, incoming] of incomingByFolder) {
+        const existing = newState[folder] ?? []
+        const existingIds = new Set(existing.map((file) => file.id))
+        newState[folder] = [
+            ...existing.map((file) => incoming.get(file.id) ?? file),
+            ...[...incoming.values()].filter((result) => !existingIds.has(result.id)),
+        ]
     }
     return newState
 }

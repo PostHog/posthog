@@ -383,6 +383,9 @@ export interface projectTreeDataLogicActions {
         ref: string
         type: string
     }
+    dropStaleItems: (items: FileSystemEntry[]) => {
+        items: FileSystemEntry[]
+    }
     linkItem: (
         oldPath: string,
         newPath: string,
@@ -735,6 +738,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
+        // Drops cached copies that a full reload no longer lists at their path, in one update. Nothing is deleted on
+        // the server, so this is not a deleteSavedItem: listeners that react to a delete, such as removing a pin, must
+        // not run for it.
+        dropStaleItems: (items: FileSystemEntry[]) => ({ items }),
         deleteItem: (item: FileSystemEntry, projectTreeLogicKey: string) => ({ item, projectTreeLogicKey }),
         linkItem: (oldPath: string, newPath: string, force: boolean, projectTreeLogicKey: string) => ({
             oldPath,
@@ -1209,6 +1216,28 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     if (savedItem.type === 'folder') {
                         for (const folder of Object.keys(newState)) {
                             if (isPathUnder(folder, savedItem.path)) {
+                                delete newState[folder]
+                            }
+                        }
+                    }
+                    return newState
+                },
+                dropStaleItems: (state, { items }) => {
+                    const idsByFolder = new Map<string, Set<string>>()
+                    for (const item of items) {
+                        const folder = parentPath(item.path)
+                        idsByFolder.set(folder, (idsByFolder.get(folder) ?? new Set()).add(item.id))
+                    }
+                    const newState = { ...state }
+                    for (const [folder, ids] of idsByFolder) {
+                        if (newState[folder]) {
+                            newState[folder] = newState[folder].filter((item) => !ids.has(item.id))
+                        }
+                    }
+                    const droppedFolders = items.filter((item) => item.type === 'folder').map((item) => item.path)
+                    if (droppedFolders.length > 0) {
+                        for (const folder of Object.keys(newState)) {
+                            if (droppedFolders.some((path) => isPathUnder(folder, path))) {
                                 delete newState[folder]
                             }
                         }

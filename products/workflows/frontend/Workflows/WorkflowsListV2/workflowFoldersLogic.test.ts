@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -524,6 +525,52 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
         expect(logic.values.folderPaths).not.toContain('Empty')
         expect(logic.values.folderPaths).toContain('Reports')
+    })
+
+    it('replaces many files of one folder in the shared tree with one removal and one merge', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const files = (prefix: string): FileSystemEntry[] =>
+            Array.from({ length: 40 }, (_, index) => ({
+                id: `${prefix}-${index}`,
+                path: `Billing/${prefix} workflow ${index}`,
+                type: 'hog_flow',
+                ref: `${prefix}-ref-${index}`,
+            }))
+        const stale = files('stale')
+        const fresh = files('fresh')
+        addProjectFiles(stale)
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
+                    return [
+                        200,
+                        paginated(
+                            search === 'type:hog_flow'
+                                ? fresh
+                                : search === 'type:folder'
+                                  ? [{ id: 'billing', path: 'Billing', type: 'folder' }]
+                                  : []
+                        ),
+                    ]
+                },
+            },
+        })
+        const billingIds = (): string[] =>
+            (projectTreeDataLogic.values.folders['Billing'] ?? []).map((entry) => entry.id).sort()
+        let removals = 0
+        let previous = billingIds().length
+        const unsubscribe = getContext().store.subscribe(() => {
+            const current = billingIds().length
+            removals += current < previous ? 1 : 0
+            previous = current
+        })
+
+        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+        unsubscribe()
+
+        expect(billingIds()).toEqual(fresh.map((entry) => entry.id).sort())
+        expect(removals).toBe(1)
     })
 
     it("keeps the metadata of other products' files it writes into the shared tree", async () => {
