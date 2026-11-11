@@ -21,6 +21,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.clickhouse.client import execute
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -7521,6 +7523,31 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert {r["workflow_id"] for r in res.json()} == {str(self.flow_a.id)}
+
+    @parameterized.expand([("list_v2_on", True), ("list_v2_off", False)])
+    def test_api_key_polling_runs_on_the_offline_cluster_and_the_app_on_the_online_one(self, _name, enabled):
+        self.list_v2_enabled = enabled
+        # Web pods run with an online process default. An eager Celery task inside a test request switches it to
+        # offline, which a web request never does, so the test holds it at the web value.
+        web_default = patch(
+            "posthog.clickhouse.client.execute.get_default_clickhouse_workload_type", return_value=Workload.ONLINE
+        )
+        web_default.start()
+        self.addCleanup(web_default.stop)
+        self._seed(self.flow_a.id, failed=1)
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="poller", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+        workloads = {}
+        for caller, headers in (("app", {}), ("api_key", {"authorization": f"Bearer {key}"})):
+            with patch(
+                "posthog.clickhouse.client.execute.get_client_from_pool", wraps=execute.get_client_from_pool
+            ) as pool:
+                res = self.client.get(f"/api/projects/{self.team.id}/hog_flows/metrics/global/", headers=headers)
+            assert res.status_code == status.HTTP_200_OK, res.json()
+            workloads[caller] = {call.args[0] for call in pool.call_args_list}
+        assert workloads == {"app": {Workload.ONLINE}, "api_key": {Workload.OFFLINE}}
 
 
 class TestHogFlowSecretInputs(APIBaseTest):
