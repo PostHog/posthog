@@ -7541,8 +7541,9 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
             label="poller", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
         )
         # The offline cluster gets its own name for the test ClickHouse, so the host each query connects to
-        # shows which cluster served it.
-        offline_host = socket.gethostbyname(settings.CLICKHOUSE_HOST)
+        # shows which cluster served it. A host configured as an address gets its name instead.
+        resolved = socket.gethostbyname(settings.CLICKHOUSE_HOST)
+        offline_host = resolved if resolved != settings.CLICKHOUSE_HOST else socket.getfqdn(resolved)
         assert offline_host != settings.CLICKHOUSE_HOST
         real_execute = ClickHouseClient.execute
         hosts: dict[str, set[str]] = {}
