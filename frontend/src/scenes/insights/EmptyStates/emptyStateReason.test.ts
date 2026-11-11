@@ -2,7 +2,13 @@ import { dayjs } from 'lib/dayjs'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { emptyStateReason, explainableEvents, hasPropertyFilters, rangeReaching } from './emptyStateReason'
+import {
+    emptyStateRange,
+    emptyStateReason,
+    explainableEvents,
+    hasPropertyFilters,
+    rangeReaching,
+} from './emptyStateReason'
 
 describe('emptyStateReason', () => {
     const rangeStart = dayjs('2026-10-01')
@@ -13,6 +19,7 @@ describe('emptyStateReason', () => {
         ['last-seen-before', { a: '2026-09-20T00:00:00Z', b: null }, true],
         ['last-seen-after', { a: '2026-11-05T00:00:00Z' }, true],
         ['filtered', { a: '2026-09-01T00:00:00Z', b: '2026-10-15T00:00:00Z' }, true],
+        ['filtered', { a: '2026-11-05T00:00:00Z', b: '2026-10-15T00:00:00Z' }, true],
         ['unknown', { a: '2026-10-15T00:00:00Z' }, false],
     ])('%s', (kind, lastSeen, hasFilters) => {
         expect(emptyStateReason({ lastSeen, rangeStart, rangeEnd, hasFilters }).kind).toBe(kind)
@@ -46,7 +53,17 @@ describe('emptyStateReason', () => {
             [event('a'), { kind: NodeKind.ActionsNode, id: 1 }],
             null,
         ],
+        ['a name with a comma cannot be looked up', NodeKind.TrendsQuery, [event('checkout,success')], null],
     ])('explainableEvents: %s', (_, kind, series, expected) => {
         expect(explainableEvents({ kind, series } as any)).toEqual(expected)
+    })
+
+    test('emptyStateRange prefers the range the backend resolved', () => {
+        const range = emptyStateRange(
+            { date_from: '2026-11-03T00:00:00Z', date_to: '2026-11-10T23:59:59Z' },
+            { date_from: null }
+        )
+        expect(range.rangeStart?.toISOString()).toBe('2026-11-03T00:00:00.000Z')
+        expect(range.rangeEnd?.toISOString()).toBe('2026-11-10T23:59:59.000Z')
     })
 })

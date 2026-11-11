@@ -1,7 +1,8 @@
 import { type Dayjs, dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { isEventsNode, isFunnelsQuery } from '~/queries/schema/node-guards'
-import type { InsightQueryNode } from '~/queries/schema/schema-general'
+import type { DateRange, InsightQueryNode, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 
 export type EmptyStateReason =
     | { kind: 'never-sent'; events: string[] }
@@ -36,15 +37,17 @@ export function emptyStateReason({
     if (seen.length === 0) {
         return { kind: 'never-sent', events }
     }
+    const isBeforeRange = (day: Dayjs): boolean => !!rangeStart && day.isBefore(rangeStart)
+    const isAfterRange = (day: Dayjs): boolean => !!rangeEnd && day.isAfter(rangeEnd)
+    const inRange = seen.find(({ lastSeen }) => !isBeforeRange(lastSeen) && !isAfterRange(lastSeen))
+    if (inRange) {
+        // Last sent inside the range, so the events exist there and a filter is the likely cause.
+        return hasFilters ? { kind: 'filtered', event: inRange.event } : { kind: 'unknown' }
+    }
     const latest = seen[0]
-    if (rangeStart && latest.lastSeen.isBefore(rangeStart)) {
-        return { kind: 'last-seen-before', ...latest }
-    }
-    if (rangeEnd && latest.lastSeen.isAfter(rangeEnd)) {
-        return { kind: 'last-seen-after', ...latest }
-    }
-    // Last sent inside the range, so the events exist there and a filter is the likely cause.
-    return hasFilters ? { kind: 'filtered', event: latest.event } : { kind: 'unknown' }
+    return isAfterRange(latest.lastSeen)
+        ? { kind: 'last-seen-after', ...latest }
+        : { kind: 'last-seen-before', ...latest }
 }
 
 /**
@@ -55,7 +58,8 @@ export function explainableEvents(querySource: InsightQueryNode | null): string[
     const series = querySource && 'series' in querySource ? querySource.series : null
     const counted = series && isFunnelsQuery(querySource) ? series.slice(0, 1) : series
     const events = counted?.map((node) => (isEventsNode(node) ? node.event : null)) ?? []
-    if (!events.length || !events.every((event): event is string => !!event)) {
+    // The definitions lookup sends names as a comma-separated list, so a name with a comma cannot be looked up.
+    if (!events.length || !events.every((event): event is string => !!event && !event.includes(','))) {
         return null
     }
     return [...new Set(events)]
@@ -72,6 +76,20 @@ export function hasPropertyFilters(properties: unknown): boolean {
         return properties.some((item) => !isPropertyGroup(item) || hasPropertyFilters(item.values))
     }
     return isPropertyGroup(properties) && hasPropertyFilters(properties.values)
+}
+
+/** The range the results cover: what the backend resolved, else the query's own range, which can omit the default lookback. */
+export function emptyStateRange(
+    resolved: ResolvedDateRangeResponse | null | undefined,
+    dateRange: DateRange | null | undefined
+): { rangeStart: Dayjs | null; rangeEnd: Dayjs | null } {
+    if (resolved?.date_from && resolved.date_to) {
+        return { rangeStart: dayjs(resolved.date_from), rangeEnd: dayjs(resolved.date_to) }
+    }
+    return {
+        rangeStart: dateStringToDayJs(dateRange?.date_from ?? null),
+        rangeEnd: dateRange?.date_to ? (dateStringToDayJs(dateRange.date_to)?.endOf('day') ?? null) : null,
+    }
 }
 
 const RELATIVE_RANGE_DAYS = [7, 14, 30, 90, 180, 365]
