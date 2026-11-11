@@ -7,6 +7,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { createCertificates } from './certificates'
 import { CardFault, FaultList, FaultRule, SesStatusAnswer, ruleOf } from './faults'
+import { SIGNING_CERT_PATH, SnsSigner, hardBounceOf, postFeedback } from './feedback'
 import { problemsOf } from './problems'
 import { Proxy, serveConnect } from './proxy'
 import {
@@ -33,6 +34,7 @@ export type ProviderEdgeOptions = {
     trackingKeys?: string
     caDir?: string
     region?: string
+    feedbackUrl?: string
 }
 
 export type ProviderEdge = {
@@ -77,10 +79,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const truth = new Truth()
     const sent: SesMessage[] = []
     const faults = new FaultList()
-    const signer = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
+    const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
 
     const actionIdOf = (trackingCode: string | undefined): string | undefined =>
-        trackingCode === undefined ? undefined : signer?.parse(trackingCode)?.actionId
+        trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)?.actionId
 
     const sendEmail = (body: unknown): Reply | Silence => {
         const request = readSendEmail(body, options.configurationSets)
@@ -92,7 +94,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const recipients = addressesOf(message.to)
         const correlation = { unitId: unitIdOf(recipients), actionId: actionIdOf(trackingCodeOf(message)) }
         const fault = faults.takeSes(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
-        if (fault && fault.answer.kind !== 'status') {
+        if (fault && fault.answer.kind !== 'status' && fault.answer.kind !== 'bounce') {
             truth.append({ kind: 'ses.send', status: 0, fault: fault.name, ...correlation, detail: {} })
             return fault.answer.kind
         }
@@ -104,8 +106,44 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const messageId = `provider-edge-${truth.records.length + 1}`
         const accepted: SesMessage = { messageId, ...message }
         sent.push(accepted)
-        truth.append({ kind: 'ses.send', status: 200, ...correlation, detail: { message: truthMessageOf(accepted) } })
+        truth.append({
+            kind: 'ses.send',
+            status: 200,
+            fault: fault?.name,
+            ...correlation,
+            detail: { message: truthMessageOf(accepted) },
+        })
+        if (fault?.answer.kind === 'bounce') {
+            setImmediate(() => void sendFeedback(accepted, fault.name, correlation.unitId))
+        }
         return { status: 200, body: { MessageId: messageId } }
+    }
+
+    // The feedback record carries no action id, so the Judge never counts it as a delivery of the send.
+    const sendFeedback = async (message: SesMessage, fault: string, unitId: string | undefined): Promise<void> => {
+        if (!signer || !options.feedbackUrl) {
+            const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
+            truth.append({
+                kind: 'ses.feedback',
+                status: 0,
+                fault,
+                unitId,
+                detail: { error: `The edge has no ${missing}.` },
+            })
+            return
+        }
+        const { envelope, bouncedRecipients } = hardBounceOf(message, signer)
+        const answer = await postFeedback(options.feedbackUrl, envelope)
+        truth.append({
+            kind: 'ses.feedback',
+            status: answer.status,
+            fault,
+            unitId,
+            detail: {
+                error: answer.error,
+                feedback: { snsMessageId: envelope.MessageId, sesMessageId: message.messageId, bouncedRecipients },
+            },
+        })
     }
 
     const addCardFault = (body: unknown): Reply => {
@@ -176,6 +214,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         await text(req)
         const host = (req.headers.host ?? '').replace(/:\d+$/, '')
         const target = req.url ?? '/'
+        if (signer && host === signer.host && req.method === 'GET' && target === SIGNING_CERT_PATH) {
+            res.writeHead(200, { 'content-type': 'application/x-pem-file' }).end(signer.leaf.cert)
+            return
+        }
         if (host !== WEBHOOK_HOST) {
             respond(res, { status: 404, body: { message: `The edge serves nothing at ${host}${target}` } })
             return
@@ -210,9 +252,11 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
 
     const server = http.createServer(serve(handle))
-    const certificates = options.caDir
-        ? await createCertificates(options.caDir, [WEBHOOK_HOST, `sns.${options.region ?? 'us-east-1'}.amazonaws.com`])
-        : undefined
+    const region = options.region ?? 'us-east-1'
+    const snsHost = `sns.${region}.amazonaws.com`
+    const certificates = options.caDir ? await createCertificates(options.caDir, [WEBHOOK_HOST, snsHost]) : undefined
+    const snsLeaf = certificates?.leaves.get(snsHost)
+    const signer: SnsSigner | undefined = snsLeaf && { host: snsHost, region, leaf: snsLeaf }
     const proxy: Proxy | undefined =
         certificates && serveConnect(server, certificates.leaves, http.createServer(serve(receive)))
     await new Promise<void>((resolve, reject) => {

@@ -15,7 +15,7 @@ export const CardFault = z.discriminatedUnion('name', [
     z
         .object({
             name: z.literal('ses.reject'),
-            params: z.object({ type: z.literal('rejected') }).strict(),
+            params: z.object({ type: z.enum(['rejected', 'bounce']) }).strict(),
             match: RecipientMatch.optional(),
             dose: Dose,
             for: Duration.optional(),
@@ -46,6 +46,7 @@ export type SesStatusAnswer = { status: number; type: string; message: string }
 
 export type SesAnswer =
     | { kind: 'status'; answer: SesStatusAnswer }
+    | { kind: 'bounce' }
     | { kind: 'drop-connection' }
     | { kind: 'no-answer' }
     | { kind: 'stalled-body' }
@@ -74,7 +75,10 @@ const RATE_WINDOW_MS = 1000
 export function ruleOf(fault: CardFault): FaultRule {
     switch (fault.name) {
         case 'ses.reject':
-            return { ...fault, answer: { kind: 'status', answer: REJECTED } }
+            return {
+                ...fault,
+                answer: fault.params.type === 'bounce' ? { kind: 'bounce' } : { kind: 'status', answer: REJECTED },
+            }
         case 'ses.throttle':
             return { ...fault, ratePerSecond: fault.params.rate, answer: { kind: 'status', answer: THROTTLED } }
         case 'dest.status':
