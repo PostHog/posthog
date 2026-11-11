@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import { PostHogApiError, serverDetailOf } from '@/lib/errors'
 import {
     TEST_ORG_ID,
     TEST_PROJECT_ID,
@@ -191,7 +192,8 @@ describe('Persons', { concurrent: false }, () => {
                 })
                 expect(result).toBeTruthy()
             } catch (error: any) {
-                expect(error.message).toMatch(/Unable to delete property|500/)
+                expect(error).toBeInstanceOf(PostHogApiError)
+                expect(error.status === 500 || serverDetailOf(error) === 'Unable to delete property').toBe(true)
             }
         })
     })

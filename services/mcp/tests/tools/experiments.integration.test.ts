@@ -359,7 +359,10 @@ describe('Experiments', { concurrent: false }, () => {
                         },
                     ],
                 } as any)
-            ).rejects.toThrow(/not found/)
+            ).rejects.toMatchObject({
+                name: 'PostHogValidationError',
+                detail: expect.stringMatching(/not found/),
+            })
         })
 
         it('should create an experiment with minimum detectable effect', async () => {

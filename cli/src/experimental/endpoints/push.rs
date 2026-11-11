@@ -676,16 +676,35 @@ fn update_endpoint(
     }
 }
 
-// `{:#}` prints the whole cause chain. Plain `{}` prints only the outer context, such as "Failed to
-// create endpoint", which drops PostHog's reason for the refusal.
 fn failure_line(action: &str, name: &str, error: &anyhow::Error) -> String {
-    format!("{} Failed to {action} {name}: {error:#}", "✗".red())
+    let mut message = error.to_string();
+    if let Some(api_error) = error
+        .chain()
+        .skip(1)
+        .find_map(|cause| cause.downcast_ref::<crate::api::client::ClientError>())
+    {
+        message.push_str(&format!(": {api_error}"));
+    }
+    format!("{} Failed to {action} {name}: {message}", "✗".red())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::api::client::ClientError;
+
+    #[test]
+    fn failure_line_omits_response_decode_causes() {
+        let decode =
+            serde_json::from_str::<EndpointResponse>(r#"{"is_active":"SYNTHETIC_RESPONSE_VALUE"}"#)
+                .unwrap_err();
+        let error = anyhow::Error::new(decode).context("Failed to parse create response");
+
+        let line = failure_line("create", "demo", &error);
+
+        assert!(line.contains("Failed to parse create response"), "{line}");
+        assert!(!line.contains("SYNTHETIC_RESPONSE_VALUE"), "{line}");
+    }
 
     #[test]
     fn failure_line_keeps_the_api_error_under_the_context() {

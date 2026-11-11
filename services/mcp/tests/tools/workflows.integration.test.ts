@@ -397,7 +397,10 @@ describe('Workflows', { concurrent: false }, () => {
                     ],
                 })
                 // MCP requests are non-web, so the guard fires even on a draft save.
-                await expect(createTool.handler(context, params)).rejects.toThrow(/behavior/i)
+                await expect(createTool.handler(context, params)).rejects.toMatchObject({
+                    name: 'PostHogValidationError',
+                    detail: expect.stringMatching(/behavior/i),
+                })
             } finally {
                 await context.api
                     .request({ method: 'PATCH', path: `${cohortPath}${cohort.id}/`, body: { deleted: true } })

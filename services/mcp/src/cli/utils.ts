@@ -46,12 +46,18 @@ export function isRunningInCI(env: NodeJS.ProcessEnv): boolean {
 // are often public. In CI the reason is left out and a note says where to see it.
 export function failureText(error: unknown, isCI: boolean): string {
     const message = error instanceof Error ? error.message : String(error)
-    if (serverDetailOf(error) === undefined) {
-        return message
-    }
-    return isCI
-        ? `${message}\n\nPostHog's reason is hidden in CI. Run the command outside CI to see it.`
-        : withServerDetail(message, error)
+    const text =
+        serverDetailOf(error) === undefined
+            ? message
+            : isCI
+              ? `${message}\n\nPostHog's reason is hidden in CI. Run the command outside CI to see it.`
+              : withServerDetail(message, error)
+    // Unicode escapes keep the informational JSON valid while making terminal controls inert.
+    return text.replace(/\p{Cc}/gu, (character) =>
+        character === '\n' || character === '\t'
+            ? character
+            : `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+    )
 }
 
 // Matches Linux's MAXSYMLINKS, so a link cycle fails instead of looping.

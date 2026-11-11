@@ -23,7 +23,6 @@ export class HogError extends Error {
     }
 }
 
-// Puts `context` in front of the cause's message and keeps the cause's `serverDetail`.
 export function wrapFailure(code: string, context: string, cause: unknown, hint?: string): HogError {
     const message = cause instanceof Error ? cause.message : String(cause)
     const serverDetail = cause instanceof HogError ? cause.serverDetail : undefined

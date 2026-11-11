@@ -33,6 +33,23 @@ describe('CLI failure text', () => {
         expect(text.includes('hidden in CI')).toBe(!shown)
     })
 
+    it.each([
+        ['C0', 'before\u001bafter\u0007', 'before\\u001bafter\\u0007'],
+        ['C1', 'before\u009dafter\u009c', 'before\\u009dafter\\u009c'],
+    ])('escapes %s controls without changing the reference data', (_name, detail, escaped) => {
+        const error = new PostHogValidationError({ ...refused, detail })
+        const text = failureText(error, false)
+        const reference = text.match(/<posthog-error-detail[^>]*>\n([\s\S]*?)\n<\/posthog-error-detail>/)
+
+        expect(JSON.parse(reference?.[1] ?? '')).toEqual({ detail: `${detail} (field: limit)` })
+        for (const control of ['\u001b', '\u0007', '\u009d', '\u009c']) {
+            expect(text).not.toContain(control)
+        }
+        for (const isCI of [false, true]) {
+            expect(failureText(new Error(`First line\n\t${detail}`), isCI)).toBe(`First line\n\t${escaped}`)
+        }
+    })
+
     it('keeps an error without a PostHog reason as it is', () => {
         expect(failureText(new Error('Unknown tool: "nope".'), true)).toBe('Unknown tool: "nope".')
     })

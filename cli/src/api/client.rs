@@ -154,8 +154,6 @@ struct ApiErrorResponse {
     attr: Option<String>,
 }
 
-// The text of a failed PostHog API call, for every path that reports one. PostHog's error shows only
-// outside CI, as `detailed_diagnostics` decides.
 pub fn describe_api_failure(status: u16, url: &Url, body: &str) -> String {
     api_error_message(status, url, body, detailed_diagnostics())
 }
