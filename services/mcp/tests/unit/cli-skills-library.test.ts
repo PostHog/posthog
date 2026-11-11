@@ -41,7 +41,7 @@ function contextMill(): Uint8Array {
             'SKILL.md': skillFile(
                 'omnibus-instrument-integration',
                 'Add PostHog SDK integration.',
-                '# Integrate\n\nRead `learn posthog:instrument-integration references/COMMANDMENTS.md` first.'
+                '# Integrate\n\nRead `learn posthog:instrument-integration references/COMMANDMENTS.md` first. Run `learn skills` for the rest.'
             ),
             'references/COMMANDMENTS.md': strToU8('# Commandments\n\nNever hardcode the token.'),
         }),
@@ -85,7 +85,6 @@ function fakeFetch(answers: Partial<Record<string, Answer>>): FakeAssets {
 }
 
 const FUNNELS: LearnRequest = { skill: 'posthog:funnels', paths: [] }
-const LIST: LearnRequest = { skill: 'skills', paths: [] }
 
 const ONLINE = { [PRODUCT_SKILL_ARCHIVE_URL]: productSkills(), [CONTEXT_MILL_URL]: contextMill() }
 const FIRST_LOAD = Date.UTC(2026, 0, 1)
@@ -96,7 +95,7 @@ async function cacheDir(): Promise<string> {
 
 async function warmCache(dir: string, assets = ONLINE): Promise<void> {
     const library = createSkillsLibrary({ cacheDir: dir, fetch: fakeFetch(assets).fetch, now: () => FIRST_LOAD })
-    const result = await library.learn(LIST)
+    const result = await library.catalog()
     expect(result.ok).toBe(true)
 }
 
@@ -113,6 +112,7 @@ describe('CLI skills library', () => {
             cacheDir: await cacheDir(),
             fetch: fakeFetch(ONLINE).fetch,
             learnCommand: 'hog learn',
+            listCommand: 'hog skills list',
         })
 
         const skill = await library.learn({ skill: 'posthog:instrument-integration', paths: [] })
@@ -120,13 +120,18 @@ describe('CLI skills library', () => {
             skill: 'posthog:instrument-integration',
             paths: ['references/COMMANDMENTS.md'],
         })
-        const listing = await library.learn(LIST)
-        const resource = await library.learn({ skill: 'posthog:audit', paths: [] })
+        const listing = await library.catalog()
+        const resource = await library.learn({ skill: 'audit', paths: [] })
+        const oldList = await library.learn({ skill: 'skills', paths: [] })
 
         expect(text(resource)).toContain('Check every event.')
         expect(text(skill)).toContain(
-            'Read `hog learn posthog:instrument-integration references/COMMANDMENTS.md` first.'
+            'Read `hog learn posthog:instrument-integration references/COMMANDMENTS.md` first. Run `hog skills list` for the rest.'
         )
+        expect(oldList).toEqual({
+            ok: false,
+            error: { code: 'usage', message: 'List the skills with `hog skills list`.' },
+        })
         expect(text(skill)).toContain('Read a file with `hog learn posthog:instrument-integration <path>`')
         expect(skill.ok && skill.value.reads).toEqual([
             { source: 'posthog', skill: 'instrument-integration', path: 'SKILL.md', readKind: 'skill' },
@@ -139,18 +144,11 @@ describe('CLI skills library', () => {
                 readKind: 'file',
             },
         ])
-        expect(listing.ok && listing.value.output).toEqual({
-            kind: 'list',
-            skills: [
-                { name: 'posthog:funnels', kind: 'learning', description: 'Analyze conversion funnels.' },
-                { name: 'posthog:audit', kind: 'implementation', description: 'Audit an install.' },
-                {
-                    name: 'posthog:instrument-integration',
-                    kind: 'implementation',
-                    description: 'Add PostHog SDK integration.',
-                },
-            ],
-        })
+        expect(listing.ok && listing.value.skills).toEqual([
+            { name: 'funnels', kind: 'learning', description: 'Analyze conversion funnels.' },
+            { name: 'audit', kind: 'implementation', description: 'Audit an install.' },
+            { name: 'instrument-integration', kind: 'implementation', description: 'Add PostHog SDK integration.' },
+        ])
     })
 
     it('uses the network copy when the download works, even with an older copy cached', async () => {
@@ -370,12 +368,11 @@ describe('CLI skills library', () => {
             fetch: fakeFetch({ [PRODUCT_SKILL_ARCHIVE_URL]: productSkills() }).fetch,
         })
 
-        const result = await library.learn(LIST)
+        const result = await library.catalog()
 
-        expect(result.ok && result.value.output).toEqual({
-            kind: 'list',
-            skills: [{ name: 'posthog:funnels', kind: 'learning', description: 'Analyze conversion funnels.' }],
-        })
+        expect(result.ok && result.value.skills).toEqual([
+            { name: 'funnels', kind: 'learning', description: 'Analyze conversion funnels.' },
+        ])
         expect(result.ok && result.value.assets[1]).toMatchObject({
             name: 'context-mill',
             origin: 'unavailable',
@@ -424,7 +421,7 @@ describe('CLI skills library', () => {
             'unknown_file',
             'Run `hog learn posthog:funnels` for its manifest.',
         ],
-        [{ skill: 'funnels', paths: [] }, 'unknown_topic', 'Unknown learning topic: "funnels".'],
+        [{ skill: 'funnel', paths: [] }, 'unknown_topic', 'Unknown learning topic: "funnel".'],
         [{ skill: 'project:conventions', paths: [] }, 'unavailable', 'This CLI serves PostHog skills only.'],
         [
             { skill: 'posthog:funnels', paths: ['SKILL.md'], lines: 'ten' },

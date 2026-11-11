@@ -28,7 +28,7 @@ interface Target {
 }
 
 interface AddedSkill {
-    // As `hog learn skills` lists it, such as `posthog:tracing-nodejs`.
+    // As `hog skills list` names it, such as `tracing-nodejs`.
     name: string
     agent: string | null
     path: string
@@ -87,7 +87,7 @@ async function installOne(
     folder: string,
     force: boolean
 ): Promise<Pick<AddedSkill, 'path' | 'status'>> {
-    const path = join(root, folder, name.slice(name.indexOf(':') + 1))
+    const path = join(root, folder, name)
     await assertInsideRoot(runtime, root, path)
 
     const result = await library.install(name, { cwd: root, force, skillsDir: folder, release })
@@ -150,7 +150,7 @@ export default defineCommand({
     description: 'Add PostHog skills to this repository, in the folder your agent reads',
     args: {
         skills: {
-            description: 'The skills to add, as `hog learn skills` lists them, such as posthog:tracing-nodejs',
+            description: 'The skills to add, as `hog skills list` names them, such as tracing-nodejs',
             variadic: true,
         },
     },
@@ -165,12 +165,12 @@ export default defineCommand({
     },
     writes: true,
     notes: [
-        'Any skill `hog learn skills` lists can be added, and the `posthog:` prefix is optional. Skills go in the closest git repository, or in the current folder outside one. Claude Code reads `.claude/skills`. Most other agents read `.agents/skills`.',
+        'Any skill `hog skills list` names can be added, with or without the `posthog:` prefix. Skills go in the closest git repository, or in the current folder outside one. Claude Code reads `.claude/skills`. Most other agents read `.agents/skills`.',
         'Without `--agent`, skills go in the folder of the agent running hog, or in `.agents/skills` if no agent is running it. Skills are public, so `hog skills add` needs no login.',
     ].join('\n'),
     examples: [
-        'hog skills add posthog:tracing-nodejs posthog:analyzing-funnel-correlation',
-        'hog skills add posthog:audit-feature-flags --agent claude-code --agent codex',
+        'hog skills add tracing-nodejs analyzing-funnel-correlation',
+        'hog skills add audit-feature-flags --agent claude-code --agent codex',
     ],
 
     async run({ args, options, ctx }): Promise<AddResult> {

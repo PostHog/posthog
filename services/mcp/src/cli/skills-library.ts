@@ -467,9 +467,19 @@ function bareName(name: string): string {
     return name.startsWith(SKILL_NAMESPACE) ? name.slice(SKILL_NAMESPACE.length) : name
 }
 
+// The `learn` grammar names a skill as `posthog:<name>`. This library serves no topics, so a bare word
+// that names a skill can only mean that skill.
+function qualified(word: string | undefined, catalog: SkillCatalog): string | undefined {
+    return word !== undefined && !word.includes(':') && catalog.has(word) ? `${SKILL_NAMESPACE}${word}` : word
+}
+
+function escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function catalogSkills({ catalog, kinds }: Catalog): CatalogSkill[] {
     const skills = catalog.listNames().map((name) => ({
-        name: `${SKILL_NAMESPACE}${name}`,
+        name,
         kind: kinds.get(name) ?? 'implementation',
         description: (catalog.describe(name) ?? '').trim().split('\n')[0] ?? '',
     }))
@@ -487,7 +497,11 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         now: options.now ?? Date.now,
     }
     const learnCommand = options.learnCommand ?? 'learn'
-    const rewrite = (text: string): string => rewriteLearnCommands(text, learnCommand)
+    const listCommand = options.listCommand ?? `${learnCommand} skills`
+    // `learn skills` lists skills in the MCP grammar. Here `catalog` lists them, through the caller's own command.
+    const listPattern = new RegExp(`${escapeRegExp(learnCommand)} skills(?![\\w-])`, 'g')
+    const pointToList = (text: string): string => text.replace(listPattern, listCommand)
+    const rewrite = (text: string): string => pointToList(rewriteLearnCommands(text, learnCommand))
 
     const loadContextMill = memoizeWhileFresh(async () => {
         const loaded = await loadAsset(settings, 'context-mill', parseContextMill)
@@ -548,7 +562,9 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
 
             if (skill === undefined && paths.length === 0 && modes === 0) {
                 // The overview lists fixed commands, so it answers without the network.
-                const commands = learnSkillCommands(learnCommand).filter((command) => !command.includes('project:'))
+                const commands = learnSkillCommands(learnCommand)
+                    .filter((command) => !command.includes('project:'))
+                    .map(pointToList)
                 return { ok: true, value: { output: { kind: 'overview', commands }, reads: [], assets: [] } }
             }
 
@@ -558,17 +574,17 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             }
 
             if (skill === 'skills' && paths.length === 0 && modes === 0) {
-                return {
-                    ok: true,
-                    value: { output: { kind: 'list', skills: catalogSkills(loaded) }, reads: [], assets },
-                }
+                return { ok: false, error: { code: 'usage', message: `List the skills with \`${listCommand}\`.` } }
             }
+
+            const named = qualified(skill, loaded.catalog)
+            const words = describe ? paths.map((path) => qualified(path, loaded.catalog) ?? path) : paths
 
             const reads: SkillRead[] = []
             const learn = new ExecLearnCatalog(
                 [],
                 {
-                    posthog: describe ? loaded.catalog : withFiles(loaded, skill),
+                    posthog: describe ? loaded.catalog : withFiles(loaded, named),
                     projectUnavailableReason: PROJECT_SKILLS_UNAVAILABLE,
                 },
                 ({ source, skill: name, path: file, readKind }) =>
@@ -577,10 +593,11 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             )
 
             try {
-                const raw = await learn.execute(learnInput(learnWords(skill, paths, request)))
-                return { ok: true, value: { output: { kind: 'text', text: raw }, reads, assets } }
+                const raw = await learn.execute(learnInput(learnWords(named, words, request)))
+                return { ok: true, value: { output: { kind: 'text', text: pointToList(raw) }, reads, assets } }
             } catch (error) {
-                return { ok: false, error: learnError(error) }
+                const failure = learnError(error)
+                return { ok: false, error: { ...failure, message: pointToList(failure.message) } }
             }
         },
 

@@ -112,7 +112,7 @@ export interface SkillRead {
  * `describe` and `lines`. Without any of them, `skill` and `paths` read files, and nothing is the overview.
  */
 export interface LearnRequest {
-    /** A skill such as `posthog:instrument-integration`, or `skills` to list every skill. */
+    /** A skill such as `instrument-integration` or `posthog:instrument-integration`. `catalog` lists every skill. */
     skill?: string
     /** Files in `skill`, such as `references/COMMANDMENTS.md`. With `describe`, more skills to describe. */
     paths: readonly string[]
@@ -129,17 +129,14 @@ export interface LearnRequest {
 export type SkillKind = 'learning' | 'implementation'
 
 export interface CatalogSkill {
-    /** As `learn` and `install` take it, such as `posthog:tracing-nodejs`. */
+    /** As `learn` and `install` take it, such as `tracing-nodejs`. Both also take `posthog:tracing-nodejs`. */
     name: string
     kind: SkillKind
     /** The first line of the skill's description. */
     description: string
 }
 
-export type LearnOutput =
-    | { kind: 'overview'; commands: string[] }
-    | { kind: 'list'; skills: CatalogSkill[] }
-    | { kind: 'text'; text: string }
+export type LearnOutput = { kind: 'overview'; commands: string[] } | { kind: 'text'; text: string }
 
 export interface LearnResult {
     output: LearnOutput
@@ -191,6 +188,8 @@ export interface SkillsLibraryOptions {
     cacheDir?: string
     /** The command that served text names, such as `hog learn`. Defaults to `learn`. */
     learnCommand?: string
+    /** The command that lists every skill, such as `hog skills list`. `learn skills` in served text points there. */
+    listCommand?: string
     fetch?: SkillsFetch
     responseTimeoutMs?: number
     downloadTimeoutMs?: number

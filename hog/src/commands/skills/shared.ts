@@ -20,13 +20,13 @@ export const SKILL_FOLDERS: Readonly<Record<KnownAgent, string>> = {
 
 export const SHARED_SKILL_FOLDER = '.agents/skills'
 
-export const LIST_HINT = 'Run `hog learn skills` to see every skill you can add.'
+export const LIST_HINT = 'Run `hog skills list` to see every skill you can add.'
 
 const SKILL_NAMESPACE = 'posthog:'
 
-// `hog learn skills` lists `posthog:<name>`. A bare name means the same skill.
+// `hog skills list` names skills without a prefix. Skill text and `hog learn` also name them as `posthog:<name>`.
 export function skillName(input: string): string {
-    return input.includes(':') ? input : `${SKILL_NAMESPACE}${input}`
+    return input.startsWith(SKILL_NAMESPACE) ? input.slice(SKILL_NAMESPACE.length) : input
 }
 
 export function skillsError(error: SkillsError): HogError {

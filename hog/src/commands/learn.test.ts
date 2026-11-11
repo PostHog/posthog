@@ -121,7 +121,12 @@ describe('hog learn', () => {
         expect(result.stdout).toBe(`${SKILL_TEXT}\n`)
         expect(result.requests).toEqual([])
         expect(skills.options).toEqual([
-            { cacheDir: '/home/test/.posthog/skills', learnCommand: 'hog learn', fetch: expect.any(Function) },
+            {
+                cacheDir: '/home/test/.posthog/skills',
+                learnCommand: 'hog learn',
+                listCommand: 'hog skills list',
+                fetch: expect.any(Function),
+            },
         ])
     })
 
@@ -145,45 +150,6 @@ describe('hog learn', () => {
         )
     })
 
-    test('the skill list splits skills for using PostHog from skills for adding it to code', async () => {
-        const list: LearnResult = {
-            output: {
-                kind: 'list',
-                skills: [
-                    { name: 'posthog:analyzing-funnels', kind: 'learning', description: 'Find where people drop off.' },
-                    {
-                        name: 'posthog:tracing-nodejs',
-                        kind: 'implementation',
-                        description: 'Trace requests in Node.js.',
-                    },
-                ],
-            },
-            reads: [],
-            assets: NETWORK,
-        }
-
-        const person = await learn(['skills'], fakeSkills(list), 'person')
-        const agent = await learn(['skills'], fakeSkills(list))
-
-        const lines = person.stdout.split('\n')
-        expect(lines[0]).toBe('Skills for using PostHog (1)')
-        expect(lines.find((line) => line.includes('analyzing-funnels'))).toContain('Find where people drop off.')
-        expect(lines).toContain('Skills for adding PostHog to your code (1)')
-        expect(lines.at(-2)).toBe(
-            '2 skills. Read one with hog learn <skill>, or add it to this repository with hog skills add <skill>.'
-        )
-        expect(agent.json()).toMatchObject({
-            output: {
-                kind: 'list',
-                skills: [
-                    { name: 'posthog:analyzing-funnels', kind: 'learning' },
-                    { name: 'posthog:tracing-nodejs', kind: 'implementation' },
-                ],
-            },
-        })
-        expect(JSON.stringify(agent.json())).not.toContain('drop off')
-    })
-
     test('an agent gets the result as JSON, with the files read and where the skills came from', async () => {
         const result = await learn(['posthog:instrument-integration'], fakeSkills())
 
@@ -200,7 +166,7 @@ describe('hog learn', () => {
         [
             { code: 'unknown_skill', message: 'Unknown skill: "nope".' },
             'unknown_skill',
-            'Run `hog learn skills` to list every skill.',
+            'Run `hog skills list` to see every skill.',
             1,
         ],
         [
@@ -212,7 +178,7 @@ describe('hog learn', () => {
         [
             { code: 'unavailable', message: 'This CLI serves PostHog skills only.' },
             'skills_unavailable',
-            'Run `hog learn skills` to list the skills hog serves.',
+            'Run `hog skills list` to see every skill.',
             1,
         ],
         [

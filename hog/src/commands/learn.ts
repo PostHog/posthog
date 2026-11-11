@@ -1,19 +1,11 @@
 import { z } from 'zod'
 
-import type {
-    CatalogSkill,
-    LearnRequest,
-    LearnResult,
-    SkillAssetStatus,
-    SkillKind,
-    SkillsError,
-} from '@posthog/mcp/src/cli/library-types'
+import type { LearnRequest, LearnResult, SkillAssetStatus, SkillsError } from '@posthog/mcp/src/cli/library-types'
 
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { escapeControls, type Output } from '@/core/output'
+import { escapeControls } from '@/core/output'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
-import { plural } from '@/core/text'
 
 const LineRange = z
     .string()
@@ -46,8 +38,9 @@ function learnRequest(
     }
 
     // Unquoted keywords after the first one arrive as arguments, as `replay` in `hog learn -s session
-    // replay`. They belong to the query. A file search keeps its skill and the path after it.
-    if (skill?.includes(':')) {
+    // replay`. They belong to the query. A file search keeps its skill and the path after it, and a
+    // skill may come without its `posthog:` prefix, so a path-shaped second word marks one too.
+    if (skill?.includes(':') || /[/.]/.test(paths[0] ?? '')) {
         return { skill, paths: paths.slice(0, 1), search: [search, ...paths.slice(1)].join(' ') }
     }
 
@@ -55,14 +48,14 @@ function learnRequest(
 }
 
 const DEFAULT_HINT = 'Run `hog learn` to see the commands.'
-const LIST_HINT = 'Run `hog learn skills` to list every skill.'
+const LIST_HINT = 'Run `hog skills list` to see every skill.'
 
 // `offline` has its own error, whose message lists the downloads that failed.
 const ERRORS: Partial<Record<SkillsError['code'], { code?: string; hint?: string; exitCode?: number }>> = {
     unknown_skill: { hint: LIST_HINT },
     unknown_topic: { hint: LIST_HINT },
     unknown_file: { hint: 'Pass the path relative to the skill folder, such as `references/COMMANDMENTS.md`.' },
-    unavailable: { code: 'skills_unavailable', hint: 'Run `hog learn skills` to list the skills hog serves.' },
+    unavailable: { code: 'skills_unavailable', hint: LIST_HINT },
     usage: { code: 'invalid_learn_command', exitCode: EXIT_USAGE },
 }
 
@@ -107,32 +100,11 @@ export function downloadWarnings(assets: readonly SkillAssetStatus[]): string[] 
     return warnings
 }
 
-const KIND_TITLES: Record<SkillKind, string> = {
-    learning: 'Skills for using PostHog',
-    implementation: 'Skills for adding PostHog to your code',
-}
-
-function printSkillList(out: Output, skills: readonly CatalogSkill[]): void {
-    for (const kind of ['learning', 'implementation'] as const) {
-        const ofKind = skills.filter((skill) => skill.kind === kind)
-        if (ofKind.length === 0) {
-            continue
-        }
-
-        out.line(out.style(`${KIND_TITLES[kind]} (${ofKind.length})`, 'bold'))
-        out.table(
-            ['skill', 'description'],
-            ofKind.map((skill) => [skill.name, skill.description])
-        )
-        out.line()
-    }
-}
-
 export default defineCommand({
     description: 'Read PostHog agent skills: step-by-step guides for PostHog tasks',
     args: {
         skill: {
-            description: 'A skill such as posthog:instrument-integration. `skills` lists every skill',
+            description: 'A skill from `hog skills list`, such as instrument-integration',
             optional: true,
         },
         paths: {
@@ -158,12 +130,11 @@ export default defineCommand({
     },
     notes: 'Skills are public, so `hog learn` needs no login. hog downloads the latest skills on every run, and uses the copy saved in `~/.posthog/skills` only when the download fails.',
     examples: [
-        'hog learn skills',
         'hog learn -s "session replay"',
-        'hog learn posthog:instrument-integration',
-        'hog learn posthog:instrument-integration references/COMMANDMENTS.md',
-        'hog learn posthog:instrument-integration references/django.md -s middleware',
-        'hog learn posthog:instrument-integration references/django.md --lines 1:40',
+        'hog learn instrument-integration',
+        'hog learn instrument-integration references/COMMANDMENTS.md',
+        'hog learn instrument-integration references/django.md -s middleware',
+        'hog learn instrument-integration references/django.md --lines 1:40',
     ],
 
     async run({ args, options, ctx }): Promise<LearnResult> {
@@ -193,27 +164,14 @@ export default defineCommand({
                     out.line(`  ${escapeControls(command)}`)
                 }
                 return
-            case 'list':
-                printSkillList(out, output.skills)
-                out.line(
-                    `${plural(output.skills.length, 'skill')}. Read one with ${out.style('hog learn <skill>', 'bold')}, or add it to this repository with ${out.style('hog skills add <skill>', 'bold')}.`
-                )
-                out.notes({ warnings })
-                return
             case 'text':
                 out.line(escapeControls(output.text))
                 out.notes({ warnings })
         }
     },
 
-    // Agents get names and kinds only, as the MCP server's `learn skills` does. `hog learn -d` describes a skill.
     agent({ result, out }) {
-        const { output } = result
-        out.json(
-            output.kind === 'list'
-                ? { ...result, output: { ...output, skills: output.skills.map(({ name, kind }) => ({ name, kind })) } }
-                : result
-        )
+        out.json(result)
     },
 
     // Skill names come from the published catalog, and a read only counts once it served, so these
