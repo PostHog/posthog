@@ -124050,6 +124050,17 @@ export namespace Schemas {
       names: string[];
     }
 
+    export interface _MetricClassicHistogram {
+      /** The histogram's name without a suffix. */
+      base_name: string;
+      /** The `_bucket` name, with the `le` label. PromQL reads this one. */
+      bucket: string;
+      /** The `_sum` name: the total of the observed values. */
+      sum: string;
+      /** The `_count` name: the number of observations. */
+      count: string;
+    }
+
     export interface _MetricGroupBy {
       /**
          * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -124184,6 +124195,13 @@ export namespace Schemas {
       last_seen?: string | null;
       /** A small downsampled series of the metric's recent shape, for a sparkline. */
       sparkline?: number[];
+      /**
+         * Start of the earliest hour this metric arrived in, within retention, ISO 8601. Only present when `first_seen` was requested.
+         * @nullable
+         */
+      first_seen?: string | null;
+      /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
+      classic_histogram?: _MetricClassicHistogram;
     }
 
     export interface _MetricNamesResponse {
@@ -137511,22 +137529,52 @@ export namespace Schemas {
 
     export type MetricsValuesRetrieveParams = {
     /**
+     * Add `first_seen`: the earliest hour each name arrived in, within retention.
+     */
+    first_seen?: boolean;
+    /**
+     * Fold a Prometheus classic histogram's `<name>_bucket`, `<name>_sum` and `<name>_count` into one `<name>_bucket` entry with `classic_histogram` set. Only folds when all three are in the page.
+     */
+    fold_histograms?: boolean;
+    /**
      * Max number of names to return. Defaults to 100; maximum 1000.
      * @minimum 1
      * @maximum 1000
      */
     limit?: number;
     /**
+     * How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.
+     *
+     * * `substring` - substring
+     * * `prefix` - prefix
+     * * `regex` - regex
+     * @minLength 1
+     */
+    match?: MetricsValuesRetrieveMatch;
+    /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024
      */
     service?: string;
     /**
-     * Substring filter (case-insensitive) applied to metric names.
+     * Attach a 24-point sparkline of the last 6 hours to each name. Turn off for a smaller, faster response.
+     */
+    sparklines?: boolean;
+    /**
+     * Filter applied to metric names; `match` decides how. Empty lists every name, ordered by how many services report it.
      * @maxLength 255
      */
     value?: string;
     };
+
+    export type MetricsValuesRetrieveMatch = typeof MetricsValuesRetrieveMatch[keyof typeof MetricsValuesRetrieveMatch];
+
+
+    export const MetricsValuesRetrieveMatch = {
+      Substring: 'substring',
+      Prefix: 'prefix',
+      Regex: 'regex',
+    } as const;
 
     export type ReusableWidgetsListParams = {
     limit?: number;
