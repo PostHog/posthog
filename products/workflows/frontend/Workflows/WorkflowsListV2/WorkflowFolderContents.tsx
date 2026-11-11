@@ -81,7 +81,7 @@ export function WorkflowFolderContents(): JSX.Element {
         ...childFolders.map((folder) => ({ ...folder, kind: 'folder' as const, id: `folder:${folder.path}` })),
         ...folderFileRows,
     ]
-    const selectColumn: LemonTableColumn<ContentsRow, undefined> = {
+    const selectColumn: LemonTableColumn<ContentsRow, keyof ContentsRow | undefined> = {
         key: 'select',
         width: 0,
         title: (
