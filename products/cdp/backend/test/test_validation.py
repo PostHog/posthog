@@ -15,6 +15,7 @@ from posthog.models.integration import ANY, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, In
 
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.validation import (
+    MAX_TASK_REPOSITORIES,
     FunctionInputsSerializer,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -1671,7 +1672,12 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("repository_list", "task_repository", ["example-org/example-repo", "example-org/example-docs"], True),
             ("repository_not_string", "task_repository", 123, False),
             ("repository_list_not_strings", "task_repository", [{"name": "example-org/example-repo"}], False),
-            ("repository_list_too_long", "task_repository", [f"example-org/repo-{i}" for i in range(11)], False),
+            (
+                "repository_list_too_long",
+                "task_repository",
+                [f"example-org/repo-{i}" for i in range(MAX_TASK_REPOSITORIES + 1)],
+                False,
+            ),
             ("model_full", "task_model", {"model": "claude-sonnet-5", "reasoning_effort": "high"}, True),
             ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
             ("model_not_dict", "task_model", "claude-sonnet-5", False),
