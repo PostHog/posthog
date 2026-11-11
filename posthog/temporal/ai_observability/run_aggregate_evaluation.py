@@ -18,7 +18,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 
 import temporalio
 from temporalio.common import RetryPolicy
@@ -74,30 +74,11 @@ from posthog.temporal.ai_observability.team_capture import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
-from products.ai_observability.backend.models.evaluation_configs import (
-    DEFAULT_SETTLE_STRATEGY_BY_TARGET,
-    MAX_SESSION_EVAL_EVENTS,
-    SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
-    SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-    SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
-    SESSION_EVAL_MAX_MAX_AGE_SECONDS,
-    SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
-    SESSION_EVAL_MAX_WINDOW_SECONDS,
-    SESSION_EVAL_MIN_MAX_AGE_SECONDS,
-    SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
-    SESSION_EVAL_MIN_WINDOW_SECONDS,
-    TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
-    TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-    TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
-    TRACE_EVAL_MAX_MAX_AGE_SECONDS,
-    TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
-    TRACE_EVAL_MAX_WINDOW_SECONDS,
-    TRACE_EVAL_MIN_MAX_AGE_SECONDS,
-    TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
-    TRACE_EVAL_MIN_WINDOW_SECONDS,
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    INGESTION_LAG_MARGIN_SECONDS,
+    resolve_settle_plan,
 )
-
-INGESTION_LAG_MARGIN_SECONDS = 15
+from products.ai_observability.backend.models.evaluation_configs import MAX_SESSION_EVAL_EVENTS
 
 # Structural trace activity only: $ai_evaluation / $ai_feedback / $ai_metric are post-hoc
 # annotations — another eval's verdict or late user feedback must not defer settling.
@@ -347,44 +328,6 @@ def find_evaluation_quiet_point_activity(inputs: FindQuietPointInputs) -> str:
     ).isoformat()
 
 
-def _clamp(value: Any, floor: int, ceiling: int, default: int) -> int:
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return default
-    return int(min(max(value, floor), ceiling))
-
-
-# (floor, ceiling, default) per field, per target. The workflow re-clamps what the serializer
-# already validated, so a payload written before a bound moved can never wedge the settle phase.
-_SETTLE_BOUNDS: dict[str, dict[str, tuple[int, int, int]]] = {
-    "trace": {
-        "window": (TRACE_EVAL_MIN_WINDOW_SECONDS, TRACE_EVAL_MAX_WINDOW_SECONDS, TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
-        "quiet": (
-            TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
-            TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
-            TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-        ),
-        "max_age": (TRACE_EVAL_MIN_MAX_AGE_SECONDS, TRACE_EVAL_MAX_MAX_AGE_SECONDS, TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS),
-    },
-    "session": {
-        "window": (
-            SESSION_EVAL_MIN_WINDOW_SECONDS,
-            SESSION_EVAL_MAX_WINDOW_SECONDS,
-            SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
-        ),
-        "quiet": (
-            SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
-            SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
-            SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-        ),
-        "max_age": (
-            SESSION_EVAL_MIN_MAX_AGE_SECONDS,
-            SESSION_EVAL_MAX_MAX_AGE_SECONDS,
-            SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
-        ),
-    },
-}
-
-
 # Ceiling on poll activities per settling run. Sessions accept quiet=10s alongside max_age=7d, and
 # a cadence derived from the quiet period alone would schedule ~60k ClickHouse aggregates for one
 # (evaluation, session). Large enough that no in-bounds trace config is affected, so in-flight trace
@@ -400,32 +343,6 @@ def resolve_poll_interval(primary_seconds: int, poll_budget_seconds: int) -> int
     """
     budget_floor = -(-poll_budget_seconds // MAX_SETTLE_POLLS_PER_RUN)
     return max(primary_seconds // 4, budget_floor, 10)
-
-
-@frozen
-class SettlePlan:
-    strategy: Literal["inactivity", "fixed_window"]
-    # The quiet period under inactivity, the window under fixed_window.
-    primary_seconds: int
-    max_age_seconds: int
-
-
-def resolve_settle_plan(settle: dict[str, Any] | None, target: str = "trace") -> SettlePlan:
-    """Resolve the settle config into a SettlePlan.
-
-    Deterministic and exception-free on purpose: the serializer already validated the stored
-    config, so anything malformed here is a payload bug — falling back to defaults keeps a bad
-    payload from wedging the workflow. max_age is coerced to cover at least one quiet period.
-    """
-    bounds = _SETTLE_BOUNDS.get(target, _SETTLE_BOUNDS["trace"])
-    config = settle or {}
-    strategy = config.get("strategy") or DEFAULT_SETTLE_STRATEGY_BY_TARGET.get(target, "fixed_window")
-    if strategy == "inactivity":
-        quiet = _clamp(config.get("quiet_period_seconds"), *bounds["quiet"])
-        max_age = _clamp(config.get("max_age_seconds"), *bounds["max_age"])
-        return SettlePlan(strategy="inactivity", primary_seconds=quiet, max_age_seconds=max(max_age, quiet))
-    window = _clamp(config.get("window_seconds"), *bounds["window"])
-    return SettlePlan(strategy="fixed_window", primary_seconds=window, max_age_seconds=window)
 
 
 @frozen

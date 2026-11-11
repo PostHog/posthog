@@ -99,7 +99,7 @@ def _render_message(msg: dict, media_marker: MediaMarker | None) -> str | None:
     text = (
         media_marker(media)
         if media_marker is not None and media is not None
-        else _extract_content_text(content, media_marker)
+        else extract_content_text(content, media_marker)
     )
     tool_calls_text = _format_tool_calls(msg.get("tool_calls"))
 
@@ -129,7 +129,7 @@ def _render_message(msg: dict, media_marker: MediaMarker | None) -> str | None:
     return None
 
 
-def _extract_content_text(content: Union[str, list, dict, None], media_marker: MediaMarker | None = None) -> str:
+def extract_content_text(content: Union[str, list, dict, None], media_marker: MediaMarker | None = None) -> str:
     """Extract text from message content, handling nested structures.
 
     Handles multiple provider formats:
@@ -160,7 +160,7 @@ def _extract_content_text(content: Union[str, list, dict, None], media_marker: M
                     # Tool results can hold image blocks, which only a judge with images unpacks.
                     nested = block["content"]
                     if media_marker is not None and isinstance(nested, list):
-                        text_parts.append(_extract_content_text(nested, media_marker))
+                        text_parts.append(extract_content_text(nested, media_marker))
                     else:
                         text_parts.append(str(nested))
                 elif media_marker is not None and (media := parse_media_block(block)) is not None:

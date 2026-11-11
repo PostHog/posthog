@@ -24,7 +24,6 @@ from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
     AI_EVENTS_RETENTION_DAYS,
-    JUDGE_SESSION_MAX_CHARS,
     ExecuteSessionEvaluationInputs,
     SessionFetchOutcome,
     _count_session_events,
@@ -45,6 +44,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     execute_trace_llm_judge_activity,
 )
 
+from products.ai_observability.backend.facade.evaluation_runtime import JUDGE_SESSION_MAX_CHARS
 from products.ai_observability.backend.hog import compile_ai_observability_hog
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.cdp.backend.validation import compile_hog

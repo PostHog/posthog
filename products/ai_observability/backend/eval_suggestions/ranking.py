@@ -12,10 +12,12 @@ from collections.abc import Sequence
 from typing import Any
 
 from posthog.dataclasses import frozen
-from posthog.temporal.ai_observability.run_session_evaluation import JUDGE_SESSION_MAX_CHARS
-from posthog.temporal.ai_observability.run_trace_evaluation import JUDGE_TRACE_MAX_CHARS
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+from products.ai_observability.backend.logic.evaluations.judge_limits import (
+    JUDGE_SESSION_MAX_CHARS,
+    JUDGE_TRACE_MAX_CHARS,
+)
 from products.ai_observability.backend.models.eval_suggestions import EvalSuggestionKind
 from products.ai_observability.backend.models.evaluations import Evaluation
 

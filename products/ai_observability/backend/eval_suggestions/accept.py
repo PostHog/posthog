@@ -21,7 +21,6 @@ from posthog.dataclasses import frozen
 from posthog.exceptions import Conflict
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai_observability.evaluation_backfill import settle_horizon
 
 from products.ai_observability.backend.api.evaluation_backfills import (
     BackfillWindow,
@@ -32,6 +31,7 @@ from products.ai_observability.backend.api.evaluations import EvaluationSerializ
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
 from products.ai_observability.backend.eval_suggestions.ranking import judge_input_price
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+from products.ai_observability.backend.logic.evaluations.settle import settle_horizon
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionKind,

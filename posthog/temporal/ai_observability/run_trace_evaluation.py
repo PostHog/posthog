@@ -38,13 +38,8 @@ from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
-from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, extract_event_io
-from posthog.temporal.ai_observability.evaluation_hog import (
-    build_hog_event_global,
-    execute_hog_eval_bytecode,
-    finalize_hog_eval_result,
-    hog_bytecode_references_global,
-)
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
+from posthog.temporal.ai_observability.evaluation_hog import finalize_hog_eval_result
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     LLM_JUDGE_RETRY_POLICY,
     call_llm_judge,
@@ -66,7 +61,6 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     fetch_evaluation_activity,
 )
 from posthog.temporal.ai_observability.judge_attachments import build_attachment_prompt
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
@@ -84,6 +78,13 @@ from posthog.temporal.ai_observability.team_capture import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    JUDGE_TRACE_MAX_CHARS,
+    build_trace_hog_globals,
+    execute_hog_eval_bytecode,
+    extract_event_io,
+    extract_text_from_messages,
+)
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -111,11 +112,6 @@ TRACE_EVENTS_LOOKBACK = timedelta(hours=24)
 # Guard against degenerate traces (e.g. a bug attaching everything to trace id "0"): traces
 # above this event count are skipped without fetching their payload.
 MAX_TRACE_EVAL_EVENTS = 500
-
-# Char budget for the judge transcript. The shared formatter defaults to ~2M chars (sized to
-# fill an LLM context window for summarization); a per-trace judge verdict doesn't need that
-# much, so we cap lower to bound cost. Over budget, the formatter uniformly samples lines.
-JUDGE_TRACE_MAX_CHARS = 150_000
 
 _TRACE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
 
@@ -645,56 +641,6 @@ def _has_judge_transcript(trace: LLMTrace) -> bool:
         or _has_state_content(trace.inputState)
         or _has_state_content(trace.outputState, is_output=True)
     )
-
-
-def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:
-    """Build Hog globals for a trace-level eval.
-
-    `events` and `trace` keep their original shapes for saved trace Hog source. New target-independent
-    source uses `evaluation_events`, which adds readable text projections, and `target`.
-
-    Existing bytecode receives the original globals. Bytecode that uses a new shared global only
-    builds the event collections it references, avoiding duplicate HogVM and worker memory cost.
-    """
-    trace_events = trace.events or []
-    references_target = bytecode is not None and hog_bytecode_references_global(bytecode, "target")
-    references_events = bytecode is not None and hog_bytecode_references_global(bytecode, "events")
-    references_evaluation_events = bytecode is not None and hog_bytecode_references_global(
-        bytecode, "evaluation_events"
-    )
-    can_skip_compatibility_events = (references_target or references_evaluation_events) and not references_events
-    globals_dict: dict[str, Any] = {
-        "trace": {"id": trace_id, "event_count": len(trace_events)},
-    }
-    if bytecode is None or references_target:
-        globals_dict["target"] = {
-            "type": "trace",
-            "id": trace_id,
-            "total_cost_usd": trace.totalCost,
-            "total_latency_seconds": trace.totalLatency,
-        }
-    if bytecode is None or not can_skip_compatibility_events:
-        globals_dict["events"] = [
-            build_hog_event_global(
-                event.event,
-                event.properties,
-                event_uuid=event.id,
-                timestamp=event.createdAt,
-                include_text=False,
-            )
-            for event in trace_events
-        ]
-    if bytecode is None or references_evaluation_events:
-        globals_dict["evaluation_events"] = [
-            build_hog_event_global(
-                event.event,
-                event.properties,
-                event_uuid=event.id,
-                timestamp=event.createdAt,
-            )
-            for event in trace_events
-        ]
-    return globals_dict
 
 
 @temporalio.activity.defn

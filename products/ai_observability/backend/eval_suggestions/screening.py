@@ -21,7 +21,8 @@ from posthog.llm.system_one import (
 )
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, SystemOneClient, build_system_one_client
 from posthog.models.team import Team
-from posthog.temporal.ai_observability.shared_activities import consented_team_ids
+
+from products.ai_observability.backend.logic.consent import consented_team_ids
 
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 

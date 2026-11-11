@@ -5,10 +5,11 @@ from parameterized import parameterized
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
-from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_bytecode
-from posthog.temporal.ai_observability.run_trace_evaluation import build_trace_hog_globals
-
 from products.ai_observability.backend.eval_suggestions import adapters
+from products.ai_observability.backend.logic.evaluations.hog_runtime import (
+    build_trace_hog_globals,
+    execute_hog_eval_bytecode,
+)
 
 
 def _trace(events: list[tuple[str, dict[str, Any]]]) -> LLMTrace:

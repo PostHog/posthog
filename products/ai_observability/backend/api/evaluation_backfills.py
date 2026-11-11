@@ -48,13 +48,13 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     report_backfill_finished,
     settle_horizon,
 )
-from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.ai_observability.backend.api.evaluations import EvaluationConditionSerializer
 from products.ai_observability.backend.backfill_candidates import BackfillScope, count_backfill_candidates
+from products.ai_observability.backend.logic.evaluations.settle import INGESTION_LAG_MARGIN_SECONDS
 from products.ai_observability.backend.models.evaluation_backfill import ACTIVE_BACKFILL_STATUSES, EvaluationBackfill
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 

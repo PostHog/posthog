@@ -22,9 +22,13 @@ from posthog.hogql import ast
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.utils import merge_heavy_properties
 from posthog.models.team import Team
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.evaluation_hog import build_hog_event_global, execute_hog_eval_bytecode
-from posthog.temporal.ai_observability.run_trace_evaluation import build_trace_hog_globals
+
+from products.ai_observability.backend.logic.evaluations.event_io import extract_event_io
+from products.ai_observability.backend.logic.evaluations.hog_runtime import (
+    build_hog_event_global,
+    build_trace_hog_globals,
+    execute_hog_eval_bytecode,
+)
 
 from .adapters import AdaptedCheck, compile_check
 from .profile import (
