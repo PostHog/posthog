@@ -499,6 +499,7 @@ def _capture(
                 distinct_id=user.distinct_id or PIPELINE_DISTINCT_ID,
                 event=BUILT_EVENT,
                 properties={
+                    **({"$update_person_last_seen_at": False} if trigger == "tick" else {}),
                     "team_id": team.id,
                     "user_id": user.id,
                     "ranking_id": build.ranking_id,
