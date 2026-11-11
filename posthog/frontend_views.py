@@ -8,6 +8,8 @@ from django.utils.cache import patch_cache_control
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
 
+from posthog.api.oauth.device import pending_device_connection
+from posthog.api.oauth.views import login_required_with_pending_connection
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
@@ -174,6 +176,24 @@ def home_with_region_redirect(request: HttpRequest, *args: Any, **kwargs: Any) -
     if region_redirect is not None:
         return region_redirect
     return _login_required_render_home(request, *args, **kwargs)
+
+
+_device_login_required_render_home = login_required_with_pending_connection(pending_device_connection)(_render_home)
+
+
+def device_approval_page(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+    """Entrypoint for `/device`, where a person approves a device login.
+
+    A signed-out visitor without a code gets the page, so they can type the code before they
+    log in. With a code, the login redirect carries the pending-connection cookie, so the
+    login, signup and verification screens can name the app and signup can skip onboarding.
+    """
+    region_redirect = app_region_redirect(request)
+    if region_redirect is not None:
+        return region_redirect
+    if not request.user.is_authenticated and not request.GET.get("code"):
+        return _render_home(request, *args, **kwargs)
+    return _device_login_required_render_home(request, *args, **kwargs)
 
 
 def app_context(request: HttpRequest) -> JsonResponse:

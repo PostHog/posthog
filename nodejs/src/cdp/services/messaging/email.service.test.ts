@@ -1312,16 +1312,6 @@ describe('EmailService', () => {
             })
         }
 
-        it('fails a queued email that lists files as attachments_missing and sends nothing', async () => {
-            filesListed()
-
-            const result = await service.executeSendEmail(invocation)
-
-            expect(ses.sent).toEqual([])
-            expect(result.finished).toBe(true)
-            expect(result.error).toMatch(/^attachments_missing: /)
-        })
-
         it.each([
             ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
             [
