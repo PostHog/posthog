@@ -29,6 +29,7 @@ const MIGRATIONS = [
     '1794323815130_initial-schema',
     '1794323815131_runtime-role-grants',
     '1794323815132_idempotency-deployment',
+    '1794323815133_audit-exported-at',
 ]
 const TABLES = ['audit_log', 'audit_log_default', 'auth_jti', 'idempotency_keys', 'integration_secrets', 'integrations']
 const TEAM: IntegrationOwner = { type: 'team', id: 1 }

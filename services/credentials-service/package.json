@@ -9,6 +9,7 @@
         "build": "tsx scripts/build.ts",
         "dev": "tsx watch src/index.ts | pino-pretty --colorize --ignore pid,hostname --messageKey event --translateTime SYS:HH:MM:ss.l",
         "migrate": "tsx src/migrate.ts",
+        "maintenance": "tsx src/maintenance.ts",
         "test": "vitest",
         "test:unit": "vitest run tests/unit",
         "test:integration": "vitest run tests/integration",
