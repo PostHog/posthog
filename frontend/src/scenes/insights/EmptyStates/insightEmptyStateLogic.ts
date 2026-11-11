@@ -125,7 +125,7 @@ export interface insightEmptyStateLogicMeta {
             seriesEvents: string[] | null,
             lastSeen: Record<string, string | null> | null,
             lastSeenLoading: boolean,
-            insightData: any,
+            insightData: Record<string, any>,
             dateRange: DateRange | null | undefined,
             hasInsightFilters: boolean,
             hasSeriesFilters: boolean
