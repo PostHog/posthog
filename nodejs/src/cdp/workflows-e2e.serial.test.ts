@@ -3420,7 +3420,6 @@ describe('Workflows E2E (email queue)', () => {
                 .send(payload)
         }
 
-        // Another API pod, whose caches load the workflow and the recipient afresh.
         const withOtherPod = async (run: (pod: express.Application) => Promise<void>): Promise<void> => {
             const otherPod = new CdpApi(
                 hub,
@@ -3489,7 +3488,6 @@ describe('Workflows E2E (email queue)', () => {
             }, 15000)
         }
 
-        // This file mocks the request module that MailDevAPI fetches through.
         const deliveredEmails = async (): Promise<any[]> =>
             (await (await globalThis.fetch(`${mailDevWebUrl}/email`)).json()) as any[]
 
@@ -3632,8 +3630,6 @@ describe('Workflows E2E (email queue)', () => {
             }
         }
 
-        // Django's preferences page: only a POST with one_click_unsubscribe=1 opts the token's recipient out of
-        // all marketing, and a mail client's List-Unsubscribe=One-Click POST gets an empty 200.
         const startPreferencesPageFake = async () => {
             const page = createServer((req, res) => {
                 let body = ''
@@ -3679,9 +3675,6 @@ describe('Workflows E2E (email queue)', () => {
             }
         }
 
-        // A mail client's one-click unsubscribe (RFC 8058): offered only for an https List-Unsubscribe link with
-        // List-Unsubscribe-Post set to that one key and value, which it POSTs to the link. Only the site's own host
-        // resolves, to the preferences page.
         const oneClickUnsubscribe = async (
             headers: Record<string, string>,
             preferencesPageUrl: string
@@ -4302,7 +4295,6 @@ describe('Workflows E2E (email queue)', () => {
 
                 const res = await post('template', flow, { to, distinct_id: 'reader', message_category: newsletter })
                 expect(res.status).toEqual(202)
-                // A worker with its own workflow cache can hold a copy that differs from the one the API checked.
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `UPDATE posthog_hogflow SET actions = $1 WHERE id = $2`,
@@ -4402,8 +4394,6 @@ describe('Workflows E2E (email queue)', () => {
             const frequencyCapValkey = createFrequencyCapValkeyPool(hub)!
             await deleteKeysWithPrefix(frequencyCapValkey, `@posthog/workflows-frequency-cap/${team.id}/`)
             const to = `capped-${new UUIDT().toString()}@example.com`
-            // The cap counts per person, so the email worker reads the recipient from the persons table,
-            // the store personhog serves in production.
             const persons = new PostgresPersonRepository(hub.postgres)
             await persons.createPerson(
                 DateTime.utc(),

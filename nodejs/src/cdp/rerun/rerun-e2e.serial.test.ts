@@ -50,8 +50,6 @@ import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
-// A resolver for one zone, so email validation never leaves the machine: example.com has a mail server, and
-// every other name is NXDOMAIN.
 jest.mock('node:dns/promises', () => {
     const lookup =
         <T>(records: Record<string, T>) =>
@@ -656,7 +654,6 @@ describe('CDP hog invocation rerun e2e', () => {
                 { type: 'native_email', key: 'email', integration: 'email', required: true, templating: 'liquid' },
             ],
         })
-        // Its step is transactional; the send says otherwise.
         const flow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withApiEmailWorkflow('transactional', {
@@ -679,7 +676,6 @@ describe('CDP hog invocation rerun e2e', () => {
         app.use('/', api.router())
         const server = app.listen(0, () => {})
         hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, cdpDeps, postgresV2Queue)
-        // A worker caches recipient preferences, so the rerun gets a fresh one, as a later run on another pod would.
         const startEmailWorker = async (): Promise<CdpCyclotronWorkerEmail> => {
             const worker = new CdpCyclotronWorkerEmail(
                 hub,

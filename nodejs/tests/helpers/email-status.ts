@@ -14,10 +14,6 @@ export interface StoredEmailStatus {
     reason: string
 }
 
-/**
- * Probe email_status until a row lands, proving the ClickHouse Kafka engine's consumer has attached. Its
- * `auto.offset.reset=latest` drops rows produced before attach.
- */
 export const waitForEmailStatusMvReady = async (clickhouse: Clickhouse): Promise<void> => {
     await ensureKafkaTopics([KAFKA_EMAIL_STATUS])
     const producer = await ActualKafkaProducerWrapper.create(undefined)
