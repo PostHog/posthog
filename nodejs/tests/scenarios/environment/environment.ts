@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, realpathSync } from 'fs'
+import net from 'net'
 import os from 'os'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
@@ -150,18 +151,21 @@ export function createEnvironment(): Environment {
 
     async function untilHealthy(specs: RoleSpec[], exitsBefore: number): Promise<void> {
         const deadline = Date.now() + ROLE_HEALTHY_WITHIN_MS
+        const roles = specs.map((spec) => spec.role)
         for (;;) {
             const notReady = await rolesNotReady(specs)
-            if (notReady.length === 0) {
-                return
-            }
             const exit = supervisor
                 .exits()
                 .slice(exitsBefore)
-                .find(({ role }) => notReady.includes(role))
+                .find(({ role }) => roles.includes(role))
             if (exit) {
                 const how = exit.error ?? `code ${exit.code}, signal ${exit.signal}`
-                throw new Error(`${exit.role} exited before it answered /_health (${how}); see ${logOf(exit.role)}`)
+                throw new Error(
+                    `${exit.role} exited while the runner waited for /_health (${how}); see ${logOf(exit.role)}`
+                )
+            }
+            if (notReady.length === 0) {
+                return
             }
             if (Date.now() > deadline) {
                 throw new Error(
@@ -169,6 +173,20 @@ export function createEnvironment(): Environment {
                 )
             }
             await sleep(PROBE_INTERVAL_MS)
+        }
+    }
+
+    async function refuseHeldPorts(roles: Role[]): Promise<void> {
+        const held = (
+            await Promise.all(roles.map(async (role) => ((await acceptsConnections(ROLE_PORTS[role])) ? [role] : [])))
+        ).flat()
+        if (held.length > 0) {
+            throw new StackConflictError(
+                `Role ports already accept connections from processes the runner did not start: ${held
+                    .map((role) => `${ROLE_PORTS[role]} (${role})`)
+                    .join(', ')}.`,
+                `ss -ltnp '${held.map((role) => `sport = :${ROLE_PORTS[role]}`).join(' or ')}'`
+            )
         }
     }
 
@@ -181,6 +199,7 @@ export function createEnvironment(): Environment {
         await terminate(plan, STOP_GRACE_MS)
         await startStack(REPO_ROOT, stateDir, env)
         const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
+        await refuseHeldPorts(specs.map((spec) => spec.role))
         const groups = consumerGroupsOf(specs)
         await waitForExpect(
             async () => {
@@ -214,7 +233,18 @@ export function createEnvironment(): Environment {
             PROBE_INTERVAL_MS
         )
         await supervisor.start(others)
-        await untilHealthy(others, exitsBefore)
+        await untilHealthy(specs, exitsBefore)
+    }
+
+    function acceptsConnections(port: number): Promise<boolean> {
+        return new Promise((resolve) => {
+            const socket = net.connect(port, '127.0.0.1')
+            socket.once('connect', () => {
+                socket.destroy()
+                resolve(true)
+            })
+            socket.once('error', () => resolve(false))
+        })
     }
 
     async function stop(): Promise<void> {
