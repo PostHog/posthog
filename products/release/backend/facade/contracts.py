@@ -15,6 +15,12 @@ class ReleaseNotFoundError(Exception):
     pass
 
 
+class UnknownFeatureFlagsError(Exception):
+    def __init__(self, flag_ids: list[int]) -> None:
+        super().__init__(flag_ids)
+        self.flag_ids = flag_ids
+
+
 @dataclass(frozen=True)
 class ReleaseOwnerDTO:
     id: int

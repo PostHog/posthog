@@ -101,9 +101,11 @@ interface FlagGroup {
     properties?: unknown[] | null
     rollout_percentage?: number | null
     variant?: string | null
+    aggregation_group_type_index?: number | null
 }
 
 interface FlagFilters {
+    aggregation_group_type_index?: number | null
     groups?: FlagGroup[]
     multivariate?: { variants?: { key: string; rollout_percentage: number }[] } | null
 }
@@ -170,6 +172,14 @@ function isFullyRolledOut(flag: FeatureFlagApi): boolean {
     }
     const filters = flagFilters(flag)
     const groups = filters.groups ?? []
+    const mixedTargets = groups.some(
+        (group) =>
+            group.aggregation_group_type_index != null &&
+            group.aggregation_group_type_index !== filters.aggregation_group_type_index
+    )
+    if (mixedTargets) {
+        return false
+    }
     const open = groups.some((group) => !group.properties?.length && (group.rollout_percentage ?? 100) === 100)
     const variants = filters.multivariate?.variants ?? []
     if (!variants.length) {
@@ -260,30 +270,55 @@ function flagAudienceRow(flag: FeatureFlagApi, optIn = false): ReleaseFlagAudien
     }
 }
 
-export function buildReleaseRow(
-    release: ReleaseDTOApi,
-    allFlags: FeatureFlagApi[],
-    allExperiments: ExperimentBasicApi[],
-    allEarlyAccess: EarlyAccessFeatureApi[],
-    allScheduled: ScheduledChangeApi[]
-): ReleaseRow {
+export interface ReleaseIndex {
+    flagsById: Map<number, FeatureFlagApi>
+    experimentsByFlagKey: Map<string, ExperimentBasicApi[]>
+    earlyAccessByFlagKey: Map<string, EarlyAccessFeatureApi[]>
+    changesByFlagId: Map<string, ScheduledChangeApi[]>
+}
+
+function groupBy<T>(items: T[], key: (item: T) => string | undefined): Map<string, T[]> {
+    const groups = new Map<string, T[]>()
+    for (const item of items) {
+        const value = key(item)
+        if (value !== undefined) {
+            groups.set(value, [...(groups.get(value) ?? []), item])
+        }
+    }
+    return groups
+}
+
+export function buildReleaseIndex(
+    flags: FeatureFlagApi[],
+    experiments: ExperimentBasicApi[],
+    earlyAccess: EarlyAccessFeatureApi[],
+    scheduled: ScheduledChangeApi[]
+): ReleaseIndex {
+    return {
+        flagsById: new Map(flags.filter((flag) => !flag.deleted).map((flag) => [flag.id, flag])),
+        experimentsByFlagKey: groupBy(experiments, (experiment) => experiment.feature_flag_key),
+        earlyAccessByFlagKey: groupBy(earlyAccess, (item) => item.feature_flag?.key),
+        changesByFlagId: groupBy(scheduled, (change) => String(change.record_id)),
+    }
+}
+
+export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseRow {
     const today = dayjs()
     const flags = release.feature_flag_ids
-        .map((id) => allFlags.find((flag) => flag.id === id))
+        .map((id) => index.flagsById.get(id))
         .filter((flag): flag is FeatureFlagApi => !!flag)
-    const missingFlagIds = release.feature_flag_ids.filter((id) => !allFlags.some((flag) => flag.id === id))
-    const flagKeys = new Set(flags.map((flag) => flag.key))
+    const missingFlagIds = release.feature_flag_ids.filter((id) => !index.flagsById.has(id))
     const flagById = new Map(flags.map((flag) => [String(flag.id), flag]))
-    const experiments = allExperiments.filter((experiment) => flagKeys.has(experiment.feature_flag_key))
-    const earlyAccess = allEarlyAccess.filter(
-        (item) => item.feature_flag && flagKeys.has(item.feature_flag.key) && item.stage !== 'archived'
-    )
-    const changes = allScheduled
+    const experiments = flags.flatMap((flag) => index.experimentsByFlagKey.get(flag.key) ?? [])
+    const earlyAccess = flags
+        .flatMap((flag) => index.earlyAccessByFlagKey.get(flag.key) ?? [])
+        .filter((item) => item.stage !== 'archived')
+    const changes = flags
+        .flatMap((flag) => index.changesByFlagId.get(String(flag.id)) ?? [])
         .filter(
             (change) =>
-                flagById.has(String(change.record_id)) &&
-                (!!change.executed_at ||
-                    (!isSchedulePaused(change as never) && !hasDeniedApprovalRequest(change as never)))
+                !!change.executed_at ||
+                (!isSchedulePaused(change as never) && !hasDeniedApprovalRequest(change as never))
         )
         .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
     const firstFlagCreated = flags.map((flag) => flag.created_at).sort()[0] ?? null

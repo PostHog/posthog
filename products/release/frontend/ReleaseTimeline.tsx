@@ -27,7 +27,7 @@ const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; badg
     }
 
 export function ReleaseTimeline(): JSX.Element {
-    const { filteredRows, dataLoading } = useValues(releaseLogic)
+    const { filteredRows, dataLoading, search, stageFilter, decisionOnly } = useValues(releaseLogic)
     const today = dayjs().startOf('day')
     const start = today.subtract(BEFORE, 'day')
     const total = BEFORE + AFTER
@@ -42,7 +42,14 @@ export function ReleaseTimeline(): JSX.Element {
         setViewHeight(scrollRef.current?.clientHeight ?? 0)
     }, [filteredRows.length])
 
-    const first = Math.max(0, Math.floor((scrollTop - HEADER) / ROW) - OVERSCAN)
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = 0
+        }
+        setScrollTop(0)
+    }, [search, stageFilter, decisionOnly])
+
+    const first = Math.min(filteredRows.length, Math.max(0, Math.floor((scrollTop - HEADER) / ROW) - OVERSCAN))
     const last = Math.min(filteredRows.length, Math.ceil((scrollTop + viewHeight) / ROW) + OVERSCAN)
 
     return (
@@ -171,7 +178,12 @@ export function ReleaseTimeline(): JSX.Element {
                                 ) : null
                             })}
                             {row.events
-                                .filter((event) => event.upcoming)
+                                .filter(
+                                    (event) =>
+                                        event.upcoming &&
+                                        !dayjs(event.date).isBefore(start) &&
+                                        dayjs(event.date).isBefore(start.add(total, 'day'))
+                                )
                                 .map((event) => (
                                     <div
                                         key={event.key}

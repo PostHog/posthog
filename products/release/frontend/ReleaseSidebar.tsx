@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -17,8 +17,11 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { releaseLogic } from './releaseLogic'
 import { STAGE_TONE } from './releaseUtils'
 
+const SECTION_LIMIT = 10
+
 export function ReleaseSidebar(): JSX.Element {
     const { rows, decisionRows, flagCount, experiments, earlyAccessFeatures } = useValues(releaseLogic)
+    const { setDecisionOnly } = useActions(releaseLogic)
     const { location } = useValues(router)
     const [query, setQuery] = useState('')
     const [closed, setClosed] = useState<Record<string, boolean>>({})
@@ -108,7 +111,16 @@ export function ReleaseSidebar(): JSX.Element {
                         divider
                         dataAttr="release-section-decisions"
                     >
-                        {decisions.map(releaseRow)}
+                        {decisions.slice(0, SECTION_LIMIT).map(releaseRow)}
+                        {decisions.length > SECTION_LIMIT && (
+                            <SidebarRow
+                                value="decisions-all"
+                                label={`Show all ${decisions.length}`}
+                                to={urls.releaseList()}
+                                onClick={() => setDecisionOnly(true)}
+                                dataAttr="release-sidebar-decisions-all"
+                            />
+                        )}
                     </SidebarSection>
                 )}
                 {others.length > 0 && (
@@ -120,7 +132,7 @@ export function ReleaseSidebar(): JSX.Element {
                         divider
                         dataAttr="release-section-others"
                     >
-                        {others.map(releaseRow)}
+                        {others.slice(0, SECTION_LIMIT).map(releaseRow)}
                     </SidebarSection>
                 )}
                 {products.length > 0 && (

@@ -22,6 +22,21 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    @parameterized.expand(
+        [("existing", True, status.HTTP_201_CREATED), ("unknown", False, status.HTTP_400_BAD_REQUEST)]
+    )
+    def test_linked_flags_must_exist_in_the_project(self, _name: str, exists: bool, expected: int) -> None:
+        if exists:
+            flag_id = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/", {"key": "dark-mode"}, format="json"
+            ).json()["id"]
+        else:
+            flag_id = 999999
+
+        response = self.client.post(self._url(), {"name": "Dark mode", "feature_flag_ids": [flag_id]}, format="json")
+
+        assert response.status_code == expected, response.json()
+
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(
             self._url("00000000-0000-0000-0000-000000000000/"), {"name": "Renamed"}, format="json"

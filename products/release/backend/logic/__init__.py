@@ -12,12 +12,12 @@ from ..facade.contracts import ReleaseNotFoundError
 from ..models import Release
 
 
-def list_releases() -> QuerySet[Release]:
-    return strict_fetch(Release.objects.select_related("owner").order_by("created_at", "id"))
+def list_releases(team_id: int) -> QuerySet[Release]:
+    return strict_fetch(Release.objects.filter(team_id=team_id).select_related("owner").order_by("created_at", "id"))
 
 
-def get_release(release_id: UUID) -> Release:
-    release = Release.objects.select_related("owner").filter(id=release_id).first()
+def get_release(team_id: int, release_id: UUID) -> Release:
+    release = Release.objects.filter(team_id=team_id, id=release_id).select_related("owner").first()
     if release is None:
         raise ReleaseNotFoundError(release_id)
     return release
@@ -35,13 +35,13 @@ def create_release(
     )
 
 
-def update_release(release_id: UUID, changes: dict) -> Release:
-    release = get_release(release_id)
+def update_release(team_id: int, release_id: UUID, changes: dict) -> Release:
+    release = get_release(team_id, release_id)
     for field, value in changes.items():
         setattr(release, field, value)
     release.save(update_fields=[*changes.keys(), "updated_at"])
-    return get_release(release_id)
+    return get_release(team_id, release_id)
 
 
-def delete_release(release_id: UUID) -> None:
-    Release.objects.filter(id=release_id).delete()
+def delete_release(team_id: int, release_id: UUID) -> None:
+    Release.objects.filter(team_id=team_id, id=release_id).delete()

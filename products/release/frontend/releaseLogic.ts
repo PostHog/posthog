@@ -22,7 +22,7 @@ import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/
 
 import { releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
 import type { PatchedUpdateReleaseApi, ReleaseDTOApi } from './generated/api.schemas'
-import { ReleaseRow, ReleaseStage, buildReleaseRow } from './releaseUtils'
+import { ReleaseRow, ReleaseStage, buildReleaseIndex, buildReleaseRow } from './releaseUtils'
 
 interface ReleaseLogicValues {
     currentProjectId: number | null
@@ -44,6 +44,7 @@ interface ReleaseLogicValues {
     newReleaseOpen: boolean
     creatingRelease: boolean
     loadFailed: boolean
+    partialLoadFailed: boolean
     scheduleFlagId: number | null
     dataLoading: boolean
     rows: ReleaseRow[]
@@ -169,7 +170,9 @@ export const releaseLogic = kea<releaseLogicType>([
                         )
                         for (const result of batch) {
                             if (result.status === 'fulfilled') {
-                                flags.push(result.value)
+                                if (!result.value.deleted) {
+                                    flags.push(result.value)
+                                }
                             } else if ((result.reason as { status?: number })?.status !== 404) {
                                 throw result.reason
                             }
@@ -223,10 +226,27 @@ export const releaseLogic = kea<releaseLogicType>([
         scheduledChanges: [
             [] as ScheduledChangeApi[],
             {
-                loadScheduledChanges: async () =>
-                    allPages((offset) =>
-                        scheduledChangesList(String(values.currentProjectId), { limit: PAGE_SIZE, offset })
-                    ),
+                loadScheduledChanges: async () => {
+                    const projectId = String(values.currentProjectId)
+                    const ids = [...new Set(values.releases.flatMap((release) => release.feature_flag_ids))]
+                    const changes: ScheduledChangeApi[] = []
+                    for (let start = 0; start < ids.length; start += FLAG_FETCH_CONCURRENCY) {
+                        const pages = await Promise.all(
+                            ids.slice(start, start + FLAG_FETCH_CONCURRENCY).map((id) =>
+                                allPages((offset) =>
+                                    scheduledChangesList(projectId, {
+                                        model_name: 'FeatureFlag',
+                                        record_id: String(id),
+                                        limit: PAGE_SIZE,
+                                        offset,
+                                    })
+                                )
+                            )
+                        )
+                        changes.push(...pages.flat())
+                    }
+                    return changes
+                },
             },
         ],
     })),
@@ -243,6 +263,12 @@ export const releaseLogic = kea<releaseLogicType>([
                 reload: () => false,
                 loadReleasesFailure: () => true,
                 loadFlagsFailure: () => true,
+            },
+        ],
+        partialLoadFailed: [
+            false,
+            {
+                reload: () => false,
                 loadExperimentsFailure: () => true,
                 loadEarlyAccessFeaturesFailure: () => true,
                 loadScheduledChangesFailure: () => true,
@@ -258,9 +284,9 @@ export const releaseLogic = kea<releaseLogicType>([
     }),
     selectors({
         dataLoading: [
-            (s) => [s.releasesLoading, s.experimentsLoading, s.flagsReady],
-            (releasesLoading: boolean, experimentsLoading: boolean, flagsReady: boolean) =>
-                releasesLoading || experimentsLoading || !flagsReady,
+            (s) => [s.releasesLoading, s.experimentsLoading, s.flagsReady, s.loadFailed],
+            (releasesLoading: boolean, experimentsLoading: boolean, flagsReady: boolean, loadFailed: boolean) =>
+                !loadFailed && (releasesLoading || experimentsLoading || !flagsReady),
         ],
         rows: [
             (s) => [
@@ -280,12 +306,13 @@ export const releaseLogic = kea<releaseLogicType>([
                 scheduledChanges: ScheduledChangeApi[],
                 flagsReady: boolean,
                 loadFailed: boolean
-            ): ReleaseRow[] =>
-                !flagsReady || loadFailed
-                    ? []
-                    : releases.map((release) =>
-                          buildReleaseRow(release, flags, experiments, earlyAccessFeatures, scheduledChanges)
-                      ),
+            ): ReleaseRow[] => {
+                if (!flagsReady || loadFailed) {
+                    return []
+                }
+                const index = buildReleaseIndex(flags, experiments, earlyAccessFeatures, scheduledChanges)
+                return releases.map((release) => buildReleaseRow(release, index))
+            },
         ],
         filteredRows: [
             (s) => [s.rows, s.search, s.stageFilter, s.decisionOnly],
@@ -314,7 +341,6 @@ export const releaseLogic = kea<releaseLogicType>([
             actions.loadFlagCount()
             actions.loadExperiments()
             actions.loadEarlyAccessFeatures()
-            actions.loadScheduledChanges()
         },
         createRelease: async ({ name, description }) => {
             try {
@@ -347,6 +373,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     }
                     if (changes.feature_flag_ids !== undefined) {
                         actions.loadFlags()
+                        actions.loadScheduledChanges()
                     }
                 } catch {
                     lemonToast.error('The change could not be saved. Try again.')
@@ -375,6 +402,7 @@ export const releaseLogic = kea<releaseLogicType>([
         },
         loadReleasesSuccess: () => {
             actions.loadFlags()
+            actions.loadScheduledChanges()
         },
         closeSchedule: () => {
             actions.loadScheduledChanges()
