@@ -70,6 +70,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.presentation.views.hog_flow import (
+    INCOMPLETE_AUDIENCE_CONDITION,
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
@@ -4009,6 +4010,106 @@ class TestHogFlowAPI(APIBaseTest):
             "code": "invalid_input",
             "detail": "Properties must be an array.",
             "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "missing_value_on_create",
+                {"key": "email", "type": "person", "operator": "exact"},
+                False,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "emptied_multi_select_on_create",
+                {"key": "email", "type": "person", "value": [], "operator": "exact"},
+                False,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "missing_value_on_activate",
+                {"key": "email", "type": "person", "operator": "exact"},
+                True,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "emptied_multi_select_on_activate",
+                {"key": "email", "type": "person", "value": [], "operator": "exact"},
+                True,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "malformed_cohort_id_on_create",
+                {"key": "id", "type": "cohort", "value": "invalid"},
+                False,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "flag_on_create",
+                {"key": "my-flag", "type": "flag", "value": "true", "operator": "exact"},
+                False,
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "flag_on_activate",
+                {"key": "my-flag", "type": "flag", "value": "true", "operator": "exact"},
+                True,
+                "Feature flags can't be used as a batch audience condition",
+            ),
+        ]
+    )
+    def test_hog_flow_batch_trigger_rejects_unusable_audience_condition(
+        self, _name, condition, save_as_draft_first, message
+    ):
+        hog_flow = self._batch_audience_flow([condition])
+
+        if save_as_draft_first:
+            draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, format="json")
+            assert draft.status_code == 201, draft.json()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}, format="json"
+            )
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"}, format="json"
+            )
+
+        assert response.status_code == 400, response.json()
+        assert message in response.json()["detail"]
+
+    def test_hog_flow_keeps_saving_an_active_flow_with_an_unchanged_unfinished_audience(self):
+        stored = self._batch_audience_flow([{"key": "email", "type": "person", "operator": "exact"}])
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name=stored["name"],
+            status=HogFlow.State.ACTIVE,
+            actions=stored["actions"],
+            trigger=stored["actions"][0]["config"],
+            created_by=self.user,
+        )
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow.id}"
+        stored_actions = self.client.get(url).json()["actions"]
+
+        resave = self.client.patch(url, {"name": "renamed", "actions": stored_actions}, format="json")
+        assert resave.status_code == 200, resave.json()
+
+        edited_actions = deepcopy(stored_actions)
+        edited_actions[0]["config"]["filters"]["properties"] = [{"key": "plan", "type": "person", "operator": "exact"}]
+        edited = self.client.patch(url, {"actions": edited_actions}, format="json")
+        assert edited.status_code == 400, edited.json()
+        assert INCOMPLETE_AUDIENCE_CONDITION in edited.json()["detail"]
+
+    def _batch_audience_flow(self, properties: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "name": "Test Batch Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {"type": "batch", "filters": {"properties": properties}},
+                }
+            ],
         }
 
     @parameterized.expand(
