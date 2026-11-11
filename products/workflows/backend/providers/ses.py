@@ -44,6 +44,9 @@ if TYPE_CHECKING:
     from types_boto3_sesv2.client import SESV2Client
     from types_boto3_sesv2.type_defs import RecommendationTypeDef
 
+from posthog.cloud_utils import is_cloud
+from posthog.security.oob_domains import matched_oob_domain
+
 logger = logging.getLogger(__name__)
 
 AWS_ACCOUNT_ID_CACHE_KEY = "workflows:ses:aws_account_id"
@@ -463,6 +466,27 @@ class SESProvider:
     def _tenant_name_for_team(self, team_id: int) -> str:
         return f"team-{team_id}"
 
+    def get_tenant_sending_status(self, tenant_name: str) -> str | None:
+        try:
+            tenant = self.ses_v2_status_client.get_tenant(TenantName=tenant_name)["Tenant"]
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NotFoundException":
+                return None
+            raise
+        sending_status: str = tenant.get("SendingStatus", "")
+        tenant_arn = tenant.get("TenantArn")
+        if not tenant_arn:
+            return sending_status
+        try:
+            entity = self.ses_v2_status_client.get_reputation_entity(
+                ReputationEntityReference=tenant_arn, ReputationEntityType="RESOURCE"
+            )["ReputationEntity"]
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "NotFoundException":
+                raise
+            return sending_status
+        return entity.get("SendingStatusAggregate", sending_status)
+
     def get_tenant_reputation(self, team_id: int) -> dict[str, Any] | None:
         """
         Sending status and open reputation findings for the team's SES tenant, or None when the
@@ -623,6 +647,8 @@ class SESProvider:
         mail_from_subdomain: str,
         team_id: int,
         org_team_ids: Iterable[int] | None = None,
+        *,
+        keep_existing_mail_from: bool = False,
     ):
         expected_tenant = self._tenant_name_for_team(team_id)
         friendly_tenants = {self._tenant_name_for_team(t) for t in (org_team_ids or [team_id])}
@@ -634,7 +660,7 @@ class SESProvider:
             )
 
         # NOTE: For sesv1, domain Identity creation is done through verification
-        self.verify_email_domain(domain, mail_from_subdomain, team_id)
+        self.verify_email_domain(domain, mail_from_subdomain, team_id, keep_existing_mail_from=keep_existing_mail_from)
 
         # Bounces and complaints already reach the SES webhook through the configuration sets,
         # so a forwarding failure must not fail the add-domain request. The backfill command
@@ -676,7 +702,9 @@ class SESProvider:
         """
         self.ses_v2_client.put_email_identity_feedback_attributes(EmailIdentity=domain, EmailForwardingEnabled=False)
 
-    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
+    def verify_email_domain(
+        self, domain: str, mail_from_subdomain: str, team_id: int, *, keep_existing_mail_from: bool = False
+    ) -> EmailDomainVerification:
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
@@ -702,15 +730,18 @@ class SESProvider:
                 raise
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
-        try:
-            self.ses_client.set_identity_mail_from_domain(
-                Identity=domain,
-                MailFromDomain=f"{mail_from_subdomain}.{domain}",
-                BehaviorOnMXFailure="UseDefaultValue",
-            )
-        except ClientError as e:
-            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
-                raise
+        if keep_existing_mail_from and (ses_mail_from_subdomain := self.get_mail_from_subdomain(domain)) is not None:
+            mail_from_subdomain = ses_mail_from_subdomain
+        else:
+            try:
+                self.ses_client.set_identity_mail_from_domain(
+                    Identity=domain,
+                    MailFromDomain=f"{mail_from_subdomain}.{domain}",
+                    BehaviorOnMXFailure="UseDefaultValue",
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                    raise
 
         # DMARC is in the list too: AWS SES has no method to check its presence, so we do a direct
         # DNS lookup further below and include the result in the overall status.
@@ -730,23 +761,34 @@ class SESProvider:
         dkim_status = identity.dkim_status
         mail_from_status = identity.mail_from_status
 
+        # One flag for both lookups below, so the DMARC and DKIM statuses stay pending together.
+        refuses_lookups = is_cloud() and matched_oob_domain(domain) is not None
+        if refuses_lookups:
+            logger.info("security.oob_domain_seen guard=ses_domain_status")
+
         # DMARC: check via direct DNS lookup since AWS SES doesn't track it
         dmarc_status = "Pending"
         dmarc_record_value: str | None = None
-        try:
-            resolver = dns.resolver.Resolver()
-            resolver.lifetime = 5  # seconds — keep the request path responsive
-            answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
-            for rdata in answers:
-                txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
-                if txt_value.strip().lower().startswith("v=dmarc1"):
-                    dmarc_status = "Success"
-                    dmarc_record_value = txt_value.strip()
-                    break
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
-            pass  # No DMARC record found — fall back to "Pending" status
-        except Exception:
-            logger.exception("Unexpected error during DMARC lookup for %s", domain)
+        if not refuses_lookups:
+            try:
+                resolver = dns.resolver.Resolver()
+                resolver.lifetime = 5  # seconds — keep the request path responsive
+                answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
+                for rdata in answers:
+                    txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
+                    if txt_value.strip().lower().startswith("v=dmarc1"):
+                        dmarc_status = "Success"
+                        dmarc_record_value = txt_value.strip()
+                        break
+            except (
+                dns.resolver.NXDOMAIN,
+                dns.resolver.NoAnswer,
+                dns.resolver.NoNameservers,
+                dns.resolver.Timeout,
+            ):
+                pass  # No DMARC record found — fall back to "Pending" status
+            except Exception:
+                logger.exception("Unexpected error during DMARC lookup for %s", domain)
 
         # Normalize overall status
         overall: EmailDomainVerificationStatus
@@ -771,7 +813,7 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "dkim":
                     r["status"] = "success"
-        else:
+        elif not refuses_lookups:
             # SES reports aggregate DKIM status, but individual CNAMEs may already
             # be present.  Do per-record DNS lookups so the UI can show which
             # specific records are still missing.

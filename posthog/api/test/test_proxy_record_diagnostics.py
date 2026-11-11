@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.api import proxy_record_diagnostics as diagnostics
 from posthog.models.proxy_record import is_reserved_proxy_domain, is_valid_proxy_domain
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
@@ -632,3 +633,18 @@ class TestDiagnoseOrchestrator(TestCase):
         ResolverMock.return_value.resolve.assert_not_called()
         self.assertEqual(report.summary.status, "fail")
         self.assertFalse(any(c.status == "passed" for c in report.checks))
+
+
+class TestOutOfBandDomainsAreNotDiagnosed(SimpleTestCase):
+    @parameterized.expand([("on_cloud", True), ("off_cloud", False)])
+    def test_a_listed_domain_is_refused_on_cloud_only(self, _name: str, cloud: bool) -> None:
+        with (
+            patch.object(diagnostics, "is_cloud", return_value=cloud),
+            patch.object(diagnostics, "_check_cname") as cname,
+            patch.object(diagnostics, "_check_live_event") as live_event,
+        ):
+            report = diagnostics.diagnose(_record(domain="abc.oast.live"))
+
+        self.assertEqual(cname.called, not cloud)
+        live_event.assert_not_called()
+        self.assertEqual([check.detail for check in report.checks] == [OOB_DOMAIN_REFUSAL], cloud)

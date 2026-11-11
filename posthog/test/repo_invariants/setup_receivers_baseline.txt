@@ -304,6 +304,7 @@ post_save:products.tasks.backend.search_index.channel_saved
 post_save:products.tasks.backend.search_index.task_artifact_saved
 post_save:products.tasks.backend.search_index.task_run_saved
 post_save:products.tasks.backend.search_index.task_saved
+post_save:products.tasks.backend.task_run_sync.sync_task_status_on_run
 post_save:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_saved
 post_save:products.workflows.backend.models.hog_flow.hog_flow.team_saved_for_hog_flows
 post_save:products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.handle_hog_flow_batch_job_created
@@ -319,7 +320,6 @@ pre_delete:posthog.storage.team_access_cache_signal_handlers.clear_project_secre
 pre_delete:posthog.storage.team_llm_gateway_policy_signal_handlers._clear_cache_on_delete
 pre_delete:posthog.storage.team_metadata_signal_handlers.clear_team_metadata_cache_on_delete
 pre_delete:products.access_control.backend.facade.api.connect_access_change_receivers.<locals>.role_membership_deleting
-pre_delete:products.alerts.backend.activity_logging.cleanup_alert_hog_functions
 pre_delete:products.alerts.backend.activity_logging.delete_platform_shadow_copy
 pre_delete:products.alerts.backend.activity_logging.handle_alert_subscription_delete
 pre_delete:products.billing_alerts.backend.team_lifecycle.rehome_billing_alerts_before_team_delete

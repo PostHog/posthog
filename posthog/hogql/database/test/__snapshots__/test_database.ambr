@@ -9768,17 +9768,6 @@
                   "table": null,
                   "type": "string"
               },
-              "confidence": {
-                  "chain": null,
-                  "description": "AI author's confidence for a proposed metric, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
-              },
               "reasoning": {
                   "chain": null,
                   "description": "AI author's design decisions and trade-offs behind the definition, as review context.",
@@ -26533,17 +26522,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "confidence": {
-                  "chain": null,
-                  "description": "AI author's confidence for a proposed metric, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
               },
               "reasoning": {
                   "chain": null,
