@@ -1,6 +1,10 @@
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import type { HogFlowApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type {
+    HogFlowApi,
+    HogFlowBatchJobApi,
+    SendCalendarFlowApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
 import { LinkCandidate, buildReleaseIndex, buildReleaseRow, rankLinkSuggestions } from './releaseUtils'
@@ -43,10 +47,21 @@ const ARCHIVED_EARLY_ACCESS = {
     feature_flag: { key: FLAG.key },
 } as unknown as EarlyAccessFeatureApi
 
+const NEXT_SEND = new Date(Math.floor((Date.now() + 3 * 86_400_000) / 1000) * 1000).toISOString()
+
 const LAUNCH_SEND = {
     id: 'broadcast-1',
     name: 'Launch email',
-    schedules: [{ id: 'schedule-1', next_run_at: '2099-01-02T09:00:00Z' }],
+    schedules: [
+        {
+            id: 'schedule-1',
+            rrule: 'FREQ=DAILY;COUNT=1',
+            starts_at: NEXT_SEND,
+            timezone: 'UTC',
+            status: 'active',
+            next_run_at: NEXT_SEND,
+        },
+    ],
     batch_jobs: [{ id: 'job-1', status: 'completed', created_at: '2026-10-05T09:00:00Z' }],
 } as unknown as SendCalendarFlowApi
 
@@ -68,7 +83,15 @@ describe('buildReleaseRow', () => {
             [],
             [],
             { complete: true, resolvedFlagIds: [FLAG.id], unknownFlagIds: [] },
-            { broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email' } as HogFlowApi], sends: [LAUNCH_SEND] }
+            {
+                broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email' } as HogFlowApi],
+                sends: [LAUNCH_SEND],
+                runs: {
+                    [LAUNCH_SEND.id]: [
+                        { id: 'job-1', status: 'completed', created_at: '2026-10-05T09:00:00Z' } as HogFlowBatchJobApi,
+                    ],
+                },
+            }
         )
 
         const result = buildReleaseRow(release, index)
@@ -77,7 +100,7 @@ describe('buildReleaseRow', () => {
             undefined,
             true,
         ])
-        expect(result.nextDate).toBe('2099-01-02T09:00:00Z')
+        expect(result.nextDate).toBe(NEXT_SEND)
         expect(result.suggestions.map((suggestion) => suggestion.key)).not.toContain('broadcast')
     })
 

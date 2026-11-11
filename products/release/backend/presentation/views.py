@@ -60,14 +60,15 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _broadcast_visibility(self, broadcast_ids: list[UUID]) -> contracts.BroadcastVisibility:
         requested = {str(broadcast_id): broadcast_id for broadcast_id in broadcast_ids}
         if not requested:
-            return contracts.BroadcastVisibility(existing=frozenset(), visible=frozenset())
+            return contracts.BroadcastVisibility(existing=frozenset(), visible=frozenset(), linkable=frozenset())
         access = get_workflow_view_access(team_id=self.team_id, user_access_control=self.user_access_control)
         names = get_workflow_names(team_id=self.team_id, workflow_ids=requested.keys())
         return contracts.BroadcastVisibility(
-            existing=frozenset(
-                broadcast_id for key, broadcast_id in requested.items() if key in names or key in access.blocked_ids
+            existing=frozenset(requested.values()),
+            visible=frozenset(broadcast_id for key, broadcast_id in requested.items() if access.allows(key)),
+            linkable=frozenset(
+                broadcast_id for key, broadcast_id in requested.items() if key in names and key in access.viewable_ids
             ),
-            visible=frozenset(broadcast_id for key, broadcast_id in requested.items() if key in access.viewable_ids),
         )
 
     @property

@@ -86,7 +86,7 @@ def _checked_broadcasts(submitted: list[UUID], linked: list[UUID], lookup: Broad
             broadcast_id
             for broadcast_id in set(submitted)
             if broadcast_id in visibility.hidden
-            or (broadcast_id not in visibility.visible and broadcast_id not in linked_set)
+            or (broadcast_id not in visibility.linkable and broadcast_id not in linked_set)
         ),
         key=str,
     )

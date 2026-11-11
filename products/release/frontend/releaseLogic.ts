@@ -18,8 +18,17 @@ import { experimentsList } from 'products/experiments/frontend/generated/api'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { featureFlagsList, scheduledChangesList } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import { hogFlowsList, hogFlowsRetrieve, hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
-import type { HogFlowApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import {
+    hogFlowsBatchJobsList,
+    hogFlowsList,
+    hogFlowsRetrieve,
+    hogFlowsSendCalendarRetrieve,
+} from 'products/workflows/frontend/generated/api'
+import type {
+    HogFlowApi,
+    HogFlowBatchJobApi,
+    SendCalendarFlowApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
 import { releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
 import type { PatchedUpdateReleaseApi, ReleaseDTOApi } from './generated/api.schemas'
@@ -63,6 +72,7 @@ interface ReleaseLogicValues {
     scheduledChanges: ScheduledChangeApi[]
     broadcasts: HogFlowApi[]
     broadcastSends: SendCalendarFlowApi[]
+    broadcastRuns: Record<string, HogFlowBatchJobApi[]>
     linkSearchResults: LinkCandidate[]
     linkSearchResultsLoading: boolean
     linkSuggestions: LinkCandidate[]
@@ -154,6 +164,11 @@ interface ReleaseLogicActions {
     loadBroadcastSends: () => void
     loadBroadcastSendsSuccess: (broadcastSends: SendCalendarFlowApi[]) => { broadcastSends: SendCalendarFlowApi[] }
     loadBroadcastSendsFailure: (error: string) => { error: string }
+    loadBroadcastRuns: () => void
+    loadBroadcastRunsSuccess: (broadcastRuns: Record<string, HogFlowBatchJobApi[]>) => {
+        broadcastRuns: Record<string, HogFlowBatchJobApi[]>
+    }
+    loadBroadcastRunsFailure: (error: string) => { error: string }
     searchLinks: (search: string) => string
     searchLinksSuccess: (linkSearchResults: LinkCandidate[]) => { linkSearchResults: LinkCandidate[] }
     searchLinksFailure: (error: string) => { error: string }
@@ -507,6 +522,25 @@ export const releaseLogic = kea<releaseLogicType>([
                 },
             },
         ],
+        broadcastRuns: [
+            {} as Record<string, HogFlowBatchJobApi[]>,
+            {
+                loadBroadcastRuns: async (_, breakpoint) => {
+                    const projectId = String(values.currentProjectId)
+                    const ids = [...new Set(values.releases.flatMap((release) => release.broadcast_ids))]
+                    const results = await inBatches(ids, (id) => hogFlowsBatchJobsList(projectId, id), breakpoint)
+                    const runs: Record<string, HogFlowBatchJobApi[]> = {}
+                    results.forEach((result, index) => {
+                        if (result.status === 'fulfilled') {
+                            runs[ids[index]] = result.value
+                        } else if ((result.reason as { status?: number })?.status !== 404) {
+                            throw result.reason
+                        }
+                    })
+                    return runs
+                },
+            },
+        ],
         linkSearchResults: [
             [] as LinkCandidate[],
             {
@@ -606,8 +640,10 @@ export const releaseLogic = kea<releaseLogicType>([
             {
                 loadBroadcasts: () => false,
                 loadBroadcastSends: () => false,
+                loadBroadcastRuns: () => false,
                 loadBroadcastsFailure: () => true,
                 loadBroadcastSendsFailure: () => true,
+                loadBroadcastRunsFailure: () => true,
             },
         ],
         scheduleFlagId: [
@@ -688,6 +724,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 s.resolvedFlagIds,
                 s.broadcasts,
                 s.broadcastSends,
+                s.broadcastRuns,
             ],
             (
                 releases: ReleaseDTOApi[],
@@ -705,7 +742,8 @@ export const releaseLogic = kea<releaseLogicType>([
                 earlyAccessReady: boolean,
                 resolvedFlagIds: number[],
                 broadcasts: HogFlowApi[],
-                broadcastSends: SendCalendarFlowApi[]
+                broadcastSends: SendCalendarFlowApi[],
+                broadcastRuns: Record<string, HogFlowBatchJobApi[]>
             ): ReleaseRow[] => {
                 if (!flagsReady || loadFailed) {
                     return []
@@ -717,7 +755,7 @@ export const releaseLogic = kea<releaseLogicType>([
                         resolvedFlagIds,
                         unknownFlagIds: [...new Set([...hiddenExperimentFlagIds, ...hiddenEarlyAccessFlagIds])],
                     },
-                    { broadcasts, sends: broadcastSends }
+                    { broadcasts, sends: broadcastSends, runs: broadcastRuns }
                 )
                 return releases.map((release) => buildReleaseRow(release, index))
             },
@@ -822,6 +860,7 @@ export const releaseLogic = kea<releaseLogicType>([
                             if (cache.rebroadcastAfterSaves) {
                                 actions.loadBroadcasts()
                                 actions.loadBroadcastSends()
+                                actions.loadBroadcastRuns()
                             }
                         }
                         cache.refetchAfterSaves = false
@@ -885,6 +924,7 @@ export const releaseLogic = kea<releaseLogicType>([
             actions.loadScheduledChanges()
             actions.loadBroadcasts()
             actions.loadBroadcastSends()
+            actions.loadBroadcastRuns()
         },
         closeSchedule: () => {
             actions.loadScheduledChanges()

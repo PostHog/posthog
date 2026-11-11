@@ -11,7 +11,12 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import type { HogFlowApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type {
+    HogFlowApi,
+    HogFlowBatchJobApi,
+    SendCalendarFlowApi,
+} from 'products/workflows/frontend/generated/api.schemas'
+import { scheduleSendTimes } from 'products/workflows/frontend/SendCalendar/sendCalendarUtils'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
 
@@ -402,30 +407,55 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
     ]
 }
 
-function sendEvents(flow: SendCalendarFlowApi): ReleaseEvent[] {
-    const name = flow.name || 'Untitled broadcast'
-    const href = urls.broadcast(flow.id)
-    return [
-        ...flow.batch_jobs.map((job) => ({
-            key: `send-${job.id}`,
-            date: job.created_at,
-            kind: 'broadcast' as const,
-            title: `Broadcast sent: ${name}`,
-            detail: job.status === 'completed' ? undefined : `The send is ${job.status.replace('_', ' ')}`,
-            href,
-        })),
-        ...flow.schedules
-            .filter((schedule) => schedule.next_run_at)
-            .map((schedule) => ({
-                key: `send-schedule-${schedule.id}`,
-                date: schedule.next_run_at as string,
+export interface ReleaseMessaging {
+    broadcasts: HogFlowApi[]
+    sends: SendCalendarFlowApi[]
+    runs: Record<string, HogFlowBatchJobApi[]>
+}
+
+const EMPTY_MESSAGING: ReleaseMessaging = { broadcasts: [], sends: [], runs: {} }
+
+function runEvents(broadcastId: string, name: string, runs: HogFlowBatchJobApi[]): ReleaseEvent[] {
+    return runs.map((run) => ({
+        key: `send-${run.id}`,
+        date: run.created_at,
+        kind: 'broadcast' as const,
+        title: `Broadcast sent: ${name}`,
+        detail: !run.status || run.status === 'completed' ? undefined : `The send is ${run.status.replace('_', ' ')}`,
+        href: urls.broadcast(broadcastId),
+    }))
+}
+
+function upcomingSendEvents(flow: SendCalendarFlowApi, now: dayjs.Dayjs): ReleaseEvent[] {
+    const range = { start: now, end: now.startOf('day').add(CALENDAR_DAYS_AFTER + 1, 'day') }
+    return flow.schedules
+        .filter((schedule) => schedule.status !== 'paused')
+        .flatMap((schedule) =>
+            scheduleSendTimes(schedule, range).map((time) => ({
+                key: `send-schedule-${schedule.id}-${time.valueOf()}`,
+                date: time.toISOString(),
                 kind: 'broadcast' as const,
-                title: `Broadcast: ${name}`,
+                title: `Broadcast: ${flow.name || 'Untitled broadcast'}`,
                 detail: 'Scheduled to send',
-                href,
+                href: urls.broadcast(flow.id),
                 upcoming: true,
-            })),
-    ]
+            }))
+        )
+}
+
+function sendEventsByBroadcast(messaging: ReleaseMessaging): Map<string, ReleaseEvent[]> {
+    const now = dayjs()
+    const names = new Map(
+        messaging.broadcasts.map((broadcast) => [broadcast.id, broadcast.name || 'Untitled broadcast'])
+    )
+    const events = new Map<string, ReleaseEvent[]>()
+    for (const [broadcastId, runs] of Object.entries(messaging.runs)) {
+        events.set(broadcastId, runEvents(broadcastId, names.get(broadcastId) ?? 'Untitled broadcast', runs))
+    }
+    for (const flow of messaging.sends) {
+        events.set(flow.id, [...(events.get(flow.id) ?? []), ...upcomingSendEvents(flow, now)])
+    }
+    return events
 }
 
 export interface ReleaseIndex {
@@ -498,11 +528,11 @@ export function composeReleaseIndex(
         schedules: ScheduleIndex
     },
     status: ReleaseIndexStatus,
-    messaging: { broadcasts: HogFlowApi[]; sends: SendCalendarFlowApi[] } = { broadcasts: [], sends: [] }
+    messaging: ReleaseMessaging = EMPTY_MESSAGING
 ): ReleaseIndex {
     return {
         broadcastsById: new Map(messaging.broadcasts.map((broadcast) => [broadcast.id, broadcast])),
-        sendEventsByBroadcastId: new Map(messaging.sends.map((flow) => [flow.id, sendEvents(flow)])),
+        sendEventsByBroadcastId: sendEventsByBroadcast(messaging),
         flagsById: parts.flagsById,
         experimentsByFlagKey: parts.experimentsByFlagKey,
         earlyAccessByFlagKey: parts.earlyAccessByFlagKey,
@@ -519,7 +549,7 @@ export function buildReleaseIndex(
     earlyAccess: EarlyAccessFeatureApi[],
     scheduled: ScheduledChangeApi[],
     status: ReleaseIndexStatus,
-    messaging: { broadcasts: HogFlowApi[]; sends: SendCalendarFlowApi[] } = { broadcasts: [], sends: [] }
+    messaging: ReleaseMessaging = EMPTY_MESSAGING
 ): ReleaseIndex {
     return composeReleaseIndex(
         {
@@ -1012,10 +1042,19 @@ function releaseSpans(facts: ReleaseFacts): ReleaseSpan[] {
     const { today, firstFlagCreated, earlyAccess, running, paused, done } = facts
     const end = today.format('YYYY-MM-DD')
     const spans: ReleaseSpan[] = []
+    const opened = earlyAccess.filter((entry) => !['draft', 'concept', 'archived'].includes(entry.stage))
     if (firstFlagCreated) {
-        spans.push({ ...flagLook(facts), key: 'flag', kind: 'flag', from: firstFlagCreated.slice(0, 10), to: end })
+        const from = firstFlagCreated.slice(0, 10)
+        const earlyAccessFrom = opened.map((item) => item.created_at.slice(0, 10)).sort()[0]
+        const to =
+            earlyAccessFrom && earlyAccessFrom > from
+                ? dayjs(earlyAccessFrom).subtract(1, 'day').format('YYYY-MM-DD')
+                : end
+        if (!earlyAccessFrom || earlyAccessFrom > from) {
+            spans.push({ ...flagLook(facts), key: 'flag', kind: 'flag', from, to })
+        }
     }
-    for (const item of earlyAccess.filter((entry) => !['draft', 'concept', 'archived'].includes(entry.stage))) {
+    for (const item of opened) {
         spans.push({
             key: `ea-${item.id}`,
             kind: 'early_access',

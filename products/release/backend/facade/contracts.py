@@ -31,6 +31,7 @@ class UnknownBroadcastsError(Exception):
 class BroadcastVisibility:
     existing: frozenset[UUID]
     visible: frozenset[UUID]
+    linkable: frozenset[UUID]
 
     @property
     def hidden(self) -> frozenset[UUID]:
