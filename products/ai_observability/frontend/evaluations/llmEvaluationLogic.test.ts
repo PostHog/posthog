@@ -244,6 +244,7 @@ describe('llmEvaluationLogic', () => {
         useMocks({
             get: {
                 '/api/llm_proxy/models/': [],
+                '/api/projects/:teamId/llm_analytics/provider_keys/:keyId/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -1925,6 +1926,34 @@ return result`,
                         '/api/llm_proxy/models/': ({ request }) => [
                             200,
                             new URL(request.url).searchParams.get('provider_key_id') === keyId
+                                ? [
+                                      {
+                                          id: 'example/dual-model',
+                                          name: 'example/dual-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/chat-model',
+                                          name: 'example/chat-model',
+                                          provider: displayName,
+                                          supports_decisions: false,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/decision-model',
+                                          name: 'example/decision-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: false,
+                                      },
+                                  ]
+                                : [],
+                        ],
+                        '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                            200,
+                            params.key_id === keyId
                                 ? [
                                       {
                                           id: 'example/dual-model',

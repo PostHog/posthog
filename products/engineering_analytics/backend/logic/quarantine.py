@@ -268,11 +268,12 @@ def _most_active_repo(
     # Raises GitHubSourceNotConnectedError when the team has no source (caught upstream and turned
     # into available=false) or ValueError for a bad source_id (propagated to a 4xx by the view).
     curated = _curated.CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
-    sql = _REPO_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+    date_from = datetime.now(UTC) - timedelta(days=30)
+    sql = _REPO_SELECT.replace("__RUNS_SOURCE__", curated.run_source(since=date_from))
     response = curated.run(
         sql,
         query_type="engineering_analytics.quarantine_repo",
-        placeholders={"date_from": ast.Constant(value=datetime.now(UTC) - timedelta(days=30))},
+        placeholders={"date_from": ast.Constant(value=date_from)},
     )
     if not response.results:
         return None

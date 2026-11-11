@@ -240,7 +240,7 @@ export function ScoutTrialRunDrawer({
                                             ? formatRunDuration(duration)
                                             : 'Unavailable'}
                                     </dd>
-                                    <dt className="font-semibold">Scout cost</dt>
+                                    <dt className="font-semibold">Scout credits used</dt>
                                     <dd className="m-0 mb-2">
                                         {result?.cost_usd == null ? 'Unavailable' : formatRunCost(result.cost_usd)}
                                     </dd>

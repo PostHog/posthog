@@ -32,7 +32,6 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -52,6 +51,7 @@ import {
     SchemaEditorAction,
     SourceEditorAction,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { WarehouseTableAccessControlModal } from 'products/data_warehouse/frontend/shared/components/WarehouseTableAccessControlModal'
 import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
@@ -434,11 +434,10 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
             )}
             {isFileUpload && <ReplaceFileModal sourceId={id} />}
             {accessControlSchema?.table && (
-                <AccessControlObjectModal
+                <WarehouseTableAccessControlModal
                     isOpen={!!accessControlSchema}
                     onClose={() => setAccessControlSchema(null)}
-                    resource={AccessControlResourceType.WarehouseTable}
-                    resource_id={accessControlSchema.table.id}
+                    tableId={accessControlSchema.table.id}
                     title={accessControlSchema.label ?? accessControlSchema.name}
                     description="Control who can query, sync, and manage this table. Members without editor access can't trigger syncs, change its settings, or delete it."
                 />

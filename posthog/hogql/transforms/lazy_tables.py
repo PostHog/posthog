@@ -181,6 +181,24 @@ class WrappedTableExport:
     as_json: bool
 
 
+def _add_json_text_export(table_to_add: LazyTableToAdd, chain: list[str | int]) -> str:
+    """Adds an export of the JSON text of `chain` to `table_to_add`, and returns its name.
+
+    Reads of the same chain share one export. A name that another export of the table uses gets a counter.
+    """
+    base = f"{'___'.join(str(link) for link in chain)}___json"
+    name = base
+    counter = 1
+    while name in table_to_add.fields_accessed and not (
+        name in table_to_add.json_text_fields and table_to_add.fields_accessed[name] == chain
+    ):
+        counter += 1
+        name = f"{base}_{counter}"
+    table_to_add.fields_accessed[name] = chain
+    table_to_add.json_text_fields.add(name)
+    return name
+
+
 class WrappedTableReferenceCollector(GroupedClauseTracker, TraversingVisitor):
     """Collects the outer reads of one table binding before a subquery replaces that table.
 
@@ -448,6 +466,29 @@ class LazyTableResolver(TraversingVisitor):
             field_type.table_type = join_ptr.type
         return scan
 
+    def _union_json_text_reads(self, node: ast.SelectQuery, select_type: ast.SelectQueryType) -> set[int]:
+        """The ids of the property reads in `node` that serialize a key of a union scan with `toJSONString`.
+
+        Each branch of the union exports the key's value as text. On the native JSON events table, `toJSONString` of
+        that text quotes a number, an object or an array, but a direct read on events returns the key's JSON value. So
+        each such read gets its own export, which each branch serializes as a direct read on events does.
+        """
+        reads: set[int] = set()
+        if not self.context.uses_new_events_schema():
+            # The legacy events table serializes the text, which the outer `toJSONString` already does.
+            return reads
+        for table_type in select_type.tables.values():
+            if not isinstance(_lazy_table_of(table_type), EventsWithFlagCallsTable):
+                continue
+            collector = WrappedTableReferenceCollector(table_type, self.context)
+            collector.visit(node)
+            reads.update(
+                id(property_type)
+                for property_type, name, _ in collector.properties.values()
+                if collector.exports[name].as_json
+            )
+        return reads
+
     def _read_property_path(
         self, subquery_type: ast.SelectQueryType, column: ast.Alias, property_path: tuple[str | int, ...]
     ) -> None:
@@ -532,6 +573,23 @@ class LazyTableResolver(TraversingVisitor):
         # Field types retain the original tables after the scope replaces them with subqueries.
         original_select_type = ast.SelectQueryType(tables=dict(select_type.tables))
 
+        # Virtual-table fields take their own export name, which must not equal the name of any other export.
+        export_names: dict[int, str] = {}
+
+        def allocate_export_name(
+            accessed: dict[str, list[str | int]], field: ast.FieldType, chain: list[str | int]
+        ) -> str:
+            if not isinstance(field.table_type, ast.VirtualTableType):
+                return field.name
+            base = "___".join(str(link) for link in chain)
+            name = base
+            counter = 1
+            while name in accessed and accessed[name] != chain:
+                counter += 1
+                name = f"{base}_{counter}"
+            export_names[id(field)] = name
+            return name
+
         # First properties, then fields. This way we always get the smallest units to query first.
         matched_properties: list[ast.PropertyType | ast.FieldType] = [
             property for property in field_collector if isinstance(property, ast.PropertyType)
@@ -539,7 +597,20 @@ class LazyTableResolver(TraversingVisitor):
         matched_fields: list[ast.PropertyType | ast.FieldType] = [
             field for field in field_collector if isinstance(field, ast.FieldType)
         ]
+        # Virtual-table fields go last, so each one picks a name that no other export has taken.
+        matched_fields.sort(
+            key=lambda field: isinstance(field, ast.FieldType) and isinstance(field.table_type, ast.VirtualTableType)
+        )
         sorted_properties: list[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
+        json_text_reads = self._union_json_text_reads(node, select_type)
+        pending_json_text: list[tuple[LazyTableToAdd, ast.PropertyType, list[str | int]]] = []
+
+        def add_table_property(table: LazyTableToAdd, property: ast.PropertyType, chain: list[str | int]) -> None:
+            if id(property) in json_text_reads:
+                pending_json_text.append((table, property, chain))
+            else:
+                property.joined_subquery_field_name = "___".join(str(x) for x in chain)
+                table.fields_accessed[property.joined_subquery_field_name] = chain
 
         # Look for tables without requested fields to support cases like `select count() from table`
         join = node.select_from
@@ -646,7 +717,9 @@ class LazyTableResolver(TraversingVisitor):
                             property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                             new_join.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
-                            new_join.fields_accessed[field.name] = chain
+                            new_join.fields_accessed[allocate_export_name(new_join.fields_accessed, field, chain)] = (
+                                chain
+                            )
                 elif isinstance(table_type, ast.LazyTableType):
                     table_name = get_long_table_name(select_type, table_type)
                     if table_name not in tables_to_add:
@@ -664,10 +737,11 @@ class LazyTableResolver(TraversingVisitor):
                         lazy_chain.append(field.name)
                         if property is not None:
                             lazy_chain.extend(property.chain)
-                            property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
-                            new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
+                            add_table_property(new_table, property, lazy_chain)
                         else:
-                            new_table.fields_accessed[field.name] = lazy_chain
+                            new_table.fields_accessed[
+                                allocate_export_name(new_table.fields_accessed, field, lazy_chain)
+                            ] = lazy_chain
                 elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                     # Widen mypy's view of the inner type: the annotated union is
                     # `TableType | LazyTableType`, but the LazyJoinType branch below is a
@@ -701,7 +775,9 @@ class LazyTableResolver(TraversingVisitor):
                                 property.joined_subquery_field_name = "___".join(str(x) for x in field_chain)
                                 new_join.fields_accessed[property.joined_subquery_field_name] = field_chain
                             else:
-                                new_join.fields_accessed[field.name] = field_chain
+                                new_join.fields_accessed[
+                                    allocate_export_name(new_join.fields_accessed, field, field_chain)
+                                ] = field_chain
                     elif isinstance(inner_table_type, ast.LazyTableType):
                         table_name = get_long_table_name(select_type, table_type)
                         if table_name not in tables_to_add:
@@ -720,10 +796,16 @@ class LazyTableResolver(TraversingVisitor):
                             chain.append(field.name)
                             if property is not None:
                                 chain.extend(property.chain)
-                                property.joined_subquery_field_name = "___".join(str(x) for x in chain)
-                                new_table.fields_accessed[property.joined_subquery_field_name] = chain
+                                add_table_property(new_table, property, chain)
                             else:
-                                new_table.fields_accessed[field.name] = chain
+                                new_table.fields_accessed[
+                                    allocate_export_name(new_table.fields_accessed, field, chain)
+                                ] = chain
+
+        # A JSON text export gets its name after every other property export, so that it can avoid their names.
+        for new_table, property, chain in pending_json_text:
+            property.joined_subquery_field_name = _add_json_text_export(new_table, chain)
+            property.joined_subquery_json_text = True
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
@@ -893,8 +975,11 @@ class LazyTableResolver(TraversingVisitor):
             join_ptr = node.select_from
             added = False
             while join_ptr:
+                # The resolver names an unaliased dotted table, such as `posthog.events`, by joining its chain with
+                # `__`.
                 if join_scope.from_table == join_ptr.alias or (
-                    isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
+                    isinstance(join_ptr.table, ast.Field)
+                    and join_scope.from_table == "__".join(map(str, join_ptr.table.chain))
                 ):
                     # The join's ON constraint may depend on other joins (`constraint_tables`); the
                     # ones that matter here are those earlier in this source table's join chain,
@@ -952,6 +1037,10 @@ class LazyTableResolver(TraversingVisitor):
                 continue
 
             if isinstance(field_or_property, ast.FieldType):
+                # A field still on its virtual table reads the export name allocated above.
+                # A field that a wrapper subquery already rebound keeps the name the wrapper gave it.
+                if isinstance(field_or_property.table_type, ast.VirtualTableType):
+                    field_or_property.name = export_names.get(id(field_or_property), field_or_property.name)
                 field_or_property.table_type = table_type
             elif isinstance(field_or_property, ast.PropertyType):
                 field_or_property.field_type.table_type = table_type

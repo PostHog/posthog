@@ -185,7 +185,10 @@ export default defineCommand({
         if (!(await confirm(ctx, options, pullPlanLines(plan, style), `Write ${plural(pending.length, 'file')}?`))) {
             return { status: 'cancelled', plan, written: [], problems }
         }
-        const types = await variableTypes(api, new Map(pending.flatMap((item) => remoteVariableIds(item.endpoint))))
+        const types = await variableTypes(
+            api.withoutStepUp(),
+            new Map(pending.flatMap((item) => remoteVariableIds(item.endpoint)))
+        )
         for (const item of pending) {
             await ctx.runtime.writeFile(item.path, endpointYaml(item.path, item, types))
         }

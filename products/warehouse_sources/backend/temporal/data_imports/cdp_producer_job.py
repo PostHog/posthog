@@ -7,10 +7,15 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.utils import CDPProducerWorkflowInputs
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import (
+    CDPProducer,
+    ProduceCheckpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer_rate import RowThrottle
 
 LOGGER = get_logger(__name__)
 
@@ -38,7 +43,19 @@ async def produce_to_cdp_kafka_activity(inputs: CDPProducerWorkflowInputs) -> No
         raise ValueError("CDP producer needs either a schema_id or a saved_query_id")
 
     try:
-        await producer.produce_to_kafka_from_s3()
+        resume_from = ProduceCheckpoint.from_heartbeat_details(activity.info().heartbeat_details)
+        throttle = RowThrottle(team_id=inputs.team_id)
+        async with Heartbeater() as heartbeater:
+            if resume_from is not None:
+                heartbeater.details = resume_from.to_heartbeat_details()
+                await logger.ainfo(
+                    "Resuming CDP production", file_path=resume_from.file_path, rows_done=resume_from.rows_done
+                )
+            await producer.produce_to_kafka_from_s3(
+                resume_from=resume_from,
+                on_checkpoint=lambda cp: setattr(heartbeater, "details", cp.to_heartbeat_details()),
+                throttle=throttle,
+            )
     except Exception:
         CDP_PRODUCER_RUNS_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         raise
@@ -58,5 +75,11 @@ class CDPProducerJobWorkflow(PostHogWorkflow):
             produce_to_cdp_kafka_activity,
             inputs,
             start_to_close_timeout=timedelta(hours=24),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            heartbeat_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                maximum_attempts=10,
+                initial_interval=timedelta(seconds=30),
+                backoff_coefficient=2.0,
+                maximum_interval=timedelta(minutes=10),
+            ),
         )

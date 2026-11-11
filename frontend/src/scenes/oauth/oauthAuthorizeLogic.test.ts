@@ -432,6 +432,12 @@ describe('oauthAuthorizeLogic', () => {
             earlierAccess: { scoped_teams: [22], scoped_organizations: [] },
             expected: { access_type: 'teams', scoped_teams: [22] },
         },
+        {
+            name: 'its organization when the app requires one',
+            requiredAccessLevel: 'organization',
+            earlierAccess: { scoped_teams: [], scoped_organizations: ['org-b'] },
+            expected: { access_type: 'organizations', scoped_organizations: ['org-b'] },
+        },
     ])('a step-up pre-selects the earlier grant: $name', ({ requiredAccessLevel, earlierAccess, expected }) => {
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,
@@ -490,6 +496,14 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setRequiredAccessLevel('team')
         expect(logic.values.selectedOrganization).toBe(expectedOrg)
         expect(logic.values.oauthAuthorization.scoped_teams).toEqual(expectedTeams)
+    })
+
+    it('pre-selects the current organization when the app requires organization access', () => {
+        logic.actions.setRequiredAccessLevel('organization')
+        expect(logic.values.oauthAuthorization).toMatchObject({
+            access_type: 'organizations',
+            scoped_organizations: [MOCK_DEFAULT_USER.organization?.id],
+        })
     })
 
     // Opaque client-owned params must reach the API byte-for-byte, whatever they look like.

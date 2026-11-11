@@ -75,12 +75,37 @@ class CanvasAppWidgetBaseTest(APIBaseTest):
             created_by_id=self.user.id,
         )
 
+    def _create_canvas_in_another_members_personal_space(self) -> UUID:
+        owner = User.objects.create_and_join(self.organization, "owner@example.test", "pw")
+        with team_scope(self.team.id):
+            personal = Channel.objects.create(
+                team=self.team,
+                name=Channel.PERSONAL_CHANNEL_NAME,
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=owner,
+            )
+        return create_canvas(team_id=self.team.id, channel_id=personal.id, name="Mine", created_by_id=owner.id)
+
 
 class TestCanvasAppWidgetRunner(CanvasAppWidgetBaseTest):
-    def test_returns_needs_configuration_when_no_canvas_selected(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_canvases", None, False),
+            ("canvas_in_a_shared_space", "shared", True),
+            ("canvas_in_another_members_personal_space", "personal", False),
+        ]
+    )
+    def test_needs_configuration_reports_whether_the_viewer_has_canvases(
+        self, _name: str, space: str | None, has_canvases: bool
+    ) -> None:
+        if space == "shared":
+            self._create_canvas()
+        elif space == "personal":
+            self._create_canvas_in_another_members_personal_space()
+
         result = run_canvas_app_widget(self.team, {}, user=self.user)
 
-        assert result == {"canvas": None, "needsConfiguration": True}
+        assert result == {"canvas": None, "needsConfiguration": True, "hasCanvases": has_canvases}
 
     def test_returns_not_found_for_missing_canvas(self) -> None:
         result = run_canvas_app_widget(self.team, {"canvasId": str(uuid4())}, user=self.user)
@@ -100,15 +125,7 @@ class TestCanvasAppWidgetRunner(CanvasAppWidgetBaseTest):
         assert result == {"canvas": None, "canvasNotFound": True}
 
     def test_returns_not_found_for_canvas_in_another_members_personal_space(self) -> None:
-        owner = User.objects.create_and_join(self.organization, "owner@example.test", "pw")
-        with team_scope(self.team.id):
-            personal = Channel.objects.create(
-                team=self.team,
-                name=Channel.PERSONAL_CHANNEL_NAME,
-                channel_type=Channel.ChannelType.PERSONAL,
-                created_by=owner,
-            )
-        canvas_id = create_canvas(team_id=self.team.id, channel_id=personal.id, name="Mine", created_by_id=owner.id)
+        canvas_id = self._create_canvas_in_another_members_personal_space()
 
         result = run_canvas_app_widget(self.team, {"canvasId": str(canvas_id)}, user=self.user)
 

@@ -57,6 +57,11 @@ class NetworkAccess(StrEnum):
     CUSTOM = "custom"
 
 
+class RunOptionsCaller(StrEnum):
+    SERVER = "server"
+    PUBLIC = "public"
+
+
 class ContractCheck(StrEnum):
     PUBLIC_OPTIONS = "public_options"
     RUNTIMES = "runtimes"
@@ -326,6 +331,10 @@ def register_task_profile(profile: TaskProfile) -> None:
     for other in _profiles.values():
         if other.key == profile.key or other.origin_product != profile.origin_product:
             continue
+        if other.public and profile.public:
+            raise TaskProfileError(
+                f"Task profiles {other.key!r} and {profile.key!r} are both public on origin {profile.origin_product!r}"
+            )
         for name in _ORIGIN_SCOPED_FIELDS:
             if getattr(other, name) != getattr(profile, name):
                 raise TaskProfileError(
@@ -351,27 +360,22 @@ def find_task_profile(key: str | None) -> TaskProfile | None:
     return _profiles.get(key) if key else None
 
 
+def public_profile_for_origin(origin_product: str) -> TaskProfile | None:
+    return next(
+        (profile for profile in _profiles.values() if profile.public and profile.origin_product == origin_product),
+        None,
+    )
+
+
 def task_profiles() -> tuple[TaskProfile, ...]:
     return tuple(_profiles.values())
 
 
-def resolve_task_origin(
-    *, profile: TaskProfile | None, origin_product: str | None, internal: bool | None
-) -> TaskOrigin:
-    if profile is None:
-        if not origin_product:
-            raise TaskProfileError("Pass a task profile or an origin product")
-        return TaskOrigin(origin_product=origin_product, internal=bool(internal), profile_key=None)
-    if origin_product is not None and origin_product != profile.origin_product:
-        raise TaskProfileError(f"Origin {origin_product!r} does not match task profile {profile.key!r}")
-    if internal is not None and internal == profile.listed:
-        raise TaskProfileError(f"internal={internal} does not match task profile {profile.key!r}")
+def resolve_task_origin(profile: TaskProfile) -> TaskOrigin:
     return TaskOrigin(origin_product=profile.origin_product, internal=not profile.listed, profile_key=profile.key)
 
 
-def check_task_source(*, profile: TaskProfile | None, source: TaskSource | None) -> None:
-    if profile is None:
-        return
+def check_task_source(*, profile: TaskProfile, source: TaskSource | None) -> None:
     kind = source.kind if source is not None else None
     if kind != profile.source_kind:
         raise TaskSourceError(f"Task profile {profile.key!r} takes source {profile.source_kind}, got {kind}")

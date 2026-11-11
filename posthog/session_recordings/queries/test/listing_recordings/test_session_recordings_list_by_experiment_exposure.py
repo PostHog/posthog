@@ -17,7 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.hogql_queries.paginators import HogQLCursorPaginator
-from posthog.models import EventProperty, User
+from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -36,6 +36,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.models.access_control import AccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend.facade.replay import (
     ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
     IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES,

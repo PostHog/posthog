@@ -11,7 +11,6 @@ export const DELIVERY_WEBHOOK_TEMPLATE_ID = 'template-webhook'
 export const DELIVERY_WEBHOOK_EVENTS = [
     { event: '$workflows_email_sent', label: 'Sent' },
     { event: '$workflows_email_delivered', label: 'Delivered' },
-    { event: '$workflows_email_delivery_delayed', label: 'Delivery delayed' },
     { event: '$workflows_email_bounced', label: 'Bounced' },
     { event: '$workflows_email_blocked', label: 'Marked as spam' },
     { event: '$workflows_email_failed', label: 'Failed' },
@@ -21,9 +20,9 @@ export const DELIVERY_WEBHOOK_EVENTS = [
 
 export type DeliveryWebhookEventName = (typeof DELIVERY_WEBHOOK_EVENTS)[number]['event']
 
-// Only a transactional send carries the message id, so this property tells its events apart from workflow emails.
+// Only a transactional send carries this property, so it tells its events apart from workflow emails.
 const TRANSACTIONAL_EMAIL_PROPERTY: EventPropertyFilter = {
-    key: '$email_message_id',
+    key: '$email_transactional',
     type: PropertyFilterType.Event,
     operator: PropertyOperator.IsSet,
 }
@@ -40,7 +39,7 @@ const DELIVERY_WEBHOOK_BODY = {
     created_at: '{event.timestamp}',
     data: {
         created_at: '{event.timestamp}',
-        email_id: '{event.properties.$email_message_id}',
+        email_id: '{event.properties.$workflow_invocation_id}',
         to: ['{event.properties.$email_to}'],
         subject: '{event.properties.$email_subject}',
         distinct_id: '{event.distinct_id}',
