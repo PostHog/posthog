@@ -1687,6 +1687,16 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 f"SELECT properties.a.b, properties.a___b FROM events WHERE {MIXED}",
                 None,
             ),
+            (
+                "declined_swap",
+                READ,
+                "SELECT count() FROM posthog.events "
+                "JOIN (SELECT distinct_id AS d, properties AS posthog FROM events) AS s ON distinct_id = s.d "
+                "WHERE posthog.events.event = '$feature_flag_called' "
+                "AND posthog.events.properties.$feature_flag = 'probe-flag' "
+                "AND posthog__events.timestamp >= now() - INTERVAL 7 DAY",
+                None,
+            ),
         ]
     )
     def test_log_comment_names_the_rewrites_that_read_flag_calls(
