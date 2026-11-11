@@ -594,28 +594,29 @@ describe('EmailTrackingService', () => {
                     const stubbedFetch = mockInternalFetch.getMockImplementation()
                     hub.CAPTURE_INTERNAL_URL = `http://127.0.0.1:${(capture.address() as AddressInfo).port}/capture`
                     mockInternalFetch.mockImplementation(jest.requireActual('~/common/utils/request').internalFetch)
+                    const tracked = jest.spyOn(api['emailTrackingService'], 'trackMetric')
                     try {
                         expect((await supertest(app).get(pathOf(pixel))).status).toBe(200)
                         const clicked = await supertest(app).get(pathOf(link))
 
                         expect(clicked.status).toBe(302)
                         expect(clicked.headers.location).toBe('https://example.com/docs')
-                        await waitForExpect(() => {
-                            const metrics = mockProducerObserver
+                        await waitForExpect(() => expect(tracked).toHaveBeenCalledTimes(2))
+                        await Promise.all(tracked.mock.results.map(({ value }) => value))
+                        expect(
+                            mockProducerObserver
                                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
                                 .filter(({ value }) => value.instance_id === sendId)
                                 .map(({ value }) => value.metric_name)
-                            expect(metrics).toEqual(expect.arrayContaining(['email_opened', 'email_link_clicked']))
-                            expect(
-                                received
-                                    .filter(
-                                        (event) => event.api_key === team.api_token && event.distinct_id === 'user-1'
-                                    )
-                                    .map((event) => event.event)
-                                    .sort()
-                            ).toEqual(captured)
-                        })
+                        ).toEqual(expect.arrayContaining(['email_opened', 'email_link_clicked']))
+                        expect(
+                            received
+                                .filter((event) => event.api_key === team.api_token && event.distinct_id === 'user-1')
+                                .map((event) => event.event)
+                                .sort()
+                        ).toEqual(captured)
                     } finally {
+                        tracked.mockRestore()
                         mockInternalFetch.mockImplementation(stubbedFetch)
                         hub.CAPTURE_INTERNAL_URL = captureUrl
                         capture.close()
