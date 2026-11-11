@@ -234,7 +234,7 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
                         key: template.transactional_hog_flow_id!,
                         label:
                             nameCounts.get(template.name)! > 1
-                                ? `${template.name} (${template.id.slice(0, 8)})`
+                                ? `${template.name} (${template.id.slice(-8)})`
                                 : template.name,
                     }))
                 },

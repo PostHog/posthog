@@ -30,7 +30,7 @@ describe('deliveryWebhooksLogic', () => {
                                   next: 'http://localhost/api/projects/2001/messaging_templates/?limit=100&offset=2',
                                   results: [
                                       {
-                                          id: 'a1b2c3d4-0000-4000-8000-000000000001',
+                                          id: '0190e3a1-aaaa-7000-8000-00000000abcd',
                                           name: 'Receipt',
                                           transactional_hog_flow_id: 'flow-receipt',
                                       },
@@ -53,7 +53,7 @@ describe('deliveryWebhooksLogic', () => {
                                           transactional_hog_flow_id: 'flow-reset',
                                       },
                                       {
-                                          id: '9f3c2a71-0000-4000-8000-000000000002',
+                                          id: '0190e3a1-aaaa-7000-8000-00000000ef01',
                                           name: 'Receipt',
                                           transactional_hog_flow_id: 'flow-receipt-copy',
                                       },
@@ -87,9 +87,9 @@ describe('deliveryWebhooksLogic', () => {
         logic.actions.openAddModal()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.transactionalEmailOptions.map(({ label }) => label)).toEqual([
-            'Receipt (a1b2c3d4)',
+            'Receipt (0000abcd)',
             'Password reset',
-            'Receipt (9f3c2a71)',
+            'Receipt (0000ef01)',
         ])
         logic.actions.setWebhookFormValues({
             url: ' https://example.com/hooks/prod ',
