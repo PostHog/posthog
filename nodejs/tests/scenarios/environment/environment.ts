@@ -170,9 +170,7 @@ export function createEnvironment(): Environment {
             throw new StackConflictError(
                 `Role ports are already held by processes the runner did not start: ${held
                     .map((role) => `${ROLE_PORTS[role]} (${role})`)
-                    .join(', ')}.`,
-                inspect,
-                `Find what holds them with \`${inspect}\`, stop it, then run the scenario again.`
+                    .join(', ')}. Find what holds them with \`${inspect}\`, stop it, then run the scenario again.`
             )
         }
     }
@@ -193,8 +191,7 @@ export function createEnvironment(): Environment {
                 const busy = await groupsWithMembers(groups)
                 if (busy.length > 0) {
                     throw new StackConflictError(
-                        `The CDP consumer groups ${busy.join(', ')} have members the runner did not start.`,
-                        'hogli down'
+                        `The CDP consumer groups ${busy.join(', ')} have members the runner did not start. Stop it with \`hogli down\`, then run the scenario again.`
                     )
                 }
             },
