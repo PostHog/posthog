@@ -857,6 +857,7 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 actions.setStepIndex(Math.max(0, values.stepIndex - 1))
             },
             initWizard: ({ path, step }) => {
+                cache.finishAfterSave = false
                 if (path !== 'automation') {
                     posthog.getFeatureFlag(FEATURE_FLAGS.WORKFLOWS_WIZARD_JOURNEY_FIRST)
                 }

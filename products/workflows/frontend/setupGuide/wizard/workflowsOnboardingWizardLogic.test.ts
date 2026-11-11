@@ -291,18 +291,21 @@ describe('workflowsOnboardingWizardLogic', () => {
         expect(logic.values.currentStep).toBe(stepAfterSave)
     })
 
-    it('stays on the step a person goes back to while the sending rules save', async () => {
+    it.each<[string, () => void, string]>([
+        ['goes back a step', () => logic.actions.back(), 'opt-outs'],
+        ['opens another wizard', () => router.actions.push(onboardingWizardUrl('broadcast')), 'broadcast'],
+    ])('stays in the wizard when a person %s while the sending rules save', async (_, leave, landsOn) => {
         const { mocks, releaseSave } = heldTeamSave()
         useMocks(mocks)
         await reachSendingRules()
 
         logic.actions.next()
-        logic.actions.back()
+        leave()
         releaseSave()
         await expectLogic(teamLogic).toFinishAllListeners()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.currentStep).toBe('opt-outs')
+        expect(logic.values.currentStep).toBe(landsOn)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.workflows('onboarding'))
     })
 
