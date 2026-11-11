@@ -11,10 +11,6 @@ import { inboxTaskKickoffLogic, REPORT_AI_PANEL_ID } from '../../inboxTaskKickof
 import { SignalReport } from '../../types'
 import { ReportAiPanel } from './ReportAiPanel'
 
-/**
- * The report's implementation chat in the page's main column. The evidence rail stays beside it as the
- * report context, and it collapses with the rail toggle like on the summary.
- */
 export function ReportChatMain({ report }: { report: SignalReport }): JSX.Element {
     const { hideMainChat, openSidePanel } = useActions(inboxTaskKickoffLogic)
 

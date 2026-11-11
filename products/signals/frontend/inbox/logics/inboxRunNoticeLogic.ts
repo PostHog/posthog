@@ -54,10 +54,7 @@ export interface inboxRunNoticeLogicActions {
 
 export type inboxRunNoticeLogicType = MakeLogicType<inboxRunNoticeLogicValues, inboxRunNoticeLogicActions>
 
-/**
- * Tells the person when a run they opened from the inbox finishes, while they read other reports. It lives
- * as long as the inbox scene, so it covers the session in this tab. The bell notification covers the rest.
- */
+/** Lives as long as the inbox scene, so it covers this tab's session; the bell notification covers the rest. */
 export const inboxRunNoticeLogic = kea<inboxRunNoticeLogicType>([
     path(['products', 'signals', 'inbox', 'logics', 'inboxRunNoticeLogic']),
 
@@ -120,7 +117,6 @@ export const inboxRunNoticeLogic = kea<inboxRunNoticeLogicType>([
                     continue
                 }
                 actions.runFinished(runId)
-                // The person is looking at this run's chat, so they saw it finish.
                 if (values.activeCreation?.runId === runId) {
                     continue
                 }

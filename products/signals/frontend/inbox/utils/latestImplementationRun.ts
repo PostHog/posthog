@@ -13,7 +13,6 @@ export interface ImplementationRunRef {
 // A report logs a few runs at most, so one page covers its run history.
 const ARTEFACT_PAGE_SIZE = 200
 
-/** The newest implementation run the report's `task_run` log names, or null when it names none. */
 export function latestImplementationRunRef(artefacts: SignalReportArtefact[]): ImplementationRunRef | null {
     let latest: { ref: ImplementationRunRef; at: string } | null = null
     for (const artefact of artefacts) {
@@ -31,10 +30,7 @@ export function latestImplementationRunRef(artefacts: SignalReportArtefact[]): I
     return latest?.ref ?? null
 }
 
-/**
- * The run a report's implementation slot points at. A task claim names the task directly; otherwise the
- * report's run log does. The list row carries neither, so this asks the server.
- */
+/** The list row carries no run ids, so this asks the server: the task claim first, then the run log. */
 export async function findLatestImplementationRun(
     projectId: string,
     report: Pick<SignalReport, 'id' | 'assignee'>

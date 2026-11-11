@@ -692,9 +692,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     })),
 
     actions({
-        // Implement on a report whose run is still working goes to that run rather than starting another.
         openExistingRun: (report: SignalReport, surface: InboxReportActionSurface) => ({ report, surface }),
-        // The report page that can hold the chat in its main area, when the chat-in-main flag is on.
         setMainChatHost: (reportId: string) => ({ reportId }),
         releaseMainChatHost: (reportId: string) => ({ reportId }),
         showChatInMain: (reportId: string) => ({ reportId }),
@@ -836,7 +834,6 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     }),
 
     selectors({
-        // The report whose page can hold the chat in its main area, or null when the flag is off.
         mainChatAvailableReportId: [
             (s) => [s.featureFlags, s.mainChatHostReportId],
             (featureFlags: Record<string, boolean | string>, hostReportId: string | null): string | null =>
