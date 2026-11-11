@@ -84,14 +84,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return result
     }
 
+    protected async hogFlowsFor(invocations: CyclotronJobInvocation[]): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        return await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(invocations.map((item) => item.functionId))
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
-        const hogFlows = await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(
-            invocations.filter((item) => !item.cancelRequestedAt).map((item) => item.functionId)
-        )
+        const hogFlows = await this.hogFlowsFor(invocations.filter((item) => !item.cancelRequestedAt))
 
         await Promise.all(
             invocations.map(async (item) => {
