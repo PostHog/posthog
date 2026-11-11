@@ -125,6 +125,15 @@ export function isSpacePath(path: string): boolean {
     return segments.length === 1 && !([UNFILED_FOLDER, USERS_FOLDER] as string[]).includes(segments[0])
 }
 
+// Two file-system entries can point at the same object, so an entry's own id wins over the object's.
+export function analyticsItemSelectionId(item: Pick<AnalyticsItem, 'type' | 'id' | 'entry'>): string {
+    return item.entry ? `entry:${item.entry.id}` : `${item.type}:${item.id}`
+}
+
+export function analyticsFolderSelectionId(path: string): string {
+    return `folder:${path}`
+}
+
 /** The space an entry sits in: its top-level folder, or null when it is still unfiled (personal). */
 export function analyticsSpaceOfPath(path: string): string | null {
     const [top] = splitPath(path)

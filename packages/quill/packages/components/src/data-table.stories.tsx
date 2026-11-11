@@ -267,9 +267,8 @@ export const FullWidthPaginated: Story = {
     ),
 }
 
-// `selectable` adds a checkbox column. Shift-click a second checkbox to set every row between the two. Invited users
-// can't be selected here: `rowSelectionDisabledReason` disables their checkboxes, says why in a tooltip, and a
-// shift-click range skips them.
+// Invited users can't be selected: `rowSelectionDisabledReason` disables their checkboxes and says why in a tooltip,
+// and a shift-click range skips them.
 export const SelectableRows: Story = {
     render: function Render() {
         const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({ 'USR-2': true, 'USR-3': true })
