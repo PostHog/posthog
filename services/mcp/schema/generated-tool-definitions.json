@@ -18239,6 +18239,22 @@
             "readOnlyHint": false
         }
     },
+    "workflows-create-push-template": {
+        "description": "Save a push notification template, to send from code with workflows-make-push-template-transactional and the send API. Set type to push, and pass content.push with a title, a body and channels: the IDs of the project's Firebase and APNs integrations to send through (list them with the integrations tools, kinds firebase and apns). Optional fields are link (where a tap takes the person, sent to the app as the \"link\" data key), image (an image URL) and data (string values the app's code reads). Use {{ variables.name }} for values each send passes in message_data. The template can't read person properties. Then share the template's _posthogUrl with the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Create push notification template",
+        "title": "Create push notification template",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_templates/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-transactional-push-api"
+    },
     "workflows-data-suggestions-create": {
         "description": "Build one suggested workflow (a suggestion id from workflows-data-suggestions-list) and save it as a draft in the project. It never runs until enabled. Building takes 10 to 60 seconds: while status is 'building', call this tool again with the same suggestion_id every few seconds; it does not start a second build. With status 'ready' you get workflow_id and missing_inputs, the settings the draft leaves blank (a webhook URL, an email sender, a branch condition), plus _posthogUrl, the editor link. Ask the user for all of them first, then fill them in one workflows-patch-graph call: that tool checks the whole draft, so a patch that leaves another required setting blank is rejected. Or tell them to finish it in the editor. A field that says there is no verified sender means the project cannot send email yet: tell the user to add and verify a sending domain under Workflows > Channels first, instead of asking for an address. Never guess credentials or URLs. With status 'failed', call once more with retry true, then offer another suggestion.",
         "category": "Workflows",
@@ -18571,6 +18587,37 @@
         },
         "feature_flag": "workflows-transactional-email-api"
     },
+    "workflows-make-push-template-transactional-execute": {
+        "description": "Step 2 of 2 for Make push template sendable from code. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Make a push notification template sendable from code with one API call, for notifications a person triggers such as order updates, sign-in alerts and messages. This is one-way: the template stays sendable. Transactional sends ignore marketing opt-outs and frequency caps, so never use this for marketing. The template needs a title, a body and at least one push channel. Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends it. Then tell the user what is left: create a project secret API key with Transactional push notifications set to Write, and POST /api/projects/@current/messaging/send/push/ from their backend with template_id, distinct_id and message_data. The push goes to every device that person registered for the template's channels.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make push template sendable from code (execute)",
+        "title": "Make push template sendable from code (execute)",
+        "required_scopes": ["transactional_email:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_templates/{id}/make_transactional/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-transactional-push-api"
+    },
+    "workflows-make-push-template-transactional-prepare": {
+        "description": "Step 1 of 2 for Make push template sendable from code. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Make a push notification template sendable from code with one API call, for notifications a person triggers such as order updates, sign-in alerts and messages. This is one-way: the template stays sendable. Transactional sends ignore marketing opt-outs and frequency caps, so never use this for marketing. The template needs a title, a body and at least one push channel. Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends it. Then tell the user what is left: create a project secret API key with Transactional push notifications set to Write, and POST /api/projects/@current/messaging/send/push/ from their backend with template_id, distinct_id and message_data. The push goes to every device that person registered for the template's channels.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Make push template sendable from code (prepare)",
+        "title": "Make push template sendable from code (prepare)",
+        "required_scopes": ["transactional_email:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-push-api"
+    },
     "workflows-patch-action-email": {
         "description": "Surgically edit the email inside one function_email or email_sandbox step - the fastest path for copy tweaks and design changes on a workflow email. A sandbox step (email_sandbox) sends from PostHog's sandbox sender to verified members of the organization only, so its email_patch takes subject, preheader, text and to. Switch a step's sender with sender: 'sandbox' (set up for the project on first use; settings the sandbox sender can't keep are refused unless you clear them or confirm with the user and send drop_own_sender_settings: true), or sender: 'own' with email_patch.from.integrationId to move a sandbox step to a verified sender. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow or one disabled while active, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The updated workflow is returned without step inputs; read one back with workflows-get. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
         "category": "Workflows",
@@ -18692,6 +18739,37 @@
             "readOnlyHint": true
         },
         "feature_flag": "workflows-email-from-code"
+    },
+    "workflows-send-push-execute": {
+        "description": "Step 2 of 2 for send push notification. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Send one push notification from a push template made sendable from code to every device of one person. Pass the template's ID, the person's distinct_id, and message_data with a value for each {{ variables.* }} the template uses. A person with no registered device gets nothing: the send still succeeds and shows as skipped in the template's Sends tab. Sending takes two calls: prepare checks only the arguments and returns a message for the user, and execute sends it only after the user replies with the literal word 'confirm'. Each execute call sends a notification, so never repeat one that succeeded. A 503 means PostHog did not confirm the send and it may still go out: do not try again on your own, tell the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Send transactional push notification (execute)",
+        "title": "Send transactional push notification (execute)",
+        "required_scopes": ["transactional_push:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging/send/push/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-transactional-push-api"
+    },
+    "workflows-send-push-prepare": {
+        "description": "Step 1 of 2 for send push notification. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Send one push notification from a push template made sendable from code to every device of one person. Pass the template's ID, the person's distinct_id, and message_data with a value for each {{ variables.* }} the template uses. A person with no registered device gets nothing: the send still succeeds and shows as skipped in the template's Sends tab. Sending takes two calls: prepare checks only the arguments and returns a message for the user, and execute sends it only after the user replies with the literal word 'confirm'. Each execute call sends a notification, so never repeat one that succeeded. A 503 means PostHog did not confirm the send and it may still go out: do not try again on your own, tell the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Send transactional push notification (prepare)",
+        "title": "Send transactional push notification (prepare)",
+        "required_scopes": ["transactional_push:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-transactional-push-api"
     },
     "workflows-sending-rules-get": {
         "description": "The project-wide rules every workflow and broadcast follows when it sends: the marketing frequency cap, email tracking consent, and whether email engagement events are captured. Null cap fields mean no cap.",
