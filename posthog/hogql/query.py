@@ -940,7 +940,8 @@ class HogQLQueryExecutor:
                 self,
                 query=query,
                 settings=settings,
-                context=dataclasses.replace(self.context, limit_top_select=False),
+                # The source query gets its own set, so its flag-call reads do not tag the query that embeds its rows.
+                context=dataclasses.replace(self.context, limit_top_select=False, flag_calls_read=set()),
                 limit_context=LimitContext.QUERY,
             )
             executor._prompt_jev_tables = self._prompt_jev_tables
@@ -1083,8 +1084,6 @@ class HogQLQueryExecutor:
             table_workload = clickhouse_context.workload
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
-            elif workload == Workload.METRICS and table_workload == Workload.LOGS:
-                workload = Workload.LOGS
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(

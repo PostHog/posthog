@@ -196,6 +196,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       onClick: () =>
                           openTakeOverReportDialog({
                               report,
+                              surface: 'detail_pane',
                               holder: teammateClaimHolder,
                               onConfirm: () => setReportClaimed(true, true, report.assignee),
                           }),
@@ -210,7 +211,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       icon: <IconClock />,
                       loading: reportStateSaving,
                       tooltip: 'PostHog watches to make sure the fix works',
-                      onClick: () => changeReportState('monitoring'),
+                      onClick: () => {
+                          captureInboxReportAction({ report, actionType: 'monitor', surface: 'detail_pane' })
+                          changeReportState('monitoring')
+                      },
                   },
               ]
             : []),
@@ -221,7 +225,10 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                       label: 'Reopen',
                       icon: <IconUndo />,
                       loading: reportStateSaving,
-                      onClick: () => changeReportState('potential'),
+                      onClick: () => {
+                          captureInboxReportAction({ report, actionType: 'reopen', surface: 'detail_pane' })
+                          changeReportState('potential')
+                      },
                   },
               ]
             : []),

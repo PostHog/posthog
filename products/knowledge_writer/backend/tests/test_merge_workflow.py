@@ -160,17 +160,40 @@ def test_a_redelivered_merged_pull_request_starts_one_merge_check(team, writer_e
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "installation_id, pull_request_number, is_writer_enabled, reads_github",
+    "installation_id, pull_request_number, is_writer_enabled, reads_github, recorded_reasons",
     [
-        pytest.param(str(LINKED_INSTALLATION_ID), PULL_REQUEST_NUMBER, True, True, id="linked_installation"),
-        pytest.param("9999", PULL_REQUEST_NUMBER, True, False, id="installation_not_linked"),
-        pytest.param(str(LINKED_INSTALLATION_ID), PULL_REQUEST_NUMBER, False, False, id="writer_disabled"),
-        pytest.param(None, PULL_REQUEST_NUMBER, False, True, id="started_by_the_reconcile"),
-        pytest.param(None, None, False, False, id="started_without_a_pull_request_number"),
+        pytest.param(
+            str(LINKED_INSTALLATION_ID),
+            PULL_REQUEST_NUMBER,
+            True,
+            True,
+            ("merge_check_failed", "no_docs_github"),
+            id="linked_installation",
+        ),
+        pytest.param("9999", PULL_REQUEST_NUMBER, True, False, ("not_admitted", None), id="installation_not_linked"),
+        pytest.param(
+            str(LINKED_INSTALLATION_ID), PULL_REQUEST_NUMBER, False, False, ("not_admitted", None), id="writer_disabled"
+        ),
+        pytest.param(
+            None,
+            PULL_REQUEST_NUMBER,
+            False,
+            True,
+            ("merge_check_failed", "no_docs_github"),
+            id="started_by_the_reconcile",
+        ),
+        pytest.param(
+            None,
+            None,
+            False,
+            False,
+            ("merge_check_failed", "no_pull_request_number"),
+            id="started_without_a_pull_request_number",
+        ),
     ],
 )
 def test_a_merge_check_reads_github_only_for_a_numbered_pull_request_of_the_linked_writer(
-    team, writer_env, installation_id, pull_request_number, is_writer_enabled, reads_github
+    team, writer_env, installation_id, pull_request_number, is_writer_enabled, reads_github, recorded_reasons
 ) -> None:
     inputs = MergeCheckInputs(
         commit_sha=MERGE_COMMIT_SHA,
@@ -181,11 +204,13 @@ def test_a_merge_check_reads_github_only_for_a_numbered_pull_request_of_the_link
     with (
         patch(KNOWLEDGE_WRITER_ENABLED, return_value=is_writer_enabled),
         patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", return_value=None) as docs_github,
-        patch(f"{MERGE_WORKFLOW_MODULE}.intake.submit"),
+        patch(f"{MERGE_WORKFLOW_MODULE}.intake.submit") as submit,
     ):
         check_merge(inputs, is_final_attempt=True)
 
     assert docs_github.called == reads_github
+    verdict = submit.call_args.args[0]
+    assert (verdict.reason, verdict.failure_reason) == recorded_reasons
 
 
 @pytest.mark.django_db
@@ -281,6 +306,8 @@ async def test_the_hourly_reconcile_starts_a_numbered_check_for_each_pull_reques
         time_machine.travel(RECONCILE_STARTED_AT, tick=False),
     ):
         await ActivityEnvironment().run(reconcile_merged_pull_requests_activity)
+        # The entry expires a day after the frozen time, so read it before the clock returns to now.
+        reconciled_at = cache.get(reconciled_at_cache_key("PostHog/posthog"))
 
     assert github.requested_pages == [("PostHog/posthog", 1), ("PostHog/posthog", 2)]
     async_connect.assert_awaited_once()
@@ -292,4 +319,4 @@ async def test_the_hourly_reconcile_starts_a_numbered_check_for_each_pull_reques
         (merge_check_workflow_id(f"{number:040d}"), "PostHog/posthog", number)
         for number in checked_pull_request_numbers
     ]
-    assert cache.get(reconciled_at_cache_key("PostHog/posthog")) == RECONCILE_STARTED_AT
+    assert reconciled_at == RECONCILE_STARTED_AT

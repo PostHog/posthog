@@ -55,6 +55,7 @@ export interface contentAutopilotPromptsLogicValues {
     promptTopicsError: boolean
     promptTopicsLoading: boolean
     prompts: PaginatedAEOPromptListApi | null
+    promptsBranded: boolean | null
     promptsError: ContentAutopilotPromptsError | null
     promptsLoading: boolean
     promptsPage: number
@@ -139,6 +140,9 @@ export interface contentAutopilotPromptsLogicActions {
     setPromptActiveSuccess: (prompt: AEOPromptApi) => {
         prompt: AEOPromptApi
     }
+    setPromptsBranded: (branded: boolean | null) => {
+        branded: boolean | null
+    }
     setPromptsPage: (page: number) => {
         page: number
     }
@@ -173,6 +177,7 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
         setPromptsTopic: (topic: string | null) => ({ topic }),
         setShowArchived: (showArchived: boolean) => ({ showArchived }),
         setNeedsImprovement: (needsImprovement: boolean) => ({ needsImprovement }),
+        setPromptsBranded: (branded: boolean | null) => ({ branded }),
         setPromptActive: (promptId: string, active: boolean) => ({ promptId, active }),
         setPromptActiveSuccess: (prompt: AEOPromptApi) => ({ prompt }),
         setPromptActiveFailure: (promptId: string, active: boolean) => ({ promptId, active }),
@@ -194,6 +199,7 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
                             topic: values.promptsTopic ?? undefined,
                             include_archived: values.showArchived || undefined,
                             needs_improvement: values.needsImprovement || undefined,
+                            branded: values.promptsBranded ?? undefined,
                         })
                         breakpoint()
                         return response
@@ -249,6 +255,13 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
                 setPromptsTopic: () => 1,
                 setShowArchived: () => 1,
                 setNeedsImprovement: () => 1,
+                setPromptsBranded: () => 1,
+            },
+        ],
+        promptsBranded: [
+            null as boolean | null,
+            {
+                setPromptsBranded: (_, { branded }) => branded,
             },
         ],
         needsImprovement: [
@@ -340,6 +353,13 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
             // pinned: analytics event name, renaming it breaks dashboards
             posthog.capture('web analytics content autopilot prompts needs improvement filtered', {
                 needs_improvement: needsImprovement,
+            })
+            actions.loadAeoPrompts()
+        },
+        setPromptsBranded: ({ branded }) => {
+            // pinned: analytics event name, renaming it breaks dashboards
+            posthog.capture('web analytics content autopilot prompts branded filtered', {
+                branded: branded === null ? 'all' : branded ? 'branded' : 'non_branded',
             })
             actions.loadAeoPrompts()
         },

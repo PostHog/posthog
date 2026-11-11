@@ -259,8 +259,9 @@ class HogQLDatabaseSources:
     read_flag_calls_from_flag_evaluations: bool
     # The organization reads flag calls only from posthog.flag_evaluations, and ingestion no longer writes them to events.
     flag_calls_only_in_flag_evaluations: bool
-    # Flag calls that a mixed query reads come from events and flag_evaluations together.
-    read_flag_calls_with_union: bool
+    # The organization's hogql-flag-calls-union flag. It is read whatever the mode, because a project that reads the
+    # native JSON events table reads flag calls as mode 2 does. HogQLContext.reads_flag_calls_with_union decides.
+    flag_calls_union_enabled: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -592,9 +593,6 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
 
 def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
-    def clone_root_tables() -> dict[str, TableNode]:
-        return {name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()}
-
     children: dict[str, TableNode] = {
         "numbers": TableNode(name="numbers", table=NumbersTable()),
         "range": TableNode(name="range", table=RangeTable()),
@@ -611,13 +609,18 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
             name="system", children={"information_schema": direct_connection_information_schema_node()}
         )
     else:
-        root_tables = clone_root_tables()
+        root_tables = {
+            name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()
+        }
         children = {
             **root_tables,
             "posthog": TableNode(
                 name="posthog",
                 children={
-                    **clone_root_tables(),
+                    # `create_for` changes a table through its root name, such as the persons-on-events mode on
+                    # `events`. `posthog.<name>` holds the same table object to read those changes. Each namespace
+                    # keeps its own node, so a view named `events.x` and a view named `posthog.events.x` stay apart.
+                    **{name: TableNode(name=name, table=table_node.table) for name, table_node in root_tables.items()},
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
@@ -872,7 +875,7 @@ class Database(BaseModel):
     _connection_id: str | None = None
     _read_flag_calls_from_flag_evaluations: bool = False
     _flag_calls_only_in_flag_evaluations: bool = False
-    _read_flag_calls_with_union: bool = False
+    _flag_calls_union_enabled: bool = False
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
@@ -941,7 +944,7 @@ class Database(BaseModel):
         self._connection_id = None
         self._read_flag_calls_from_flag_evaluations = False
         self._flag_calls_only_in_flag_evaluations = False
-        self._read_flag_calls_with_union = False
+        self._flag_calls_union_enabled = False
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
@@ -1338,17 +1341,17 @@ class Database(BaseModel):
         return self._connection_id is not None
 
     @property
-    def read_flag_calls_from_flag_evaluations(self) -> bool:
+    def organization_reads_flag_calls_from_flag_evaluations(self) -> bool:
         # create_for(include_flag_evaluations_table=False) removes the table after _fetch_sources chose to read from it.
         return self._read_flag_calls_from_flag_evaluations and self.has_table(["posthog", "flag_evaluations"])
 
     @property
-    def flag_calls_only_in_flag_evaluations(self) -> bool:
-        return self._flag_calls_only_in_flag_evaluations and self.read_flag_calls_from_flag_evaluations
+    def organization_flag_calls_only_in_flag_evaluations(self) -> bool:
+        return self._flag_calls_only_in_flag_evaluations and self.organization_reads_flag_calls_from_flag_evaluations
 
     @property
-    def read_flag_calls_with_union(self) -> bool:
-        return self._read_flag_calls_with_union and self.read_flag_calls_from_flag_evaluations
+    def flag_calls_union_enabled(self) -> bool:
+        return self._flag_calls_union_enabled and self.has_table(["posthog", "flag_evaluations"])
 
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
@@ -1669,7 +1672,7 @@ class Database(BaseModel):
                     should_sync=db_schema.should_sync,
                     incremental=db_schema.is_incremental or db_schema.is_webhook,
                     status=db_schema.status,
-                    last_synced_at=str(db_schema.last_synced_at),
+                    last_synced_at=str(db_schema.last_synced_at) if db_schema.last_synced_at else None,
                 )
 
             # Get source from prefetched data
@@ -2041,7 +2044,7 @@ class Database(BaseModel):
             include_flag_evaluations_table=False,
             read_flag_calls_from_flag_evaluations=False,
             flag_calls_only_in_flag_evaluations=False,
-            read_flag_calls_with_union=False,
+            flag_calls_union_enabled=False,
             group_types=[],
             mcp_custom_harness_rules=(),
             saved_queries=[],
@@ -2154,7 +2157,7 @@ class Database(BaseModel):
                 read_mode = get_flag_evaluations_read_mode(team.organization_id)
             read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
             flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-            read_flag_calls_with_union = read_flag_calls_from_flag_evaluations and _cached_organization_flag(
+            flag_calls_union_enabled = include_flag_evaluations_table and _cached_organization_flag(
                 "hogql-flag-calls-union", team
             )
 
@@ -2428,7 +2431,7 @@ class Database(BaseModel):
             include_flag_evaluations_table=include_flag_evaluations_table,
             read_flag_calls_from_flag_evaluations=read_flag_calls_from_flag_evaluations,
             flag_calls_only_in_flag_evaluations=flag_calls_only_in_flag_evaluations,
-            read_flag_calls_with_union=read_flag_calls_with_union,
+            flag_calls_union_enabled=flag_calls_union_enabled,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -2485,7 +2488,7 @@ class Database(BaseModel):
             )
             database._read_flag_calls_from_flag_evaluations = sources.read_flag_calls_from_flag_evaluations
             database._flag_calls_only_in_flag_evaluations = sources.flag_calls_only_in_flag_evaluations
-            database._read_flag_calls_with_union = sources.read_flag_calls_with_union
+            database._flag_calls_union_enabled = sources.flag_calls_union_enabled
             if sources.connection_id is not None:
                 database._connection_id = sources.connection_id
                 if sources.direct_connection_metadata is not None:
@@ -2505,7 +2508,7 @@ class Database(BaseModel):
         if not sources.include_flag_evaluations_table:
             if posthog_node := database.tables.children.get("posthog"):
                 posthog_node.children.pop("flag_evaluations", None)
-        elif sources.read_flag_calls_with_union and (posthog_node := database.tables.children.get("posthog")):
+        elif sources.flag_calls_union_enabled and (posthog_node := database.tables.children.get("posthog")):
             union_table = EventsWithFlagCallsTable()
             # Assigned after construction, because pydantic copies a dict passed to the constructor. Sharing the
             # dict makes every later change to the events fields, such as the persons-on-events mode, apply here too.
@@ -2610,6 +2613,8 @@ class Database(BaseModel):
                     resolver=REPLAY_TO_SESSIONS_V3,
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
+
+            _share_root_tables_with_posthog_namespace(database)
 
             if not database._is_direct_query() and database.has_table(["posthog", "flag_evaluations"]):
                 # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the
@@ -3084,7 +3089,7 @@ class Database(BaseModel):
                         resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                     )
 
-                    if not database._is_direct_query() and join.source_table_name == "persons":
+                    if not database._is_direct_query() and _root_table_name(join.source_table_name) == "persons":
                         events_table = database.get_table("events")
                         person_field = events_table.fields["person"]
                         if isinstance(person_field, ast.FieldTraverser):
@@ -3577,6 +3582,20 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
     return list(ExternalDataSchema.objects.filter(_not_deleted_q(), table_id=warehouse_table.id))
 
 
+def _share_root_tables_with_posthog_namespace(database: Database) -> None:
+    # The session table version replaces the root `sessions` and `raw_sessions` tables with other objects.
+    # `posthog.<name>` has to point at the replacement too. Joins and saved expressions written to
+    # `posthog.<name>` land on that table, so this runs before they are applied.
+    posthog_node = database.tables.children.get("posthog")
+    if posthog_node is None:
+        return
+    for name in ROOT_TABLES__DO_NOT_ADD_ANY_MORE:
+        root_node = database.tables.children.get(name)
+        qualified_node = posthog_node.children.get(name)
+        if root_node is not None and qualified_node is not None:
+            qualified_node.table = root_node.table
+
+
 def _foreign_key_join_entry_points(database: Database, joins: Sequence[DataWarehouseJoin]) -> set[str]:
     """Extra table names that must arm the deferred foreign-key build.
 
@@ -3595,11 +3614,19 @@ def _foreign_key_join_entry_points(database: Database, joins: Sequence[DataWareh
             continue
         if id(joining_table) not in deferred_tables:
             continue
-        entry_points.add(join.source_table_name)
+        source_table_name = _root_table_name(join.source_table_name)
+        entry_points.add(source_table_name)
         # A join from `persons` is mirrored onto `events` and the person virtual table.
-        if join.source_table_name == "persons":
+        if source_table_name == "persons":
             entry_points.add("events")
-    return entry_points
+    # `posthog.<name>` holds the root table's object and reaches the same joins.
+    return entry_points | {f"posthog.{name}" for name in entry_points if name in ROOT_TABLES__DO_NOT_ADD_ANY_MORE}
+
+
+def _root_table_name(table_name: str) -> str:
+    # `posthog.<name>` and `<name>` hold the same table object for every root table.
+    prefix, _, name = table_name.partition(".")
+    return name if prefix == "posthog" and name in ROOT_TABLES__DO_NOT_ADD_ANY_MORE else table_name
 
 
 def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:

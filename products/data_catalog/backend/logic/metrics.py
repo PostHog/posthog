@@ -57,7 +57,7 @@ class _Unset:
     """Sentinel for upsert fields the caller did not supply: kept as-is on refine, defaulted on create.
 
     A plain ``None`` default cannot express this because ``None`` is a legitimate value for
-    ``definition``/``confidence``/``owner`` (an explicit clear), distinct from "not provided".
+    ``definition``/``owner`` (an explicit clear), distinct from "not provided".
     """
 
 
@@ -203,9 +203,9 @@ def _refine(metric: Metric, fields: dict) -> None:
         # update_metric's PATCH behavior).
         _reset_to_proposed(metric)
     if fields.get("created_source") == CreatedSource.USER and metric.created_source != CreatedSource.USER:
-        # A person's overwrite replaces an agent's proposal, so the agent's model, confidence, and
-        # reasoning no longer describe the metric unless the request supplies new values.
-        fields = {"ai_model": "", "confidence": None, "reasoning": "", **fields}
+        # A person's overwrite replaces an agent's proposal, so the agent's model and reasoning
+        # no longer describe the metric unless the request supplies new values.
+        fields = {"ai_model": "", "reasoning": "", **fields}
     for key, value in fields.items():
         setattr(metric, key, value)
     metric.save()
@@ -270,7 +270,6 @@ def upsert_metric(
     source_insight_short_id: str | None | _Unset = _UNSET,
     created_source: CreatedSource | _Unset = _UNSET,
     ai_model: str | _Unset = _UNSET,
-    confidence: float | None | _Unset = _UNSET,
     reasoning: str | _Unset = _UNSET,
     overwrite: bool = False,
     user_access_control: UserAccessControl | None = None,
@@ -304,7 +303,6 @@ def upsert_metric(
         ("owner", owner),
         ("created_source", created_source),
         ("ai_model", ai_model),
-        ("confidence", confidence),
         ("reasoning", reasoning),
     ):
         if not isinstance(value, _Unset):
