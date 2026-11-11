@@ -606,7 +606,8 @@ class AutoDisabledFilterForm(forms.Form):
         label="Stopped in the last",
         choices=[(str(days), pluralize(days, "day")) for days in DAYS_CHOICES],
         coerce=int,
-        empty_value=DEFAULT_DAYS,
+        # A link may send `days=` with no value, which means the default.
+        empty_value=None,
         required=False,
         initial=str(DEFAULT_DAYS),
     )
@@ -619,7 +620,7 @@ class AutoDisabledFilterForm(forms.Form):
     def selection(self) -> AutoDisabledSchemaFilter:
         data = self.cleaned_data
         return AutoDisabledSchemaFilter(
-            days=data["days"],
+            days=data["days"] or DEFAULT_DAYS,
             source_type=data["source_type"] or None,
             error=data["error"] or None,
             team_id=data["team"],

@@ -131,6 +131,9 @@ class AutoDisabledSchemas:
             .values_list("source__source_type", "error_start", "auto_disabled_at")[:MAX_GROUPED_SCHEMAS]
         )
         for source_type, error_start, auto_disabled_at in newest:
+            if auto_disabled_at is None:
+                # The filter already excludes these. The check narrows the type.
+                continue
             grouped_count += 1
             key = (source_type, error_group(error_start))
             tally = groups.get(key)

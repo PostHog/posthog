@@ -149,6 +149,7 @@ class TestReenableAutoDisabledSchemasTool(BaseTest):
         unchanged = self._schema("public.users")
         preview = self._preview()
         if change.get("auto_disabled_at") == STOPPED_AGAIN:
+            assert changed.auto_disabled_at is not None
             change = {"auto_disabled_at": changed.auto_disabled_at + timedelta(minutes=1)}
         ExternalDataSchema.objects.filter(id=changed.id).update(**change)
 
