@@ -658,7 +658,9 @@ describe('workflowFoldersLogic', () => {
         {
             change: 'rename',
             run: (folders: typeof logic) => folders.asyncActions.renameFolder('Empty', 'Archive'),
-            stall: { post: { '/api/projects/:team_id/file_system/:id/move/': () => new Promise(() => {}) } },
+            stall: (answer: Promise<unknown>) => ({
+                post: { '/api/projects/:team_id/file_system/:id/move/': () => answer.then(() => [200, {}]) },
+            }),
             landed: (entries: FileSystemEntry[]) =>
                 entries.map((entry) => (entry.id === 'empty' ? { ...entry, path: 'Archive' } : entry)),
             shown: ['Archive'],
@@ -667,35 +669,45 @@ describe('workflowFoldersLogic', () => {
         {
             change: 'delete',
             run: (folders: typeof logic) => folders.asyncActions.deleteFolder('Empty'),
-            stall: { delete: { '/api/projects/:team_id/file_system/:id/': () => new Promise(() => {}) } },
+            stall: (answer: Promise<unknown>) => ({
+                delete: { '/api/projects/:team_id/file_system/:id/': () => answer.then(() => [204]) },
+            }),
             landed: (entries: FileSystemEntry[]) => entries.filter((entry) => entry.id !== 'empty'),
             shown: [],
             toast: "Couldn't delete the folder. Try again.",
         },
-    ])('frees the folder and shows what the server saved when a $change times out', async (scenario) => {
-        await expectLogic(logic).toFinishAllListeners()
-        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
-        useMocks(scenario.stall)
-        jest.useFakeTimers()
-        try {
-            const changed = scenario.run(logic)
-            await jest.advanceTimersByTimeAsync(0)
-            expect(logic.values.folderBusyReason('Empty')).not.toBeNull()
-            serverEntries = scenario.landed(serverEntries)
-            await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
-            await changed
-        } finally {
-            jest.useRealTimers()
+    ])(
+        'frees the folder and shows what the server saved when a $change commits after its deadline',
+        async (scenario) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+            let answer: () => void = () => {}
+            useMocks(scenario.stall(new Promise<void>((resolve) => (answer = resolve))))
+            jest.useFakeTimers()
+            try {
+                const changed = scenario.run(logic)
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.folderBusyReason('Empty')).not.toBeNull()
+                await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
+                await changed
+            } finally {
+                jest.useRealTimers()
+            }
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.folderBusyReason('Empty')).toBeNull()
+                expect(logic.values.folderPaths).toContain('Empty')
+                expect(errorToast.mock.calls.map(([message]) => message)).toEqual([scenario.toast])
+
+                serverEntries = scenario.landed(serverEntries)
+                answer()
+                await waitFor(() => expect(logic.values.folderPaths).not.toContain('Empty'))
+                expect(logic.values.folderPaths).toEqual(expect.arrayContaining(scenario.shown))
+            } finally {
+                errorToast.mockRestore()
+            }
         }
-        try {
-            await waitFor(() => expect(logic.values.folderPaths).not.toContain('Empty'))
-            expect(logic.values.folderBusyReason('Empty')).toBeNull()
-            expect(logic.values.folderPaths).toEqual(expect.arrayContaining(scenario.shown))
-            expect(errorToast.mock.calls.map(([message]) => message)).toEqual([scenario.toast])
-        } finally {
-            errorToast.mockRestore()
-        }
-    })
+    )
 
     it('refuses a drop into a folder the project tree is deleting, and keeps other moves open', async () => {
         await expectLogic(logic).toFinishAllListeners()

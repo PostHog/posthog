@@ -929,7 +929,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     }
                     // A link without its own filters takes them from the view, also when it carries columns.
                     if (!raw.has('q') && values.enabled && raw.has('view') && cache.viewOnlyLink?.id !== id) {
-                        cache.viewOnlyLink = { id, baseline: values.value }
+                        cache.viewOnlyLink = { id, baseline: values.value, text: raw.get('text') ?? undefined }
                     }
                     if (cache.editsWhileViewsLoad && cache.editsWhileViewsLoad.view !== id) {
                         cache.editsWhileViewsLoad = undefined
@@ -940,7 +940,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     return
                 }
                 const view = values.views.find((candidate) => candidate.id === id)
-                const viewOnlyLink: { id: string; baseline: FacetSearchValue } | undefined = cache.viewOnlyLink
+                const viewOnlyLink: { id: string; baseline: FacetSearchValue; text?: string } | undefined =
+                    cache.viewOnlyLink
                 cache.viewOnlyLink = undefined
                 const editsWhileViewsLoaded = takeEditsWhileViewsLoaded()
                 const addedWhileViewsLoaded = filtersAddedWhileViewsLoaded(editsWhileViewsLoaded?.valueBefore)
@@ -951,7 +952,12 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     actions.setAddedFilters(edited.filters.filter((filter) => !baselineKeys.has(pillKey(filter))))
                     // Text typed while the views load is the person's search even when it equals the view's
                     // saved search, so it is set as typed before the view applies and not compared after.
-                    const typedText = edited.text !== viewOnlyLink.baseline.text ? edited.text : undefined
+                    // A search in the link itself that differs from the view's saved search counts as typed too.
+                    const linkText =
+                        viewOnlyLink.text !== undefined && viewOnlyLink.text.trim() !== (view.state.text ?? '').trim()
+                            ? viewOnlyLink.text
+                            : undefined
+                    const typedText = edited.text !== viewOnlyLink.baseline.text ? edited.text : linkText
                     actions.setAddedText(typedText === undefined ? null : userText(typedText))
                     actions.applyView(view)
                     // The folder is where the person is, not part of the view, so applying the view would leave it.
