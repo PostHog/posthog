@@ -365,6 +365,11 @@ function ancestorFolders(path: string): string[] {
     return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
 }
 
+// A folder pill opens its folder instead of filtering rows; a negated one still filters.
+function withoutFolderScope(value: FacetSearchValue): FacetSearchValue {
+    return { ...value, filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated) }
+}
+
 function displayedParent(path: string): string {
     return displayedFolder(parentPath(path))
 }
@@ -608,17 +613,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 value: FacetSearchValue,
                 facets: FacetDefinition<WorkflowListRow>[],
                 matchesText: MatchesText<WorkflowListRow>
-            ): WorkflowListRow[] =>
-                rows.filter(
-                    createFacetMatcher(
-                        {
-                            ...value,
-                            filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated),
-                        },
-                        facets,
-                        matchesText
-                    )
-                ),
+            ): WorkflowListRow[] => rows.filter(createFacetMatcher(withoutFolderScope(value), facets, matchesText)),
         ],
         hasActiveQuery: [
             (s) => [s.value],
@@ -647,11 +642,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 facets: FacetDefinition<WorkflowFolderFileRow>[],
                 matchesText: MatchesText<WorkflowFolderFileRow>
             ): FileSystemEntry[] => {
-                const matches = createFacetMatcher(
-                    { ...value, filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated) },
-                    facets,
-                    matchesText
-                )
+                const matches = createFacetMatcher(withoutFolderScope(value), facets, matchesText)
                 return items.flatMap((item) => (item.kind === 'email_template' && matches(item) ? [item.entry] : []))
             },
         ],
@@ -681,9 +672,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         continue
                     }
                     counts['']++
-                    const parts = splitPath(parentPath(entry.path))
-                    for (let depth = 1; depth <= parts.length; depth++) {
-                        const folder = joinPath(parts.slice(0, depth))
+                    for (const folder of ancestorFolders(parentPath(entry.path))) {
                         counts[folder] = (counts[folder] ?? 0) + 1
                     }
                 }
